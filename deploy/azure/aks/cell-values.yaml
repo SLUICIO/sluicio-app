@@ -1,0 +1,59 @@
+# SPDX-License-Identifier: Apache-2.0
+# Helm values for the cell chart on AKS:
+#   helm upgrade --install sluicio deploy/helm/cell -n sluicio -f deploy/azure/aks/cell-values.yaml
+#
+# Replace <acr>, <tag>, and the Postgres host/password.
+global:
+  mode: onprem
+
+cellApi:
+  image:
+    repository: <acr>.azurecr.io/cell-api
+    tag: "<tag>"
+  # CRITICAL: keep at 1. cell-api runs the alert / trace / log evaluators,
+  # catalog reconciler and retention enforcer IN-PROCESS with no leader
+  # election — 2 replicas would double-fire alerts and double-reconcile.
+  replicaCount: 1
+  service:
+    type: ClusterIP
+    port: 8081
+
+cellIngest:
+  image:
+    repository: <acr>.azurecr.io/cell-ingest
+    tag: "<tag>"
+  replicaCount: 2          # stateless OTLP receiver — safe to scale
+  service:
+    type: ClusterIP
+    httpPort: 4318
+    grpcPort: 4317
+
+cellAlerting:
+  image:
+    repository: <acr>.azurecr.io/cell-alerting
+    tag: "<tag>"
+  # cell-alerting is a no-op scaffold today (cell-api owns the loops).
+  # Run zero of them until evaluation is extracted out of cell-api.
+  replicaCount: 0
+
+postgres:
+  enabled: false
+  # Azure Database for PostgreSQL Flexible Server. cell-api runs its
+  # migrations on first boot.
+  dsn: "postgres://sluicio:<password>@<pg-host>.postgres.database.azure.com:5432/sluicio?sslmode=require"
+
+clickhouse:
+  # In-cluster ClickHouse from clickhouse.yaml. The operator publishes a
+  # service named clickhouse-<chi-name> in the same namespace.
+  endpoint: "clickhouse-sluicio.sluicio.svc.cluster.local:9000"
+  database: "telemetry"
+  username: "default"
+  passwordSecret: ""
+
+prometheus:
+  # Set when enabling metric alerts (managed Prometheus remote-write).
+  remoteWriteURL: ""
+
+keycloak:
+  # Leave empty to use native login; set to your OIDC issuer for SSO.
+  issuer: ""

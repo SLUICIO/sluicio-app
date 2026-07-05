@@ -1,0 +1,2162 @@
+/* SPDX-License-Identifier: FSL-1.1-Apache-2.0 */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Sluicio Color System v2 ────────────────────────────────────────
+   Theme is controlled by `data-theme="light" | "dark"` on <html>.
+   Light is the default; the inline script in index.html applies the
+   saved/system preference before the stylesheet loads (no FOUC).
+
+   Three principles from the design handoff:
+     1. Red means broken — semantic, never decorative
+     2. Default is neutral — 90% slate-and-paper so colour spikes
+        become signal
+     3. Both modes, both audiences — warm off-white in light, deep
+        navy in dark (control-room, not OLED-pitch)
+
+   v2 swap (May 2026): primary shifted deep-teal → sluice-azure to
+   match the brand rebrand. Same calm/confident tone, signals the
+   new identity. Status colors (ok/warn/err) intentionally untouched
+   — semantic meaning has to stay anchored.
+
+   The legacy alias variables (--bg, --surface-elevated, --text,
+   --text-muted, --accent, --warning, --critical) map onto the new
+   token vocabulary so existing components keep working. Prefer
+   the new tokens in new code. */
+:root,
+:root[data-theme="light"] {
+  /* surfaces */
+  --surface: #FAFAF7;          /* warm off-white page background */
+  --surface-2: #FFFFFF;        /* cards / elevated surfaces */
+  --surface-3: #F1F1EC;        /* table stripe, hover, inputs */
+  --border: #E5E7EB;           /* hairline borders */
+  --border-strong: #CBD5E1;    /* focused / emphasised borders */
+
+  /* text */
+  --ink: #0F172A;
+  --ink-2: #334155;
+  --muted: #64748B;
+
+  /* primary / accent — sluice azure */
+  --primary: #0E6E9E;          /* deep azure */
+  --primary-hover: #0B587F;
+  --primary-soft: #D4EAF7;     /* tinted background */
+  --primary-ink: #0A4A6B;      /* text on primary-soft */
+  --on-primary: #FFFFFF;
+
+  /* status */
+  --ok: #15803D;
+  --ok-soft: #DCFCE7;
+  --ok-ink: #14532D;
+
+  --warn: #B45309;
+  --warn-soft: #FEF3C7;
+  --warn-ink: #78350F;
+
+  --err: #B91C1C;
+  --err-soft: #FEE2E2;
+  --err-ink: #7F1D1D;
+
+  --info: #475569;
+  --info-soft: #E2E8F0;
+  --info-fill: #94A3B8;   /* histogram "info" severity bar — neutral slate */
+  --info-ink: #334155;    /* readable ink on --info-soft (gauge type pill) */
+
+  /* effects */
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+  --shadow-pop: 0 12px 32px rgba(15, 23, 42, 0.12), 0 2px 4px rgba(15, 23, 42, 0.04);
+  --focus: 0 0 0 3px rgba(14, 110, 158, 0.35);
+
+  /* legacy aliases — keep components working while we migrate */
+  --bg: var(--surface);
+  --text: var(--ink);
+  --text-muted: var(--muted);
+  --surface-elevated: var(--surface-3);
+  --accent: var(--primary);
+  --warning: var(--warn);
+  --critical: var(--err);
+
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, "Helvetica Neue", Arial, sans-serif;
+  color: var(--ink);
+  background: var(--surface);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+:root[data-theme="dark"] {
+  --surface: #0B1220;
+  --surface-2: #111827;
+  --surface-3: #1F2937;
+  --border: #1F2937;
+  --border-strong: #334155;
+
+  --ink: #E2E8F0;
+  --ink-2: #CBD5E1;
+  --muted: #94A3B8;
+
+  --primary: #38B6E0;          /* sluice azure — dark mode */
+  --primary-hover: #7FD3F0;
+  --primary-soft: #08283A;
+  --primary-ink: #AEE0F4;
+  --on-primary: #04222F;
+
+  --ok: #22C55E;
+  --ok-soft: #0F2A1A;
+  --ok-ink: #86EFAC;
+
+  --warn: #F59E0B;
+  --warn-soft: #2A1E07;
+  --warn-ink: #FCD34D;
+
+  --err: #F87171;
+  --err-soft: #2A1010;
+  --err-ink: #FCA5A5;
+
+  --info: #94A3B8;
+  --info-soft: #1F2937;
+  --info-fill: #475569;
+  --info-ink: #CBD5E1;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --shadow-pop: 0 16px 40px rgba(0, 0, 0, 0.6), 0 2px 6px rgba(0, 0, 0, 0.4);
+  --focus: 0 0 0 3px rgba(56, 182, 224, 0.35);
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100vh; background: var(--surface); color: var(--ink); }
+a { color: var(--primary); text-decoration: none; }
+a:hover { color: var(--primary-hover); }
+
+/* Keyboard focus ring — required by the color-system accessibility
+   contract. Every interactive element must show a visible focus
+   state; the 3px --primary outer-glow is the canonical look. We
+   apply it via box-shadow so the element's own border-radius is
+   respected. */
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+a:hover { text-decoration: underline; }
+code, .mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.92em;
+}
+
+/* App shell layout, brand, sidebar, and top bar are now driven by
+   Tailwind utilities directly in components/AppShell.tsx — see that
+   file. The old .app-shell* classes lived here. */
+/* theme toggle button */
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: var(--surface-2);
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.theme-toggle:hover { background: var(--surface-3); }
+.theme-toggle svg { width: 14px; height: 14px; flex-shrink: 0; }
+
+/* page header */
+.page__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 24px;
+  gap: 24px;
+}
+.page__title {
+  font-size: 22px;
+  font-weight: 600;
+  margin: 0 0 4px;
+}
+.page__subtitle {
+  color: var(--text-muted);
+  margin: 0;
+  max-width: 640px;
+}
+.breadcrumb {
+  color: var(--text-muted);
+  margin: 0 0 4px;
+  font-size: 13px;
+}
+
+/* toolbar */
+.toolbar { display: flex; gap: 8px; align-items: center; }
+.toolbar__select,
+.btn {
+  background: var(--surface-2);
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 14px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.btn:hover { background: var(--surface-3); }
+.btn:focus-visible { outline: none; box-shadow: var(--focus); }
+.btn:disabled { opacity: 0.6; cursor: default; }
+/* Primary buttons. Both spellings are styled: .btn--primary (BEM) and the
+   plain `btn primary` two-class form used across older pages — they must look
+   identical. A soft blue lift makes the primary action carry more weight. */
+.btn--primary,
+.btn.primary {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--on-primary);
+  box-shadow: 0 1px 2px color-mix(in oklab, var(--primary) 35%, transparent);
+}
+.btn--primary:hover,
+.btn.primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
+/* Ghost buttons (the `btn ghost` two-class form): chromeless until hover. */
+.btn.ghost { background: transparent; border-color: transparent; }
+.btn.ghost:hover { background: var(--surface-3); }
+
+/* badge-brand — a chip in the Sluicio blue for first-class concepts
+   (systems, kinds). Sits alongside the neutral .m-rule-badge. */
+.badge-brand {
+  display: inline-flex; align-items: center; gap: 4px;
+  font: 600 11px 'Inter', sans-serif;
+  padding: 1px 7px; border-radius: 999px;
+  background: var(--primary-soft);
+  color: var(--primary-ink);
+  border: 1px solid color-mix(in oklab, var(--primary) 30%, transparent);
+}
+.btn--sm { padding: 4px 10px; font-size: 12px; }
+.btn--danger { color: var(--err-ink); border-color: color-mix(in oklab, var(--err) 30%, var(--border)); }
+.btn--danger:hover { background: var(--err-soft); border-color: color-mix(in oklab, var(--err) 45%, var(--border)); }
+
+/* tiles */
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.tile {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: var(--shadow-sm);
+}
+.tile__value {
+  font-size: 22px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.tile__label { color: var(--text-muted); font-size: 13px; }
+.tile--ok .tile__value { color: var(--ok); }
+.tile--errors .tile__value { color: var(--critical); }
+
+/* cards */
+.card {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+.card__header {
+  padding: 12px 16px;
+  /* Blue-tinted divider so each section reads as branded rather than neutral. */
+  border-bottom: 1px solid color-mix(in oklab, var(--primary) 35%, var(--border));
+  font-weight: 600;
+}
+
+/* tables */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.table th, .table td {
+  padding: 10px 16px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+.table th {
+  /* Per the Color System "Tables" guidance: header row uses
+     --surface-2 (the same as the card it lives in), not a deeper
+     stripe. The row's transparent body and the --surface-3 hover
+     give the visual separation instead. */
+  background: var(--surface-2);
+  color: var(--muted);
+  font-weight: 500;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.table tbody tr:hover { background: var(--surface-3); }
+.table tbody tr:last-child td { border-bottom: none; }
+.table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.muted { color: var(--text-muted); }
+
+/* Sortable column headers. The <th> keeps its background/typography
+   from .table th above; we just turn the contents into a hit target
+   with a direction indicator. The inactive (↕) indicator is dimmed
+   so columns that aren't currently sorted don't compete with the
+   active one for attention. */
+.th-sortable { padding: 0 !important; }
+.th-sortable__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 10px 16px;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  text-align: inherit;
+}
+.th-sortable.num .th-sortable__btn { justify-content: flex-end; }
+.th-sortable__btn:hover { color: var(--ink); }
+.th-sortable__btn:focus-visible {
+  outline: 2px solid var(--primary, var(--ink));
+  outline-offset: -2px;
+}
+.th-sortable__indicator {
+  font-size: 10px;
+  line-height: 1;
+  opacity: 0.4;
+  transition: opacity 0.12s ease;
+}
+.th-sortable--active .th-sortable__indicator { opacity: 1; }
+.th-sortable--active .th-sortable__btn { color: var(--ink); }
+
+/* pills — token-driven, soft background + ink text */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid transparent;
+}
+.pill--ok        { background: var(--ok-soft);   color: var(--ok-ink);   border-color: color-mix(in oklab, var(--ok)   30%, transparent); }
+.pill--errors    { background: var(--err-soft);  color: var(--err-ink);  border-color: color-mix(in oklab, var(--err)  30%, transparent); }
+.pill--unhealthy { background: var(--err-soft);  color: var(--err-ink);  border-color: color-mix(in oklab, var(--err)  45%, transparent); }
+.pill--quiet     { background: var(--info-soft); color: var(--ink-2);    border-color: var(--border); }
+
+/* alerts and placeholders */
+.alert {
+  padding: 12px 14px;
+  border-radius: 10px;
+  margin: 16px 0;
+  border-left: 4px solid;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.alert--error {
+  background: var(--err-soft);
+  color: var(--err-ink);
+  border-left-color: var(--err);
+}
+.alert--warn {
+  background: var(--warn-soft);
+  color: var(--warn-ink);
+  border-left-color: var(--warn);
+}
+.alert--info {
+  background: var(--info-soft);
+  color: var(--ink-2);
+  border-left-color: var(--accent, var(--primary));
+}
+.placeholder {
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  padding: 24px;
+  color: var(--text-muted);
+}
+
+/* search */
+.search {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.search__input {
+  flex: 1;
+  background: var(--surface-2);
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 15px;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+.search__input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: var(--focus);
+}
+.advanced-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+}
+.result-meta { margin: 16px 0 8px; }
+
+.result-list { display: flex; flex-direction: column; gap: 8px; }
+.result {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 16px;
+}
+.result__top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.result__service { font-weight: 600; }
+.result__name { color: var(--text); }
+.result__msg {
+  margin-top: 6px;
+  color: var(--critical);
+  font-size: 13px;
+}
+.result__details { margin-top: 8px; }
+.result__details summary {
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 13px;
+}
+/* `.kv` / `.kv__k` / `.kv__v` were retired in favour of the shared
+   KVTable primitive (.kvtable) — the old grid laid out one cell per
+   row's outer <div>, so keys and values never lined up across rows.
+   `.kv__section` is still used as a section heading above KVTables. */
+.kv__section {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 12px 0 4px;
+}
+
+/* compact attribute chips shown on search results */
+.attrs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.attr {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--primary-soft);
+  border: 1px solid color-mix(in oklab, var(--primary) 25%, transparent);
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+.attr__k { color: var(--ink); }
+.attr__sep { color: var(--muted); }
+.attr__v { color: var(--primary-ink); word-break: break-all; }
+/* "key" attribute chips look more prominent — these are the per-type
+   important ones (file.name, http.route, etc) the UI surfaces always. */
+.attr--key {
+  background: var(--warn-soft);
+  border-color: color-mix(in oklab, var(--warn) 35%, transparent);
+}
+.attr--key .attr__v { color: var(--warn-ink); }
+.attrs--key { margin-top: 6px; }
+
+/* inline "+ Add to integration" picker on ServiceDetail */
+.add-to-integration {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 8px;
+}
+.add-to-integration__error {
+  color: var(--critical);
+  font-size: 12px;
+  margin-left: 8px;
+}
+
+/* badges (integration tags) */
+.badge-row { display: inline-flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--surface-elevated);
+  color: var(--text);
+  font-size: 12px;
+  text-decoration: none;
+}
+.badge:hover {
+  border-color: var(--accent);
+  text-decoration: none;
+}
+/* Severity variants on `.badge` — used by anything that wants a
+ * coloured pill matching alert severities (delayed-trace flags,
+ * firings counts, etc.). Mirrors the `.m-rule-badge.sev-*` rules. */
+.badge.sev-info { background: var(--surface-3); color: var(--ink-2); border-color: var(--border); }
+.badge.sev-warning, .badge.sev-warn { background: var(--warn-soft); color: var(--warn-ink); border-color: color-mix(in oklab, var(--warn) 25%, transparent); }
+.badge.sev-critical, .badge.sev-err { background: var(--err-soft); color: var(--err-ink); border-color: color-mix(in oklab, var(--err) 25%, transparent); }
+
+/* btn--link variant */
+.btn--link {
+  background: transparent;
+  border: none;
+  color: var(--primary);
+  padding: 4px 6px;
+  cursor: pointer;
+  box-shadow: none;
+}
+.btn--link:hover { background: transparent; text-decoration: underline; color: var(--primary-hover); }
+
+.result__actions { margin-top: 6px; }
+
+/* custom-metric form (inline on service detail) */
+.metric-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 0 4px;
+  border-top: 1px solid var(--border);
+  margin-top: 12px;
+}
+.metric-form input {
+  flex: 1 1 200px;
+  min-width: 120px;
+  padding: 6px 10px;
+  font-size: 14px;
+}
+
+/* query-backed custom-metric builder */
+.cm-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 0 4px;
+  border-top: 1px solid var(--border);
+  margin-top: 12px;
+}
+.cm-form-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.cm-mode { display: inline-flex; gap: 6px; }
+.cm-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cm-row > input { flex: 1 1 220px; min-width: 140px; }
+.cm-sentence {
+  font-size: 13px;
+  color: var(--ink-2, var(--text));
+  background: var(--surface-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  line-height: 1.5;
+}
+.cm-sentence code { font-size: 12px; overflow-wrap: anywhere; }
+.cm-attrs { display: flex; flex-direction: column; gap: 6px; padding-left: 4px; }
+.cm-attr-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cm-attr-row > input:first-child { flex: 1 1 200px; min-width: 120px; }
+.cm-attr-row > input:last-of-type { flex: 1 1 160px; min-width: 100px; }
+.metric-curl {
+  background: var(--surface-elevated);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 10px;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* matcher form */
+.matcher-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+}
+.matcher-form__value { flex: 1; min-width: 200px; padding: 6px 10px; font-size: 14px; }
+
+/* form */
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 720px;
+}
+.form__row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  /* Size each column to its own content. Without this, a column whose
+     label has a hint is taller, and the grid stretches the sibling column
+     to match — which, combined with the flex:1 on inputs below, made the
+     hint-less field (e.g. Name vs Slug) grow taller than its pair. */
+  align-items: start;
+}
+.form__label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.form__label input,
+.form__label textarea,
+.form__label select {
+  font-size: 14px;
+  /* .search__input is shared with the top-bar search where the bigger
+     padding looks right; inside form labels it makes inputs feel
+     oversized (especially inside narrow EditDrawer panels). Tighten
+     vertical chrome here without touching the search-bar context. */
+  padding: 6px 10px;
+  height: auto;
+  line-height: 1.5;
+  /* Don't inherit the search bar's flex:1 here — inside a flex-column
+     label it would stretch the field to fill the column's height. */
+  flex: 0 0 auto;
+}
+.form__hint { color: var(--text-muted); font-size: 12px; margin-top: 4px; }
+.form__section {
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.form__section-title { font-weight: 600; }
+.form__actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+}
+
+/* dashboard grid + widgets */
+.dashboard {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 12px;
+  margin-top: 16px;
+}
+.dashboard__cell { grid-column: span 12; }
+.dashboard__cell--counter { grid-column: span 3; }
+.dashboard__cell--throughput,
+.dashboard__cell--error_rate { grid-column: span 6; }
+.dashboard__cell--latency { grid-column: span 12; }
+.dashboard__cell--breakdown { grid-column: span 6; }
+
+@media (max-width: 980px) {
+  .dashboard__cell { grid-column: span 12; }
+  .dashboard__cell--counter { grid-column: span 6; }
+}
+
+.widget {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  min-height: 100px;
+  box-shadow: var(--shadow-sm);
+}
+.widget__title { font-weight: 600; font-size: 14px; margin-bottom: 4px; }
+.widget__desc { color: var(--text-muted); font-size: 12px; margin-bottom: 8px; }
+.widget__empty {
+  color: var(--text-muted);
+  text-align: center;
+  padding: 40px 0;
+  font-size: 13px;
+}
+.widget__chart { width: 100%; }
+.widget--counter { display: flex; flex-direction: column; }
+.widget__counter-value {
+  font-size: 28px;
+  font-weight: 600;
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.widget__counter-sub { color: var(--text-muted); font-size: 12px; }
+.widget--errors .widget__counter-value { color: var(--critical); }
+.widget--ok .widget__counter-value { color: var(--ok); }
+.widget--error {
+  border-color: color-mix(in oklab, var(--err) 40%, transparent);
+}
+
+/* breakdown table inside a widget */
+.widget__breakdown {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin-top: 8px;
+}
+.widget__breakdown th,
+.widget__breakdown td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.widget__breakdown th {
+  color: var(--text-muted);
+  font-weight: 500;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  text-align: left;
+}
+.widget__breakdown tr:last-child td { border-bottom: none; }
+.widget__breakdown-bar-cell { width: 30%; }
+.widget__breakdown-bar {
+  height: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.widget__breakdown-bar-fill {
+  height: 100%;
+  background: var(--primary);
+  border-radius: 3px;
+}
+
+/* trace waterfall */
+.trace {
+  padding: 8px 0;
+}
+.trace__row-group {
+  border-bottom: 1px solid var(--border);
+}
+.trace__row-group:last-child { border-bottom: none; }
+.trace__row {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) 2fr 80px;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 16px;
+  font-size: 13px;
+}
+.trace__toggle {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0 6px 0 0;
+  font-size: 11px;
+  width: 18px;
+}
+.trace__toggle:hover { color: var(--text); }
+.trace__name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.trace__bar-wrap {
+  position: relative;
+  height: 14px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 3px;
+}
+.trace__bar {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--primary);
+}
+.trace__duration {
+  text-align: right;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.trace__chips {
+  padding-right: 16px;
+  padding-bottom: 6px;
+}
+.trace__detail {
+  padding-right: 16px;
+  padding-bottom: 12px;
+  font-size: 13px;
+}
+
+/* ───────────────────────── Logs surface ─────────────────────────
+   Implements the Sluicio Logs design handoff: level badges, filter
+   chips, segmented level threshold, attribute autocomplete popover,
+   redesigned log rows, and the details drawer. Data elements use
+   JetBrains Mono; UI labels stay Inter. */
+:root { --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+
+/* level badge — 5 variants, mono */
+.lvl {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 38px; padding: 2px 6px; border-radius: 4px;
+  font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: 0.06em;
+  border: 1px solid var(--border); background: var(--surface-3); color: var(--muted);
+}
+.lvl--info  { color: var(--ink-2); background: var(--surface-3); }
+.lvl--warn  { color: var(--warn-ink); background: var(--warn-soft); border-color: color-mix(in oklab, var(--warn) 30%, transparent); }
+.lvl--err   { color: var(--err-ink);  background: var(--err-soft);  border-color: color-mix(in oklab, var(--err) 30%, transparent); }
+.lvl--fatal { color: #fff; background: var(--err); border-color: var(--err); }
+
+/* segmented level threshold control */
+.level-seg {
+  display: inline-flex; gap: 2px; padding: 3px;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--surface-3);
+}
+.level-seg__btn {
+  border: 0; background: transparent; cursor: pointer;
+  padding: 5px 10px; border-radius: 6px;
+  font: 500 12px 'Inter', sans-serif; color: var(--ink-2);
+}
+.level-seg__btn:hover { color: var(--ink); }
+.level-seg__btn[aria-checked="true"] {
+  background: var(--surface-2); color: var(--ink); font-weight: 600; box-shadow: var(--shadow-sm);
+}
+.level-seg__btn[aria-checked="true"].is-warn  { color: var(--warn-ink); }
+.level-seg__btn[aria-checked="true"].is-err   { color: var(--err-ink); }
+.level-seg__btn[aria-checked="true"].is-fatal { background: var(--err); color: #fff; box-shadow: none; }
+
+/* composite filter chip — key · op · value · × */
+.fchip {
+  display: inline-flex; align-items: stretch; height: 26px;
+  border: 1px solid var(--border); border-radius: 999px;
+  background: var(--surface-2); overflow: hidden; box-shadow: var(--shadow-sm);
+  font-family: var(--mono);
+}
+.fchip__k { background: var(--surface-3); color: var(--ink-2); padding: 0 7px; font-size: 11px; display: inline-flex; align-items: center; border-right: 1px solid var(--border); }
+.fchip__o { color: var(--muted); padding: 0 6px; font-size: 11px; display: inline-flex; align-items: center; }
+.fchip__v { color: var(--ink); padding: 0 4px 0 0; font-size: 12px; font-weight: 500; display: inline-flex; align-items: center; }
+.fchip__x { width: 22px; border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 12px; }
+.fchip__x:hover { background: var(--surface-3); color: var(--err); }
+.fchip--accent { background: var(--primary-soft); border-color: color-mix(in oklab, var(--primary) 30%, transparent); }
+.fchip--accent .fchip__k { background: color-mix(in oklab, var(--primary) 16%, var(--primary-soft)); color: var(--primary-ink); border-color: color-mix(in oklab, var(--primary) 30%, transparent); }
+.fchip--accent .fchip__o, .fchip--accent .fchip__v { color: var(--primary-ink); }
+
+/* + add attribute filter (dashed) */
+.addfilter {
+  height: 26px; padding: 0 12px; border-radius: 999px;
+  border: 1px dashed var(--border-strong); background: transparent; color: var(--ink-2);
+  font: 500 12px 'Inter', sans-serif; cursor: pointer;
+}
+.addfilter:hover { border-style: solid; background: var(--surface-3); }
+.addfilter[aria-expanded="true"] { border-style: solid; border-color: var(--primary); background: var(--primary-soft); color: var(--primary-ink); }
+
+.kbd {
+  font: 10px 'Inter', sans-serif; color: var(--muted);
+  border: 1px solid var(--border); background: var(--surface-2);
+  border-radius: 4px; padding: 1px 5px;
+}
+
+/* attribute autocomplete popover */
+.attr-pop {
+  position: absolute; z-index: 50; width: 460px; max-height: 440px;
+  display: flex; flex-direction: column;
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: 12px; box-shadow: var(--shadow-pop); overflow: hidden;
+}
+.attr-pop__head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.attr-pop__head input { flex: 1; border: 0; background: transparent; font: 13px 'Inter', sans-serif; color: var(--ink); outline: none; }
+.attr-pop__body { overflow-y: auto; flex: 1; }
+.attr-pop__group { font: 600 10px 'Inter', sans-serif; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); padding: 6px 14px; border-top: 1px solid var(--border); }
+.attr-pop__group:first-child { border-top: 0; }
+.attr-pop__item {
+  display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center;
+  width: 100%; text-align: left; border: 0; background: transparent; cursor: pointer;
+  padding: 7px 14px; font-size: 13px;
+}
+.attr-pop__item:hover { background: var(--surface-3); }
+.attr-pop__item.is-active { background: var(--primary-soft); }
+.attr-pop__item.is-active .attr-pop__key, .attr-pop__item.is-active .attr-pop__card { color: var(--primary-ink); }
+.attr-pop__key { font-family: var(--mono); color: var(--ink); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.attr-pop__card { font-family: var(--mono); font-size: 11px; color: var(--muted); text-align: right; min-width: 88px; }
+.typechip { font: 600 10px 'Inter', sans-serif; text-transform: uppercase; padding: 2px 6px; border-radius: 4px; border: 1px solid transparent; }
+.typechip--string { color: var(--ink-2); background: var(--surface-3); }
+.typechip--number { color: var(--primary-ink); background: var(--primary-soft); }
+.attr-pop__foot { display: flex; justify-content: space-between; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--border); background: var(--surface); font-size: 11px; color: var(--ink-2); }
+.attr-pop__empty { padding: 16px 14px; font-size: 13px; color: var(--muted); line-height: 1.5; }
+.attr-pop__op { display: flex; gap: 4px; padding: 10px 12px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+
+/* logs split: table | drawer */
+.logs-split { display: grid; grid-template-columns: 1fr; min-height: 0; }
+.logs-split.is-open { grid-template-columns: 1fr 440px; }
+
+/* While a log is selected, anchor the left column (the log table) to the
+   top so the drawer's longer content can scroll past without taking the
+   list out of view — the list "follows along" on scroll. The
+   VirtualInfiniteList has its own internal scroll, so the sticky
+   container just stays put. Mirrors the Metrics page behaviour. */
+.logs-split.is-open > div:first-child {
+  position: sticky;
+  top: 8px;
+  align-self: start;
+}
+
+/* log row redesign (within VirtualInfiniteList) */
+.logrow { cursor: pointer; position: relative; }
+.logrow--err   { background: color-mix(in oklab, var(--err-soft) 50%, transparent); }
+.logrow--fatal { background: var(--err-soft); }
+.logrow.is-selected { background: var(--primary-soft) !important; }
+.logrow.is-selected::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--primary); }
+.svc-chip {
+  display: inline-block; font-family: var(--mono); font-size: 11.5px; color: var(--ink-2); text-decoration: none;
+  padding: 2px 8px; border-radius: 5px; border: 1px solid var(--border); background: var(--surface-3);
+  white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; cursor: pointer; vertical-align: bottom;
+}
+.svc-chip:hover { border-color: var(--border-strong); color: var(--primary); }
+/* the integration a log's service belongs to — small second line under the service chip */
+.log-intg-link {
+  font-family: var(--mono); font-size: 10px; line-height: 1.2; color: var(--muted); text-decoration: none;
+  max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.log-intg-link:hover { color: var(--primary); }
+.trace-pill {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-family: var(--mono); font-size: 10.5px; color: var(--primary);
+  border: 1px solid color-mix(in oklab, var(--primary) 25%, transparent);
+  border-radius: 999px; padding: 1px 6px; background: var(--surface-2);
+}
+.kvchip { font-family: var(--mono); font-size: 11.5px; padding: 3px 6px; border-radius: 4px; border: 1px solid var(--border); background: var(--surface-2); white-space: nowrap; }
+.kvchip .k { color: var(--muted); }
+.kvchip .v { color: var(--ink); }
+.is-selected .kvchip { border-color: color-mix(in oklab, var(--primary) 35%, transparent); }
+
+/* details drawer */
+.drawer { border-left: 1px solid var(--border); background: var(--surface); display: flex; flex-direction: column; min-height: 0; }
+.drawer__head { padding: 14px 18px; background: var(--surface-2); border-bottom: 1px solid var(--border); }
+.drawer__top { display: flex; align-items: center; gap: 8px; }
+.drawer__close { width: 28px; height: 28px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface-2); cursor: pointer; color: var(--muted); }
+.drawer__close:hover { color: var(--ink); border-color: var(--border-strong); }
+.drawer__msg { font: 500 14px 'Inter', sans-serif; color: var(--ink); line-height: 1.45; margin: 10px 0 0; }
+.drawer__actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.drawer__body { overflow: auto; padding: 14px 18px 24px; display: flex; flex-direction: column; gap: 16px; }
+.drawer__section-title { font: 600 11px 'Inter', sans-serif; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin: 0 0 6px; }
+.drawer__section-title .count { font-family: var(--mono); font-size: 11px; font-weight: 500; color: var(--muted); margin-left: 6px; }
+.drawer__related { background: var(--surface); border-top: 1px solid var(--border); padding: 8px 10px; font-size: 12px; margin-top: -1px; border-radius: 0 0 8px 8px; }
+.drawer__raw { font-family: var(--mono); font-size: 11.5px; line-height: 1.5; padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; max-height: 320px; overflow: auto; white-space: pre; background: var(--surface-2); color: var(--ink); margin: 0; }
+
+/* kv table — shared by log drawer, trace attribute panels,
+   integration/service metadata viewer. The grid is identical so keys
+   and values line up the same way wherever this component appears.
+   `--bordered` opts into a card outline (used inside the log drawer
+   where the panel has no other border); the default has none because
+   most callers already sit inside a card. `--mono` is the code/IDs
+   look; `--prose` is the human-label look for metadata viewers. */
+.kvtable { overflow: hidden; }
+.kvtable--bordered { border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); }
+.kvtable__row {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.6fr) 1fr 28px;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  align-items: start;
+}
+.kvtable__row:last-child { border-bottom: 0; }
+.kvtable--mono .kvtable__k { font-family: var(--mono); font-size: 11.5px; color: var(--muted); word-break: break-all; }
+.kvtable--mono .kvtable__v { font-family: var(--mono); font-size: 12.5px; color: var(--ink); word-break: break-all; }
+.kvtable--prose .kvtable__k { font-size: 13px; color: var(--muted); word-break: break-word; }
+.kvtable--prose .kvtable__v { font-size: 13px; color: var(--ink); word-break: break-word; }
+.kvtable__copy { width: 22px; height: 22px; border: 0; background: transparent; color: var(--muted); cursor: pointer; opacity: 0; font-size: 12px; }
+.kvtable__copy--placeholder { cursor: default; }
+.kvtable__row:hover .kvtable__copy { opacity: 1; }
+.kvtable__copy--placeholder { opacity: 0; }
+.kvtable__copy:hover { color: var(--primary); }
+/* Opt-in multi-column flow for long key/value lists (integration
+   metadata can have 20+ rows). Uses CSS grid (NOT CSS multi-column)
+   so reading order is row-first / left-to-right / predictable:
+     3 items → row 1 has items 1+2, row 2 has item 3 alone in col 1
+     4 items → clean 2×2
+   Multi-column's `balance` algorithm packed items by height, which
+   yielded a counterintuitive 1+2 split for 3 items of uneven length
+   and put a stray border-bottom on the visually-last row of col 1
+   (which wasn't the DOM :last-child). Grid avoids both problems.
+
+   repeat(auto-fit, minmax(360px, 1fr)) keeps it responsive: narrow
+   containers collapse to a single column automatically.
+
+   The inner row grid is also re-balanced for this variant — the
+   default (minmax(120px, 0.6fr) 1fr 28px) was tuned for full-width
+   drawers; inside a half-width column it squeezed the key cell to
+   its 120px min while the value stayed wide, looking lopsided.
+   Equal 1fr 1fr 28px gives the key and value visually-balanced
+   cells. */
+.kvtable--columns-auto {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  column-gap: 24px;
+}
+.kvtable--columns-auto .kvtable__row {
+  grid-template-columns: 1fr 1fr 28px;
+  align-items: center;
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   Metrics explorer surface
+   Search + attribute filter + sparkline table + alert-builder drawer.
+   Reuses the Logs surface primitives (.logs-split, .drawer, .fchip,
+   .level-seg, .attr-pop) and the shared design tokens.
+   ════════════════════════════════════════════════════════════════════ */
+
+/* page-head headline stats */
+.m-head-stats { display: flex; gap: 28px; padding: 2px 0; flex-wrap: wrap; }
+.m-headstat { display: flex; flex-direction: column; align-items: flex-end; }
+.m-headstat-v { font: 600 18px var(--font, 'Inter'), sans-serif; letter-spacing: -0.01em; color: var(--ink); }
+.m-headstat-k { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+
+/* metric type pills */
+.m-type-pill {
+  display: inline-block; font: 600 9.5px 'Inter', sans-serif;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  padding: 2px 7px; border-radius: 4px;
+  background: var(--surface-3); color: var(--muted); border: 1px solid var(--border);
+}
+.m-type-pill.t-counter, .m-type-pill.t-sum { color: var(--primary-ink); background: var(--primary-soft); border-color: color-mix(in oklab, var(--primary) 25%, transparent); }
+.m-type-pill.t-gauge { color: var(--info-ink); background: var(--info-soft); border-color: color-mix(in oklab, var(--info) 35%, transparent); }
+.m-type-pill.t-histogram { color: var(--warn-ink); background: var(--warn-soft); border-color: color-mix(in oklab, var(--warn) 25%, transparent); }
+.m-type-pill.t-summary { color: var(--ok-ink); background: var(--ok-soft); border-color: color-mix(in oklab, var(--ok) 25%, transparent); }
+
+/* metric-name autocomplete (drops under the search input) */
+.metric-suggest {
+  position: absolute; top: calc(100% + 6px); left: 0; right: 0;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: var(--shadow-pop); z-index: 60; overflow: hidden;
+}
+.m-sg-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 14px; border-bottom: 1px solid var(--border); background: var(--surface); font: 600 11px 'Inter', sans-serif; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.m-sg-body { max-height: 320px; overflow: auto; }
+.m-sg-item { display: grid; grid-template-columns: 78px 1fr auto auto; gap: 12px; align-items: center; padding: 8px 14px; border-bottom: 1px solid var(--border); cursor: pointer; text-align: left; background: none; border-left: 0; border-right: 0; border-top: 0; width: 100%; }
+.m-sg-item:last-child { border-bottom: 0; }
+.m-sg-item:hover { background: var(--surface-3); }
+.m-sg-item.is-active { background: var(--primary-soft); }
+.m-sg-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.m-sg-name { font-family: var(--mono); font-size: 13px; color: var(--ink); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.m-sg-item.is-active .m-sg-name { color: var(--primary-ink); }
+.m-sg-sub { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.m-sg-unit { font-size: 11px; color: var(--ink-2); padding: 2px 7px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface-3); white-space: nowrap; }
+.m-sg-series { font-size: 11px; color: var(--muted); min-width: 64px; text-align: right; white-space: nowrap; }
+.m-sg-foot { border-top: 1px solid var(--border); padding: 7px 12px; display: flex; gap: 14px; font-size: 11px; color: var(--ink-2); background: var(--surface); }
+
+/* metrics table */
+.mtbl { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--surface-2); min-width: 0; }
+.mtbl-head, .mtbl-row {
+  display: grid;
+  grid-template-columns: minmax(200px, 1.6fr) 72px minmax(120px, 0.9fr) minmax(110px, 1fr) minmax(80px, 0.6fr) minmax(110px, 0.9fr);
+  gap: 10px; align-items: center;
+}
+.logs-split.has-detail .mtbl-head, .logs-split.has-detail .mtbl-row {
+  grid-template-columns: minmax(170px, 1.5fr) 64px minmax(104px, 0.9fr) minmax(96px, 1fr) minmax(64px, 0.6fr);
+}
+.logs-split.has-detail .mt-rules, .logs-split.has-detail .th-rules { display: none; }
+.mtbl-head { padding: 9px 16px; background: var(--surface); border-bottom: 1px solid var(--border); font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.mtbl-head .th-right { text-align: right; }
+.mtbl-body { max-height: calc(100vh - 320px); overflow: auto; }
+.mtbl-row { position: relative; padding: 10px 16px; min-height: 56px; border-bottom: 1px solid var(--border); cursor: pointer; }
+.mtbl-row:last-child { border-bottom: 0; }
+.mtbl-row:hover { background: var(--surface-3); }
+.mtbl-row.is-sel { background: var(--primary-soft); }
+.mtbl-row.is-sel::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--primary); }
+.mtbl-row.breached { background: color-mix(in oklab, var(--err-soft) 35%, transparent); }
+.mtbl-row.breached:hover { background: color-mix(in oklab, var(--err-soft) 60%, transparent); }
+.mtbl-row.breached.is-sel { background: var(--primary-soft); }
+.mtbl-row.breached::after { content: ''; position: absolute; right: 0; top: 0; bottom: 0; width: 3px; background: var(--err); opacity: 0.6; }
+
+.mt-name { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.m-name-text { font-family: var(--mono); font-size: 13px; color: var(--ink); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.m-desc { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mt-val { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; line-height: 1.1; min-width: 0; }
+/* clip rather than overflow the cell — long values (e.g. a formatted
+   timestamp) must never spill left into the type-pill column. */
+.m-val { font: 600 15px var(--mono); color: var(--ink); letter-spacing: -0.01em; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+/* timestamps read as words, not big mono numerals — smaller, inherit the
+   app's sans font (override .m-val's mono shorthand) rather than a var. */
+.m-val--ts { font-family: inherit; font-size: 12.5px; font-weight: 500; color: var(--ink-2); }
+.m-val.br { color: var(--err); }
+.m-unit { font-size: 10.5px; color: var(--muted); }
+.m-delta { font: 500 10.5px var(--mono); padding: 1px 5px; border-radius: 3px; background: var(--surface-3); color: var(--ink-2); margin-top: 2px; }
+.m-delta.d-up { color: var(--err); background: var(--err-soft); }
+.m-delta.d-down { color: var(--ok-ink); background: var(--ok-soft); }
+.m-delta.d-flat { color: var(--muted); }
+.mt-spark { display: flex; align-items: center; min-width: 0; overflow: hidden; }
+.spark { display: block; max-width: 100%; height: auto; }
+.mt-series { display: flex; flex-direction: column; line-height: 1.2; }
+.m-series-count { font-size: 13px; color: var(--ink); font-weight: 500; }
+.f-11 { font-size: 11px; color: var(--muted); }
+.mt-rules { display: flex; align-items: center; }
+.m-rule-badge { display: inline-flex; align-items: center; gap: 4px; font: 500 11px 'Inter', sans-serif; padding: 3px 8px; border-radius: 999px; background: var(--warn-soft); color: var(--warn-ink); border: 1px solid color-mix(in oklab, var(--warn) 25%, transparent); }
+.m-rule-badge.sev-info { background: var(--surface-3); color: var(--ink-2); border-color: var(--border); }
+.m-rule-badge.sev-warning, .m-rule-badge.sev-warn { background: var(--warn-soft); color: var(--warn-ink); border-color: color-mix(in oklab, var(--warn) 25%, transparent); }
+.m-rule-badge.sev-critical, .m-rule-badge.sev-err { background: var(--err-soft); color: var(--err-ink); border-color: color-mix(in oklab, var(--err) 25%, transparent); }
+
+/* drawer (metrics flavour) — reuses .drawer base from the logs surface */
+.m-drawer { width: 520px; }
+.logs-split.has-detail:has(.m-drawer) { grid-template-columns: minmax(0, 1fr) 520px; }
+
+/* On the Metrics page, anchor the left column (the metric list / group
+   rollup) to the top while a metric is selected, so the drawer's
+   longer content can scroll past without taking the picker out of
+   view. The metric table body already has its own internal scroll
+   (.mtbl-body), so the sticky container just stays put. */
+.logs-split.metrics-split.has-detail > div:first-child {
+  position: sticky;
+  top: 8px;
+  align-self: start;
+}
+.m-d-name { font: 600 16px var(--mono); color: var(--ink); margin: 6px 0 4px; overflow-wrap: anywhere; line-height: 1.3; }
+.m-d-desc { font-size: 12.5px; color: var(--muted); margin: 0 0 12px; }
+.m-d-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; padding: 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+.m-stat { display: flex; flex-direction: column; gap: 2px; }
+.m-stat-k { font: 600 9.5px 'Inter', sans-serif; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.m-stat-v { font: 600 16px var(--mono); color: var(--ink); line-height: 1.1; display: flex; align-items: baseline; gap: 4px; }
+.m-stat-v.br { color: var(--err); }
+.m-stat-u { font-size: 10.5px; color: var(--muted); font-weight: 500; }
+.m-d-body { padding-top: 12px; display: flex; flex-direction: column; gap: 16px; }
+.m-section-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.m-section-title { font: 600 12px 'Inter', sans-serif; color: var(--ink); }
+.m-section-count { font-size: 11px; color: var(--muted); font-family: var(--mono); }
+.mchart { border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); padding: 4px 0 0; overflow: hidden; }
+.mchart svg { display: block; }
+.m-carried-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; }
+
+/* ── alert-rule builder (drawer) ─────────────────────────────────── */
+.m-builder-card { background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+.m-rule-sentence { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13.5px; color: var(--ink-2); line-height: 1.8; padding: 2px 0; }
+.m-rs-prose { color: var(--ink-2); }
+.m-rs-prose.muted { color: var(--muted); }
+.m-rs-metric { font: 600 12.5px var(--mono); color: var(--primary-ink); background: var(--primary-soft); border: 1px solid color-mix(in oklab, var(--primary) 25%, transparent); padding: 3px 8px; border-radius: 6px; }
+.m-rs-sel { appearance: none; -webkit-appearance: none; border: 1px solid var(--border-strong); background: var(--surface-2); color: var(--ink); padding: 4px 24px 4px 10px; border-radius: 6px; font: 600 13px 'Inter', sans-serif; cursor: pointer;
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: right 9px center, right 5px center; background-size: 4px 4px, 4px 4px; background-repeat: no-repeat; }
+.m-rs-sel:hover { background-color: var(--surface-3); }
+.m-rs-num { appearance: none; width: 80px; padding: 4px 8px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--surface-2); color: var(--ink); font: 600 13px var(--mono); text-align: right; }
+.m-rs-num:focus { outline: none; box-shadow: var(--focus); border-color: var(--primary); }
+.m-preview { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-radius: 8px; font-size: 12.5px; }
+.m-preview .m-preview-pip { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+.m-preview.ok { background: var(--ok-soft); color: var(--ok-ink); border: 1px solid color-mix(in oklab, var(--ok) 20%, transparent); }
+.m-preview.ok .m-preview-pip { background: var(--ok); }
+.m-preview.breach { background: var(--err-soft); color: var(--err-ink); border: 1px solid color-mix(in oklab, var(--err) 25%, transparent); }
+.m-preview.breach .m-preview-pip { background: var(--err); box-shadow: 0 0 0 4px color-mix(in oklab, var(--err) 18%, transparent); }
+.m-preview b { font-weight: 700; }
+.m-field { display: flex; flex-direction: column; gap: 6px; }
+.m-field-label { font: 600 11px 'Inter', sans-serif; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.m-healthcheck { padding: 10px 12px; background: var(--surface-3); border: 1px solid var(--border); border-left: 2px solid var(--accent); border-radius: 8px; }
+.m-healthcheck .m-field-label { color: var(--ink-2); }
+.m-seg { display: inline-flex; padding: 3px; background: var(--surface-3); border: 1px solid var(--border); border-radius: 8px; align-self: flex-start; }
+.m-seg-b { appearance: none; border: 0; background: transparent; padding: 6px 12px; border-radius: 6px; font: 500 12px 'Inter', sans-serif; color: var(--ink-2); cursor: pointer; }
+.m-seg-b:hover { color: var(--ink); }
+.m-seg-b.on { background: var(--surface-2); box-shadow: var(--shadow-sm); font-weight: 600; color: var(--ink); }
+.m-seg-b.sev-warning.on { color: var(--warn-ink); background: var(--warn-soft); }
+.m-seg-b.sev-critical.on { color: var(--err-ink); background: var(--err-soft); }
+.m-intg-list { display: flex; flex-direction: column; gap: 6px; }
+.m-intg { appearance: none; display: grid; grid-template-columns: 32px 1fr 24px; gap: 10px; align-items: center; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); cursor: pointer; text-align: left; width: 100%; }
+.m-intg:hover { background: var(--surface-3); }
+.m-intg.on { background: var(--primary-soft); border-color: var(--primary); box-shadow: 0 0 0 2px color-mix(in oklab, var(--primary) 18%, transparent); }
+.m-intg-icon { width: 28px; height: 28px; display: inline-grid; place-items: center; background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; font: 700 13px var(--mono); color: var(--ink-2); }
+.m-intg.on .m-intg-icon { color: var(--primary-ink); border-color: color-mix(in oklab, var(--primary) 30%, transparent); }
+.m-intg-mid { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.m-intg-name { font-size: 13px; color: var(--ink); font-weight: 600; }
+.m-intg-kind { font-size: 11.5px; color: var(--muted); }
+.m-intg.on .m-intg-name { color: var(--primary-ink); }
+.m-intg-tick { width: 22px; height: 22px; display: inline-grid; place-items: center; font: 700 13px 'Inter', sans-serif; color: var(--primary); }
+.m-builder-actions { display: flex; gap: 8px; border-top: 1px dashed var(--border); padding-top: 12px; }
+.m-existing { display: flex; flex-direction: column; gap: 6px; }
+.m-existing-row { display: grid; grid-template-columns: 4px 1fr auto auto auto; gap: 10px; align-items: center; padding: 8px 12px 8px 0; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.m-ex-bar { background: var(--warn); align-self: stretch; }
+.m-ex-bar.sev-critical { background: var(--err); }
+.m-ex-mid { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.m-ex-name { font-size: 12.5px; color: var(--ink); font-weight: 600; }
+.m-ex-cond { font-size: 11px; color: var(--muted); font-family: var(--mono); }
+.m-ex-tgt { font-size: 11px; color: var(--ink-2); padding: 2px 7px; background: var(--surface-3); border: 1px solid var(--border); border-radius: 4px; margin-right: 10px; white-space: nowrap; }
+
+/* per-metric attributes list (drawer) */
+.m-attr__group { font: 600 10px 'Inter', sans-serif; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin: 8px 0 3px; }
+.m-attrs { display: flex; flex-direction: column; gap: 4px; }
+.m-attr { border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); overflow: hidden; }
+.m-attr__head { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center; padding: 7px 10px; cursor: pointer; background: none; border: 0; width: 100%; text-align: left; }
+.m-attr__head:hover { background: var(--surface-3); }
+.m-attr__key { font-family: var(--mono); font-size: 12.5px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.m-attr__count { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.m-attr__vals { border-top: 1px solid var(--border); padding: 6px 10px; display: flex; flex-direction: column; gap: 3px; max-height: 200px; overflow: auto; background: var(--surface); }
+.m-attr__val { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.m-attr__val .v { font-family: var(--mono); font-size: 12px; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.m-attr__val .n { color: var(--muted); font-family: var(--mono); font-size: 11px; white-space: nowrap; }
+/* clickable value rows: toggle an attr=value filter on the metric */
+.m-attr__val--btn { width: 100%; text-align: left; background: none; border: 0; border-radius: 4px; padding: 2px 4px; margin: 0 -4px; cursor: pointer; }
+.m-attr__val--btn:hover { background: var(--surface-3); }
+.m-attr__val--btn.is-on { background: var(--primary-soft); }
+.m-attr__val--btn.is-on .v { color: var(--primary-ink); font-weight: 600; }
+
+/* group-by rollup rows (Metrics + Logs) */
+.grp { display: flex; flex-direction: column; gap: 6px; }
+.grp-group { border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); overflow: hidden; }
+.grp-head { display: grid; grid-template-columns: 18px 1fr auto; gap: 10px; align-items: center; width: 100%; text-align: left; background: none; border: 0; padding: 11px 14px; cursor: pointer; }
+.grp-head:hover { background: var(--surface-3); }
+.grp-chev { color: var(--muted); font-size: 11px; }
+.grp-label { font-weight: 600; font-size: 13.5px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.grp-stats { display: flex; gap: 12px; align-items: center; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.grp-stats .n { font-family: var(--mono); color: var(--ink-2); }
+.grp-stats .err { color: var(--err-ink); }
+.grp-body { border-top: 1px solid var(--border); background: var(--surface); }
+.grp-body .mtbl-row:last-child { border-bottom: 0; }
+/* compact log rows inside an expanded group */
+.grp-logrow { display: grid; grid-template-columns: 64px 56px 150px 1fr; gap: 10px; align-items: center; padding: 6px 14px; border-bottom: 1px solid var(--border); font-size: 12.5px; }
+.grp-logrow:last-child { border-bottom: 0; }
+.grp-logrow .t { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.grp-logrow .svc { font-family: var(--mono); font-size: 11.5px; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.grp-logrow .msg { color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ════════════════════════════════════════════════════════════════════
+   Service detail surface (Sluicio Service design handoff)
+   Ported from service.css; .main-service shell dropped (the app's
+   AppShell provides the frame). Uses the shared design tokens.
+   ════════════════════════════════════════════════════════════════════ */
+.svc-page-head {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 20px;
+  align-items: flex-start;
+  margin-bottom: 16px;
+}
+
+/* ── service hero header ──────────────────────────────────────── */
+.svc-id { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.svc-crumb {
+  font-size: 12px; color: var(--muted);
+  display: flex; align-items: center; gap: 6px;
+}
+.svc-crumb a { color: var(--muted); text-decoration: none; }
+.svc-crumb b { color: var(--ink-2); font-weight: 500; }
+
+.svc-title-row {
+  display: flex; align-items: center; gap: 14px;
+  flex-wrap: wrap;
+}
+.svc-title {
+  font: 700 28px 'JetBrains Mono', monospace;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  margin: 0;
+}
+
+.svc-health-pill {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 6px 12px 6px 10px;
+  border-radius: 999px;
+  font-size: 13px; font-weight: 600;
+  background: var(--ok-soft); color: var(--ok-ink);
+  border: 1px solid color-mix(in oklab, var(--ok) 30%, transparent);
+}
+.svc-health-pill .pip {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--ok) 18%, transparent);
+}
+/* Clickable variant: the pill becomes a button that drills into what's
+   wrong (failing checks / error traces). Resets UA button styling so it
+   still reads as the pill, plus a hover + chevron affordance. */
+.svc-health-pill--btn {
+  cursor: pointer;
+  font-family: inherit;
+  line-height: inherit;
+  transition: filter 0.12s ease;
+}
+.svc-health-pill--btn:hover { filter: brightness(0.96); }
+.svc-health-pill--btn:focus-visible {
+  outline: 2px solid var(--err);
+  outline-offset: 2px;
+}
+.svc-health-pill__chev { font-weight: 700; opacity: 0.7; margin-left: 2px; }
+.svc-health-pill.err {
+  background: var(--err-soft); color: var(--err-ink);
+  border-color: color-mix(in oklab, var(--err) 30%, transparent);
+}
+.svc-health-pill.err .pip {
+  background: var(--err);
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--err) 18%, transparent);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+.svc-health-pill.warn {
+  background: var(--warn-soft); color: var(--warn-ink);
+  border-color: color-mix(in oklab, var(--warn) 30%, transparent);
+}
+.svc-health-pill.warn .pip { background: var(--warn); }
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 4px color-mix(in oklab, var(--err) 18%, transparent); }
+  50%      { box-shadow: 0 0 0 7px color-mix(in oklab, var(--err) 10%, transparent); }
+}
+
+.svc-desc {
+  color: var(--ink-2);
+  font-size: 13.5px;
+  line-height: 1.5;
+  max-width: 720px;
+}
+
+.svc-meta-row {
+  display: flex; flex-wrap: wrap; gap: 6px 14px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.svc-meta-row .mi {
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.svc-meta-row .mi .k {
+  font: 600 9.5px 'Inter', sans-serif;
+  letter-spacing: 0.08em; text-transform: uppercase;
+}
+.svc-meta-row .mi .v { color: var(--ink-2); }
+.svc-meta-row .mi .v.mono {
+  font-family: 'JetBrains Mono', monospace;
+  background: var(--surface-3);
+  padding: 1px 6px; border-radius: 4px;
+  border: 1px solid var(--border);
+  font-size: 11px;
+}
+
+.svc-head-actions {
+  display: flex; align-items: center; gap: 8px;
+  flex-shrink: 0;
+}
+
+/* ── tabs ─────────────────────────────────────────────────────── */
+.svc-tabs {
+  display: flex; gap: 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 16px;
+}
+.svc-tab {
+  appearance: none; border: 0; background: transparent;
+  padding: 10px 14px 12px;
+  font: 500 13px 'Inter', sans-serif;
+  color: var(--muted);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  display: inline-flex; align-items: center; gap: 8px;
+}
+.svc-tab:hover { color: var(--ink-2); }
+.svc-tab.on {
+  color: var(--ink);
+  border-bottom-color: var(--primary);
+  font-weight: 600;
+}
+.svc-tab .count {
+  font: 500 11px 'JetBrains Mono', monospace;
+  padding: 1px 6px; border-radius: 999px;
+  background: var(--surface-3); color: var(--ink-2);
+  border: 1px solid var(--border);
+}
+.svc-tab.on .count {
+  background: var(--primary-soft); color: var(--primary-ink);
+  border-color: color-mix(in oklab, var(--primary) 25%, transparent);
+}
+
+/* ── body grid (viewer) ───────────────────────────────────────── */
+.svc-body { padding: 0 0 24px; }
+.svc-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.svc-section {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.svc-section-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.svc-section-title {
+  font: 600 13px 'Inter', sans-serif;
+  color: var(--ink);
+  display: inline-flex; align-items: center; gap: 8px;
+}
+.svc-section-sub {
+  font-size: 11.5px; color: var(--muted);
+}
+.svc-section-body { padding: 16px; }
+
+/* ── golden signals strip ─────────────────────────────────────── */
+.svc-signals {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0;
+}
+.svc-signal {
+  padding: 14px 16px;
+  border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; gap: 8px;
+}
+.svc-signal:last-child { border-right: 0; }
+.svc-signal-k {
+  font: 600 10px 'Inter', sans-serif;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--muted);
+}
+.svc-signal-row {
+  display: flex; align-items: baseline; gap: 8px;
+}
+.svc-signal-v {
+  font: 700 22px 'JetBrains Mono', monospace;
+  color: var(--ink);
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+.svc-signal-v.br { color: var(--err); }
+.svc-signal-u { font-size: 11px; color: var(--muted); }
+.svc-signal-delta {
+  margin-left: auto;
+  font: 500 11px 'JetBrains Mono', monospace;
+  padding: 1px 6px; border-radius: 4px;
+  background: var(--surface-3); color: var(--ink-2);
+}
+.svc-signal-delta.up   { color: var(--err); background: var(--err-soft); }
+.svc-signal-delta.down { color: var(--ok-ink); background: var(--ok-soft); }
+.svc-signal-spark { margin-top: 2px; }
+
+/* ── health checks list (viewer) ──────────────────────────────── */
+.svc-health-summary {
+  display: flex; align-items: center; gap: 14px;
+  padding: 14px 16px;
+  background: var(--err-soft);
+  border-bottom: 1px solid color-mix(in oklab, var(--err) 25%, transparent);
+  color: var(--err-ink);
+}
+.svc-health-summary.ok {
+  background: var(--ok-soft);
+  border-bottom-color: color-mix(in oklab, var(--ok) 25%, transparent);
+  color: var(--ok-ink);
+}
+.svc-health-summary-icon {
+  width: 36px; height: 36px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: var(--err); color: #fff;
+  font: 700 18px 'JetBrains Mono', monospace;
+  flex: 0 0 36px;
+}
+.svc-health-summary.ok .svc-health-summary-icon {
+  background: var(--ok);
+}
+.svc-health-summary-text {
+  display: flex; flex-direction: column; gap: 2px;
+  flex: 1; min-width: 0;
+}
+.svc-health-summary-title {
+  font: 700 14px 'Inter', sans-serif;
+}
+.svc-health-summary-sub {
+  font-size: 12px;
+  opacity: 0.85;
+}
+.svc-health-summary-meta {
+  font: 500 11px 'JetBrains Mono', monospace;
+  opacity: 0.7;
+  text-align: right;
+}
+
+.svc-checks {
+  display: flex; flex-direction: column;
+}
+.svc-check {
+  display: grid;
+  /* pip · main (grows) · status (hugs right). The row has exactly these 3
+     cells — an extra trailing column here would show as dead padding to the
+     right of the status badge. */
+  grid-template-columns: 12px 1fr auto;
+  gap: 14px;
+  align-items: center;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.svc-check:last-child { border-bottom: 0; }
+.svc-check:hover { background: var(--surface-3); }
+.svc-check-pip {
+  width: 10px; height: 10px; border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--ok) 15%, transparent);
+}
+.svc-check.fail .svc-check-pip {
+  background: var(--err);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--err) 18%, transparent);
+}
+.svc-check.warn .svc-check-pip {
+  background: var(--warn);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--warn) 18%, transparent);
+}
+.svc-check.muted .svc-check-pip {
+  background: var(--muted);
+  box-shadow: 0 0 0 3px var(--info-soft);
+}
+
+.svc-check-main { min-width: 0; }
+.svc-check-name {
+  font: 600 13px 'Inter', sans-serif;
+  color: var(--ink);
+  margin-bottom: 4px;
+}
+.svc-check-cond {
+  font-size: 12px;
+  color: var(--ink-2);
+  line-height: 1.5;
+  display: flex; flex-wrap: wrap; gap: 4px; align-items: center;
+}
+.svc-check-cond .mono {
+  background: var(--surface-3);
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--ink);
+}
+.svc-check-cond .mono.metric {
+  background: var(--primary-soft);
+  border-color: color-mix(in oklab, var(--primary) 25%, transparent);
+  color: var(--primary-ink);
+}
+.svc-check-cond .mono.op { color: var(--ink); font-weight: 600; }
+
+.svc-check-current {
+  display: flex; flex-direction: column;
+  align-items: flex-end; gap: 3px;
+  font-size: 11px; color: var(--muted);
+}
+.svc-check-current .val {
+  font: 600 14px 'JetBrains Mono', monospace;
+  color: var(--ink);
+}
+.svc-check.fail .svc-check-current .val { color: var(--err); }
+.svc-check-current .sub {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+}
+
+.svc-check-status {
+  display: flex; flex-direction: column;
+  align-items: flex-end; gap: 4px;
+}
+.svc-check-badge {
+  font: 600 11px 'Inter', sans-serif;
+  padding: 3px 9px; border-radius: 999px;
+  background: var(--ok-soft); color: var(--ok-ink);
+  border: 1px solid color-mix(in oklab, var(--ok) 25%, transparent);
+}
+.svc-check.fail .svc-check-badge {
+  background: var(--err-soft); color: var(--err-ink);
+  border-color: color-mix(in oklab, var(--err) 25%, transparent);
+}
+.svc-check.warn .svc-check-badge {
+  background: var(--warn-soft); color: var(--warn-ink);
+  border-color: color-mix(in oklab, var(--warn) 25%, transparent);
+}
+.svc-check-since {
+  font: 500 10.5px 'JetBrains Mono', monospace;
+  color: var(--muted);
+}
+
+/* ── activity feed (right column) ─────────────────────────────── */
+.svc-feed {
+  display: flex; flex-direction: column;
+}
+.svc-feed-row {
+  display: grid;
+  grid-template-columns: 24px 1fr auto;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  align-items: flex-start;
+}
+.svc-feed-row:last-child { border-bottom: 0; }
+.svc-feed-icon {
+  width: 24px; height: 24px; border-radius: 6px;
+  display: grid; place-items: center;
+  background: var(--surface-3); color: var(--ink-2);
+  font: 700 11px 'JetBrains Mono', monospace;
+  flex: 0 0 24px;
+}
+.svc-feed-icon.deploy { background: var(--primary-soft); color: var(--primary-ink); }
+.svc-feed-icon.incident { background: var(--err-soft); color: var(--err-ink); }
+.svc-feed-icon.resolved { background: var(--ok-soft); color: var(--ok-ink); }
+.svc-feed-mid {
+  display: flex; flex-direction: column; gap: 2px;
+  min-width: 0;
+}
+.svc-feed-title {
+  font-size: 12.5px; color: var(--ink); font-weight: 500;
+}
+.svc-feed-sub {
+  font-size: 11px; color: var(--muted);
+}
+.svc-feed-sub .mono {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+}
+.svc-feed-time {
+  font: 500 10.5px 'JetBrains Mono', monospace;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* ── metadata list ────────────────────────────────────────────── */
+.svc-meta-list {
+  display: flex; flex-direction: column;
+}
+.svc-meta-list .row {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 14px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12.5px;
+  align-items: center;
+}
+.svc-meta-list .row:last-child { border-bottom: 0; }
+.svc-meta-list .row .k {
+  font: 600 10.5px 'Inter', sans-serif;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--muted);
+}
+.svc-meta-list .row .v {
+  color: var(--ink-2);
+  display: inline-flex; align-items: center; gap: 6px;
+  min-width: 0;
+}
+.svc-meta-list .row .v.mono {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--ink);
+}
+.svc-meta-list .row .v a { color: var(--primary); text-decoration: none; }
+.svc-meta-list .row .v a:hover { text-decoration: underline; }
+.svc-owner-av {
+  width: 22px; height: 22px; border-radius: 50%;
+  background: var(--primary-soft); color: var(--primary-ink);
+  display: inline-grid; place-items: center;
+  font: 600 10px 'Inter', sans-serif;
+}
+
+/* ── dependencies graph ───────────────────────────────────────── */
+.svc-deps {
+  padding: 16px;
+}
+.svc-deps-graph {
+  display: grid;
+  /* minmax(0,1fr) lets the side columns actually shrink (so long names
+     ellipsize instead of pushing into the center); the center column gets
+     room to grow for real service names but is capped so it can't eat the
+     row. */
+  grid-template-columns: minmax(0, 1fr) minmax(90px, 160px) minmax(0, 1fr);
+  gap: 0 16px;
+  align-items: center;
+}
+.svc-deps-col {
+  display: flex; flex-direction: column; gap: 8px;
+  min-width: 0;
+}
+.svc-deps-col-label {
+  font: 600 10px 'Inter', sans-serif;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.svc-dep {
+  display: grid;
+  grid-template-columns: 8px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  font-size: 12px;
+}
+.svc-dep .pip {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--ok);
+}
+.svc-dep.warn .pip { background: var(--warn); }
+.svc-dep.err  .pip { background: var(--err); }
+.svc-dep .name {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11.5px;
+  color: var(--ink);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.svc-dep .kind {
+  font-size: 10px;
+  color: var(--muted);
+  padding: 1px 5px;
+  background: var(--surface-3);
+  border-radius: 3px;
+  border: 1px solid var(--border);
+}
+.svc-deps-center {
+  display: grid; place-items: center;
+}
+.svc-deps-center .me {
+  background: var(--primary);
+  color: var(--on-primary);
+  padding: 12px 8px;
+  border-radius: 8px;
+  text-align: center;
+  font: 700 12px 'JetBrains Mono', monospace;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  width: 100%;
+  /* Long mono service names must wrap inside the box, never spill into
+     the downstream column. */
+  overflow-wrap: anywhere;
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--primary) 18%, transparent);
+}
+
+/* ── EDIT MODE ────────────────────────────────────────────────── */
+.svc-edit-body {
+  padding: 0 0 100px;
+  max-width: 920px;
+  margin: 0 auto;
+  display: flex; flex-direction: column;
+  gap: 20px;
+}
+
+.svc-form-card {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.svc-form-head {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px;
+}
+.svc-form-head h2 {
+  font: 600 14px 'Inter', sans-serif;
+  margin: 0;
+  color: var(--ink);
+}
+.svc-form-head .sub {
+  font-size: 12px; color: var(--muted);
+  margin-top: 2px;
+}
+.svc-form-body { padding: 18px; }
+.svc-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px 18px;
+}
+.svc-field { display: flex; flex-direction: column; gap: 6px; }
+.svc-field.col-2 { grid-column: 1 / -1; }
+.svc-field-label {
+  font: 600 11px 'Inter', sans-serif;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--muted);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.svc-field-label .hint {
+  font: 400 10.5px 'Inter', sans-serif;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--muted);
+}
+/* .svc-input / .input / .svc-textarea share .search__input's visual language so
+   it doesn't matter which class a text field uses. .search__input itself is left
+   untouched (its flex:1 + sizing are tuned for the top-bar search). Layout
+   (width vs flex) is kept per-class; only the chrome is unified. Inside
+   .form__label, the .form__label rule still tightens all of them uniformly. */
+.svc-input {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--ink);
+  font: 400 15px 'Inter', sans-serif;
+}
+.svc-input.mono { font-family: 'JetBrains Mono', monospace; }
+.svc-input:focus { outline: none; box-shadow: var(--focus); border-color: var(--primary); }
+.svc-textarea {
+  width: 100%; min-height: 70px;
+  padding: 12px;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--ink);
+  font: 400 15px/1.5 'Inter', sans-serif;
+  resize: vertical;
+}
+.svc-textarea.mono { font-family: 'JetBrains Mono', monospace; }
+.svc-textarea:focus { outline: none; box-shadow: var(--focus); border-color: var(--primary); }
+
+/* Generic themed input/select, matching .svc-input, for the forms that use
+   className="input" (SSO providers, health checks, service types). .input was
+   never defined, so those fields rendered near-unstyled and looked out of place
+   next to the rest of Sluicio. No forced width: stacked forms stretch it via
+   their column-flex parent, while inline rows (e.g. the SSO claim-mapping row)
+   keep their natural widths. */
+.input {
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--ink);
+  font: 400 15px 'Inter', sans-serif;
+}
+.input:focus { outline: none; box-shadow: var(--focus); border-color: var(--primary); }
+
+/* ── health rules in edit mode ────────────────────────────────── */
+.svc-rules-combine {
+  display: flex; align-items: center; gap: 14px;
+  padding: 14px 18px;
+  background: var(--primary-soft);
+  border-bottom: 1px solid color-mix(in oklab, var(--primary) 20%, transparent);
+  color: var(--primary-ink);
+  font-size: 13px;
+}
+.svc-rules-combine .seg {
+  display: inline-flex;
+  background: var(--surface-2);
+  border: 1px solid color-mix(in oklab, var(--primary) 25%, transparent);
+  border-radius: 7px;
+  padding: 2px;
+}
+.svc-rules-combine .seg button {
+  appearance: none; border: 0; background: transparent;
+  padding: 5px 12px;
+  font: 600 12px 'Inter', sans-serif;
+  color: var(--ink-2);
+  border-radius: 5px;
+  cursor: pointer;
+}
+.svc-rules-combine .seg button.on {
+  background: var(--primary);
+  color: var(--on-primary);
+}
+
+.svc-rules-list {
+  padding: 14px 18px;
+  display: flex; flex-direction: column;
+  gap: 14px;
+}
+.svc-rule {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: visible;
+}
+.svc-rule-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.svc-rule-handle {
+  color: var(--muted);
+  cursor: grab;
+  line-height: 1;
+  font-size: 14px;
+  user-select: none;
+}
+.svc-rule-name {
+  flex: 1;
+  font: 600 13px 'Inter', sans-serif;
+  background: transparent;
+  border: 0;
+  color: var(--ink);
+  padding: 4px 6px;
+  margin-left: -6px;
+  border-radius: 4px;
+}
+.svc-rule-name:hover { background: var(--surface-3); }
+.svc-rule-name:focus { outline: none; background: var(--surface-3); box-shadow: var(--focus); }
+.svc-rule-state {
+  font: 600 10.5px 'Inter', sans-serif;
+  text-transform: uppercase; letter-spacing: 0.06em;
+  padding: 3px 8px; border-radius: 4px;
+  background: var(--ok-soft); color: var(--ok-ink);
+  border: 1px solid color-mix(in oklab, var(--ok) 25%, transparent);
+}
+.svc-rule-state.fail {
+  background: var(--err-soft); color: var(--err-ink);
+  border-color: color-mix(in oklab, var(--err) 25%, transparent);
+}
+.svc-rule-state.muted {
+  background: var(--surface-3); color: var(--muted);
+  border-color: var(--border);
+}
+.svc-rule-iconbtn {
+  appearance: none; border: 0; background: transparent;
+  width: 28px; height: 28px;
+  display: grid; place-items: center;
+  color: var(--muted); cursor: pointer;
+  border-radius: 6px;
+}
+.svc-rule-iconbtn:hover { background: var(--surface-3); color: var(--err); }
+
+.svc-rule-body {
+  padding: 14px;
+  display: flex; flex-direction: column; gap: 12px;
+}
+
+/* sentence builder — reuses metrics-page tokens but renamed */
+.svc-sentence {
+  display: flex; flex-wrap: wrap; align-items: center;
+  gap: 6px;
+  font-size: 13.5px; color: var(--ink-2);
+  line-height: 2;
+  padding: 6px 10px;
+  background: var(--surface-2);
+  border: 1px dashed var(--border-strong);
+  border-radius: 8px;
+}
+.svc-s-prose { color: var(--ink-2); padding: 0 2px; }
+.svc-s-prose.muted { color: var(--muted); }
+.svc-s-sel {
+  appearance: none; -webkit-appearance: none;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-2);
+  color: var(--ink); font-weight: 600;
+  padding: 4px 22px 4px 10px; border-radius: 6px;
+  font: 600 12.5px 'Inter', sans-serif;
+  cursor: pointer;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: right 9px top 13px, right 5px top 13px;
+  background-size: 4px 4px, 4px 4px;
+  background-repeat: no-repeat;
+}
+.svc-s-sel:hover { background-color: var(--surface-3); }
+.svc-s-num {
+  appearance: none;
+  width: 78px; padding: 4px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--ink);
+  font: 600 13px 'JetBrains Mono', monospace;
+  text-align: right;
+}
+.svc-s-text {
+  appearance: none;
+  width: 130px; padding: 4px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--ink);
+  font: 600 13px 'JetBrains Mono', monospace;
+}
+.svc-s-num:focus, .svc-s-text:focus, .svc-s-sel:focus {
+  outline: 2px solid color-mix(in oklab, var(--primary) 35%, transparent);
+  border-color: var(--primary);
+}
+.svc-s-metric {
+  font: 600 12.5px 'JetBrains Mono', monospace;
+  color: var(--primary-ink);
+  background: var(--primary-soft);
+  border: 1px solid color-mix(in oklab, var(--primary) 25%, transparent);
+  padding: 3px 8px; border-radius: 6px;
+  display: inline-flex; align-items: center; gap: 4px;
+  cursor: pointer;
+}
+.svc-s-metric:hover { background: color-mix(in oklab, var(--primary) 18%, var(--surface-2)); }
+.svc-s-metric .chev {
+  font-size: 9px; opacity: 0.7;
+}
+
+.svc-rule-preview {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px; border-radius: 7px;
+  font-size: 12.5px;
+}
+.svc-rule-preview .pip {
+  width: 8px; height: 8px; border-radius: 50%; flex: 0 0 8px;
+}
+.svc-rule-preview.ok {
+  background: var(--ok-soft); color: var(--ok-ink);
+  border: 1px solid color-mix(in oklab, var(--ok) 20%, transparent);
+}
+.svc-rule-preview.ok .pip { background: var(--ok); }
+.svc-rule-preview.fail {
+  background: var(--err-soft); color: var(--err-ink);
+  border: 1px solid color-mix(in oklab, var(--err) 25%, transparent);
+}
+.svc-rule-preview.fail .pip {
+  background: var(--err);
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--err) 18%, transparent);
+}
+.svc-rule-preview b { font-weight: 700; }
+
+.svc-rule-add {
+  appearance: none;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1.5px dashed var(--border-strong);
+  background: transparent;
+  border-radius: 10px;
+  color: var(--primary);
+  font: 600 13px 'Inter', sans-serif;
+  cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+}
+.svc-rule-add:hover {
+  background: var(--primary-soft);
+  border-color: var(--primary);
+  color: var(--primary-ink);
+}
+
+/* save bar */
+.svc-savebar {
+  position: sticky;
+  bottom: 0;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  padding: 12px 18px;
+  display: flex; align-items: center; gap: 12px;
+  margin-top: 6px;
+}
+.svc-savebar-msg {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12.5px; color: var(--ink-2);
+  flex: 1;
+}
+.svc-savebar-msg .dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--warn);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--warn) 20%, transparent);
+}
+.svc-savebar-msg b { color: var(--ink); font-weight: 600; }
+
+/* tag input chips */
+.svc-tag-input {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  padding: 6px 8px;
+  min-height: 36px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: var(--surface-2);
+  align-items: center;
+}
+.svc-tag-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 4px 3px 8px;
+  font: 500 12px 'JetBrains Mono', monospace;
+  background: var(--primary-soft);
+  color: var(--primary-ink);
+  border: 1px solid color-mix(in oklab, var(--primary) 25%, transparent);
+  border-radius: 5px;
+}
+.svc-tag-chip .x {
+  width: 16px; height: 16px;
+  display: grid; place-items: center;
+  border-radius: 3px;
+  cursor: pointer;
+  color: var(--primary-ink);
+  opacity: 0.6;
+}
+.svc-tag-chip .x:hover { background: color-mix(in oklab, var(--primary) 20%, transparent); opacity: 1; }
+.svc-tag-input .input-bare {
+  border: 0; background: transparent;
+  padding: 4px 6px;
+  font: 400 13px 'Inter', sans-serif;
+  color: var(--ink);
+  outline: none;
+  flex: 1;
+  min-width: 100px;
+}
+
+/* ── EditDrawer ──────────────────────────────────────────────────────
+   Overlay drawer for the admin pages' create / edit forms (Tags,
+   Schemas, Maps, Metadata fields). Rendered via a portal to
+   document.body so no parent layout has to reserve space for it.
+   Distinct from `.drawer` above, which is laid out inside the page
+   grid. */
+.edit-drawer-root {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  justify-content: flex-end;
+  pointer-events: none; /* children re-enable as needed */
+}
+.edit-drawer-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.36);
+  pointer-events: auto;
+  animation: edit-drawer-fade-in 120ms ease-out;
+}
+.edit-drawer-panel {
+  position: relative;
+  height: 100%;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  box-shadow: -8px 0 32px rgba(0, 0, 0, 0.18);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  pointer-events: auto;
+  animation: edit-drawer-slide-in 180ms cubic-bezier(0.2, 0.7, 0.2, 1);
+  max-width: 96vw; /* keep usable on narrow screens */
+}
+.edit-drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+.edit-drawer-title {
+  font: 600 14px 'Inter', sans-serif;
+  margin: 0;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.edit-drawer-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 18px;
+}
+
+@keyframes edit-drawer-slide-in {
+  from { transform: translateX(24px); opacity: 0.6; }
+  to   { transform: translateX(0);    opacity: 1;   }
+}
+@keyframes edit-drawer-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}

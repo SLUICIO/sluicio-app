@@ -1,0 +1,50 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Example OpenTelemetry Collector configuration that forwards traces,
+# logs, and metrics to an Integration Monitor cell over OTLP/gRPC. The
+# cell authenticates the batch using the bearer token in the
+# `authorization` header.
+#
+# Replace `${CELL_ENDPOINT}` and `${TENANT_TOKEN}` for your environment.
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch: {}
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 512
+  resource:
+    attributes:
+      - key: deployment.environment
+        value: ${env:DEPLOYMENT_ENVIRONMENT}
+        action: upsert
+
+exporters:
+  otlp:
+    endpoint: ${env:CELL_ENDPOINT}
+    headers:
+      authorization: "Bearer ${env:TENANT_TOKEN}"
+    tls:
+      insecure: false
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [otlp]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [otlp]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [otlp]

@@ -1,0 +1,81 @@
+# SPDX-License-Identifier: Apache-2.0
+# ClickHouse for a Sluicio cell on AKS, via the Altinity clickhouse-operator.
+#
+# Install the operator first (once per cluster):
+#   kubectl apply -f https://raw.githubusercontent.com/Altinity/clickhouse-operator/master/deploy/operator/clickhouse-operator-install-bundle.yaml
+#
+# Then: kubectl apply -f deploy/azure/aks/storageclass.yaml -f deploy/azure/aks/clickhouse.yaml
+#
+# This runs a single-node ClickHouse with the **default** user and NO
+# password, reachable only inside the cluster. Auth is replaced by network
+# isolation (ClusterIP + the NetworkPolicy below) — that's why the cell's
+# Helm chart needs only CLICKHOUSE_ENDPOINT to connect. To add ClickHouse
+# auth instead, see docs/aks.md → "Hardening: ClickHouse auth".
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sluicio
+---
+apiVersion: clickhouse.altinity.com/v1
+kind: ClickHouseInstallation
+metadata:
+  name: sluicio
+  namespace: sluicio
+spec:
+  defaults:
+    templates:
+      podTemplate: ch-pod
+      dataVolumeClaimTemplate: ch-data
+  configuration:
+    clusters:
+      - name: main
+        layout:
+          shardsCount: 1
+          replicasCount: 1
+    # Create the telemetry database the cell writes logs/traces into, so
+    # the first connection doesn't race table creation.
+    files:
+      config.d/init_db.sql: |
+        CREATE DATABASE IF NOT EXISTS telemetry;
+  templates:
+    podTemplates:
+      - name: ch-pod
+        spec:
+          containers:
+            - name: clickhouse
+              image: clickhouse/clickhouse-server:24.8
+              resources:
+                requests: { cpu: "1", memory: 4Gi }
+                limits: { cpu: "4", memory: 16Gi }
+    volumeClaimTemplates:
+      - name: ch-data
+        spec:
+          storageClassName: sluicio-ch-premium
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests:
+              storage: 100Gi
+---
+# Only the cell's own pods may reach ClickHouse. Since the default user
+# has no password, this network boundary is the access control.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: clickhouse-allow-cell-only
+  namespace: sluicio
+spec:
+  podSelector:
+    matchLabels:
+      clickhouse.altinity.com/chi: sluicio
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/part-of
+                operator: In
+                values: ["integration-monitor-cell"]
+      ports:
+        - { protocol: TCP, port: 9000 } # native
+        - { protocol: TCP, port: 8123 } # http

@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: Apache-2.0
+# Block storage for ClickHouse on AKS — Azure Disk (Premium SSD) via the
+# in-tree CSI driver. ClickHouse wants local-ish block storage, NOT a
+# network share, so this is the backing store for its PVCs.
+#
+# - WaitForFirstConsumer: bind the disk in the same zone as the CH pod.
+# - Retain: don't delete the disk (your telemetry) if the PVC is removed.
+# - allowVolumeExpansion: grow the disk later without recreating it.
+# For higher IOPS, switch skuName to PremiumV2_LRS or UltraSSD_LRS.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: sluicio-ch-premium
+provisioner: disk.csi.azure.com
+parameters:
+  skuName: Premium_LRS
+  cachingmode: None
+reclaimPolicy: Retain
+allowVolumeExpansion: true
+volumeBindingMode: WaitForFirstConsumer

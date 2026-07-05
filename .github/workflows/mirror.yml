@@ -1,0 +1,46 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# mirror — keep a sovereign copy of the repo in sync (GitHub primary, your own
+# Forgejo/Gitea as a mirror under EU jurisdiction). This pushes main + tags to
+# the mirror on every push, so "switching" later is a one-flip promotion of an
+# already-complete copy, not a migration.
+#
+# Configure once (Settings → Secrets and variables → Actions):
+#   - Variable MIRROR_REMOTE  = https://<host>/<owner>/<repo>.git
+#   - Secret   MIRROR_TOKEN   = a write token for that host (e.g. a Gitea PAT)
+# Without both set, the job no-ops — so the public repo is safe by default.
+#
+# Alternative (no GitHub secret needed): configure a *pull* mirror on the
+# Gitea/Forgejo side, pointing at this GitHub repo. Either works.
+name: mirror
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  mirror:
+    name: Push to sovereign mirror
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Push main + tags to the mirror
+        env:
+          MIRROR_REMOTE: ${{ vars.MIRROR_REMOTE }}
+          MIRROR_TOKEN: ${{ secrets.MIRROR_TOKEN }}
+        run: |
+          if [ -z "$MIRROR_REMOTE" ] || [ -z "$MIRROR_TOKEN" ]; then
+            echo "Mirror not configured (set vars.MIRROR_REMOTE + secrets.MIRROR_TOKEN) — skipping."
+            exit 0
+          fi
+          # Inject the token as basic auth; GitHub masks the secret in logs.
+          url="$(printf '%s' "$MIRROR_REMOTE" | sed -E "s#^https://#https://oauth2:${MIRROR_TOKEN}@#")"
+          git push --force "$url" "HEAD:refs/heads/main"
+          git push --force --tags "$url"

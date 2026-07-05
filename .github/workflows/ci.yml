@@ -1,0 +1,156 @@
+# SPDX-License-Identifier: Apache-2.0
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    name: Go (build, vet, test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          # Read the version from go.work so CI always matches what the
+          # modules declare (currently 1.25.0). setup-go@v6 defaults
+          # GOTOOLCHAIN=local, so a hardcoded older version no longer
+          # auto-upgrades and would fail the go.work toolchain check.
+          go-version-file: go.work
+          cache: true
+      - name: Build
+        run: |
+          for s in controlplane cell-api cell-alerting cell-ingest cell-controller; do
+            echo "==> building $s"
+            (cd "services/$s" && go build ./...)
+          done
+      - name: Vet
+        run: |
+          for s in controlplane cell-api cell-alerting cell-ingest cell-controller; do
+            echo "==> vetting $s"
+            (cd "services/$s" && go vet ./...)
+          done
+      - name: Test (root module)
+        run: go test ./...
+      - name: Test (plugins module)
+        run: (cd plugins && go test ./...)
+
+  frontend:
+    name: Frontend (typecheck, lint, test, build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install
+        run: npm ci || npm install
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Test
+        run: npm test
+      - name: Build
+        run: npm run build
+
+  helm:
+    name: Helm (lint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.15.4
+      - name: Lint cell chart
+        run: helm lint deploy/helm/cell
+      - name: Lint controlplane chart
+        run: helm lint deploy/helm/controlplane
+
+  licenses:
+    name: License headers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Check SPDX headers
+        run: |
+          set -e
+          missing=0
+          while IFS= read -r f; do
+            if ! grep -q "SPDX-License-Identifier:" "$f"; then
+              echo "missing SPDX header: $f"
+              missing=$((missing+1))
+            fi
+          done < <(git ls-files \
+            'services/**/*.go' \
+            'pkg/**/*.go' \
+            'plugins/**/*.go' \
+            'frontend/src/**/*.ts' \
+            'frontend/src/**/*.tsx' \
+            'deploy/helm/**/*.yaml' \
+            'deploy/helm/**/*.tpl' \
+            2>/dev/null)
+          if [ "$missing" -gt 0 ]; then
+            echo "::error::$missing file(s) missing SPDX-License-Identifier headers"
+            exit 1
+          fi
+
+  integration:
+    name: Integration (testcontainers)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.work
+          cache: true
+      # ubuntu-latest ships a working Docker daemon, so testcontainers
+      # starts its own throwaway Postgres — no `services:` block needed.
+      - name: Integration tests
+        run: go test -tags integration -count=1 ./...
+
+  security:
+    name: Security (vuln, secrets, audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # full history so gitleaks scans every commit
+      - uses: actions/setup-go@v6
+        with:
+          # Installs the toolchain pinned in go.work (>= go1.25.11), so
+          # govulncheck evaluates the patched standard library — the same
+          # one the golang:1.25 Docker builders ship.
+          go-version-file: go.work
+          cache: true
+      # Reachability-aware Go vuln scan: only fails on advisories your code
+      # actually calls, so findings are actionable rather than noise.
+      - name: govulncheck (root module)
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          "$(go env GOPATH)/bin/govulncheck" ./...
+      - name: govulncheck (plugins module)
+        run: (cd plugins && "$(go env GOPATH)/bin/govulncheck" ./...)
+      # Secret scan over full history. Config allowlists live in .gitleaks.toml;
+      # --redact keeps any match out of the logs.
+      - name: gitleaks (secret scan)
+        run: |
+          go install github.com/zricethezav/gitleaks/v8@latest
+          "$(go env GOPATH)/bin/gitleaks" git --no-banner --redact \
+            --config .gitleaks.toml --exit-code 1 .
+      # Frontend dependency audit. Gates on production high/critical only;
+      # dev-tooling and moderate advisories are surfaced but don't block.
+      - name: npm audit (frontend, production deps)
+        working-directory: frontend
+        run: npm audit --omit=dev --audit-level=high

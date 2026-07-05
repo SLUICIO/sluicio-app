@@ -1,0 +1,13 @@
+# Repo-root build context (Go service images build with context = repo
+# root so the Go workspace is visible). Keep the upload lean: the Go
+# Dockerfiles only COPY go.*, pkg/, services/, plugins/ anyway, so
+# everything below is dead weight in the build context.
+.git
+frontend/node_modules
+frontend/dist
+**/node_modules
+bin
+dist
+build
+.claude
+*.log

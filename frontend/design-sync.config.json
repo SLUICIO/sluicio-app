@@ -1,0 +1,22 @@
+{
+  "pkg": "@integration-monitor/frontend",
+  "globalName": "Sluicio",
+  "shape": "package",
+  "srcDir": "src",
+  "tsconfig": "tsconfig.json",
+  "cssEntry": ".design-sync/compiled.css",
+  "runtimeFontPrefixes": ["Inter", "JetBrains Mono"],
+  "componentSrcMap": {
+    "StatusPip": "src/components/primitives/StatusPip.tsx",
+    "Sparkline": "src/components/primitives/Sparkline.tsx",
+    "Donut": "src/components/primitives/Donut.tsx",
+    "KpiCard": "src/components/primitives/KpiCard.tsx",
+    "SortableTh": "src/components/primitives/SortableTh.tsx",
+    "KVTable": "src/components/primitives/KVTable.tsx",
+    "EditDrawer": "src/components/primitives/EditDrawer.tsx",
+    "SeverityBadge": "src/components/SeverityBadge.tsx"
+  },
+  "overrides": {
+    "EditDrawer": { "cardMode": "single", "viewport": "760x520" }
+  }
+}

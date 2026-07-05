@@ -1,0 +1,15 @@
+Integration Monitor uses a mixed licensing model.
+
+- The product itself (the `services/`, `pkg/`, `frontend/`, and
+  `deploy/helm/controlplane/` directories) is licensed under the
+  Functional Source License v1.1 with an Apache 2.0 future grant
+  (FSL-1.1-Apache-2.0). See LICENSE-FSL.
+
+- Peripheral code intended to be built on by third parties (the
+  `plugins/`, `deploy/helm/cell/`, `deploy/otel-collector/`, `docs/`,
+  and any SDK directories) is licensed under the Apache License,
+  Version 2.0. See LICENSE-APACHE.
+
+The authoritative per-directory mapping is in NOTICE. Source files
+include SPDX-License-Identifier headers that override anything implied
+by their containing directory.

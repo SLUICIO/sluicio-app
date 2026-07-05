@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: FSL-1.1-Apache-2.0
+#
+# demo-seeder — the synthetic-telemetry generator for a public demo
+# cell. Wraps services/cell-ingest/cmd/seed-traces in a tiny image so
+# the demo host runs it like every other Sluicio service: pulled from
+# the registry, no build step, restart unless-stopped.
+#
+#   docker build -f deploy/demo/Dockerfile.seeder -t sluicio/demo-seeder .
+#
+# Flags come from the compose command:; the ingest key from the
+# SLUICIO_INGEST_KEY env (see deploy/demo/docker-compose.demo.yml).
+
+FROM golang:1.25-bookworm AS build
+WORKDIR /src
+COPY go.work go.work.sum ./
+COPY go.mod go.sum ./
+COPY plugins/go.mod ./plugins/
+COPY pkg ./pkg
+COPY services ./services
+COPY plugins ./plugins
+ENV CGO_ENABLED=0 GOFLAGS=-trimpath
+RUN go build -ldflags="-s -w" -o /out/seed-traces ./services/cell-ingest/cmd/seed-traces
+
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=build /out/seed-traces /seed-traces
+ENTRYPOINT ["/seed-traces"]

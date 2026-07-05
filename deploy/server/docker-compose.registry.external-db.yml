@@ -1,0 +1,64 @@
+# SPDX-License-Identifier: FSL-1.1-Apache-2.0
+#
+# Sluicio cell using YOUR OWN external Postgres + ClickHouse (bring-your-own
+# database). Runs only the Sluicio services — no bundled databases, no data
+# volumes. Point it at your databases in the env file.
+#
+#   docker compose --env-file sluicio.env \
+#     -f docker-compose.registry.external-db.yml up -d
+#
+# Required in the env file (see sluicio.env.external.example):
+#   POSTGRES_DSN         postgres://user:pass@your-pg-host:5432/controlplane?sslmode=require
+#   CLICKHOUSE_ENDPOINT  your-ch-host:9000
+#   CLICKHOUSE_DATABASE  telemetry           (created if your CH user may create DBs)
+#   CLICKHOUSE_USERNAME / CLICKHOUSE_PASSWORD
+#
+# cell-api applies its own Postgres migrations on startup and creates its
+# ClickHouse tables — the databases just need to exist and be reachable with
+# these credentials.
+#
+# HAVE ONLY ONE of the two? Layer a bundled overlay on top. E.g. you have
+# Postgres but need ClickHouse:
+#   docker compose --env-file sluicio.env \
+#     -f docker-compose.registry.external-db.yml \
+#     -f docker-compose.bundled-clickhouse.yml up -d
+# (and vice versa with docker-compose.bundled-postgres.yml).
+
+# Connection values default to empty so a bundled-* overlay can supply them
+# without compose warning about unset variables. For a pure external setup,
+# set them in the env file (sluicio.env.external.example).
+x-ch-env: &ch-env
+  CLICKHOUSE_ENDPOINT: ${CLICKHOUSE_ENDPOINT:-}
+  CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-telemetry}
+  CLICKHOUSE_USERNAME: ${CLICKHOUSE_USERNAME:-}
+  CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-}
+
+services:
+  cell-api:
+    image: ${REGISTRY:-ghcr.io}/${NAMESPACE:-sluicio}/cell-api:${TAG:-latest}
+    restart: unless-stopped
+    environment:
+      <<: *ch-env
+      CELL_API_ADDR: ":8081"
+      POSTGRES_DSN: ${POSTGRES_DSN:-}
+      SLUICIO_APP_URL: ${SLUICIO_APP_URL:-}
+      SLUICIO_LICENSE_KEY: ${SLUICIO_LICENSE_KEY:-}
+      SLUICIO_MFA_KEY: ${SLUICIO_MFA_KEY:-}
+    ports:
+      - "${CELL_API_PORT:-8081}:8081"
+
+  cell-ingest:
+    image: ${REGISTRY:-ghcr.io}/${NAMESPACE:-sluicio}/cell-ingest:${TAG:-latest}
+    restart: unless-stopped
+    environment:
+      <<: *ch-env
+      CELL_INGEST_ADDR: ":4318"
+      POSTGRES_DSN: ${POSTGRES_DSN:-}
+    ports:
+      - "${CELL_INGEST_PORT:-4318}:4318"
+
+  frontend:
+    image: ${REGISTRY:-ghcr.io}/${NAMESPACE:-sluicio}/frontend:${TAG:-latest}
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"

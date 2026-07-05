@@ -1,0 +1,45 @@
+# SPDX-License-Identifier: FSL-1.1-Apache-2.0
+#
+# Overlay: add a BUNDLED Postgres to the external-db compose — for users who
+# already have ClickHouse but not Postgres. Layer it AFTER the external-db
+# file so it wires cell-api/cell-ingest at the bundled Postgres:
+#
+#   docker compose --env-file sluicio.env \
+#     -f docker-compose.registry.external-db.yml \
+#     -f docker-compose.bundled-postgres.yml up -d
+#
+# Set POSTGRES_USER / POSTGRES_PASSWORD in the env file; leave POSTGRES_DSN
+# unset (this overlay supplies it, pointing at the bundled instance).
+
+services:
+  postgres:
+    image: docker.io/library/postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: controlplane
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d controlplane"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  cell-api:
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      POSTGRES_DSN: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/controlplane?sslmode=disable
+
+  cell-ingest:
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      POSTGRES_DSN: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/controlplane?sslmode=disable
+
+volumes:
+  postgres_data:

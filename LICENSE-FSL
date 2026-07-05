@@ -1,0 +1,48 @@
+Functional Source License, Version 1.1, Apache 2.0 Future License
+
+Abbreviation: FSL-1.1-Apache-2.0
+
+Notice
+
+Copyright 2026 Integration Monitor Authors
+
+Terms and Conditions
+
+Licensor: "Integration Monitor Authors"
+
+Licensed Work: "Integration Monitor". The Licensed Work is (c) 2026
+Integration Monitor Authors.
+
+Additional Use Grant: You may make use of the Licensed Work, provided that
+you may not use the Licensed Work for a Competing Use. A "Competing Use"
+means making the Licensed Work available to others in a commercial product
+or service that:
+
+  (a) substitutes for the use of the Licensed Work;
+  (b) offers the same or substantially similar functionality as the
+      Licensed Work; or
+  (c) is intended to compete with the Licensed Work.
+
+Permitted Use is not a Competing Use if it is:
+
+  (a) for internal use by employees and contractors of your business; or
+  (b) use of the Licensed Work to provide a product or service whose value
+      derives primarily from value other than that provided by the
+      Licensed Work itself.
+
+Change Date: Two years from the date the Licensed Work is published.
+
+Change License: Apache License, Version 2.0. On the Change Date, the
+Licensed Work will be made available under the terms of the Change License,
+and the conditions of this Functional Source License will no longer apply
+to that version of the Licensed Work.
+
+For the full canonical text of FSL-1.1-Apache-2.0, see:
+https://fsl.software/FSL-1.1-Apache-2.0.template.md
+
+Notice
+
+The Functional Source License (FSL) is not approved by the Open Source
+Initiative as an "open source" license. It is "source-available". Each
+version of the Licensed Work transitions to the Change License on the
+Change Date listed above.

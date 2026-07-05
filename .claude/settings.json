@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(podman ps)",
+      "Bash(podman inspect *)",
+      "Bash(podman logs *)",
+      "Bash(podman images *)",
+      "Bash(podman machine list)",
+      "Bash(podman machine info *)",
+      "Bash(go vet *)",
+      "Bash(gofmt -l *)",
+      "Bash(vm_stat)"
+    ]
+  }
+}

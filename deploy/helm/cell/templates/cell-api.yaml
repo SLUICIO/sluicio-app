@@ -1,0 +1,44 @@
+{{/* SPDX-License-Identifier: Apache-2.0 */}}
+{{- $ctx := dict "root" . "component" "cell-api" -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "cell.componentName" $ctx }}
+  labels: {{- include "cell.labels" $ctx | nindent 4 }}
+spec:
+  replicas: {{ .Values.cellApi.replicaCount }}
+  selector:
+    matchLabels: {{- include "cell.selectorLabels" $ctx | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "cell.selectorLabels" $ctx | nindent 8 }}
+    spec:
+      securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: cell-api
+          image: "{{ .Values.cellApi.image.repository }}:{{ .Values.cellApi.image.tag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8081
+          env:
+            {{- include "cell.dbEnv" . | nindent 12 }}
+            - name: PROMETHEUS_REMOTE_WRITE_URL
+              value: {{ .Values.prometheus.remoteWriteURL | quote }}
+            - name: OIDC_ISSUER
+              value: {{ .Values.keycloak.issuer | quote }}
+          resources: {{- toYaml .Values.cellApi.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "cell.componentName" $ctx }}
+  labels: {{- include "cell.labels" $ctx | nindent 4 }}
+spec:
+  type: {{ .Values.cellApi.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.cellApi.service.port }}
+      targetPort: http
+  selector: {{- include "cell.selectorLabels" $ctx | nindent 4 }}

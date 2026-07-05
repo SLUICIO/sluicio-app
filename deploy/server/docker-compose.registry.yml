@@ -1,0 +1,162 @@
+# SPDX-License-Identifier: FSL-1.1-Apache-2.0
+#
+# Run a full Sluicio cell from PREBUILT registry images (no build step) —
+# pairs with the images the release CI publishes. The official images live at
+# ghcr.io/sluicio/<image>.
+#
+# Image source (override any in the env file):
+#   REGISTRY  (default ghcr.io)
+#   NAMESPACE (default sluicio — the registry namespace the images live under,
+#              lowercased to a valid docker repo path)
+#   TAG       (default latest — pin to a version e.g. v0.8.0 for a release)
+#
+# The official ghcr.io images are public (anonymous pull). For a private
+# registry, `docker login <registry>` first (and trust its CA if self-signed).
+#
+#   docker compose -f deploy/server/docker-compose.registry.yml --env-file sluicio.env pull
+#   docker compose -f deploy/server/docker-compose.registry.yml --env-file sluicio.env up -d
+#   (podman compose works the same)
+#
+# MULTIPLE INSTANCES ON ONE HOST: compose namespaces containers, the
+# network, and the named volumes (postgres_data / clickhouse_data) by
+# PROJECT NAME, so two instances are fully isolated as long as each uses
+# a distinct project + distinct published host ports. The only thing
+# that would otherwise collide is the host ports — so they're all
+# overridable (FRONTEND_PORT / CELL_API_PORT / CELL_INGEST_PORT). Give
+# each instance its own env file + project name (-p):
+#
+#   docker compose -p sluicio-acme  --env-file acme.env  -f ...registry.yml up -d
+#   docker compose -p sluicio-globex --env-file globex.env -f ...registry.yml up -d
+#
+# where acme.env sets FRONTEND_PORT=8080 CELL_API_PORT=8081 CELL_INGEST_PORT=4318
+# and globex.env sets 8090 / 8091 / 4328 (any free ports). Different DB
+# passwords per instance too. Each gets its own postgres_data /
+# clickhouse_data volume (prefixed with the project name), so data never
+# crosses instances.
+#
+# A reverse proxy (your Nginx Proxy Manager / Caddy) terminates TLS and
+# PATH-ROUTES on ONE hostname — the cell-api session cookie is host-scoped,
+# so the UI and /api MUST share a hostname:
+#
+#   https://<ui-host>/         -> frontend     (container :80,  published :8080)
+#   https://<ui-host>/api/*     -> cell-api      (:8081)   ← same hostname as the UI
+#   https://<ingest-host>/v1/*  -> cell-ingest   (:4318)   ← OTLP producers post here
+#
+# cell-api applies DB migrations on startup, so `up -d` is all you need.
+# controlplane is NOT here — it's only for multi-cell SaaS; a single
+# self-hosted cell doesn't need it.
+
+x-ch-env: &ch-env
+  CLICKHOUSE_ENDPOINT: clickhouse:9000
+  CLICKHOUSE_DATABASE: telemetry
+  CLICKHOUSE_USERNAME: ${CLICKHOUSE_USER}
+  CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+
+services:
+  postgres:
+    image: docker.io/library/postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: controlplane
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d controlplane"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  clickhouse:
+    image: docker.io/clickhouse/clickhouse-server:24.8
+    restart: unless-stopped
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    environment:
+      CLICKHOUSE_DB: telemetry
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Also serves the remote MCP endpoint at /api/v1/mcp and the API docs at
+  # /api/docs (both via the Caddy /api/* route → no extra service/port).
+  cell-api:
+    image: ${REGISTRY:-ghcr.io}/${NAMESPACE:-sluicio}/cell-api:${TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    environment:
+      <<: *ch-env
+      CELL_API_ADDR: ":8081"
+      # All services read a single POSTGRES_DSN (pkg/postgres); the
+      # discrete POSTGRES_HOST/PORT/USER vars are NOT consulted.
+      POSTGRES_DSN: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/controlplane?sslmode=disable
+      # Public origin Sluicio is reached at, e.g. https://sluicio.acme.com.
+      # SET THIS when running behind a reverse proxy: it's the base for the SSO
+      # OIDC redirect_uri (must match the IdP's allowed callback) and for the
+      # deep links in alert/error/password-reset emails. Without it those URLs
+      # are reconstructed from request headers, which a proxy can rewrite.
+      SLUICIO_APP_URL: ${SLUICIO_APP_URL:-}
+      # EE license token — enables sso / rbac_advanced / audit_log /
+      # retention_long / mfa_policy. Set it in the server env (sluicio.env).
+      # Empty = unlicensed (community features only).
+      SLUICIO_LICENSE_KEY: ${SLUICIO_LICENSE_KEY:-}
+      # AES-256 key (base64) encrypting MFA TOTP secrets at rest; required for
+      # MFA enrollment. Empty = MFA enrollment unavailable.
+      SLUICIO_MFA_KEY: ${SLUICIO_MFA_KEY:-}
+    ports:
+      # reverse proxy forwards <ui-host>/api/* here. Override CELL_API_PORT
+      # when running multiple instances on one host.
+      - "${CELL_API_PORT:-8081}:8081"
+
+  cell-ingest:
+    image: ${REGISTRY:-ghcr.io}/${NAMESPACE:-sluicio}/cell-ingest:${TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    environment:
+      <<: *ch-env
+      CELL_INGEST_ADDR: ":4318"
+      # cell-ingest needs Postgres too — it verifies ingest keys there.
+      POSTGRES_DSN: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/controlplane?sslmode=disable
+    ports:
+      # OTLP/HTTP; reverse proxy forwards <ingest-host>/v1/* here. Override
+      # CELL_INGEST_PORT when running multiple instances on one host.
+      - "${CELL_INGEST_PORT:-4318}:4318"
+
+  # NOTE: cell-alerting is intentionally not deployed. It's a no-op
+  # scaffold today — cell-api owns the alert evaluation + delivery loops
+  # (and the error notifier). Running it would just idle, and pulling its
+  # image fails when the registry has none. Re-add this block only once
+  # the loops are actually split out into the cell-alerting binary.
+
+  frontend:
+    image: ${REGISTRY:-ghcr.io}/${NAMESPACE:-sluicio}/frontend:${TAG:-latest}
+    restart: unless-stopped
+    # No depends_on: the frontend only serves static files; the browser
+    # reaches cell-api via the reverse proxy, not this container. (Also
+    # sidesteps a podman-compose depends_on graph bug.)
+    ports:
+      # Browser / reverse proxy → frontend. Override FRONTEND_PORT if 8080
+      # is taken on the host.
+      - "${FRONTEND_PORT:-8080}:80"
+
+volumes:
+  postgres_data:
+  clickhouse_data:

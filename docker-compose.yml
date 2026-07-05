@@ -1,0 +1,116 @@
+# Local development environment for Integration Monitor.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Brings up the stateful dependencies the services need to run locally:
+#   - Postgres (control plane data)
+#   - ClickHouse (cell-local logs and traces)
+#   - Prometheus (cell-local metrics)
+#   - Keycloak (OIDC, with a default `integration-monitor` realm to be added)
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: controlplane
+      POSTGRES_USER: controlplane
+      POSTGRES_PASSWORD: controlplane
+    ports:
+      # Host port is 5433 to avoid colliding with a Postgres that may
+      # already be running on the default 5432. Inside the compose
+      # network, other services still reach it as `postgres:5432`.
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    # ClickHouse normally wants a high nofile ulimit; we omit it here so
+    # the compose file runs under rootless Podman without privilege errors.
+    # Production deployments should set ulimits via Kubernetes pod specs.
+    #
+    # We deliberately do NOT set CLICKHOUSE_USER/CLICKHOUSE_PASSWORD. The
+    # image removes the built-in `default` user when a custom user is
+    # provided, which forces every dev-mode connection to thread custom
+    # credentials. Leaving them unset preserves `default` with an empty
+    # password, which matches the Go defaults in pkg/clickhouse — so
+    # `make run-cell-ingest` just works.
+    environment:
+      CLICKHOUSE_DB: telemetry
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    ports:
+      - "8123:8123"   # HTTP
+      - "9000:9000"   # native
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+
+  prometheus:
+    image: prom/prometheus:v2.55.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-remote-write-receiver
+    ports:
+      - "9090:9090"
+    volumes:
+      - prometheus_data:/prometheus
+      - ./deploy/dev/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+
+  # ── Application services ───────────────────────────────────────────
+  # cell-api + cell-ingest run in-container so the local stack stays up
+  # without a babysat `go run`. They build from the repo (context = root)
+  # and talk to postgres/clickhouse over the compose network. `restart:
+  # unless-stopped` means they retry until the data stores are ready (the
+  # services exit on a failed connect rather than blocking), so no
+  # healthcheck wiring is needed.
+
+  # cell-api also serves the remote MCP endpoint at /api/v1/mcp (Bearer-auth,
+  # read-only) and the API docs at /api/docs — no separate service needed.
+  cell-api:
+    build:
+      context: .
+      dockerfile: services/cell-api/Dockerfile
+    depends_on: [postgres, clickhouse]
+    restart: unless-stopped
+    environment:
+      POSTGRES_DSN: postgres://controlplane:controlplane@postgres:5432/controlplane?sslmode=disable
+      CLICKHOUSE_ENDPOINT: clickhouse:9000
+      CLICKHOUSE_DATABASE: telemetry
+      CELL_API_ADDR: ":8081"
+      # Public origin the SPA is served from — used to build links in
+      # account email (password-reset). Matches the Vite dev server.
+      SLUICIO_APP_URL: ${SLUICIO_APP_URL:-http://localhost:5173}
+      # Optional Enterprise license. Set in your shell or a .env file to
+      # light up EE features; empty = Community.
+      SLUICIO_LICENSE_KEY: ${SLUICIO_LICENSE_KEY:-}
+      # Optional MFA encryption key (base64 32 bytes). Unset = auto-
+      # generated + persisted in cell_settings.
+      SLUICIO_MFA_KEY: ${SLUICIO_MFA_KEY:-}
+      # Optional off-box audit sink (EE): every audit entry is also POSTed
+      # (HMAC-signed when the secret is set) to this URL. Empty = no
+      # shipping. Deploy-time only, on purpose — see docs/audit-log.md.
+      SLUICIO_AUDIT_SINK_URL: ${SLUICIO_AUDIT_SINK_URL:-}
+      SLUICIO_AUDIT_SINK_SECRET: ${SLUICIO_AUDIT_SINK_SECRET:-}
+    ports:
+      - "8081:8081"
+
+  cell-ingest:
+    build:
+      context: .
+      dockerfile: services/cell-ingest/Dockerfile
+    depends_on: [postgres, clickhouse]
+    restart: unless-stopped
+    environment:
+      POSTGRES_DSN: postgres://controlplane:controlplane@postgres:5432/controlplane?sslmode=disable
+      CLICKHOUSE_ENDPOINT: clickhouse:9000
+      CLICKHOUSE_DATABASE: telemetry
+      CELL_INGEST_ADDR: ":4318"
+      # Dev convenience: accept unauthenticated OTLP (the test apps don't
+      # send an ingest key). Set false to require a key.
+      INGEST_ALLOW_ANONYMOUS: ${INGEST_ALLOW_ANONYMOUS:-true}
+    ports:
+      - "4318:4318"
+
+volumes:
+  postgres_data:
+  clickhouse_data:
+  prometheus_data:

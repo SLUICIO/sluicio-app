@@ -1,0 +1,106 @@
+# SPDX-License-Identifier: FSL-1.1-Apache-2.0
+#
+# Sluicio QUICKSTART — the whole thing in one command, zero config.
+#
+#   docker compose -f deploy/quickstart/docker-compose.yml up -d
+#   # then open http://localhost:8080
+#
+# Bundles Postgres + ClickHouse + the Sluicio services using the public
+# ghcr.io/sluicio images. The frontend proxies /api to cell-api, so there's no
+# reverse proxy to set up — the browser talks to one port (8080) and it all
+# works. cell-api migrates Postgres and creates the ClickHouse tables on
+# startup, so the first `up` is all you need; the first screen lets you create
+# the admin account.
+#
+# Send telemetry to it (OTLP/HTTP) at http://localhost:4318.
+#
+# ⚠  FOR EVALUATION / LOCAL USE ONLY. It ships weak default passwords and no
+#    TLS. For a real deployment use deploy/server/ (single host) or the Helm
+#    chart (Kubernetes), where you set real secrets behind a reverse proxy.
+#
+# Everything below is overridable via the environment if you want, but the
+# whole point is that you don't have to set anything.
+
+x-ch-env: &ch-env
+  CLICKHOUSE_ENDPOINT: clickhouse:9000
+  CLICKHOUSE_DATABASE: telemetry
+  CLICKHOUSE_USERNAME: ${CLICKHOUSE_USER:-sluicio}
+  CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-sluicio_dev}
+
+services:
+  postgres:
+    image: docker.io/library/postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: controlplane
+      POSTGRES_USER: ${POSTGRES_USER:-sluicio}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sluicio_dev}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d controlplane"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  clickhouse:
+    image: docker.io/clickhouse/clickhouse-server:24.8
+    restart: unless-stopped
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    environment:
+      CLICKHOUSE_DB: telemetry
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-sluicio}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-sluicio_dev}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  cell-api:
+    image: ${REGISTRY:-ghcr.io}/${NAMESPACE:-sluicio}/cell-api:${TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    environment:
+      <<: *ch-env
+      CELL_API_ADDR: ":8081"
+      POSTGRES_DSN: postgres://${POSTGRES_USER:-sluicio}:${POSTGRES_PASSWORD:-sluicio_dev}@postgres:5432/controlplane?sslmode=disable
+      SLUICIO_APP_URL: ${SLUICIO_APP_URL:-http://localhost:8080}
+      SLUICIO_LICENSE_KEY: ${SLUICIO_LICENSE_KEY:-}
+
+  cell-ingest:
+    image: ${REGISTRY:-ghcr.io}/${NAMESPACE:-sluicio}/cell-ingest:${TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    environment:
+      <<: *ch-env
+      CELL_INGEST_ADDR: ":4318"
+      POSTGRES_DSN: postgres://${POSTGRES_USER:-sluicio}:${POSTGRES_PASSWORD:-sluicio_dev}@postgres:5432/controlplane?sslmode=disable
+    ports:
+      - "${CELL_INGEST_PORT:-4318}:4318"   # OTLP/HTTP — point your OTel Collector here
+
+  frontend:
+    image: ${REGISTRY:-ghcr.io}/${NAMESPACE:-sluicio}/frontend:${TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      - cell-api
+    ports:
+      - "${PORT:-8080}:80"                 # ← open http://localhost:8080
+
+volumes:
+  postgres_data:
+  clickhouse_data:

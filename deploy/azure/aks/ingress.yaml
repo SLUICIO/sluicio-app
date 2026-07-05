@@ -1,0 +1,62 @@
+# SPDX-License-Identifier: Apache-2.0
+# Public ingress for a Sluicio cell on AKS (ingress-nginx + cert-manager).
+# Backends are the chart's Services: <release>-cell-api (8081) and
+# <release>-cell-ingest (4318). This assumes release name "sluicio".
+#
+# Prereqs in the cluster:
+#   helm install ingress-nginx ingress-nginx/ingress-nginx -n ingress-nginx --create-namespace
+#   helm install cert-manager jetstack/cert-manager -n cert-manager --create-namespace --set crds.enabled=true
+#   # + a ClusterIssuer named "letsencrypt" (HTTP-01 via ingress-nginx)
+#
+# Point DNS A-records for app.example.com and ingest.example.com at the
+# ingress-nginx external IP before requesting certs.
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: cell-api
+  namespace: sluicio
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: [app.example.com]
+      secretName: cell-api-tls
+  rules:
+    - host: app.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: sluicio-cell-api
+                port:
+                  number: 8081
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: cell-ingest
+  namespace: sluicio
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+    # OTLP/HTTP payloads can be large; lift the body cap.
+    nginx.ingress.kubernetes.io/proxy-body-size: "16m"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: [ingest.example.com]
+      secretName: cell-ingest-tls
+  rules:
+    - host: ingest.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: sluicio-cell-ingest
+                port:
+                  number: 4318

@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# gitleaks configuration. Extends the upstream default ruleset and suppresses
+# known false positives. Keep this list tight — every entry is a place a real
+# secret could hide, so justify each one.
+title = "Sluicio gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = """
+Known false positives.
+
+1. Doc-comment prose in the license package: the generic-api-key rule matches
+   the sentence "Keys are offline, Ed25519-signed tokens — the app ships the
+   public key and verifies locally". It is a comment, not a credential. The
+   repo only ever ships the PUBLIC key; the private signing key is produced by
+   the proprietary keygen tool and is git-ignored (*.key).
+
+2. Public keys are committed by design (offline license verification needs the
+   PUBLIC Ed25519 key in pkg/license/sluicio_license_ed25519.pub). A .pub file
+   is safe to expose.
+"""
+regexTarget = "match"
+regexes = [
+  '''Keys are offline, Ed25519-signed''',
+]
+paths = [
+  '''\.pub$''',
+]

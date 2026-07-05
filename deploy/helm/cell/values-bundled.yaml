@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Turnkey all-in-one: the chart also deploys Postgres + ClickHouse, so a single
+# `helm install` needs no external databases.
+#
+#   helm install my-cell ./deploy/helm/cell -f deploy/helm/cell/values-bundled.yaml
+#
+# Best for evaluation and small installs. Set real passwords below; for
+# production, prefer managed databases (see values-external-db.yaml). The
+# bundled databases are single-replica with a PVC each — not HA.
+
+postgres:
+  enabled: true
+  auth:
+    username: sluicio
+    password: change-me-postgres
+    database: controlplane
+  storage:
+    size: 10Gi
+    # storageClass: ""   # "" uses the cluster's default StorageClass
+
+clickhouse:
+  enabled: true
+  database: telemetry
+  auth:
+    username: sluicio
+    password: change-me-clickhouse
+  storage:
+    size: 50Gi

@@ -1,0 +1,35 @@
+{{/* SPDX-License-Identifier: FSL-1.1-Apache-2.0 */}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "controlplane.fullname" . }}
+  labels: {{- include "controlplane.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels: {{- include "controlplane.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "controlplane.selectorLabels" . | nindent 8 }}
+    spec:
+      securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      serviceAccountName: {{ include "controlplane.fullname" . }}
+      containers:
+        - name: controlplane
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: POSTGRES_DSN
+              value: {{ .Values.postgres.dsn | quote }}
+            - name: KEYCLOAK_URL
+              value: {{ .Values.keycloak.url | quote }}
+            - name: KEYCLOAK_REALM
+              value: {{ .Values.keycloak.realm | quote }}
+            - name: KEYCLOAK_CLIENT_ID
+              value: {{ .Values.keycloak.clientId | quote }}
+          resources: {{- toYaml .Values.resources | nindent 12 }}

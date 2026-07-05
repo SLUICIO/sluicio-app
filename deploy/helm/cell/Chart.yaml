@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: Apache-2.0
+apiVersion: v2
+name: integration-monitor-cell
+description: |
+  A single Integration Monitor cell. A cell is the data-plane stack that
+  ingests telemetry, stores it, evaluates alert rules, and serves the
+  UI. The same chart is used for managed SaaS cells and on-premise
+  installations.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+maintainers:
+  - name: Integration Monitor Authors

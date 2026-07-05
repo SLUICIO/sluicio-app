@@ -1,0 +1,131 @@
+# SPDX-License-Identifier: FSL-1.1-Apache-2.0
+#
+# Production compose for a single-server Sluicio cell.
+#
+# Differences from the root docker-compose.yml (which is dev-only):
+#
+#   1. We also run cell-api + cell-ingest as containers (the dev compose
+#      only runs the stateful deps, expecting `make run-cell-api` etc.
+#      from the host).
+#   2. Database ports bind to 127.0.0.1 only — they're not on the
+#      internet. Caddy fronts the cell-api + cell-ingest HTTP endpoints
+#      and handles TLS.
+#   3. Passwords are read from /etc/sluicio/sluicio.env (created by
+#      bootstrap.sh). NOT checked into the repo.
+#   4. Data volumes bind-mount to /var/lib/sluicio/ so a host-level
+#      backup script can see them without a docker exec dance.
+#   5. No Prometheus — it was scraping itself with no real targets;
+#      removed in favour of OTLP self-instrumentation later
+#      (see GitHub issue tracking that).
+#   6. Restart policy on everything so a reboot brings the stack back.
+#
+# Usage (from the repo root):
+#
+#   docker compose -f deploy/server/docker-compose.yml \
+#                  --env-file /etc/sluicio/sluicio.env  \
+#                  up -d --build
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: controlplane
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      # Bound to loopback only — Caddy never proxies to Postgres, but a
+      # human admin running pg_dump from the host needs port access.
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - /var/lib/sluicio/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d controlplane"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    restart: unless-stopped
+    ulimits:
+      # ClickHouse wants a high nofile cap. The dev compose skips this
+      # for rootless podman compatibility; server installs should give
+      # it the room it actually wants.
+      nofile:
+        soft: 262144
+        hard: 262144
+    environment:
+      CLICKHOUSE_DB: telemetry
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    ports:
+      - "127.0.0.1:8123:8123"   # HTTP — used by Sluicio's Go services
+      - "127.0.0.1:9000:9000"   # native — used by clickhouse-client
+    volumes:
+      - /var/lib/sluicio/clickhouse:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  cell-api:
+    build:
+      # Build context is the repo root so the Dockerfile can see the
+      # whole Go workspace (go.work, services/, pkg/, plugins/).
+      context: ../..
+      dockerfile: services/cell-api/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    environment:
+      CELL_API_ADDR: ":8081"
+      # The Go services read a single POSTGRES_DSN (pkg/postgres), NOT the
+      # discrete POSTGRES_HOST/PORT/USER vars — those are silently ignored
+      # and the client falls back to its localhost:5433 default.
+      POSTGRES_DSN: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/controlplane?sslmode=disable
+      CLICKHOUSE_ENDPOINT: clickhouse:9000
+      CLICKHOUSE_DATABASE: telemetry
+      CLICKHOUSE_USERNAME: ${CLICKHOUSE_USER}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      # Public origin Sluicio is reached at — background-sent alert/error
+      # notifications build their deep links from this; empty = links omitted.
+      SLUICIO_APP_URL: ${SLUICIO_APP_URL:-}
+    ports:
+      # cell-api is the HTTP surface Caddy proxies to. Bound to loopback
+      # so the only way to reach it from outside is through Caddy (TLS).
+      - "127.0.0.1:8081:8081"
+
+  cell-ingest:
+    build:
+      context: ../..
+      dockerfile: services/cell-ingest/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      # cell-ingest needs Postgres too — it verifies per-org ingest keys
+      # (slk_…) against the controlplane DB on every OTLP batch.
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    environment:
+      CELL_INGEST_ADDR: ":4318"
+      POSTGRES_DSN: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/controlplane?sslmode=disable
+      CLICKHOUSE_ENDPOINT: clickhouse:9000
+      CLICKHOUSE_DATABASE: telemetry
+      CLICKHOUSE_USERNAME: ${CLICKHOUSE_USER}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+    ports:
+      # OTLP/HTTP — instrumented services POST here. Caddy proxies
+      # ingest.${DOMAIN} → 127.0.0.1:4318 with TLS termination so
+      # producers can use HTTPS without trusting a self-signed cert.
+      - "127.0.0.1:4318:4318"
+
+# No top-level volumes block — we bind-mount /var/lib/sluicio/* directly
+# so backups + disk monitoring on the host can see the data without
+# threading the Docker storage driver.

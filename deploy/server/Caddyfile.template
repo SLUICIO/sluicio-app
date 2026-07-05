@@ -1,0 +1,75 @@
+# SPDX-License-Identifier: FSL-1.1-Apache-2.0
+#
+# Caddy reverse proxy for a single-server Sluicio cell.
+#
+# Placeholders below are substituted by bootstrap.sh:
+#   __DOMAIN__              — the base domain (e.g. sluicio.example.com)
+#   __LETSENCRYPT_EMAIL__   — email Let's Encrypt sends expiry notices to
+#   __FRONTEND_ROOT__       — host path with the built SPA (dist/)
+#
+# What's terminated where:
+#
+#   https://__DOMAIN__/                 → static SPA files (the UI)
+#   https://__DOMAIN__/api/*            → cell-api on 127.0.0.1:8081
+#   https://ingest.__DOMAIN__/v1/*      → cell-ingest on 127.0.0.1:4318
+#
+# We deliberately do NOT proxy to ClickHouse or Postgres — both are
+# loopback-bound by docker-compose. Anything that needs to talk to
+# them must run on this host.
+
+{
+    email __LETSENCRYPT_EMAIL__
+    # Default: ACME via Let's Encrypt. If you need to test against
+    # staging (e.g. avoiding rate limits during repeated bootstraps),
+    # add `acme_ca https://acme-staging-v02.api.letsencrypt.org/directory`
+}
+
+__DOMAIN__ {
+    # SPA + API on the same hostname so cookies are scoped naturally
+    # (the cell-api's Sluicio-Session cookie is HTTP-only + SameSite=Lax
+    # and would not be sent across hostnames). Path-routed inside one
+    # virtual host instead.
+
+    # /api/* — cell-api. Strip nothing; the cell-api routes already
+    # carry /api/v1 in the path. This also covers the remote MCP endpoint
+    # (/api/v1/mcp), its OAuth server (/api/v1/oauth/*) and the API docs
+    # (/api/docs) — no extra rule needed.
+    handle /api/* {
+        reverse_proxy 127.0.0.1:8081
+    }
+
+    # OAuth discovery for the MCP endpoint — these well-known paths must reach
+    # cell-api, NOT the SPA file_server (which would return index.html and break
+    # the connector's OAuth discovery).
+    handle /.well-known/oauth-* {
+        reverse_proxy 127.0.0.1:8081
+    }
+    handle /.well-known/openid-configuration {
+        reverse_proxy 127.0.0.1:8081
+    }
+
+    # Everything else — static SPA. Caddy's file_server handles HTML5
+    # history-mode routing via try_files so deep links like /logs work.
+    handle {
+        root * __FRONTEND_ROOT__
+        try_files {path} /index.html
+        file_server
+        # The SPA bundle is content-hashed in the filename; the index
+        # is not. Cache aggressively for assets and never for index.
+        @assets path /assets/*
+        header @assets Cache-Control "public, max-age=31536000, immutable"
+        header Cache-Control "no-cache"
+    }
+
+    # Sensible defaults
+    encode zstd gzip
+}
+
+# Ingest is a separate subdomain so producers can be configured with
+# one stable URL without caring about path layout. Also lets us apply
+# different rate limits / auth in the future without ceremony.
+ingest.__DOMAIN__ {
+    reverse_proxy 127.0.0.1:4318
+
+    encode zstd gzip
+}

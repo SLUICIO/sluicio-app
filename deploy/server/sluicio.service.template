@@ -1,0 +1,52 @@
+# SPDX-License-Identifier: FSL-1.1-Apache-2.0
+#
+# systemd unit that runs the Sluicio container stack on boot and stops
+# it cleanly on shutdown. NOT installed directly — bootstrap.sh
+# renders this template with the operator's chosen container runtime
+# (podman or docker) and writes the result to
+# /etc/systemd/system/sluicio.service.
+#
+# Why systemd over `(docker|podman) compose up -d` directly: it gives
+# us proper integration with shutdown ordering (compose down runs
+# before networkd goes away), journal logging without redirect futzing,
+# and a single `systemctl status` for "is the stack up?". Compose's
+# own restart policy handles individual container crashes; systemd
+# handles the host-reboot story.
+#
+# Template placeholders:
+#   __RUNTIME__              the runtime binary name (podman or docker)
+#   __RUNTIME_REQUIRES__     either "Requires=docker.service" or empty
+#                            (Podman has no daemon to require)
+#   __RUNTIME_AFTER__        "docker.service network-online.target" or
+#                            just "network-online.target" for Podman.
+
+[Unit]
+Description=Sluicio cell (cell-api + cell-ingest + ClickHouse + Postgres)
+__RUNTIME_REQUIRES__
+After=__RUNTIME_AFTER__
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/sluicio
+EnvironmentFile=/etc/sluicio/sluicio.env
+
+# `up -d --build` first time, fast no-op on subsequent boots when
+# image + source haven't changed.
+ExecStart=/usr/bin/__RUNTIME__ compose -f deploy/server/docker-compose.yml up -d --build
+
+# Graceful shutdown — compose down sends SIGTERM first, then SIGKILL
+# after a grace period.
+ExecStop=/usr/bin/__RUNTIME__ compose -f deploy/server/docker-compose.yml down
+
+# `reload` is a re-up; useful after pulling new code.
+ExecReload=/usr/bin/__RUNTIME__ compose -f deploy/server/docker-compose.yml up -d --build
+
+# Long enough to cover a compose build from cold cache plus
+# ClickHouse's first-time migration. Five minutes is comfortable.
+TimeoutStartSec=300
+TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target

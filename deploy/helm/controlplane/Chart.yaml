@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: FSL-1.1-Apache-2.0
+apiVersion: v2
+name: integration-monitor-controlplane
+description: |
+  Integration Monitor control plane: organizations, users, memberships,
+  invitations, billing, and the directory of which tenants live in which
+  cells. SaaS-only — on-premise installations deploy the `cell` chart
+  instead.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+maintainers:
+  - name: Integration Monitor Authors

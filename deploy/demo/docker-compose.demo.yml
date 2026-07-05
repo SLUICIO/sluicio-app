@@ -1,0 +1,36 @@
+# SPDX-License-Identifier: FSL-1.1-Apache-2.0
+#
+# Demo-cell overlay: adds a continuous synthetic-telemetry seeder to the
+# registry stack. Layer it on top of the server compose:
+#
+#   docker compose \
+#     -f deploy/server/docker-compose.registry.yml \
+#     -f deploy/demo/docker-compose.demo.yml \
+#     --env-file sluicio.env up -d
+#
+# Required in sluicio.env:
+#   DEMO_INGEST_KEY   an ingest key minted in the demo org (Settings →
+#                     Ingestion). The demo cell must run with ingest auth
+#                     ON — never INGEST_ALLOW_ANONYMOUS on a public host.
+# Optional:
+#   DEMO_SEED_INTERVAL  pause between batches (default 15s)
+#   DEMO_SEED_BATCH     spans per batch (default 50)
+
+services:
+  demo-seeder:
+    image: ${REGISTRY:-ghcr.io}/${NAMESPACE:-sluicio}/demo-seeder:${TAG:-latest}
+    restart: unless-stopped
+    # No depends_on: this overlay layers onto the base compose with a second
+    # -f, and a depends_on that references a service from another -f file
+    # trips a podman-compose (v1) bug (KeyError on the target service). The
+    # seeder posts over the network and restart: unless-stopped brings it back
+    # if it starts before cell-ingest is ready, so the ordering isn't needed.
+    environment:
+      SLUICIO_INGEST_KEY: ${DEMO_INGEST_KEY:?mint an ingest key in the demo org and set DEMO_INGEST_KEY}
+    command:
+      - "-continuous"
+      - "-interval=${DEMO_SEED_INTERVAL:-15s}"
+      - "-batch=${DEMO_SEED_BATCH:-50}"
+      - "-endpoint=http://cell-ingest:4318/v1/traces"
+      - "-logs-endpoint=http://cell-ingest:4318/v1/logs"
+      - "-metrics-endpoint=http://cell-ingest:4318/v1/metrics"

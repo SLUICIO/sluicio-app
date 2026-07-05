@@ -1,0 +1,134 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# release-images — build the Sluicio container images and publish them to the
+# GitHub Container Registry (ghcr.io). The official public images live at
+# ghcr.io/<owner>/<image> (e.g. ghcr.io/sluicio/cell-api).
+#
+# Fires on pushes to main (so :latest + an immutable :<sha> track main) and on
+# vX.Y.Z tags (so each release gets a :<version> image), plus manual dispatch.
+# Builds linux/amd64 today — every server target is amd64. arm64 is a planned
+# fast-follow: the Go images compile on the build platform, so a fast multi-arch
+# build wants the Dockerfiles made cross-compile-aware (ARG TARGETOS/TARGETARCH
+# + GOOS/GOARCH) first; until then amd64 keeps the publish fast and reliable.
+name: release-images
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "services/**"
+      - "pkg/**"
+      - "ee/**"
+      - "frontend/**"
+      - "go.work"
+      - "go.work.sum"
+      - "go.mod"
+      - "go.sum"
+      - "scripts/version.sh"
+      - ".github/workflows/release-images.yml"
+    tags: ["v*"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  prep:
+    name: Resolve version + namespace
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+      commit: ${{ steps.ver.outputs.commit }}
+      build_date: ${{ steps.ver.outputs.build_date }}
+      ns: ${{ steps.ns.outputs.ns }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Full history + tags so scripts/version.sh (git describe) resolves
+          # the SemVer string rather than a bare commit.
+          fetch-depth: 0
+      - name: Compute version
+        id: ver
+        run: |
+          {
+            echo "version=$(bash scripts/version.sh)"
+            echo "commit=$(bash scripts/version.sh --commit)"
+            echo "build_date=$(bash scripts/version.sh --date)"
+          } >> "$GITHUB_OUTPUT"
+      - name: Lowercase the registry namespace (owner)
+        id: ns
+        run: echo "ns=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+
+  images:
+    name: Build + push ${{ matrix.image }} (amd64)
+    needs: prep
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { image: cell-api,     dockerfile: services/cell-api/Dockerfile,     context: . }
+          - { image: cell-ingest,  dockerfile: services/cell-ingest/Dockerfile,  context: . }
+          - { image: controlplane, dockerfile: services/controlplane/Dockerfile, context: . }
+          - { image: frontend,     dockerfile: frontend/Dockerfile,              context: frontend }
+          - { image: demo-seeder,  dockerfile: deploy/demo/Dockerfile.seeder,    context: . }
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build + push
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: true
+          platforms: linux/amd64
+          # Three tags: the SemVer version, the immutable short SHA, and :latest.
+          tags: |
+            ${{ env.REGISTRY }}/${{ needs.prep.outputs.ns }}/${{ matrix.image }}:${{ needs.prep.outputs.version }}
+            ${{ env.REGISTRY }}/${{ needs.prep.outputs.ns }}/${{ matrix.image }}:${{ needs.prep.outputs.commit }}
+            ${{ env.REGISTRY }}/${{ needs.prep.outputs.ns }}/${{ matrix.image }}:latest
+          build-args: |
+            VERSION=${{ needs.prep.outputs.version }}
+            COMMIT=${{ needs.prep.outputs.commit }}
+            BUILD_DATE=${{ needs.prep.outputs.build_date }}
+            APP_VERSION=${{ needs.prep.outputs.version }}
+          provenance: false
+
+  # Image vulnerability scan — report-only, and in its OWN job so a scanner
+  # problem can never block publishing again. (A bad action pin inside the
+  # build+push job previously failed job setup and took the whole publish down.)
+  # continue-on-error keeps findings and any scanner failure non-gating; to gate
+  # later, drop continue-on-error and set exit-code 1. The Go services are
+  # distroless/static so findings are near-zero; the nginx frontend carries
+  # base-image CVEs. --ignore-unfixed hides advisories with no patch available.
+  scan:
+    name: Scan ${{ matrix.image }} (Trivy)
+    needs: [prep, images]
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [cell-api, cell-ingest, controlplane, frontend, demo-seeder]
+    steps:
+      - name: Scan image (Trivy)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ needs.prep.outputs.ns }}/${{ matrix.image }}:${{ needs.prep.outputs.commit }}
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "0"
+        env:
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}

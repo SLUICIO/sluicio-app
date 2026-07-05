@@ -1,0 +1,64 @@
+# Example nginx TLS config for a LAN-only *.example.com, using the cert
+# from deploy/gen-tls-cert.sh. Copy into your nginx (e.g.
+# /etc/nginx/sites-available/), fix the cert paths + upstream ports, then:
+#
+#   sudo nginx -t && sudo systemctl reload nginx
+#
+# Clients must trust certs/rootCA.crt (see the script's output). Adjust
+# the cert filenames if you used a non-default DOMAIN.
+
+# Optional: send plain HTTP to HTTPS for the app hostnames.
+server {
+    listen 80;
+    server_name example.com *.example.com;
+    return 301 https://$host$request_uri;
+}
+
+# ── App / UI / API vhost (e.g. sluicio.example.com) ──────────────────
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name example.com *.example.com;
+
+    ssl_certificate     /etc/nginx/certs/example.com.fullchain.crt;
+    ssl_certificate_key /etc/nginx/certs/example.com.key;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_ciphers         HIGH:!aNULL:!MD5;
+
+    # location / {
+    #     proxy_pass http://127.0.0.1:8081;        # ← cell-api / your backend
+    #     proxy_set_header Host              $host;
+    #     proxy_set_header X-Real-IP         $remote_addr;
+    #     proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    #     proxy_set_header X-Forwarded-Proto $scheme;
+    # }
+}
+
+# ── Docker registry vhost (docker.example.com) ───────────────────────
+# A registry behind nginx needs large uploads: nginx's default 1 MB body
+# limit breaks image-layer pushes, so disable it and stream the blobs.
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name docker.example.com;
+
+    ssl_certificate     /etc/nginx/certs/example.com.fullchain.crt;
+    ssl_certificate_key /etc/nginx/certs/example.com.key;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+
+    client_max_body_size 0;             # allow arbitrarily large layers
+    chunked_transfer_encoding on;
+
+    location /v2/ {
+        proxy_pass http://127.0.0.1:5000;   # ← your registry container
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_request_buffering off;        # stream big blobs, don't buffer to disk
+        proxy_read_timeout 900s;
+    }
+}
+
+# Once this TLS vhost is live AND the pushing host trusts rootCA.crt, you
+# can drop the --tls-verify=false flags from publish.docker.sh.

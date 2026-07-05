@@ -1,0 +1,61 @@
+# SPDX-License-Identifier: FSL-1.1-Apache-2.0
+# Default values for the Integration Monitor control plane.
+# This is a skeleton; real defaults will be added as services are wired up.
+
+image:
+  repository: ghcr.io/integration-monitor/controlplane
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+
+replicaCount: 2
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 256Mi
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+
+service:
+  type: ClusterIP
+  port: 8080
+
+ingress:
+  enabled: false
+  className: ""
+  host: ""
+  tls: []
+
+postgres:
+  # If `enabled`, deploy a Postgres instance alongside the control plane.
+  # In production, prefer pointing `dsn` at a managed database.
+  enabled: false
+  dsn: ""
+
+keycloak:
+  # External Keycloak URL. Keycloak itself is not deployed by this chart.
+  url: ""
+  realm: "integration-monitor"
+  clientId: "controlplane"
+
+cellController:
+  enabled: true
+  image:
+    repository: ghcr.io/integration-monitor/cell-controller
+    tag: "0.1.0"
+
+serviceAccount:
+  create: true
+  annotations: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]

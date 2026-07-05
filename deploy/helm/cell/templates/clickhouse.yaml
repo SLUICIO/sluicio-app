@@ -1,0 +1,83 @@
+{{/* SPDX-License-Identifier: Apache-2.0 */}}
+{{/*
+Cell-local ClickHouse — rendered only when clickhouse.enabled. This is an
+eval/small-install convenience; for production prefer a managed ClickHouse or
+the Altinity operator and set clickhouse.enabled: false + endpoint/credentials.
+*/}}
+{{- if .Values.clickhouse.enabled }}
+{{- $ctx := dict "root" . "component" "clickhouse" -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Release.Name }}-clickhouse
+  labels: {{- include "cell.labels" $ctx | nindent 4 }}
+spec:
+  serviceName: {{ .Release.Name }}-clickhouse
+  replicas: 1
+  selector:
+    matchLabels: {{- include "cell.selectorLabels" $ctx | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "cell.selectorLabels" $ctx | nindent 8 }}
+    spec:
+      securityContext:
+        fsGroup: 101         # clickhouse runs as uid/gid 101 in the image
+      containers:
+        - name: clickhouse
+          image: {{ .Values.clickhouse.image | quote }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          ports:
+            - name: native
+              containerPort: 9000
+            - name: http
+              containerPort: 8123
+          env:
+            - name: CLICKHOUSE_DB
+              value: {{ .Values.clickhouse.database | quote }}
+            - name: CLICKHOUSE_USER
+              value: {{ .Values.clickhouse.auth.username | quote }}
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-db
+                  key: clickhouse-password
+            - name: CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT
+              value: "1"
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/clickhouse
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: 8123
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources: {{- toYaml .Values.clickhouse.resources | nindent 12 }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if .Values.clickhouse.storage.storageClass }}
+        storageClassName: {{ .Values.clickhouse.storage.storageClass | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.clickhouse.storage.size | quote }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-clickhouse
+  labels: {{- include "cell.labels" $ctx | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector: {{- include "cell.selectorLabels" $ctx | nindent 4 }}
+  ports:
+    - name: native
+      port: 9000
+      targetPort: 9000
+    - name: http
+      port: 8123
+      targetPort: 8123
+{{- end }}

@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Sluicio favicon + icons (Block-S package) -->
+    <link rel="icon" href="/favicon/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon/favicon-32.png" sizes="32x32" type="image/png" />
+    <link rel="icon" href="/favicon/favicon-16.png" sizes="16x16" type="image/png" />
+    <link rel="apple-touch-icon" href="/favicon/apple-touch-icon.png" sizes="180x180" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta name="theme-color" content="#0E6E9E" />
+    <title>Sluicio</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <script>
+      // Apply the saved theme before the stylesheet/JS loads so the
+      // page doesn't flash light-then-dark. Mirrors the logic in
+      // src/lib/useTheme.ts; if you change one, change both.
+      //
+      // Theme is communicated via data-theme="light"|"dark" on <html>
+      // per the Sluicio color-system handoff. The .dark class is also
+      // toggled so Tailwind's darkMode: 'class' continues to resolve.
+      //
+      // Default: light. The handoff's demo HTML opens with
+      // data-theme="light" and the README only "optionally" respects
+      // prefers-color-scheme — users opt in to dark via the toggle.
+      // OS preference is only honored when the user has explicitly
+      // chosen "auto" via the theme menu.
+      (function () {
+        var mode = "light";
+        try {
+          var t = localStorage.getItem("im.theme");
+          if (t === "dark") {
+            mode = "dark";
+          } else if (t === "auto") {
+            var prefDark =
+              window.matchMedia &&
+              window.matchMedia("(prefers-color-scheme: dark)").matches;
+            mode = prefDark ? "dark" : "light";
+          }
+        } catch (e) {
+          /* private mode etc — fall through to light theme */
+        }
+        document.documentElement.setAttribute("data-theme", mode);
+        if (mode === "dark") document.documentElement.classList.add("dark");
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

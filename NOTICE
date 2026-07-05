@@ -1,0 +1,23 @@
+Integration Monitor
+Copyright 2026 Integration Monitor Authors
+
+This product is distributed under a mixed license. Source files are the
+authoritative source for the license that applies — look for an
+SPDX-License-Identifier header at the top of each file. This NOTICE file
+records the default license for each directory in the repository.
+
+  services/                       FSL-1.1-Apache-2.0
+  pkg/                            FSL-1.1-Apache-2.0
+  frontend/                       FSL-1.1-Apache-2.0
+  deploy/helm/controlplane/       FSL-1.1-Apache-2.0
+
+  plugins/                        Apache-2.0
+  deploy/helm/cell/               Apache-2.0
+  deploy/otel-collector/          Apache-2.0
+  sdk/                            Apache-2.0
+  docs/                           Apache-2.0
+
+Top-level configuration files (Makefile, docker-compose.yml, .github/,
+.gitignore, .editorconfig, go.work) are Apache-2.0.
+
+The full text of each license is in LICENSE-FSL and LICENSE-APACHE.

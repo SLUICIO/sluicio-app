@@ -1,0 +1,72 @@
+# Go
+/bin/
+/build/
+/dist/
+*.test
+*.out
+coverage.txt
+coverage.html
+# Compiled service binaries (build outputs — never commit; they bloat the
+# repo and embed local build paths).
+/cell-mcp
+/services/cell-alerting/cell-alerting
+/services/cell-controller/cell-controller
+/services/controlplane/controlplane
+/services/cell-api/cell-api
+/services/cell-ingest/cell-ingest
+
+# Node / frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/coverage/
+# Vite writes transient *.timestamp-*.mjs config artifacts; never commit.
+frontend/vite.config.ts.timestamp-*.mjs
+
+# IDEs and editors
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Claude Code — the shared settings.json (team permission allowlist) is kept,
+# but never commit the personal/local files: launch.json embeds absolute local
+# paths, and settings.local.json is per-user.
+.claude/launch.json
+.claude/settings.local.json
+
+# Local environment
+.env
+.env.local
+*.local
+
+# Helm
+deploy/helm/**/charts/
+deploy/helm/**/Chart.lock
+
+# Docker / compose volumes
+.docker-data/
+
+# Generated
+*.pb.go
+*.gen.go
+
+# Local publish/deploy helper scripts (not committed; see docs/container-images.md)
+/publish.docker.sh
+
+# Local TLS material from deploy/gen-tls-cert.sh — never commit keys
+certs/
+
+# Filled-in server env (secrets) — keep the .example only
+deploy/server/sluicio.env
+sluicio.env
+
+# Sluicio Enterprise — license signing keys & issued tokens (never commit).
+# The PUBLIC key (pkg/license/*.pub) IS committed; everything else is secret.
+*.key
+*_private.key
+*.pem
+*.token
+ee/**/*.license
+sluicio_lic_*.txt

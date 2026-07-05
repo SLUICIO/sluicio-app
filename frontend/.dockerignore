@@ -1,0 +1,7 @@
+# Keep the build context small + reproducible: never ship local
+# node_modules or a prior dist into the image build (the image runs
+# `npm ci` + `vite build` fresh).
+node_modules
+dist
+.vite
+*.log

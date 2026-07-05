@@ -1,0 +1,28 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sample values for the cell chart pointing at YOUR OWN Postgres + ClickHouse.
+# This chart never deploys databases (idiomatic for Kubernetes) — provide
+# reachable ones here. cell-api applies its Postgres migrations and creates its
+# ClickHouse tables on startup; the databases just need to exist.
+#
+#   helm install my-cell ./deploy/helm/cell -f deploy/helm/cell/values-external-db.yaml
+#
+# Don't have Postgres/ClickHouse on the cluster yet? Deploy them first, then
+# point this file at them — see the chart README "Databases" section
+# (e.g. the Bitnami postgresql chart and the Altinity ClickHouse operator).
+
+postgres:
+  # A single DSN; a managed/HA Postgres is recommended in production.
+  dsn: "postgres://user:pass@your-pg-host:5432/controlplane?sslmode=require"
+
+clickhouse:
+  endpoint: "your-ch-host:9000"   # native protocol (:9000, or :9440 for TLS)
+  database: "telemetry"
+  username: "sluicio"
+  # Name of a Secret holding the ClickHouse password, e.g.:
+  #   kubectl create secret generic clickhouse-credentials --from-literal=password=CHANGE-ME
+  passwordSecret: "clickhouse-credentials"
+
+prometheus:
+  # Optional: remote-write target for metrics ingested via OTLP.
+  remoteWriteURL: ""

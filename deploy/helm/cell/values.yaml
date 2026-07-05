@@ -1,0 +1,106 @@
+# SPDX-License-Identifier: Apache-2.0
+# Default values for an Integration Monitor cell. Skeleton — real defaults
+# will be added as the services are wired up.
+
+global:
+  # Mode: 'saas' (cell sits behind a control plane) or 'onprem'
+  # (standalone install with no control plane).
+  mode: saas
+  imagePullPolicy: IfNotPresent
+
+cellApi:
+  image:
+    repository: ghcr.io/sluicio/cell-api
+    tag: "0.1.0"
+  replicaCount: 2
+  service:
+    type: ClusterIP
+    port: 8081
+  resources:
+    requests: { cpu: 200m, memory: 256Mi }
+    limits:   { cpu: 1000m, memory: 1Gi }
+
+cellAlerting:
+  image:
+    repository: ghcr.io/sluicio/cell-alerting
+    tag: "0.1.0"
+  replicaCount: 1
+  resources:
+    requests: { cpu: 200m, memory: 256Mi }
+    limits:   { cpu: 1000m, memory: 1Gi }
+
+cellIngest:
+  image:
+    repository: ghcr.io/sluicio/cell-ingest
+    tag: "0.1.0"
+  replicaCount: 2
+  service:
+    type: ClusterIP
+    httpPort: 4318     # OTLP HTTP
+    grpcPort: 4317     # OTLP gRPC
+  resources:
+    requests: { cpu: 500m, memory: 512Mi }
+    limits:   { cpu: 2000m, memory: 2Gi }
+
+postgres:
+  # Postgres for integration definitions, alert rules, dispatch queue and
+  # audit log.
+  #   enabled: false → bring your own; set `dsn` to your external Postgres.
+  #   enabled: true  → the chart deploys a cell-local Postgres (eval / small
+  #                    installs; production should prefer a managed DB).
+  enabled: false
+  dsn: ""
+  # Used only when enabled: true.
+  image: postgres:16-alpine
+  auth:
+    username: sluicio
+    password: change-me-postgres     # inlined into POSTGRES_DSN
+    database: controlplane
+  storage:
+    size: 10Gi
+    storageClass: ""                 # "" = cluster default StorageClass
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits:   { cpu: 1000m, memory: 1Gi }
+
+clickhouse:
+  # ClickHouse for logs, traces and metric points.
+  #   enabled: false → bring your own; set endpoint/username/passwordSecret.
+  #                    (Use a managed ClickHouse or the Altinity operator.)
+  #   enabled: true  → the chart deploys a cell-local ClickHouse (eval / small).
+  enabled: false
+  endpoint: ""
+  database: "telemetry"
+  username: ""
+  passwordSecret: ""                 # name of a Secret with key `password`
+  # Used only when enabled: true.
+  image: clickhouse/clickhouse-server:24.8
+  auth:
+    username: sluicio
+    password: change-me-clickhouse
+  storage:
+    size: 50Gi
+    storageClass: ""
+  resources:
+    requests: { cpu: 250m, memory: 512Mi }
+    limits:   { cpu: 2000m, memory: 4Gi }
+
+prometheus:
+  # Remote-write endpoint for metrics ingested via OTLP.
+  remoteWriteURL: ""
+
+keycloak:
+  # When mode=onprem, set issuer to the customer's own OIDC issuer.
+  issuer: ""
+  audience: "integration-monitor-cell"
+
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]

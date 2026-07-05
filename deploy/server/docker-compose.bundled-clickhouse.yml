@@ -1,0 +1,54 @@
+# SPDX-License-Identifier: FSL-1.1-Apache-2.0
+#
+# Overlay: add a BUNDLED ClickHouse to the external-db compose — for users who
+# already have Postgres but not ClickHouse. Layer it AFTER the external-db
+# file so it wires cell-api/cell-ingest at the bundled ClickHouse:
+#
+#   docker compose --env-file sluicio.env \
+#     -f docker-compose.registry.external-db.yml \
+#     -f docker-compose.bundled-clickhouse.yml up -d
+#
+# Set CLICKHOUSE_USER / CLICKHOUSE_PASSWORD in the env file; leave
+# CLICKHOUSE_ENDPOINT unset (this overlay supplies it).
+
+services:
+  clickhouse:
+    image: docker.io/clickhouse/clickhouse-server:24.8
+    restart: unless-stopped
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    environment:
+      CLICKHOUSE_DB: telemetry
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  cell-api:
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    environment:
+      CLICKHOUSE_ENDPOINT: clickhouse:9000
+      CLICKHOUSE_USERNAME: ${CLICKHOUSE_USER}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+
+  cell-ingest:
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    environment:
+      CLICKHOUSE_ENDPOINT: clickhouse:9000
+      CLICKHOUSE_USERNAME: ${CLICKHOUSE_USER}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+
+volumes:
+  clickhouse_data:

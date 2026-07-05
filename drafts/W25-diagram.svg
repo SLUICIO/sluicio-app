@@ -1,0 +1,88 @@
+<svg width="1200" height="900" viewBox="0 0 1200 900" xmlns="http://www.w3.org/2000/svg" font-family="Inter, Segoe UI, Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#64748b"/>
+    </marker>
+    <marker id="arrowDead" markerWidth="10" markerHeight="10" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#dc2626"/>
+    </marker>
+  </defs>
+
+  <rect width="1200" height="900" fill="#ffffff"/>
+
+  <!-- ===================== PANEL A ===================== -->
+  <text x="60" y="70" font-size="34" font-weight="700" fill="#0f172a">View 1 — App monitoring</text>
+  <text x="60" y="104" font-size="22" fill="#16a34a" font-weight="600">All four services report healthy ✓</text>
+
+  <!-- service boxes -->
+  <g>
+    <!-- box template -->
+    <g>
+      <rect x="60"  y="150" width="240" height="120" rx="14" fill="#f0fdf4" stroke="#16a34a" stroke-width="2.5"/>
+      <rect x="320" y="150" width="240" height="120" rx="14" fill="#f0fdf4" stroke="#16a34a" stroke-width="2.5"/>
+      <rect x="640" y="150" width="240" height="120" rx="14" fill="#f0fdf4" stroke="#16a34a" stroke-width="2.5"/>
+      <rect x="900" y="150" width="240" height="120" rx="14" fill="#f0fdf4" stroke="#16a34a" stroke-width="2.5"/>
+    </g>
+
+    <!-- labels -->
+    <text x="180" y="200" font-size="20" font-weight="700" fill="#0f172a" text-anchor="middle">Azure Function</text>
+    <text x="180" y="226" font-size="15" fill="#475569" text-anchor="middle">(or iPaaS flow)</text>
+    <text x="440" y="208" font-size="20" font-weight="700" fill="#0f172a" text-anchor="middle">Apache Camel</text>
+    <text x="440" y="232" font-size="15" fill="#475569" text-anchor="middle">route</text>
+    <text x="760" y="208" font-size="20" font-weight="700" fill="#0f172a" text-anchor="middle">ActiveMQ</text>
+    <text x="760" y="232" font-size="15" fill="#475569" text-anchor="middle">queue</text>
+    <text x="1020" y="208" font-size="20" font-weight="700" fill="#0f172a" text-anchor="middle">.NET service</text>
+    <text x="1020" y="232" font-size="15" fill="#475569" text-anchor="middle">→ partner API</text>
+
+    <!-- green check badges -->
+    <g fill="#16a34a">
+      <circle cx="284" cy="166" r="13"/><circle cx="544" cy="166" r="13"/><circle cx="864" cy="166" r="13"/><circle cx="1124" cy="166" r="13"/>
+    </g>
+    <g stroke="#ffffff" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M278 166 l4 4 l7 -8"/><path d="M538 166 l4 4 l7 -8"/><path d="M858 166 l4 4 l7 -8"/><path d="M1118 166 l4 4 l7 -8"/>
+    </g>
+  </g>
+
+  <text x="60" y="320" font-size="18" fill="#64748b" font-style="italic">Each box monitored in isolation. Nothing looks wrong.</text>
+
+  <!-- divider -->
+  <line x1="60" y1="380" x2="1140" y2="380" stroke="#e2e8f0" stroke-width="2"/>
+
+  <!-- ===================== PANEL B ===================== -->
+  <text x="60" y="450" font-size="34" font-weight="700" fill="#0f172a">View 2 — The integration flow</text>
+  <text x="60" y="484" font-size="22" fill="#dc2626" font-weight="600">…but the partner order never arrived ✗</text>
+
+  <!-- same boxes, now as a flow -->
+  <rect x="60"  y="530" width="240" height="120" rx="14" fill="#f8fafc" stroke="#94a3b8" stroke-width="2.5"/>
+  <rect x="320" y="530" width="240" height="120" rx="14" fill="#f8fafc" stroke="#94a3b8" stroke-width="2.5"/>
+  <rect x="640" y="530" width="240" height="120" rx="14" fill="#fef2f2" stroke="#dc2626" stroke-width="3"/>
+  <rect x="900" y="530" width="240" height="120" rx="14" fill="#f8fafc" stroke="#94a3b8" stroke-width="2.5"/>
+
+  <text x="180" y="580" font-size="20" font-weight="700" fill="#0f172a" text-anchor="middle">Azure Function</text>
+  <text x="180" y="606" font-size="15" fill="#475569" text-anchor="middle">(or iPaaS flow)</text>
+  <text x="440" y="588" font-size="20" font-weight="700" fill="#0f172a" text-anchor="middle">Apache Camel</text>
+  <text x="440" y="612" font-size="15" fill="#475569" text-anchor="middle">route</text>
+  <text x="760" y="588" font-size="20" font-weight="700" fill="#0f172a" text-anchor="middle">ActiveMQ</text>
+  <text x="760" y="612" font-size="15" fill="#dc2626" text-anchor="middle" font-weight="600">message stalled</text>
+  <text x="1020" y="580" font-size="20" font-weight="700" fill="#0f172a" text-anchor="middle">.NET service</text>
+  <text x="1020" y="606" font-size="15" fill="#475569" text-anchor="middle">→ partner API</text>
+
+  <!-- flow arrows -->
+  <line x1="300" y1="590" x2="318" y2="590" stroke="#64748b" stroke-width="3" marker-end="url(#arrow)"/>
+  <line x1="560" y1="590" x2="638" y2="590" stroke="#64748b" stroke-width="3" marker-end="url(#arrow)"/>
+  <!-- broken hop -->
+  <line x1="880" y1="590" x2="898" y2="590" stroke="#dc2626" stroke-width="3" stroke-dasharray="6 6" marker-end="url(#arrowDead)"/>
+
+  <!-- break burst between ActiveMQ and .NET service -->
+  <g transform="translate(889,590)">
+    <path d="M-14,-22 L-3,-6 L-16,0 L-2,10 L-12,24" fill="none" stroke="#dc2626" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <text x="889" y="690" font-size="15" fill="#dc2626" text-anchor="middle" font-weight="600">dead-letter, 02:14 — no alert fired</text>
+
+  <text x="60" y="730" font-size="18" fill="#64748b" font-style="italic">One trace follows the message across every hop — and shows exactly where it died.</text>
+
+  <!-- caption bar -->
+  <rect x="60" y="780" width="1080" height="70" rx="12" fill="#0f172a"/>
+  <text x="600" y="816" font-size="20" font-weight="600" fill="#ffffff" text-anchor="middle">Same system. One view sees healthy services. The other sees the outage.</text>
+  <text x="600" y="840" font-size="15" fill="#94a3b8" text-anchor="middle">Sluicio — OpenTelemetry-native monitoring for integration estates</text>
+</svg>
