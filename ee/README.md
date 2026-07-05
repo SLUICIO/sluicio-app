@@ -32,12 +32,14 @@ always work so an operator can paste a new key.
 | Advanced RBAC | `rbac_advanced` | Fine-grained group access policies / custom roles. Basic admin/editor/viewer stays in core. |
 | Audit logs | `audit_log` | Records mutating admin actions. |
 | Long retention | `retention_long` | Lifts the free-tier retention cap. |
+| MFA policy | `mfa_policy` | Org-wide MFA enforcement (every member must enrol). Per-user MFA stays in core. |
 
 ## Layout
 
-- [`license/`](./license) — the offline license verifier (`Manager`, `Feature`
-  gates, embedded public key). The one place that answers "is feature X
-  entitled?".
+- The offline license **verifier** lives in the open core at
+  [`pkg/license/`](../pkg/license) (FSL, deliberately inspectable — anyone can
+  audit exactly how keys are checked). It embeds the Ed25519 **public** key
+  and is the one place that answers "is feature X entitled?".
 - [`cmd/sluicio-license/`](./cmd/sluicio-license) — **internal** tool to mint +
   inspect license keys. Not shipped to customers.
 
@@ -46,8 +48,8 @@ always work so an operator can paste a new key.
 - The Ed25519 **private** key signs licenses. Keep it **out of the repo**
   (e.g. `~/.sluicio/license_ed25519_private.key`, `chmod 600`). It is
   `.gitignore`d.
-- The **public** key (`license/sluicio_license_ed25519.pub`) is committed and
-  embedded in the binary.
+- The **public** key (`pkg/license/sluicio_license_ed25519.pub`) is committed
+  and embedded in the binary.
 - Real signed license tokens are secrets too — don't commit them.
 
 ## Minting a license
