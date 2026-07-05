@@ -1,6 +1,7 @@
 # Sluicio Enterprise License (SEL) v1.0
 
-Copyright (c) ROMA IT AB. All rights reserved.
+Copyright (c) ROMA IT AB, a limited liability company (aktiebolag)
+registered in Sweden. All rights reserved.
 
 > **IMPORTANT — scope.** This license governs **only** the contents of the
 > `ee/` directory of the Sluicio repository (the "Enterprise Software").
@@ -115,4 +116,5 @@ force.
 
 ---
 
-For commercial licensing and License Keys, contact ROMA IT AB.
+For commercial licensing and License Keys, contact ROMA IT AB at
+**support@sluicio.com**.
