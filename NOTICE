@@ -1,5 +1,5 @@
-Integration Monitor
-Copyright 2026 Integration Monitor Authors
+Sluicio
+Copyright 2026 ROMA IT AB (org.nr 559490-7437)
 
 This product is distributed under a mixed license. Source files are the
 authoritative source for the license that applies — look for an
@@ -9,15 +9,21 @@ records the default license for each directory in the repository.
   services/                       FSL-1.1-Apache-2.0
   pkg/                            FSL-1.1-Apache-2.0
   frontend/                       FSL-1.1-Apache-2.0
-  deploy/helm/controlplane/       FSL-1.1-Apache-2.0
+  scripts/                        FSL-1.1-Apache-2.0
+  deploy/                         FSL-1.1-Apache-2.0 (except below)
 
   plugins/                        Apache-2.0
   deploy/helm/cell/               Apache-2.0
   deploy/otel-collector/          Apache-2.0
-  sdk/                            Apache-2.0
   docs/                           Apache-2.0
+  e2e/                            Apache-2.0
+
+  ee/                             LicenseRef-Sluicio-Enterprise
+                                  (Sluicio Enterprise License — see
+                                  ee/LICENSE.md)
 
 Top-level configuration files (Makefile, docker-compose.yml, .github/,
 .gitignore, .editorconfig, go.work) are Apache-2.0.
 
-The full text of each license is in LICENSE-FSL and LICENSE-APACHE.
+The full text of each license is in LICENSE-FSL, LICENSE-APACHE, and
+ee/LICENSE.md.

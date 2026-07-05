@@ -222,9 +222,11 @@ and tags); `make version` prints the current build version.
 
 ## Licensing
 
-Everything in this repository is **FSL-1.1-Apache-2.0** **except** the `ee/`
-directory, which is licensed separately under the **Sluicio Enterprise
-License** ([`ee/LICENSE.md`](ee/LICENSE.md)).
+The product is **FSL-1.1-Apache-2.0**, peripheral code that third parties
+build on (plugin contracts, cell Helm chart, OTel config, docs, e2e suite) is
+**Apache-2.0**, and the `ee/` directory is licensed separately under the
+**Sluicio Enterprise License** ([`ee/LICENSE.md`](ee/LICENSE.md)). The
+per-directory map lives in [`NOTICE`](NOTICE).
 
 The open-core boundary is deliberately narrow. The Enterprise *features* —
 SSO, advanced RBAC, audit logging, long retention, MFA enforcement — and the
