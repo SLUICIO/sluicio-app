@@ -8,10 +8,6 @@ Copyright (c) ROMA IT AB. All rights reserved.
 > License (`FSL-1.1-Apache-2.0`) and is **not** subject to this license. For
 > files under `ee/`, this license controls.
 
-> **⚠️ DRAFT — NOT LEGAL ADVICE.** This text is a working draft to establish the
-> open-core boundary in source control. Have it reviewed and finalized by
-> qualified legal counsel before relying on it commercially.
-
 ## 1. Definitions
 
 - **"Software"** — the source code and materials in the `ee/` directory.
