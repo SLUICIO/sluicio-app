@@ -38,7 +38,7 @@ export default function ResourceSharesCard({
   useEffect(() => {
     if (!entitled || !canManage) return;
     let cancelled = false;
-    void load().then(() => cancelled); // eslint-disable-line @typescript-eslint/no-floating-promises
+    void load().then(() => cancelled);
     api.listGroups().then((r) => !cancelled && setGroups(r.groups ?? [])).catch(() => {});
     return () => {
       cancelled = true;

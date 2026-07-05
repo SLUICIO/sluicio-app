@@ -140,12 +140,20 @@ test.describe("Demo-account guard — admin role", () => {
       ],
       ["DELETE member", demo.request.delete(`/api/v1/settings/members/${row.user.id}`)],
       ["POST ingest-keys", demo.request.post("/api/v1/ingest-keys", { data: { name: "sneak" } })],
-      ["POST auth-providers", demo.request.post("/api/v1/settings/auth-providers", { data: { name: "x" } })],
     ];
     for (const [label, pr] of probes) {
       const res = await pr;
       expect(res.status(), label).toBe(403);
       expect((await res.text()), label).toContain("shared demo account");
+    }
+
+    // SSO config sits behind the enterprise gate too: an unlicensed cell
+    // (like CI) answers 402 before the demo guard can 403. Either way the
+    // surface is closed to the demo account.
+    const sso = await demo.request.post("/api/v1/settings/auth-providers", { data: { name: "x" } });
+    expect([402, 403], "POST auth-providers").toContain(sso.status());
+    if (sso.status() === 403) {
+      expect(await sso.text()).toContain("shared demo account");
     }
 
     // Product-level admin work stays open — the demo must remain a real demo.

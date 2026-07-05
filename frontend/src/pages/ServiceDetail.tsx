@@ -914,6 +914,8 @@ function Dependencies({
   const up = neighbors?.upstream ?? [];
   const down = neighbors?.downstream ?? [];
   const { nodes, edges } = useMemo(() => {
+    const up = neighbors?.upstream ?? [];
+    const down = neighbors?.downstream ?? [];
     // A neighbor can appear on both sides (mutual calls) — one node,
     // both edges.
     const byName = new Map<string, FlowNode>();
@@ -941,7 +943,7 @@ function Dependencies({
       ...down.map((d) => ({ source: name, target: d.service_name, call_count: d.trace_count, error_count: d.error_count })),
     ];
     return { nodes: [...byName.values()], edges };
-  }, [up, down, name, ownTraceCount, ownStatus]);
+  }, [neighbors, name, ownTraceCount, ownStatus]);
 
   return (
     <div className="svc-section">
