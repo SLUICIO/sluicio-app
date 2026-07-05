@@ -19,8 +19,27 @@ wired in only at a service's `main()`, and the audit store sits behind the
 `audit.Recorder` interface in `pkg/audit`. Contributions to the open core are
 welcome; the `ee/` directory is maintained by Sluicio.
 
-By submitting a contribution you agree it is licensed under the license of the
-directory it lands in (FSL/Apache for the core).
+## Licensing of contributions
+
+Sluicio uses the **license-in / license-out** model common to
+source-available projects:
+
+- **Inbound**: by submitting a contribution you license it to ROMA IT AB
+  under the **Apache License 2.0**, and you grant ROMA IT AB the right to
+  distribute it as part of Sluicio under the repository's outbound licenses
+  (FSL-1.1-Apache-2.0 / Apache-2.0 / SEL, per directory).
+- **Outbound**: the code you receive is licensed per `NOTICE` and the
+  per-file SPDX headers, exactly as before.
+
+Every commit must carry a **Developer Certificate of Origin** sign-off
+([developercertificate.org](https://developercertificate.org)) certifying you
+have the right to submit the work:
+
+```sh
+git commit -s   # adds "Signed-off-by: Your Name <you@example.com>"
+```
+
+Pull requests with unsigned commits will be asked to rebase with `-s`.
 
 ## Prerequisites
 
