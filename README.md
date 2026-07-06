@@ -18,6 +18,21 @@ OpenTelemetry Collector at it and Sluicio discovers your services from their
 telemetry, lets you group them into the business integrations they serve, and
 turns starter health checks on with a click.
 
+## Try it live
+
+A hosted demo runs at **[demo.sluicio.com](https://demo.sluicio.com)** — log in
+and click around a Sluicio pre-loaded with example integrations and live
+telemetry. It resets periodically, so explore freely; nothing you do sticks.
+
+```
+email:     demo@sluicio.com
+password:  demodemo
+```
+
+The demo account can read and configure the product, but self-service and
+organization administration are disabled — so one visitor can't lock out the
+next.
+
 ## Quick start
 
 The whole stack in one command — no configuration:
