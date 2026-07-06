@@ -105,7 +105,7 @@ export default function Settings() {
         <div>
           <h1 className="page__title">Organization settings</h1>
           <p className="page__subtitle">
-            Org profile, members, groups, and (soon) SSO. Personal tokens
+            Org profile, members, groups, and SSO. Personal tokens
             and theme preferences live under your{" "}
             <a href="/account">Account</a>.
           </p>
