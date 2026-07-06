@@ -181,17 +181,6 @@ export default function FilterEditor({
         >
           + add a filter
         </button>
-        <button
-          type="button"
-          disabled={filters.length === 0}
-          className="text-muted underline-offset-2 hover:underline disabled:cursor-not-allowed"
-          title='Coming soon'
-        >
-          + "OR" group
-        </button>
-        <div className="ml-auto text-xs text-muted">
-          group by: none ▾ · sort: time ↓
-        </div>
       </div>
     </div>
   );
