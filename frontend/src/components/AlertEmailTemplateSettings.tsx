@@ -65,19 +65,16 @@ export default function AlertEmailTemplateSettings() {
     }
   };
 
+  // Flat section styling — matches the Email (SMTP) and Security policy
+  // sections on the System tab (top-border divider, h3 title, muted intro).
   return (
-    <section
-      className="rounded-lg border bg-surface-2"
-      style={{ borderColor: "var(--border)", marginTop: 16 }}
-    >
-      <div className="border-b border-border px-4 py-3">
-        <h2 className="text-base font-semibold">Alert email template</h2>
-        <p className="text-xs text-muted mt-1">
-          The default Liquid email for alert notifications. Individual alerts can
-          override it. Leave a field blank to use the built-in default.
-        </p>
-      </div>
-      <div className="p-4" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+    <section style={{ marginTop: 28, borderTop: "1px solid var(--border)", paddingTop: 20 }}>
+      <h3 style={{ fontSize: 14, fontWeight: 600, margin: "0 0 4px" }}>Alert email template</h3>
+      <p className="muted" style={{ fontSize: 13, lineHeight: 1.55, margin: "0 0 14px" }}>
+        The default Liquid email for alert notifications. Individual alerts can
+        override it. Leave a field blank to use the built-in default.
+      </p>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10, maxWidth: 720 }}>
         {error && <div className="alert alert--error">{error}</div>}
         <label className="form__label">
           Subject (Liquid)
