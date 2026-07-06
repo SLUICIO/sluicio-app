@@ -70,3 +70,6 @@ sluicio.env
 *.token
 ee/**/*.license
 sluicio_lic_*.txt
+
+# Marketing/blog drafts — kept out of the product repo.
+drafts/
