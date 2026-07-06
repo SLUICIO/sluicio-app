@@ -9,6 +9,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { Group, ResourceShare } from "../api/types";
 import { useLicense } from "../lib/useLicense";
+import { EnterpriseBadge, UpgradeNotice } from "./EnterpriseUpsell";
 
 export default function ResourceSharesCard({
   kind,
@@ -46,7 +47,26 @@ export default function ResourceSharesCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kind, id, entitled, canManage]);
 
-  if (!entitled || !canManage) return null;
+  // Non-managers never see the sharing surface. A manager on an unlicensed
+  // cell sees an upsell rather than a silently-missing card.
+  if (!canManage) return null;
+  const noun0 = kind === "integrations" ? "integration" : "system";
+  if (!entitled) {
+    return (
+      <div className="card" style={{ marginBottom: 16, padding: "12px 16px" }}>
+        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6, display: "flex", alignItems: "center", gap: 8 }}>
+          Sharing <EnterpriseBadge />
+        </div>
+        <UpgradeNotice title="Resource sharing is a Sluicio Enterprise feature" expired={status?.expired}>
+          <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+            An Enterprise license lets you share this {noun0} with a member or
+            group as view-only. In the Community edition, use groups + the
+            Group access card to grant visibility.
+          </p>
+        </UpgradeNotice>
+      </div>
+    );
+  }
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
