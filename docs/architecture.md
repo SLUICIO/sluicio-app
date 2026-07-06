@@ -1,6 +1,6 @@
 # Architecture overview
 
-This is a short, opinionated tour of how Integration Monitor fits together.
+This is a short, opinionated tour of how Sluicio fits together.
 For the *why* behind each major choice, see [`decisions.md`](decisions.md).
 
 ## System context

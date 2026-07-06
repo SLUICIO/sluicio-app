@@ -1,6 +1,9 @@
 # Licensing
 
-Integration Monitor uses two licenses, chosen deliberately.
+Sluicio uses three licenses, chosen deliberately: FSL for the product,
+Apache-2.0 for the periphery third parties build on, and the Sluicio
+Enterprise License for the small `ee/` directory (see `NOTICE` for the
+per-directory map and `ee/LICENSE.md` for the Enterprise terms).
 
 ## The product itself — FSL-1.1-Apache-2.0
 
@@ -16,7 +19,7 @@ What this means in plain language:
 - A customer may run the software to support their own commercial
   products and services, as long as the value of those products and
   services does not derive primarily from this software.
-- A **competing managed service** — i.e. selling Integration Monitor as
+- A **competing managed service** — i.e. selling Sluicio as
   a service, in substitution for our SaaS — is not permitted.
 - Two years after each version is published, that version becomes
   available under Apache 2.0 with no restriction.
