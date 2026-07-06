@@ -185,6 +185,7 @@ function fromMe(me: MeResponse): CurrentUserResponse {
     initials: initialsFor(me.user.name || me.user.email),
     isOperator: me.user.is_operator ?? false,
     isDemo: me.user.is_demo ?? false,
+    mustResetPassword: me.user.must_reset_password ?? false,
     memberships,
   };
   return {

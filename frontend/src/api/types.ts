@@ -1083,6 +1083,7 @@ export interface User {
   // settings in the UI. The cell-api enforces the same on every route.
   isOperator: boolean;
   isDemo?: boolean;
+  mustResetPassword?: boolean;
   memberships: OrganizationMembership[];
 }
 

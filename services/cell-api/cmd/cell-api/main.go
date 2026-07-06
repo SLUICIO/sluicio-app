@@ -453,7 +453,9 @@ func main() {
 	// context via middleware.PrincipalFromContext / middleware.OrgID(r).
 	// MFA-policy enforcement runs inside the auth wrap (it needs the
 	// Principal) and in front of every handler; see api/mfa_enforce.go.
-	inner := handlers.EnforceMFAEnrollment(mux)
+	// Two ordered pre-handler gates (both need the Principal from the auth
+	// wrap below): password-reset first, then MFA enrollment.
+	inner := handlers.EnforcePasswordReset(handlers.EnforceMFAEnrollment(mux))
 	authed := handlers.AuthMW.Wrap([]string{
 		"/api/v1/auth/login",
 		"/api/v1/auth/logout",

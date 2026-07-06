@@ -12,6 +12,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -339,5 +340,72 @@ func (h *Handlers) revokeToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.recordAudit(r, "token.revoked", "user", p.UserID.String(), map[string]any{"token_id": id.String()})
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// adminResetMemberPassword: POST /api/v1/settings/members/{user_id}/password
+// (admin only, demo-guarded). Sets a temporary password for another member
+// and, when require_change is true (default), forces them to change it on
+// next login via must_reset_password + revoking their sessions.
+func (h *Handlers) adminResetMemberPassword(w http.ResponseWriter, r *http.Request) {
+	targetID, err := uuid.Parse(r.PathValue("user_id"))
+	if err != nil {
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid user id")
+		return
+	}
+	p := middleware.Principal(r)
+	if p.UserID != nil && *p.UserID == targetID {
+		httpserver.WriteError(w, http.StatusBadRequest, "use Account → Password to change your own password")
+		return
+	}
+	var body struct {
+		NewPassword   string `json:"new_password"`
+		RequireChange *bool  `json:"require_change"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if len(body.NewPassword) < minPasswordLen {
+		httpserver.WriteError(w, http.StatusBadRequest, fmt.Sprintf("password must be at least %d characters", minPasswordLen))
+		return
+	}
+	// The target must be a member of the admin's active org — an admin can't
+	// reach into another tenant.
+	if _, err := h.Identity.GetMembership(r.Context(), targetID, middleware.OrgID(r)); err != nil {
+		if errors.Is(err, identity.ErrNotFound) {
+			httpserver.WriteError(w, http.StatusNotFound, "user not found in this organization")
+			return
+		}
+		h.Logger.Error("reset member password: membership lookup failed", "err", err)
+		httpserver.WriteError(w, http.StatusInternalServerError, "lookup failed")
+		return
+	}
+	requireChange := true
+	if body.RequireChange != nil {
+		requireChange = *body.RequireChange
+	}
+	hash, err := identity.HashPassword(body.NewPassword)
+	if err != nil {
+		h.Logger.Error("reset member password: hash failed", "err", err)
+		httpserver.WriteError(w, http.StatusInternalServerError, "could not set password")
+		return
+	}
+	if err := h.Identity.SetPasswordHashForced(r.Context(), targetID, hash, requireChange); err != nil {
+		if errors.Is(err, identity.ErrNotFound) {
+			httpserver.WriteError(w, http.StatusNotFound, "user not found")
+			return
+		}
+		h.Logger.Error("reset member password: persist failed", "err", err)
+		httpserver.WriteError(w, http.StatusInternalServerError, "could not set password")
+		return
+	}
+	// Revoke the target's sessions so the temporary password takes effect
+	// immediately — any open session is kicked and must re-authenticate.
+	if err := h.Identity.DeleteSessionsForUser(r.Context(), targetID); err != nil {
+		h.Logger.Warn("reset member password: revoke sessions failed", "err", err)
+	}
+	h.recordAudit(r, "member.password_reset", "user", targetID.String(),
+		map[string]any{"require_change": requireChange})
 	w.WriteHeader(http.StatusNoContent)
 }

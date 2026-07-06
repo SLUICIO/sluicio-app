@@ -1153,6 +1153,8 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 			h.AuthMW.RequireRole(identity.Role.CanAdmin, h.blockDemo(h.updateMemberRole)))
 		mux.HandleFunc("DELETE /api/v1/settings/members/{user_id}",
 			h.AuthMW.RequireRole(identity.Role.CanAdmin, h.blockDemo(h.removeMember)))
+		mux.HandleFunc("POST /api/v1/settings/members/{user_id}/password",
+			h.AuthMW.RequireRole(identity.Role.CanAdmin, h.blockDemo(h.adminResetMemberPassword)))
 
 		// Settings → Service accounts (machine identities + their tokens).
 		// Org-admin only; tokens are minted/listed/revoked per service account.

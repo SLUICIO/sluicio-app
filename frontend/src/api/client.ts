@@ -1039,6 +1039,11 @@ export const api = {
     post<{ user: unknown; role: AuthRole }>(`/settings/members`, body),
   updateMemberRole: (userId: string, role: AuthRole) =>
     patch<void>(`/settings/members/${encodeURIComponent(userId)}`, { role }),
+  adminResetMemberPassword: (userId: string, newPassword: string, requireChange: boolean) =>
+    post<void>(`/settings/members/${encodeURIComponent(userId)}/password`, {
+      new_password: newPassword,
+      require_change: requireChange,
+    }),
   removeMember: (userId: string) =>
     del(`/settings/members/${encodeURIComponent(userId)}`),
 

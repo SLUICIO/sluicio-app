@@ -259,6 +259,11 @@ type Principal struct {
 	// Empty for service accounts (their Name is on the SA row).
 	Email string `json:"email,omitempty"`
 	Name  string `json:"name,omitempty"`
+	// MustResetPassword mirrors users.must_reset_password: the human must
+	// change their password before using anything else (admin set a
+	// temporary one, or first-login rotation). Enforced by
+	// EnforcePasswordReset. Session path only — API tokens aren't gated.
+	MustResetPassword bool `json:"must_reset_password,omitempty"`
 	// IsDemo mirrors users.is_demo for the demo-account guard.
 	IsDemo bool `json:"is_demo,omitempty"`
 	// IsOperator is the cell-operator (super-admin) flag off the user row.

@@ -186,6 +186,7 @@ function MembersTab() {
   const [members, setMembers] = useState<MemberRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [resetting, setResetting] = useState<MemberRow | null>(null);
 
   const refresh = () => {
     api
@@ -227,6 +228,23 @@ function MembersTab() {
             onClose={() => setAdding(false)}
             onCreated={() => {
               setAdding(false);
+              refresh();
+            }}
+          />
+        </EditDrawer>
+      )}
+
+      {resetting && (
+        <EditDrawer
+          title={`Reset password — ${resetting.user.name || resetting.user.email}`}
+          width="narrow"
+          onClose={() => setResetting(null)}
+        >
+          <ResetPasswordForm
+            member={resetting}
+            onClose={() => setResetting(null)}
+            onDone={() => {
+              setResetting(null);
               refresh();
             }}
           />
@@ -353,6 +371,16 @@ function MembersTab() {
                   <button
                     type="button"
                     className="btn btn--link"
+                    onClick={() => setResetting(m)}
+                    style={{ marginRight: 8 }}
+                  >
+                    Reset password
+                  </button>
+                )}
+                {isAdmin && m.user.id !== me.id && (
+                  <button
+                    type="button"
+                    className="btn btn--link"
                     style={{ color: "var(--err-ink, #ef4444)" }}
                     onClick={async () => {
                       if (!confirm(`Remove ${m.user.email} from this org?`)) return;
@@ -389,6 +417,94 @@ function RoleSelect({ value, onChange }: { value: AuthRole; onChange: (r: AuthRo
     </select>
   );
 }
+
+// ResetPasswordForm — admin sets a temporary password for another member.
+// "Require change at next login" (default on) forces them into the
+// ForcePasswordChange gate; either way their sessions are revoked so the
+// new password takes effect immediately.
+function ResetPasswordForm({
+  member,
+  onClose,
+  onDone,
+}: {
+  member: MemberRow;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [pw, setPw] = useState("");
+  const [requireChange, setRequireChange] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // A readable random temp password, so admins don't have to invent one.
+  const generate = () => {
+    const bytes = new Uint8Array(9);
+    crypto.getRandomValues(bytes);
+    const s = btoa(String.fromCharCode(...bytes)).replace(/[+/=]/g, "").slice(0, 12);
+    setPw(s + "1!");
+  };
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (pw.length < 8) {
+      setError("Password must be at least 8 characters.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await api.adminResetMemberPassword(member.user.id, pw, requireChange);
+      onDone();
+    } catch (e) {
+      setError(String((e as Error).message ?? e));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form onSubmit={submit} className="form" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <p className="muted" style={{ fontSize: 13, margin: 0 }}>
+        Set a temporary password for <strong>{member.user.email}</strong>. Share
+        it with them over a secure channel — their existing sessions are signed
+        out immediately.
+      </p>
+      <label className="form__label">
+        Temporary password
+        <div style={{ display: "flex", gap: 8 }}>
+          <input
+            className="input mono"
+            type="text"
+            autoComplete="off"
+            value={pw}
+            onChange={(e) => setPw(e.target.value)}
+            style={{ flex: 1 }}
+          />
+          <button type="button" className="btn btn--sm" onClick={generate}>
+            Generate
+          </button>
+        </div>
+      </label>
+      <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, cursor: "pointer" }}>
+        <input
+          type="checkbox"
+          checked={requireChange}
+          onChange={(e) => setRequireChange(e.target.checked)}
+        />
+        Require the user to change it at next login
+      </label>
+      {error && <div className="alert alert--error">{error}</div>}
+      <div style={{ display: "flex", gap: 8 }}>
+        <button type="submit" className="btn btn--primary" disabled={busy}>
+          {busy ? "Setting…" : "Set temporary password"}
+        </button>
+        <button type="button" className="btn" onClick={onClose} disabled={busy}>
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
+
 
 function AddMemberForm({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const [email, setEmail] = useState("");

@@ -234,15 +234,16 @@ func (r *Resolver) Resolve(req *http.Request) (identity.Principal, bool, error) 
 
 	uid := user.ID
 	return identity.Principal{
-		Kind:       identity.PrincipalUser,
-		UserID:     &uid,
-		OrgID:      orgID,
-		Role:       role,
-		BaseRole:   role, // session auth isn't scope-capped
-		Email:      user.Email,
-		Name:       user.Name,
-		IsOperator: user.IsOperator,
-		IsDemo:     user.IsDemo,
+		Kind:              identity.PrincipalUser,
+		UserID:            &uid,
+		OrgID:             orgID,
+		Role:              role,
+		BaseRole:          role, // session auth isn't scope-capped
+		Email:             user.Email,
+		Name:              user.Name,
+		IsOperator:        user.IsOperator,
+		IsDemo:            user.IsDemo,
+		MustResetPassword: user.MustResetPassword,
 	}, true, nil
 }
 

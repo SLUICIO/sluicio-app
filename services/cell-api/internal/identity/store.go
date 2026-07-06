@@ -99,6 +99,24 @@ func (s *Store) SetPasswordHash(ctx context.Context, userID uuid.UUID, hash stri
 	return err
 }
 
+// SetPasswordHashForced writes a new hash and sets must_reset_password to
+// requireReset in one statement — the admin "reset a member's password"
+// path. requireReset=true forces the target to change it on next login
+// (EnforcePasswordReset gates everything until they do). Returns
+// ErrNotFound when no such user.
+func (s *Store) SetPasswordHashForced(ctx context.Context, userID uuid.UUID, hash string, requireReset bool) error {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE users SET password_hash = $2, must_reset_password = $3, updated_at = now() WHERE id = $1`,
+		userID, hash, requireReset)
+	if err != nil {
+		return fmt.Errorf("identity: set password (forced): %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // AuthenticatePassword verifies (email, password) against the local
 // users table. Returns the User on success, or ErrInvalidCredentials
 // on any failure (no user, no password set, wrong password). We
@@ -426,7 +444,7 @@ func (s *Store) BootstrapSeedAdminPassword(ctx context.Context, email, plaintext
 	}
 	const q = `
 		UPDATE users
-		SET password_hash = $2, must_reset_password = TRUE, updated_at = now()
+		SET password_hash = $2, updated_at = now()
 		WHERE lower(email) = lower($1) AND COALESCE(password_hash, '') = ''`
 	_, err = s.pool.Exec(ctx, q, email, hash)
 	return err

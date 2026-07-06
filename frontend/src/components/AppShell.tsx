@@ -34,6 +34,7 @@ import ThemeToggle from "./ThemeToggle";
 import TimeWindowPicker from "./TimeWindowPicker";
 import DigestBell from "./DigestBell";
 import { MFAEnrollmentBanner } from "./MFAEnrollmentBanner";
+import ForcePasswordChange from "./ForcePasswordChange";
 import { IntegrationLimitBanner } from "./IntegrationLimitBanner";
 
 interface NavItem {
@@ -98,6 +99,12 @@ const navGroups: NavGroup[] = [
 ];
 
 export default function AppShell() {
+  const { user } = useCurrentUser();
+  // Hard gate: a pending temporary-password change replaces the whole app
+  // until resolved (the cell-api 403s everything else anyway).
+  if (user.mustResetPassword) {
+    return <ForcePasswordChange />;
+  }
   return (
     <BreadcrumbProvider>
       <div className="flex h-screen flex-col bg-background text-foreground">
