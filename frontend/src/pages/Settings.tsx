@@ -1619,6 +1619,12 @@ function PoliciesSection({
   const [policies, setPolicies] = useState<AccessPolicy[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  // Policy CRUD is Enterprise (rbac_advanced) — the backend 402s writes
+  // on unlicensed cells, so don't offer the button; upsell instead. The
+  // read-only list stays (listing is open, and CE cells can carry policies
+  // created while a license was active).
+  const { status: lic } = useLicense();
+  const rbacEntitled = lic?.features?.rbac_advanced ?? false;
 
   const refresh = () => {
     api
@@ -1632,18 +1638,31 @@ function PoliciesSection({
     <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid var(--border)" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
         <div>
-          <div style={{ fontWeight: 600, fontSize: 13 }}>Access policies</div>
+          <div style={{ fontWeight: 600, fontSize: 13, display: "flex", alignItems: "center", gap: 8 }}>
+            Access policies <EnterpriseBadge />
+          </div>
           <div className="muted" style={{ fontSize: 12 }}>
             What data this group can see. Multiple policies OR together;
             an empty list means "no access" (strict default).
           </div>
         </div>
-        {isAdmin && (
+        {isAdmin && rbacEntitled && (
           <button type="button" className="btn" onClick={() => setAdding(true)} disabled={adding}>
             + Add policy
           </button>
         )}
       </div>
+
+      {!rbacEntitled && (
+        <UpgradeNotice title="Access policies are a Sluicio Enterprise feature" expired={lic?.expired}>
+          <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+            In the Community edition, grant visibility by attaching this group
+            to integrations or systems (Group access on their detail pages).
+            An Enterprise license unlocks fine-grained policies — per service,
+            per signal, attribute matches, and boolean expressions.
+          </p>
+        </UpgradeNotice>
+      )}
 
       {error && <div className="alert alert--error">{error}</div>}
       {!policies && <div className="placeholder">Loading…</div>}
