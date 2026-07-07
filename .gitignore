@@ -73,3 +73,6 @@ sluicio_lic_*.txt
 
 # Marketing/blog drafts — kept out of the product repo.
 drafts/
+posts/
+sluicio-content-calendar.xlsx
+.~lock.*
