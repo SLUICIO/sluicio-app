@@ -15,8 +15,20 @@
 # Optional:
 #   DEMO_SEED_INTERVAL  pause between batches (default 15s)
 #   DEMO_SEED_BATCH     spans per batch (default 50)
+#   DEMO_LOGIN_EMAIL / DEMO_LOGIN_PASSWORD
+#                     credentials the login form pre-fills (defaults
+#                     demo@sluicio.com / demodemo — the public demo user)
 
 services:
+  # Overlay onto the base cell-api: advertise the demo credentials on the
+  # public install-state endpoint so the login form pre-fills them.
+  # Environment maps merge key-wise across -f files, so this adds two vars
+  # without repeating the base service definition.
+  cell-api:
+    environment:
+      SLUICIO_LOGIN_PREFILL_EMAIL: ${DEMO_LOGIN_EMAIL:-demo@sluicio.com}
+      SLUICIO_LOGIN_PREFILL_PASSWORD: ${DEMO_LOGIN_PASSWORD:-demodemo}
+
   demo-seeder:
     image: ${REGISTRY:-ghcr.io}/${NAMESPACE:-sluicio}/demo-seeder:${TAG:-latest}
     restart: unless-stopped

@@ -911,7 +911,10 @@ export const api = {
   // installState is public — the Login page calls it before anyone
   // has a session, to decide whether to show the "ships with a
   // default admin" hint. fresh=true on a first-boot install.
-  installState: () => get<{ fresh: boolean }>(`/auth/install-state`),
+  // prefill is only present on demo cells (SLUICIO_LOGIN_PREFILL_*):
+  // the login form seeds its fields from it.
+  installState: () =>
+    get<{ fresh: boolean; prefill?: { email: string; password: string } }>(`/auth/install-state`),
 
   // Self-service profile + password. updateMe returns the fresh
   // users row; the caller re-renders state. changePassword returns

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -416,6 +417,12 @@ func (h *Handlers) blockDemo(next http.HandlerFunc) http.HandlerFunc {
 // "Fresh" is defined as: no user row has last_login_at set. The
 // seeded admin's first login flips that, so the hint disappears
 // immediately after the first sign-in.
+//
+// The response also carries an optional login pre-fill for public demo
+// cells: when SLUICIO_LOGIN_PREFILL_EMAIL is set (only ever on a demo
+// deployment — the credentials are public by design there), the login
+// form seeds its fields from it. Unset (every normal install) the key
+// is absent and the frontend behaves as before.
 func (h *Handlers) installState(w http.ResponseWriter, r *http.Request) {
 	fresh := true // safer default — show the hint on backend errors
 	if h.Identity != nil {
@@ -426,7 +433,14 @@ func (h *Handlers) installState(w http.ResponseWriter, r *http.Request) {
 			fresh = !anyLoggedIn
 		}
 	}
-	httpserver.WriteJSON(w, http.StatusOK, map[string]bool{"fresh": fresh})
+	resp := map[string]any{"fresh": fresh}
+	if email := strings.TrimSpace(os.Getenv("SLUICIO_LOGIN_PREFILL_EMAIL")); email != "" {
+		resp["prefill"] = map[string]string{
+			"email":    email,
+			"password": os.Getenv("SLUICIO_LOGIN_PREFILL_PASSWORD"),
+		}
+	}
+	httpserver.WriteJSON(w, http.StatusOK, resp)
 }
 
 // sessionCookie returns the Set-Cookie value used on login. We set:

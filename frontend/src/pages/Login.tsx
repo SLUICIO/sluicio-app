@@ -32,6 +32,10 @@ export default function Login({ onSuccess }: Props) {
   // fetch failure we leave it undefined → hint stays hidden, which
   // matches the safer default on a non-fresh deploy.
   const [showFreshHint, setShowFreshHint] = useState<boolean | undefined>(undefined);
+  // True when the cell advertised demo-login credentials (public demo
+  // deployments only) and we seeded the form with them. Gates the
+  // "credentials are pre-filled" note under the form.
+  const [prefilled, setPrefilled] = useState(false);
   // "login" is the normal form; "forgot" swaps in the password-reset
   // request form. forgotSent flips to the neutral confirmation message.
   const [mode, setMode] = useState<"login" | "forgot" | "mfa">("login");
@@ -89,7 +93,17 @@ export default function Login({ onSuccess }: Props) {
     api
       .installState()
       .then((s) => {
-        if (!cancelled) setShowFreshHint(s.fresh);
+        if (cancelled) return;
+        setShowFreshHint(s.fresh);
+        // Demo cells advertise public credentials — seed the form so a
+        // visitor is one click from signed in. Never overwrite anything
+        // the user already typed (the fetch races their first keypress).
+        const p = s.prefill;
+        if (p?.email) {
+          setEmail((cur) => cur || p.email);
+          setPassword((cur) => cur || p.password);
+          setPrefilled(true);
+        }
       })
       .catch(() => {
         // Network / 500 — leave hint hidden. The hint is only useful
@@ -265,6 +279,13 @@ export default function Login({ onSuccess }: Props) {
               ))}
             </div>
           </div>
+        )}
+
+        {prefilled && mode === "login" && (
+          <p className="muted" style={{ fontSize: 12, marginTop: 18, lineHeight: 1.5 }}>
+            Public demo environment — the credentials are pre-filled,
+            just press <strong>Sign in</strong>.
+          </p>
         )}
 
         {showFreshHint && mode === "login" && (

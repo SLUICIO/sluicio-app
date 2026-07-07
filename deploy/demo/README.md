@@ -17,6 +17,12 @@ Three moving parts:
    in a `pg_dump` you take once; a cron job restores it and truncates
    telemetry, erasing visitor changes.
 
+The overlay also pre-fills the login form with the demo credentials
+(`DEMO_LOGIN_EMAIL` / `DEMO_LOGIN_PASSWORD`, default
+`demo@sluicio.com` / `demodemo`), so visitors are one click from signed
+in. It works by setting `SLUICIO_LOGIN_PREFILL_*` on cell-api — never
+set those on a non-demo deployment.
+
 ## Setup
 
 Start from a working [server deployment](../server/README.md), then:
