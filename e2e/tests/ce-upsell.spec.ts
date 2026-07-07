@@ -40,14 +40,27 @@ test.describe("Enterprise features upsell in the Community edition", () => {
 
   test("Group access policies", async ({ page }) => {
     const ee = await entitled(page, "rbac_advanced");
-    await page.goto("/settings?tab=groups");
-    await page.locator("table tbody tr").first().locator("button").first().click();
-    await expect(page.getByText("Access policies", { exact: false }).first()).toBeVisible();
-    if (ee) {
-      await expect(page.getByRole("button", { name: "+ Add policy" })).toBeVisible();
-    } else {
-      await expect(page.getByText("Access policies are a Sluicio Enterprise feature")).toBeVisible();
-      await expect(page.getByRole("button", { name: "+ Add policy" })).toHaveCount(0);
+    // Self-sufficient: a fresh cell (release verification) has no groups,
+    // so create one to open rather than clicking a row that may not exist.
+    const slug = `e2e-upsell-${Date.now()}`;
+    const created = await page.request.post("/api/v1/settings/groups", {
+      data: { name: slug, slug },
+    });
+    expect(created.ok()).toBeTruthy();
+    const group = await created.json();
+    try {
+      await page.goto("/settings?tab=groups");
+      // The row button's accessible name is "<name> ▸" — match on the name.
+      await page.getByRole("button", { name: new RegExp(group.name) }).click();
+      await expect(page.getByText("Access policies", { exact: false }).first()).toBeVisible();
+      if (ee) {
+        await expect(page.getByRole("button", { name: "+ Add policy" })).toBeVisible();
+      } else {
+        await expect(page.getByText("Access policies are a Sluicio Enterprise feature")).toBeVisible();
+        await expect(page.getByRole("button", { name: "+ Add policy" })).toHaveCount(0);
+      }
+    } finally {
+      await page.request.delete(`/api/v1/settings/groups/${group.id}`);
     }
   });
 
