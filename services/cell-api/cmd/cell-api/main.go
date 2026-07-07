@@ -65,6 +65,7 @@ import (
 	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/identity"
 	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/ingestkeys"
 	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/integrations"
+	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/maintenance"
 	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/maps"
 	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/messageviews"
 	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/metadata"
@@ -217,6 +218,7 @@ func main() {
 		Dashboards:          dashboardStore,
 		Tags:                tagStore,
 		Alerts:              alertStore,
+		Maintenance:         maintenance.NewStore(pg),
 		ServiceMeta:         serviceMetaStore,
 		Metadata:            metadataStore,
 		Catalog:             catalogStore,

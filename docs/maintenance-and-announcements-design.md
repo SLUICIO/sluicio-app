@@ -1,6 +1,12 @@
 # Maintenance windows & announcements (design)
 
-Status: **draft for review** — nothing here is built.
+Status: **v1 implemented** (2026-07-07). The five open questions at the
+bottom were decided as proposed. One deviation from the draft: the
+windows list endpoint returns all of the org's windows to every member
+(viewer+) rather than scope-filtering — windows are operational
+communication like announcements, and hiding them would just make
+"why is this alert silent?" harder to answer. Revisit if scope contents
+ever become sensitive.
 
 Two features with one seam, motivated by the demo-cell outage (2026-07-07):
 when an operator knows something is wrong or planned, there is today no way

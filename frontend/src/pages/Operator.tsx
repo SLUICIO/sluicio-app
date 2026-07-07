@@ -15,6 +15,7 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { AuthRole, MemberRow, OperatorOrg, OperatorUser } from "../api/types";
+import AnnouncementsAdmin from "../components/AnnouncementsAdmin";
 import { usePageTitle } from "../lib/usePageTitle";
 
 const ROLES: AuthRole[] = ["admin", "editor", "viewer"];
@@ -36,6 +37,7 @@ export default function Operator() {
       <OrganizationsCard />
       <OperatorsCard />
       <CellSettingsCard />
+      <AnnouncementsAdmin scope="cell" />
     </div>
   );
 }

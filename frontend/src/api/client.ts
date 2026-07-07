@@ -4,6 +4,10 @@
 // use relative paths from the browser.
 
 import type {
+  Announcement,
+  AnnouncementInput,
+  MaintenanceWindow,
+  MaintenanceWindowInput,
   CreateDashboardRequest,
   CreateIntegrationRequest,
   CreateMessageViewRequest,
@@ -707,6 +711,27 @@ export const api = {
   putAlertEmailTemplate: (subject: string, body: string) =>
     put<void>(`/alert-email-template`, { subject, body }),
   listAlertInstances: (limit = 100) => get<{ instances: AlertInstance[] }>(`/alert-instances?limit=${limit}`),
+
+  // Announcements — persistent banners. The unprefixed pair is any authed
+  // user (read + dismiss); /settings/* is org-admin; /operator/* manages
+  // the cell-wide rows.
+  listMyAnnouncements: () => get<{ announcements: Announcement[] }>(`/announcements`),
+  dismissAnnouncement: (id: string) => post<void>(`/announcements/${encodeURIComponent(id)}/dismiss`, {}),
+  listOrgAnnouncements: () => get<{ announcements: Announcement[] }>(`/settings/announcements`),
+  createOrgAnnouncement: (body: AnnouncementInput) => post<Announcement>(`/settings/announcements`, body),
+  deleteOrgAnnouncement: (id: string) => del(`/settings/announcements/${encodeURIComponent(id)}`),
+  listCellAnnouncements: () => get<{ announcements: Announcement[] }>(`/operator/announcements`),
+  createCellAnnouncement: (body: AnnouncementInput) => post<Announcement>(`/operator/announcements`, body),
+  deleteCellAnnouncement: (id: string) => del(`/operator/announcements/${encodeURIComponent(id)}`),
+
+  // Maintenance windows — bounded alert-delivery suppression. DELETE ends
+  // an active window now (or cancels a scheduled one).
+  listMaintenanceWindows: () => get<{ windows: MaintenanceWindow[] }>(`/maintenance-windows`),
+  createMaintenanceWindow: (body: MaintenanceWindowInput) =>
+    post<MaintenanceWindow>(`/maintenance-windows`, body),
+  updateMaintenanceWindow: (id: string, body: MaintenanceWindowInput) =>
+    patch<MaintenanceWindow>(`/maintenance-windows/${encodeURIComponent(id)}`, body),
+  endMaintenanceWindow: (id: string) => del(`/maintenance-windows/${encodeURIComponent(id)}`),
 
   // Delivery history — what notifications have been sent, to which
   // channel, and whether they succeeded. Server-side filtered by the time

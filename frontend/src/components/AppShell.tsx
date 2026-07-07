@@ -32,6 +32,7 @@ import { useCurrentUser } from "../lib/useCurrentUser";
 import { LogoMark } from "./brand/Logo";
 import TimeWindowPicker from "./TimeWindowPicker";
 import DigestBell from "./DigestBell";
+import { AnnouncementsBanner } from "./AnnouncementsBanner";
 import { MFAEnrollmentBanner } from "./MFAEnrollmentBanner";
 import ForcePasswordChange from "./ForcePasswordChange";
 import { IntegrationLimitBanner } from "./IntegrationLimitBanner";
@@ -134,6 +135,7 @@ export default function AppShell() {
           {!navHidden && <SideNav />}
           <main className="flex min-w-0 flex-1 flex-col overflow-auto">
             <div className="flex-1 px-8 py-6">
+              <AnnouncementsBanner />
               <MFAEnrollmentBanner />
               <IntegrationLimitBanner />
               <Outlet />

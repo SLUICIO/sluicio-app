@@ -40,6 +40,7 @@ import type {
 import { EditDrawer } from "../components/primitives";
 import AlertEmailTemplateSettings from "../components/AlertEmailTemplateSettings";
 import TrimIngestionPanel from "../components/metrics/TrimIngestionPanel";
+import AnnouncementsAdmin from "../components/AnnouncementsAdmin";
 import { EnterpriseBadge, UpgradeNotice } from "../components/EnterpriseUpsell";
 import SsoSettings from "../components/SsoSettings";
 import { formatRelative } from "../lib/format";
@@ -695,6 +696,8 @@ function OrganizationTab() {
           </div>
         )}
       </form>
+
+      {isAdmin && <AnnouncementsAdmin scope="org" />}
 
       {isAdmin && (
         <p className="muted" style={{ marginTop: 32, fontSize: 12, maxWidth: 600 }}>

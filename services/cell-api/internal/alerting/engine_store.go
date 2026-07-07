@@ -32,19 +32,24 @@ type AlertInstance struct {
 	// worked on"). While set, the engine stops sending notifications for
 	// this instance — the operator is already on it.
 	HandledAt *time.Time
+	// SuppressedBy is the maintenance window that muted this instance's
+	// firing notification. Muted at birth ⇒ its resolve stays silent too
+	// (nobody was told it fired). Instances that fired *before* a window
+	// keep nil and resolve loudly as usual.
+	SuppressedBy *uuid.UUID
 }
 
 // ActiveInstance returns the rule's currently-firing instance, or nil.
 func (s *Store) ActiveInstance(ctx context.Context, ruleID uuid.UUID) (*AlertInstance, error) {
 	const q = `
-		SELECT id, alert_rule_id, state, started_at, last_evaluated_at, fingerprint, COALESCE(summary, ''), handled_at
+		SELECT id, alert_rule_id, state, started_at, last_evaluated_at, fingerprint, COALESCE(summary, ''), handled_at, suppressed_by
 		FROM alert_instances
 		WHERE alert_rule_id = $1 AND state = 'firing'
 		ORDER BY started_at DESC
 		LIMIT 1`
 	var a AlertInstance
 	err := s.pool.QueryRow(ctx, q, ruleID).Scan(
-		&a.ID, &a.AlertRuleID, &a.State, &a.StartedAt, &a.LastEvaluatedAt, &a.Fingerprint, &a.Summary, &a.HandledAt)
+		&a.ID, &a.AlertRuleID, &a.State, &a.StartedAt, &a.LastEvaluatedAt, &a.Fingerprint, &a.Summary, &a.HandledAt, &a.SuppressedBy)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -62,14 +67,14 @@ func (s *Store) ActiveInstance(ctx context.Context, ruleID uuid.UUID) (*AlertIns
 // have one fingerprint per rule should keep using ActiveInstance.
 func (s *Store) ActiveInstanceByFingerprint(ctx context.Context, ruleID uuid.UUID, fingerprint string) (*AlertInstance, error) {
 	const q = `
-		SELECT id, alert_rule_id, state, started_at, last_evaluated_at, fingerprint, COALESCE(summary, ''), handled_at
+		SELECT id, alert_rule_id, state, started_at, last_evaluated_at, fingerprint, COALESCE(summary, ''), handled_at, suppressed_by
 		FROM alert_instances
 		WHERE alert_rule_id = $1 AND fingerprint = $2 AND state = 'firing'
 		ORDER BY started_at DESC
 		LIMIT 1`
 	var a AlertInstance
 	err := s.pool.QueryRow(ctx, q, ruleID, fingerprint).Scan(
-		&a.ID, &a.AlertRuleID, &a.State, &a.StartedAt, &a.LastEvaluatedAt, &a.Fingerprint, &a.Summary, &a.HandledAt)
+		&a.ID, &a.AlertRuleID, &a.State, &a.StartedAt, &a.LastEvaluatedAt, &a.Fingerprint, &a.Summary, &a.HandledAt, &a.SuppressedBy)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -240,6 +245,10 @@ type FiringUnackedInstance struct {
 	RuleID         uuid.UUID
 	StartedAt      time.Time
 	LastNotifiedAt *time.Time
+	// SuppressedBy set = this instance fired inside a maintenance window
+	// and its first page never went out. Once no window covers the rule
+	// anymore, the renotify loop sends that overdue first page.
+	SuppressedBy *uuid.UUID
 }
 
 // FiringUnackedInstances returns every firing, unacknowledged instance in
@@ -248,7 +257,7 @@ type FiringUnackedInstance struct {
 // instances are excluded because an operator is already on them.
 func (s *Store) FiringUnackedInstances(ctx context.Context, orgID uuid.UUID) ([]FiringUnackedInstance, error) {
 	const q = `
-		SELECT i.id, i.alert_rule_id, i.started_at, i.last_notified_at
+		SELECT i.id, i.alert_rule_id, i.started_at, i.last_notified_at, i.suppressed_by
 		FROM alert_instances i
 		JOIN alert_rules r ON r.id = i.alert_rule_id
 		WHERE r.organization_id = $1 AND i.state = 'firing' AND i.handled_at IS NULL`
@@ -260,12 +269,108 @@ func (s *Store) FiringUnackedInstances(ctx context.Context, orgID uuid.UUID) ([]
 	var out []FiringUnackedInstance
 	for rows.Next() {
 		var fi FiringUnackedInstance
-		if err := rows.Scan(&fi.InstanceID, &fi.RuleID, &fi.StartedAt, &fi.LastNotifiedAt); err != nil {
+		if err := rows.Scan(&fi.InstanceID, &fi.RuleID, &fi.StartedAt, &fi.LastNotifiedAt, &fi.SuppressedBy); err != nil {
 			return nil, err
 		}
 		out = append(out, fi)
 	}
 	return out, rows.Err()
+}
+
+// ── maintenance suppression ──────────────────────────────────────────
+
+// MaintenanceWindow is the engine's minimal read model of an active
+// window: just enough to decide whether a rule's delivery is muted.
+// ServiceNames carries both the explicit names and the write-time system
+// expansion (see the maintenance package).
+type MaintenanceWindow struct {
+	ID             uuid.UUID
+	ScopeKind      string // all_org | entities | group
+	IntegrationIDs map[uuid.UUID]struct{}
+	ServiceNames   map[string]struct{}
+	GroupID        *uuid.UUID
+}
+
+// Covers reports whether this window silences the given rule.
+func (w MaintenanceWindow) Covers(rule AlertRule) bool {
+	switch w.ScopeKind {
+	case "all_org":
+		return true
+	case "group":
+		return w.GroupID != nil && rule.GroupID != nil && *w.GroupID == *rule.GroupID
+	case "entities":
+		if rule.IntegrationID != nil {
+			if _, ok := w.IntegrationIDs[*rule.IntegrationID]; ok {
+				return true
+			}
+		}
+		if rule.ServiceName != "" {
+			if _, ok := w.ServiceNames[rule.ServiceName]; ok {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// ActiveMaintenanceWindows returns the org's currently-active windows in
+// the engine's read model. Called on a short cache TTL from the engine.
+func (s *Store) ActiveMaintenanceWindows(ctx context.Context, orgID uuid.UUID) ([]MaintenanceWindow, error) {
+	const q = `
+		SELECT id, scope FROM maintenance_windows
+		WHERE org_id = $1 AND starts_at <= now() AND ends_at > now()`
+	rows, err := s.pool.Query(ctx, q, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("active maintenance windows: %w", err)
+	}
+	defer rows.Close()
+	var out []MaintenanceWindow
+	for rows.Next() {
+		var id uuid.UUID
+		var scopeJSON []byte
+		if err := rows.Scan(&id, &scopeJSON); err != nil {
+			return nil, err
+		}
+		var scope struct {
+			Kind                 string      `json:"kind"`
+			IntegrationIDs       []uuid.UUID `json:"integration_ids"`
+			ServiceNames         []string    `json:"service_names"`
+			ServiceNamesExpanded []string    `json:"service_names_expanded"`
+			GroupID              *uuid.UUID  `json:"group_id"`
+		}
+		if err := json.Unmarshal(scopeJSON, &scope); err != nil {
+			// A window we can't parse must not silently mute alerts —
+			// skip it (fail toward delivery).
+			continue
+		}
+		w := MaintenanceWindow{
+			ID:             id,
+			ScopeKind:      scope.Kind,
+			IntegrationIDs: map[uuid.UUID]struct{}{},
+			ServiceNames:   map[string]struct{}{},
+			GroupID:        scope.GroupID,
+		}
+		for _, iid := range scope.IntegrationIDs {
+			w.IntegrationIDs[iid] = struct{}{}
+		}
+		for _, n := range scope.ServiceNames {
+			w.ServiceNames[n] = struct{}{}
+		}
+		for _, n := range scope.ServiceNamesExpanded {
+			w.ServiceNames[n] = struct{}{}
+		}
+		out = append(out, w)
+	}
+	return out, rows.Err()
+}
+
+// MarkInstanceSuppressed stamps the window that muted an instance's
+// firing notification. First writer wins — the stamp is birth metadata.
+func (s *Store) MarkInstanceSuppressed(ctx context.Context, instanceID, windowID uuid.UUID) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE alert_instances SET suppressed_by = $2
+		WHERE id = $1 AND suppressed_by IS NULL`, instanceID, windowID)
+	return err
 }
 
 // DeliveryJob is a claimed job plus the context needed to render and

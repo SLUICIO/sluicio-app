@@ -1618,6 +1618,60 @@ export interface NotificationProfileInput {
   channel_ids?: string[];
 }
 
+// Announcement is one persistent banner (org-scoped, or cell-wide when
+// org_id is absent). See docs/maintenance-and-announcements-design.md.
+export interface Announcement {
+  id: string;
+  org_id?: string;
+  message: string;
+  severity: "info" | "warning" | "critical";
+  starts_at: string;
+  ends_at?: string;
+  dismissible: boolean;
+  created_at: string;
+}
+
+export interface AnnouncementInput {
+  message: string;
+  severity?: "info" | "warning" | "critical";
+  ends_at?: string;
+  dismissible?: boolean;
+}
+
+// MaintenanceWindowScope says which alert rules a window silences:
+// everything, an explicit entity list, or one team's rules.
+export interface MaintenanceWindowScope {
+  kind: "all_org" | "entities" | "group";
+  integration_ids?: string[];
+  system_ids?: string[];
+  service_names?: string[];
+  // Write-time snapshot of the systems' member services (server-set).
+  service_names_expanded?: string[];
+  group_id?: string;
+}
+
+export interface MaintenanceWindow {
+  id: string;
+  org_id: string;
+  name: string;
+  reason?: string;
+  starts_at: string;
+  ends_at: string;
+  scope: MaintenanceWindowScope;
+  announcement_id?: string;
+  created_at: string;
+  active: boolean;
+}
+
+export interface MaintenanceWindowInput {
+  name: string;
+  reason?: string;
+  starts_at?: string;
+  ends_at: string;
+  scope: MaintenanceWindowScope;
+  announce?: boolean;
+}
+
 export interface AlertInstance {
   id: string;
   alert_rule_id: string;

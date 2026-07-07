@@ -10,6 +10,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -121,6 +122,42 @@ type Engine struct {
 	deliveryPoll time.Duration
 	maxAttempts  int
 	client       *http.Client
+
+	// Short-TTL cache of the org's active maintenance windows, consulted
+	// on every notification decision (windows number in the units; the
+	// checks run per firing rule per tick).
+	mwMu      sync.Mutex
+	mwCache   []MaintenanceWindow
+	mwFetched time.Time
+}
+
+// mwCacheTTL is how stale the active-window cache may go. Well under the
+// eval interval so a freshly-created window takes effect within a tick.
+const mwCacheTTL = 15 * time.Second
+
+// suppressedBy returns the id of an active maintenance window covering
+// the rule, or nil. On cache-refresh errors it fails toward delivery
+// (alerts page rather than silently vanish).
+func (e *Engine) suppressedBy(ctx context.Context, rule AlertRule) *uuid.UUID {
+	e.mwMu.Lock()
+	if time.Since(e.mwFetched) > mwCacheTTL {
+		wins, err := e.store.ActiveMaintenanceWindows(ctx, e.org)
+		if err != nil {
+			e.log.Warn("maintenance windows load failed; not suppressing", "err", err)
+			wins = nil
+		}
+		e.mwCache = wins
+		e.mwFetched = time.Now()
+	}
+	wins := e.mwCache
+	e.mwMu.Unlock()
+	for _, w := range wins {
+		if w.Covers(rule) {
+			id := w.ID
+			return &id
+		}
+	}
+	return nil
 }
 
 // ChannelResolver picks the delivery channels for a firing rule, applying
@@ -222,7 +259,12 @@ func (e *Engine) resolveOrHold(ctx context.Context, active *AlertInstance, rule 
 		e.log.Error(kind+" eval: resolve failed", "rule", rule.ID, "err", err)
 		return
 	}
-	if active.HandledAt == nil {
+	// Resolve notifications go out unless the operator already acked, or
+	// the instance was muted at birth by a maintenance window — nobody was
+	// told it fired, so "resolved" would be noise. An instance that fired
+	// BEFORE the window (SuppressedBy nil) resolves loudly even mid-window:
+	// resolves are good news and close the loop.
+	if active.HandledAt == nil && active.SuppressedBy == nil {
 		if err := e.enqueue(ctx, active.ID, rule); err != nil {
 			e.log.Error(kind+" eval: enqueue resolve failed", "rule", rule.ID, "err", err)
 		}
@@ -240,6 +282,17 @@ func (e *Engine) resolveOrHold(ctx context.Context, active *AlertInstance, rule 
 // failing check. Without an integration to group on, per-integration falls
 // back to per-check.
 func (e *Engine) enqueueFiring(ctx context.Context, instanceID uuid.UUID, rule AlertRule) error {
+	// Maintenance window covering this rule: record that the instance was
+	// muted at birth and send nothing. The notify watermark stays unset,
+	// so if the alert is still firing when the window ends, the renotify
+	// loop sends the overdue first page.
+	if w := e.suppressedBy(ctx, rule); w != nil {
+		if err := e.store.MarkInstanceSuppressed(ctx, instanceID, *w); err != nil {
+			e.log.Warn("mark suppressed failed", "instance", instanceID, "err", err)
+		}
+		e.log.Info("alert firing suppressed (maintenance)", "rule", rule.Name, "window", *w)
+		return nil
+	}
 	if grouping, _ := e.behavior(ctx, rule); grouping == groupingPerIntegration && rule.IntegrationID != nil {
 		return nil
 	}
@@ -723,9 +776,29 @@ func (e *Engine) renotifyOnce(ctx context.Context) {
 	}
 
 	// Per-check: each firing alert re-pages independently once its profile's
-	// interval elapses. The first page already went out inline (last is set).
+	// interval elapses. The first page normally went out inline; a nil
+	// watermark here means the instance was muted at birth by a maintenance
+	// window — once no window covers the rule anymore, send that overdue
+	// first page.
 	for _, it := range perCheck {
-		if it.inst.LastNotifiedAt == nil || it.renotify <= 0 {
+		if w := e.suppressedBy(ctx, it.rule); w != nil {
+			// Covered right now — stay quiet. Stamp instances that started
+			// inside the window but haven't been marked yet (per-integration
+			// births reach here without passing enqueueFiring).
+			if it.inst.LastNotifiedAt == nil && it.inst.SuppressedBy == nil {
+				if err := e.store.MarkInstanceSuppressed(ctx, it.inst.InstanceID, *w); err != nil {
+					e.log.Warn("mark suppressed failed", "instance", it.inst.InstanceID, "err", err)
+				}
+			}
+			continue
+		}
+		if it.inst.LastNotifiedAt == nil {
+			if it.inst.SuppressedBy != nil {
+				e.renotifyInstance(ctx, it.inst.InstanceID, it.rule, "notified (maintenance ended)")
+			}
+			continue
+		}
+		if it.renotify <= 0 {
 			continue
 		}
 		if due(it.inst.LastNotifiedAt, it.renotify) {
@@ -743,6 +816,19 @@ func (e *Engine) renotifyOnce(ctx context.Context) {
 			if it.inst.StartedAt.Before(rep.inst.StartedAt) {
 				rep = it
 			}
+		}
+		// Maintenance window covering the integration's rules: mute the
+		// whole stream, stamping unmarked instances so their eventual
+		// resolve stays silent too.
+		if w := e.suppressedBy(ctx, rep.rule); w != nil {
+			for _, it := range items {
+				if it.inst.LastNotifiedAt == nil && it.inst.SuppressedBy == nil {
+					if err := e.store.MarkInstanceSuppressed(ctx, it.inst.InstanceID, *w); err != nil {
+						e.log.Warn("mark suppressed failed", "instance", it.inst.InstanceID, "err", err)
+					}
+				}
+			}
+			continue
 		}
 		if due(rep.inst.LastNotifiedAt, rep.renotify) {
 			e.renotifyInstance(ctx, rep.inst.InstanceID, rep.rule, "integration-notified")

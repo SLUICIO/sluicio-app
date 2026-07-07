@@ -13,13 +13,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
-import type { AlertDelivery, AlertInstance, AlertRule, Group, Integration, NotificationChannel, System } from "../api/types";
+import type { AlertDelivery, AlertInstance, AlertRule, Group, Integration, MaintenanceWindow, NotificationChannel, System } from "../api/types";
 import { usePageTitle } from "../lib/usePageTitle";
 import { useCurrentUser } from "../lib/useCurrentUser";
 import { useAccess } from "../lib/useAccess";
 import { useTimeWindow } from "../lib/useTimeWindow";
 import { formatRelative } from "../lib/format";
 import { alertCondition, alertSignalLabel } from "../lib/alertRule";
+import MaintenanceWindows from "../components/MaintenanceWindows";
 import NotificationProfiles from "../components/NotificationProfiles";
 import SearchableSelect from "../components/SearchableSelect";
 import VirtualInfiniteList from "../components/VirtualInfiniteList";
@@ -52,7 +53,8 @@ export default function Alerts() {
   // Sent-notifications: server-side filtered by the window + facets.
   const [deliveries, setDeliveries] = useState<AlertDelivery[]>([]);
   const [dFilter, setDFilter] = useState({ service: "", integration: "", system: "", name: "" });
-  const [tab, setTab] = useState<"checks" | "channels" | "sent">("checks");
+  const [tab, setTab] = useState<"checks" | "channels" | "sent" | "maintenance">("checks");
+  const [mWindows, setMWindows] = useState<MaintenanceWindow[]>([]);
 
   const load = useCallback(() => {
     api.listAlertInstances(200).then((r) => setInstances(r.instances ?? [])).catch(() => setInstances([]));
@@ -61,6 +63,7 @@ export default function Alerts() {
     api.listIntegrations().then((r) => setIntegrations(r.integrations ?? [])).catch(() => setIntegrations([]));
     api.listGroups().then((r) => setGroups(r.groups ?? [])).catch(() => setGroups([]));
     api.listSystems().then((r) => setSystems(r.systems ?? [])).catch(() => setSystems([]));
+    api.listMaintenanceWindows().then((r) => setMWindows(r.windows ?? [])).catch(() => setMWindows([]));
   }, []);
   useEffect(() => { load(); }, [load]);
 
@@ -190,6 +193,20 @@ export default function Alerts() {
 
       {error && <div className="alert alert--error">{error}</div>}
 
+      {mWindows.some((w) => w.active) && (
+        <div className="alert alert--warn" style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <span style={{ fontSize: 13.5 }}>
+            <strong>Maintenance active</strong> — alert delivery is silenced for{" "}
+            {mWindows.filter((w) => w.active).map((w) => w.name).join(", ")}. Alerts keep
+            evaluating and recording.
+          </span>
+          <button type="button" className="btn btn--sm" style={{ marginLeft: "auto", whiteSpace: "nowrap" }}
+            onClick={() => setTab("maintenance")}>
+            View windows
+          </button>
+        </div>
+      )}
+
       <div className="svc-tabs">
         <button className={`svc-tab ${tab === "checks" ? "on" : ""}`} type="button" onClick={() => setTab("checks")}>
           Health checks
@@ -206,6 +223,15 @@ export default function Alerts() {
         <button className={`svc-tab ${tab === "sent" ? "on" : ""}`} type="button" onClick={() => setTab("sent")}>
           Sent notifications
         </button>
+        <button className={`svc-tab ${tab === "maintenance" ? "on" : ""}`} type="button" onClick={() => setTab("maintenance")}>
+          Maintenance
+          {mWindows.filter((w) => w.active).length > 0 && (
+            <span className="count" style={{ background: "var(--warn, #d97706)", borderColor: "var(--warn, #d97706)", color: "#fff" }}
+              title={`${mWindows.filter((w) => w.active).length} active window(s)`}>
+              {mWindows.filter((w) => w.active).length}
+            </span>
+          )}
+        </button>
       </div>
 
       <div style={{ marginTop: 16 }}>
@@ -219,6 +245,18 @@ export default function Alerts() {
             onToggle={toggleRule}
             onDelete={deleteRule}
             ruleTitle={ruleTitle}
+          />
+        )}
+        {tab === "maintenance" && (
+          <MaintenanceWindows
+            windows={mWindows}
+            integrations={integrations}
+            systems={systems}
+            groups={groups}
+            canWrite={canWrite}
+            isAdmin={can("org.manage")}
+            onChanged={load}
+            onError={setError}
           />
         )}
         {tab === "channels" && <ChannelsCard channels={channels} groups={groups} onChanged={load} onError={setError} canWrite={canWrite} />}

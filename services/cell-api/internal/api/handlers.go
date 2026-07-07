@@ -28,6 +28,7 @@ import (
 	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/identity"
 	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/ingestkeys"
 	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/integrations"
+	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/maintenance"
 	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/maps"
 	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/messageviews"
 	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/metadata"
@@ -66,12 +67,15 @@ type Handlers struct {
 	Dashboards          *dashboards.Store
 	Tags                *tags.Store
 	Alerts              *alerting.Store
-	ServiceMeta         *servicemeta.Store
-	Metadata            *metadata.Store
-	Catalog             *catalog.Store
-	Schemas             *schemas.Store
-	Maps                *maps.Store
-	Identity            *identity.Store
+	// Maintenance backs announcements + maintenance windows (see
+	// handlers_maintenance.go).
+	Maintenance *maintenance.Store
+	ServiceMeta *servicemeta.Store
+	Metadata    *metadata.Store
+	Catalog     *catalog.Store
+	Schemas     *schemas.Store
+	Maps        *maps.Store
+	Identity    *identity.Store
 	// Settings is the cell-wide key/value store (retention policy and
 	// future global knobs). Nil-safe at the handler level — the cell-
 	// settings endpoints return 503 if it's not wired.
@@ -1167,6 +1171,26 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 		mux.HandleFunc("GET /api/v1/settings/service-accounts/{id}/tokens", admin(h.listServiceAccountTokens))
 		mux.HandleFunc("POST /api/v1/settings/service-accounts/{id}/tokens", admin(h.createServiceAccountToken))
 		mux.HandleFunc("DELETE /api/v1/settings/service-accounts/{id}/tokens/{tid}", admin(h.revokeServiceAccountToken))
+
+		// Announcements (persistent banners) + maintenance windows
+		// (alert-delivery suppression). Reading + dismissing is any authed
+		// user — announcements are broadcast by design. Org management is
+		// admin (+ demo-blocked: it's org communication); cell-wide rows
+		// are operator-only. Windows: editors for scoped, admin for
+		// all_org (enforced in the handler).
+		mux.HandleFunc("GET /api/v1/announcements", h.listMyAnnouncements)
+		mux.HandleFunc("POST /api/v1/announcements/{id}/dismiss", h.dismissAnnouncement)
+		mux.HandleFunc("GET /api/v1/settings/announcements", admin(h.listOrgAnnouncements))
+		mux.HandleFunc("POST /api/v1/settings/announcements", admin(h.blockDemo(h.createOrgAnnouncement)))
+		mux.HandleFunc("DELETE /api/v1/settings/announcements/{id}", admin(h.blockDemo(h.deleteOrgAnnouncement)))
+		mux.HandleFunc("GET /api/v1/operator/announcements", h.AuthMW.RequireOperator(h.listCellAnnouncements))
+		mux.HandleFunc("POST /api/v1/operator/announcements", h.AuthMW.RequireOperator(h.createCellAnnouncement))
+		mux.HandleFunc("DELETE /api/v1/operator/announcements/{id}", h.AuthMW.RequireOperator(h.deleteCellAnnouncement))
+		editor := func(fn http.HandlerFunc) http.HandlerFunc { return h.AuthMW.RequireRole(identity.Role.CanWrite, fn) }
+		mux.HandleFunc("GET /api/v1/maintenance-windows", h.listMaintenanceWindows)
+		mux.HandleFunc("POST /api/v1/maintenance-windows", editor(h.createMaintenanceWindow))
+		mux.HandleFunc("PATCH /api/v1/maintenance-windows/{id}", editor(h.updateMaintenanceWindow))
+		mux.HandleFunc("DELETE /api/v1/maintenance-windows/{id}", editor(h.endMaintenanceWindow))
 	}
 
 	// Settings → Groups. Listing + getting + per-group membership is
