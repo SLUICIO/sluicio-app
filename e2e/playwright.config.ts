@@ -13,6 +13,9 @@ const manageFrontend = !process.env.E2E_BASE_URL;
 
 export default defineConfig({
   testDir: "./tests",
+  // Settles a pristine cell's install state (one API login) so UI tests
+  // deterministically get the sign-in form, not the first-run screen.
+  globalSetup: "./global-setup",
   // One retry in CI smooths over the occasional cold-start flake; none
   // locally so a real failure shows up immediately.
   retries: process.env.CI ? 1 : 0,

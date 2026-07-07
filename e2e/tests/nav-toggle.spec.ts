@@ -9,7 +9,9 @@ import { logIn } from "./fixtures";
 test.describe("Sidebar visibility toggle", () => {
   test("hide, persist across reload, show again", async ({ page }) => {
     await logIn(page);
-    const nav = page.getByRole("link", { name: "Integrations" });
+    // Scope to the sidebar <aside> — page content can carry its own
+    // "Integrations" links (dashboard widgets, subtitles).
+    const nav = page.locator("aside").getByRole("link", { name: "Integrations" });
     await expect(nav).toBeVisible();
 
     await page.getByRole("button", { name: "Hide navigation" }).click();
@@ -18,9 +20,9 @@ test.describe("Sidebar visibility toggle", () => {
     // Sticky: still hidden after a full reload.
     await page.reload();
     await expect(page.getByRole("button", { name: "Show navigation" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Integrations" })).toHaveCount(0);
+    await expect(nav).toHaveCount(0);
 
     await page.getByRole("button", { name: "Show navigation" }).click();
-    await expect(page.getByRole("link", { name: "Integrations" })).toBeVisible();
+    await expect(nav).toBeVisible();
   });
 });
