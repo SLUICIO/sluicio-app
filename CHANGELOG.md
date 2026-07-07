@@ -3,6 +3,21 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.4 — 2026-07-07
+
+- feat(ui): template checks visible + editable in place; version links to GitHub (89840ff)
+- fix(e2e): settle install state in global setup; scope nav assertions (0bf7498)
+- feat(alerting): announcements + maintenance windows (5869c71)
+- docs: maintenance windows + announcements design (draft for review) (8ab7b90)
+- chore(ui): drop the top-bar theme toggle — Account → Theme owns it (cd87b4d)
+- fix(ui): setup skip link says what it means — the seeded admin account (8251af7)
+- feat(ui): sidebar can be hidden from the top bar (2892cc5)
+- feat(auth): first-run screen — create your admin account (687af3a)
+- docs+ui: quickstart is clone-free and the seeded admin is discoverable (18d8da6)
+- fix(e2e): EE feature suite skips itself on unlicensed cells (b0c3a18)
+- fix(e2e): group-policy upsell test creates its own group (bd9b555)
+- release v0.11.3 — refresh internal changelog (9d99303)
+
 ## v0.11.3 — 2026-07-07
 
 - feat(demo): pre-fill the login form with the demo credentials (4d3170d)
