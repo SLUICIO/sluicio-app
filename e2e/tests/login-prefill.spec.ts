@@ -34,12 +34,15 @@ test.describe("Login credential pre-fill (demo cells)", () => {
     await expect(page.getByText("Public demo environment")).toHaveCount(0);
   });
 
-  test("fresh install → hint states the seeded admin credentials", async ({ browser }) => {
+  test("fresh install → sign-in form (behind setup's skip link) states the seeded credentials", async ({ browser }) => {
     const page = await (await browser.newContext()).newPage();
     await page.route("**/api/v1/auth/install-state", (route) =>
       route.fulfill({ json: { fresh: true } }),
     );
     await page.goto("/");
+    // Fresh installs boot into the first-run setup screen; the seeded
+    // credentials are surfaced on the sign-in form behind the skip link.
+    await page.getByRole("button", { name: /sign in with an existing account/i }).click();
     await expect(page.getByText("admin@sluicio.local")).toBeVisible();
   });
 

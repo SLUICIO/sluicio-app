@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -448,4 +449,57 @@ func (s *Store) BootstrapSeedAdminPassword(ctx context.Context, email, plaintext
 		WHERE lower(email) = lower($1) AND COALESCE(password_hash, '') = ''`
 	_, err = s.pool.Exec(ctx, q, email, hash)
 	return err
+}
+
+// ErrInstallNotFresh means someone has already logged in to this cell,
+// so the first-run bootstrap surface is sealed.
+var ErrInstallNotFresh = errors.New("identity: install is already set up")
+
+// BootstrapAdmin personalizes the seeded admin on a pristine install —
+// the first-run "create your admin account" screen posts here. Email,
+// display name, and password land on the seeded operator row in one
+// transaction, so the cell still has exactly one bootstrap admin, now
+// with credentials the installer chose instead of the public defaults.
+//
+// Self-sealing: refused with ErrInstallNotFresh once any user has
+// logged in (the same freshness signal as the install-state endpoint).
+// From then on account changes go through the authenticated surfaces.
+func (s *Store) BootstrapAdmin(ctx context.Context, email, name, plaintext string) error {
+	hash, err := HashPassword(plaintext)
+	if err != nil {
+		return err
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("identity: bootstrap admin: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var used bool
+	if err := tx.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM users WHERE last_login_at IS NOT NULL)`).Scan(&used); err != nil {
+		return fmt.Errorf("identity: bootstrap admin: freshness: %w", err)
+	}
+	if used {
+		return ErrInstallNotFresh
+	}
+
+	// The seeded admin is the cell's bootstrap operator (promoted at
+	// startup, see cmd/cell-api). Target the oldest operator row.
+	var id uuid.UUID
+	if err := tx.QueryRow(ctx,
+		`SELECT id FROM users WHERE is_operator ORDER BY created_at ASC LIMIT 1`).Scan(&id); err != nil {
+		return fmt.Errorf("identity: bootstrap admin: no operator row: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE users
+		SET email = $2, name = $3, password_hash = $4,
+		    must_reset_password = false, updated_at = now()
+		WHERE id = $1`, id, email, name, hash); err != nil {
+		if strings.Contains(err.Error(), "users_email_key") || strings.Contains(err.Error(), "idx_users_email") {
+			return ErrUserExists
+		}
+		return fmt.Errorf("identity: bootstrap admin: %w", err)
+	}
+	return tx.Commit(ctx)
 }

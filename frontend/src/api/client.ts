@@ -916,6 +916,12 @@ export const api = {
   installState: () =>
     get<{ fresh: boolean; prefill?: { email: string; password: string } }>(`/auth/install-state`),
 
+  // bootstrapAdmin personalizes the seeded admin on a pristine install —
+  // the first-run "create your admin account" screen. Public endpoint;
+  // 409 once anyone has ever logged in.
+  bootstrapAdmin: (body: { name: string; email: string; password: string }) =>
+    post<void>(`/auth/bootstrap-admin`, body),
+
   // Self-service profile + password. updateMe returns the fresh
   // users row; the caller re-renders state. changePassword returns
   // 204 (or 401 if the current password is wrong).

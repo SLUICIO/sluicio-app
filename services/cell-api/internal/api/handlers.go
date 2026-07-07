@@ -1022,6 +1022,7 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/auth/login", h.login)
 	mux.HandleFunc("POST /api/v1/auth/logout", h.logout)
 	mux.HandleFunc("GET /api/v1/auth/install-state", h.installState)
+	mux.HandleFunc("POST /api/v1/auth/bootstrap-admin", h.bootstrapAdmin)
 	mux.HandleFunc("POST /api/v1/auth/forgot-password", h.forgotPassword)
 	mux.HandleFunc("POST /api/v1/auth/reset-password", h.resetPassword)
 	mux.HandleFunc("POST /api/v1/auth/mfa-verify", h.mfaVerify)

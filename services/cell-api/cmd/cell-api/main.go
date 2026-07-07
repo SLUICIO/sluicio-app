@@ -460,6 +460,9 @@ func main() {
 		"/api/v1/auth/login",
 		"/api/v1/auth/logout",
 		"/api/v1/auth/install-state",
+		// First-run setup is necessarily pre-auth; the handler self-seals
+		// after the first-ever login (409 from then on).
+		"/api/v1/auth/bootstrap-admin",
 		// Password reset is necessarily pre-auth (the user can't log in).
 		"/api/v1/auth/forgot-password",
 		"/api/v1/auth/reset-password",

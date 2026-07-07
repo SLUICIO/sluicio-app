@@ -42,9 +42,8 @@ curl -LO https://raw.githubusercontent.com/SLUICIO/sluicio-app/main/deploy/quick
 docker compose up -d
 ```
 
-Open **http://localhost:8080** and sign in as `admin@sluicio.local` / `admin`
-(then change the password from the user menu). Send it telemetry (OTLP/HTTP)
-at `http://localhost:4318`. That's the free **Community edition** — unlimited
+Open **http://localhost:8080** and create your admin account on the first-run
+screen. Send it telemetry (OTLP/HTTP) at `http://localhost:4318`. That's the free **Community edition** — unlimited
 integrations, users, and data. Details and production options (single-server,
 Kubernetes, bring-your-own databases) are in
 [`deploy/`](deploy/) → [quickstart](deploy/quickstart/) ·

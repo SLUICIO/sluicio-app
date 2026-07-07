@@ -12,9 +12,13 @@ docker compose up -d
 
 (From a clone: `docker compose -f deploy/quickstart/docker-compose.yml up -d`.)
 
-Then open **http://localhost:8080** and sign in with the seeded admin account
-— `admin@sluicio.local` / `admin` — and change the password from the user
-menu. That's it — you're running Sluicio (Community edition).
+Then open **http://localhost:8080** and create your admin account on the
+first-run screen. That's it — you're running Sluicio (Community edition).
+
+(For scripted/headless setups: until someone completes the first-run screen
+or logs in, the cell also has a seeded `admin@sluicio.local` / `admin`
+account — the screen's "sign in with an existing account" path. The setup
+endpoint seals itself after the first login.)
 
 - **Send it telemetry:** point an OpenTelemetry Collector (or any OTLP/HTTP
   exporter) at **http://localhost:4318**. See

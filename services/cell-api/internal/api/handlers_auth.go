@@ -443,6 +443,57 @@ func (h *Handlers) installState(w http.ResponseWriter, r *http.Request) {
 	httpserver.WriteJSON(w, http.StatusOK, resp)
 }
 
+// bootstrapAdmin: POST /api/v1/auth/bootstrap-admin
+//
+// Public but self-sealing: the first-run "create your admin account"
+// screen posts here to personalize the seeded admin (email + name +
+// password) before anyone has ever logged in. Once any login exists the
+// endpoint answers 409 forever — no information beyond what the public
+// install-state endpoint already reveals, and nothing an attacker can't
+// do anyway on a cell still exposing the documented seed credentials.
+func (h *Handlers) bootstrapAdmin(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Name     string `json:"name"`
+		Email    string `json:"email"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	email := strings.ToLower(strings.TrimSpace(body.Email))
+	if email == "" || !strings.Contains(email, "@") {
+		httpserver.WriteError(w, http.StatusBadRequest, "a valid email is required")
+		return
+	}
+	if len(body.Password) < 8 {
+		httpserver.WriteError(w, http.StatusBadRequest, "password must be at least 8 characters")
+		return
+	}
+	name := strings.TrimSpace(body.Name)
+	if name == "" {
+		name = "Admin"
+	}
+	if h.Identity == nil {
+		httpserver.WriteError(w, http.StatusServiceUnavailable, "identity store unavailable")
+		return
+	}
+	switch err := h.Identity.BootstrapAdmin(r.Context(), email, name, body.Password); {
+	case errors.Is(err, identity.ErrInstallNotFresh):
+		httpserver.WriteError(w, http.StatusConflict, "this install is already set up — sign in instead")
+		return
+	case errors.Is(err, identity.ErrUserExists):
+		httpserver.WriteError(w, http.StatusConflict, "a user with that email already exists")
+		return
+	case err != nil:
+		h.Logger.Error("bootstrap admin failed", "err", err)
+		httpserver.WriteError(w, http.StatusInternalServerError, "could not set up the admin account")
+		return
+	}
+	h.Logger.Info("first-run bootstrap: admin account personalized", "email", email)
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // sessionCookie returns the Set-Cookie value used on login. We set:
 //
 //   - Path=/ so every cell-api path receives it.

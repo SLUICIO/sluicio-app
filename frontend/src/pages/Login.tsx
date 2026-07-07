@@ -37,8 +37,15 @@ export default function Login({ onSuccess }: Props) {
   // "credentials are pre-filled" note under the form.
   const [prefilled, setPrefilled] = useState(false);
   // "login" is the normal form; "forgot" swaps in the password-reset
-  // request form. forgotSent flips to the neutral confirmation message.
-  const [mode, setMode] = useState<"login" | "forgot" | "mfa">("login");
+  // request form (forgotSent flips it to the neutral confirmation);
+  // "setup" is the first-run create-your-admin-account screen a pristine
+  // install boots into.
+  const [mode, setMode] = useState<"login" | "forgot" | "mfa" | "setup">("login");
+  // Extra fields for the first-run setup form (email + password reuse the
+  // sign-in state so switching modes keeps what was typed).
+  const [setupName, setSetupName] = useState("");
+  const [setupConfirm, setSetupConfirm] = useState("");
+  const [setupBusy, setSetupBusy] = useState(false);
   const [forgotSent, setForgotSent] = useState(false);
   const [forgotBusy, setForgotBusy] = useState(false);
   // MFA second step: set when login returns mfa_required.
@@ -103,6 +110,11 @@ export default function Login({ onSuccess }: Props) {
           setEmail((cur) => cur || p.email);
           setPassword((cur) => cur || p.password);
           setPrefilled(true);
+        } else if (s.fresh) {
+          // Pristine install: greet with the first-run setup screen
+          // instead of a login form guarding seed credentials. Only if
+          // the user hasn't already navigated somewhere else.
+          setMode((m) => (m === "login" ? "setup" : m));
         }
       })
       .catch(() => {
@@ -115,6 +127,35 @@ export default function Login({ onSuccess }: Props) {
       cancelled = true;
     };
   }, []);
+
+  // First-run setup: personalize the seeded admin, then log straight in
+  // with the new credentials (which also seals the bootstrap endpoint).
+  const submitSetup = async (e: FormEvent) => {
+    e.preventDefault();
+    if (setupBusy) return;
+    if (password !== setupConfirm) {
+      setError("Passwords don't match.");
+      return;
+    }
+    setSetupBusy(true);
+    setError(null);
+    try {
+      await api.bootstrapAdmin({ name: setupName.trim(), email: email.trim(), password });
+      await api.login({ email: email.trim(), password });
+      await onSuccess();
+    } catch (err) {
+      const msg = String((err as Error).message ?? err);
+      if (msg.startsWith("409")) {
+        // Someone beat us to it (or an API login flipped freshness):
+        // the install is set up, so fall back to the sign-in form.
+        setMode("login");
+        setError("This install is already set up — sign in below.");
+      } else {
+        setError(msg);
+      }
+      setSetupBusy(false);
+    }
+  };
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -164,11 +205,46 @@ export default function Login({ onSuccess }: Props) {
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 18 }}>
           <LogoMark size={32} style={{ color: "var(--primary)" }} />
           <div style={{ fontSize: 18, fontWeight: 700 }}>
-            {mode === "forgot" ? "Reset your password" : mode === "mfa" ? "Two-factor authentication" : "Sign in to Sluicio"}
+            {mode === "forgot" ? "Reset your password" : mode === "mfa" ? "Two-factor authentication" : mode === "setup" ? "Welcome to Sluicio" : "Sign in to Sluicio"}
           </div>
         </div>
 
-        {mode === "mfa" ? (
+        {mode === "setup" ? (
+          <form onSubmit={submitSetup} className="form" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <p className="muted" style={{ fontSize: 12.5, lineHeight: 1.55, margin: 0 }}>
+              Create your admin account to finish setting up this install.
+            </p>
+            <label className="form__label">
+              Name
+              <input className="search__input" value={setupName} onChange={(e) => setSetupName(e.target.value)}
+                placeholder="Ada Lovelace" autoComplete="name" autoFocus />
+            </label>
+            <label className="form__label">
+              Email
+              <input type="email" className="search__input" value={email} onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@example.com" autoComplete="email" required />
+            </label>
+            <label className="form__label">
+              Password
+              <input type="password" className="search__input" value={password} onChange={(e) => setPassword(e.target.value)}
+                autoComplete="new-password" minLength={8} required />
+            </label>
+            <label className="form__label">
+              Confirm password
+              <input type="password" className="search__input" value={setupConfirm} onChange={(e) => setSetupConfirm(e.target.value)}
+                autoComplete="new-password" minLength={8} required />
+            </label>
+            {error && <div className="alert alert--error" role="alert">{error}</div>}
+            <button type="submit" className="btn btn--primary"
+              disabled={setupBusy || !email.trim() || !password || !setupConfirm} style={{ marginTop: 6 }}>
+              {setupBusy ? "Setting up…" : "Create admin account"}
+            </button>
+            <button type="button" className="btn btn--link"
+              onClick={() => { setError(null); setMode("login"); }} style={{ fontSize: 12.5 }}>
+              Skip — sign in with an existing account
+            </button>
+          </form>
+        ) : mode === "mfa" ? (
           <form onSubmit={submitMfa} className="form" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             <p className="muted" style={{ fontSize: 12.5, lineHeight: 1.55, margin: 0 }}>
               Enter the 6-digit code from your authenticator app (or a backup code).
