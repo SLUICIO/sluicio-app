@@ -40,8 +40,12 @@ render() {
   echo
 
   # Version tags, newest first. --sort=-v:refname orders SemVer correctly.
+  # --merged HEAD keeps only tags in the current history: working copies
+  # that also carry the pre-public tags (archived on the old remote) must
+  # not regenerate those sections from git — they're appended verbatim
+  # from CHANGELOG.archive.md by render_all, and would double up here.
   local tags
-  tags="$(git tag --list 'v*' --sort=-v:refname)"
+  tags="$(git tag --list 'v*' --merged HEAD --sort=-v:refname)"
 
   local newest=""
   [ -n "$tags" ] && newest="$(printf '%s\n' "$tags" | head -1)"

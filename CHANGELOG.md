@@ -3,6 +3,40 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.3 — 2026-07-07
+
+- feat(demo): pre-fill the login form with the demo credentials (4d3170d)
+- fix(ui): alert email template matches its sibling System-tab sections (2399bd6)
+
+## v0.11.2 — 2026-07-06
+
+- fix(ui): drop unfinished controls from the message filter editor (8bbb4c3)
+- docs(ui): SSO has shipped — drop '(soon)' from the org settings subtitle (0652bbe)
+- fix(ui): resource-sharing card shows a CE upsell instead of vanishing (bb13104)
+- fix(ui): gate the group policy editor on rbac_advanced (upsell, not 402) (44048ce)
+- docs(readme): add the hosted demo (demo.sluicio.com) near the top (78f635e)
+- chore: remove marketing drafts from the product repo (fa8fa2f)
+- feat(auth): admins set a temporary password + force change on next login (540ea8d)
+- docs(license): Apache-2.0 appendix copyright is ROMA IT AB (8506c8f)
+- docs: finish the Integration Monitor → Sluicio rename; licensing doc knows all three tiers (ce61745)
+- docs(license): FSL Licensed Work is Sluicio, (c) ROMA IT AB (8864f0a)
+- fix(ci): lint clean + demo e2e tolerates unlicensed cells (e1a8dfe)
+- chore: gitleaks config — e2e fixture passwords are test data (2491378)
+
+## v0.11.1 — 2026-07-06
+
+- docs: DCO sign-off + explicit inbound Apache-2.0 for contributions (342cdd3)
+- docs(license): fix the CE licensing story for the real legal entity (2aee1b5)
+- docs(ee): add ROMA IT AB organisationsnummer to the SEL (5629e12)
+- docs(ee): SEL identifies ROMA IT AB as a Swedish aktiebolag + support contact (d94ab81)
+- docs(ee): finalize SEL v1.0 — proper CE grant, redistribution, Swedish law (850418c)
+- docs(ee): SEL v1.0 is final — drop the draft disclaimer (7f449ac)
+- Sluicio v0.11.1 — initial public release (5e07738)
+
+## v0.11.1 addendum — folded into the initial public commit
+
+- fix(demo): drop demo-seeder depends_on so podman-compose can bring it up
+
 ## v0.11.1 — 2026-07-05
 
 - ci(release): build + publish the demo-seeder image (2c6ac6b)
