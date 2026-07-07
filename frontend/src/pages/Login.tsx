@@ -241,7 +241,7 @@ export default function Login({ onSuccess }: Props) {
             </button>
             <button type="button" className="btn btn--link"
               onClick={() => { setError(null); setMode("login"); }} style={{ fontSize: 12.5 }}>
-              Skip — sign in with an existing account
+              Skip — sign in with the seeded admin account
             </button>
           </form>
         ) : mode === "mfa" ? (

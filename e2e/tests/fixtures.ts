@@ -22,7 +22,7 @@ export async function logIn(
   // A pristine cell greets with the first-run setup screen; the suite
   // drives the seeded account, so drop to the sign-in form when offered.
   await expect(page.getByText(/Sign in to Sluicio|Welcome to Sluicio/)).toBeVisible();
-  const skipSetup = page.getByRole("button", { name: /sign in with an existing account/i });
+  const skipSetup = page.getByRole("button", { name: /sign in with the seeded admin account/i });
   if (await skipSetup.isVisible().catch(() => false)) await skipSetup.click();
   await expect(page.getByText("Sign in to Sluicio")).toBeVisible();
 

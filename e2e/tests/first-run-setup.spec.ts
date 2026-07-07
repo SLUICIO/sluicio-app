@@ -20,7 +20,7 @@ test.describe("First-run admin setup", () => {
     await expect(page.getByLabel("Name")).toBeVisible();
     await expect(page.getByLabel("Confirm password")).toBeVisible();
     // The skip path lands on the normal sign-in form.
-    await page.getByRole("button", { name: /sign in with an existing account/i }).click();
+    await page.getByRole("button", { name: /sign in with the seeded admin account/i }).click();
     await expect(page.getByText("Sign in to Sluicio")).toBeVisible();
   });
 

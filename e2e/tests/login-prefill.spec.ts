@@ -42,7 +42,7 @@ test.describe("Login credential pre-fill (demo cells)", () => {
     await page.goto("/");
     // Fresh installs boot into the first-run setup screen; the seeded
     // credentials are surfaced on the sign-in form behind the skip link.
-    await page.getByRole("button", { name: /sign in with an existing account/i }).click();
+    await page.getByRole("button", { name: /sign in with the seeded admin account/i }).click();
     await expect(page.getByText("admin@sluicio.local")).toBeVisible();
   });
 
