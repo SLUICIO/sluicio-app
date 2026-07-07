@@ -30,7 +30,6 @@ import { switchToOrg } from "../lib/activeOrg";
 import { BreadcrumbProvider, useBreadcrumbLeafValue } from "../lib/breadcrumb";
 import { useCurrentUser } from "../lib/useCurrentUser";
 import { LogoMark } from "./brand/Logo";
-import ThemeToggle from "./ThemeToggle";
 import TimeWindowPicker from "./TimeWindowPicker";
 import DigestBell from "./DigestBell";
 import { MFAEnrollmentBanner } from "./MFAEnrollmentBanner";
@@ -174,7 +173,6 @@ function TopBar({ navHidden, onToggleNav }: { navHidden: boolean; onToggleNav: (
       <EnvLabel />
       <TimeWindowPicker />
       <DigestBell />
-      <ThemeToggle />
       <UserMenu />
     </header>
   );

@@ -149,23 +149,6 @@ code, .mono {
 /* App shell layout, brand, sidebar, and top bar are now driven by
    Tailwind utilities directly in components/AppShell.tsx — see that
    file. The old .app-shell* classes lived here. */
-/* theme toggle button */
-.theme-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  background: var(--surface-2);
-  color: var(--ink);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  font-size: 13px;
-  cursor: pointer;
-  font-family: inherit;
-}
-.theme-toggle:hover { background: var(--surface-3); }
-.theme-toggle svg { width: 14px; height: 14px; flex-shrink: 0; }
-
 /* page header */
 .page__header {
   display: flex;

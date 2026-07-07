@@ -694,8 +694,7 @@ function ThemeTab() {
   return (
     <div style={{ maxWidth: 480 }}>
       <p className="muted" style={{ fontSize: 13, marginBottom: 12 }}>
-        The theme toggle in the top bar is the quick-switch — this is the same
-        setting in its full form. Stored on this device.
+        Choose how Sluicio looks. Stored on this device.
       </p>
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {options.map((o) => (
