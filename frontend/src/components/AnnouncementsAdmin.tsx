@@ -73,7 +73,9 @@ export default function AnnouncementsAdmin({ scope }: Props) {
 
   return (
     <section style={{ marginTop: 28, borderTop: "1px solid var(--border)", paddingTop: 20 }}>
-      <h3 style={{ fontSize: 14, fontWeight: 600, margin: "0 0 4px" }}>Announcements</h3>
+      <h3 style={{ fontSize: 14, fontWeight: 600, margin: "0 0 4px" }}>
+        {scope === "org" ? "Announcements" : "Cell-wide announcements"}
+      </h3>
       <p className="muted" style={{ fontSize: 13, lineHeight: 1.55, margin: "0 0 14px" }}>
         {scope === "org"
           ? "A persistent banner every member of this organization sees until it expires or they dismiss it — maintenance notices, known issues, heads-ups."

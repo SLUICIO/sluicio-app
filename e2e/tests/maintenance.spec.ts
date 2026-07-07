@@ -47,6 +47,14 @@ test.describe("Announcements", () => {
     }
   });
 
+  test("cell-wide announcements live on Settings → System, not the Operator page", async ({ page }) => {
+    await logIn(page); // suite admin is a cell operator
+    await page.goto("/settings?tab=system");
+    await expect(page.getByRole("heading", { name: "Cell-wide announcements" })).toBeVisible();
+    await page.goto("/operator");
+    await expect(page.getByRole("heading", { name: /announcements/i })).toHaveCount(0);
+  });
+
   test("admin publishes and removes from Settings → Organization", async ({ page }) => {
     await logIn(page);
     await page.goto("/settings?tab=organization");

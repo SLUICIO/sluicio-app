@@ -15,7 +15,6 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { AuthRole, MemberRow, OperatorOrg, OperatorUser } from "../api/types";
-import AnnouncementsAdmin from "../components/AnnouncementsAdmin";
 import { usePageTitle } from "../lib/usePageTitle";
 
 const ROLES: AuthRole[] = ["admin", "editor", "viewer"];
@@ -37,7 +36,6 @@ export default function Operator() {
       <OrganizationsCard />
       <OperatorsCard />
       <CellSettingsCard />
-      <AnnouncementsAdmin scope="cell" />
     </div>
   );
 }
@@ -492,7 +490,7 @@ function CellSettingsCard() {
       </p>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         <a className="btn btn--sm" href="/settings?tab=system">
-          Email (SMTP) &amp; security
+          Email (SMTP), security &amp; announcements
         </a>
         <a className="btn btn--sm" href="/settings?tab=retention">
           Telemetry retention

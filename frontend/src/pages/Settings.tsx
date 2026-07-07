@@ -168,6 +168,10 @@ export default function Settings() {
             <>
               <SystemSettingsTab />
               <AlertEmailTemplateSettings />
+              {/* Cell-wide announcements sit with the other cell-wide
+                  settings (the whole tab is operator-gated). Org-scoped
+                  announcements live on the Organization tab. */}
+              <AnnouncementsAdmin scope="cell" />
             </>
           )}
           {tab === "sso" && <SsoTab />}
