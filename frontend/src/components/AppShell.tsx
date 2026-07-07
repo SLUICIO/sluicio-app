@@ -966,8 +966,19 @@ function SidebarFooter() {
       <div className="mt-0.5">
         {/* The git-derived version already carries a leading "v"
             (v0.1.0-dirty); the package.json fallback ("0.0.0") doesn't.
-            Strip any leading v and re-add one so we never render "vv…". */}
-        v{String(__APP_VERSION__).replace(/^v/i, "")} · {channel}
+            Strip any leading v and re-add one so we never render "vv…".
+            The version links to the GitHub releases — the in-product
+            pointer to the project (changelogs, issues, source). */}
+        <a
+          href="https://github.com/SLUICIO/sluicio-app/releases"
+          target="_blank"
+          rel="noreferrer"
+          className="hover:underline"
+          style={{ color: "inherit" }}
+          title="Sluicio on GitHub — release notes and source"
+        >
+          v{String(__APP_VERSION__).replace(/^v/i, "")} · {channel}
+        </a>
       </div>
     </div>
   );
