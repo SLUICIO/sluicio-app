@@ -3,6 +3,12 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.5 — 2026-07-07
+
+- fix(ui): cell-wide announcements move to Settings → System settings (4c52c6e)
+- chore: remove marketing content from the product repo (6a4570c)
+- release v0.11.4 — refresh internal changelog (6ddd12c)
+
 ## v0.11.4 — 2026-07-07
 
 - feat(ui): template checks visible + editable in place; version links to GitHub (89840ff)
