@@ -65,6 +65,21 @@ async function apiLogin(email: string, password: string): Promise<APIRequestCont
   return ctx;
 }
 
+// License gate: this suite needs a licensed cell. Release verification in
+// CI runs pure Community, so every test skips there — the CE side of these
+// gates (upsells instead of 402s) is ce-upsell.spec.ts's job. Hooks below
+// early-return on !cellLicensed so provisioning never runs either.
+let cellLicensed = false;
+test.beforeAll(async () => {
+  const ctx = await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD);
+  const st = await (await ctx.get("/api/v1/license")).json();
+  cellLicensed = Boolean(st?.licensed);
+  await ctx.dispose();
+});
+test.beforeEach(() => {
+  test.skip(!cellLicensed, "cell has no enterprise license — EE suite skipped");
+});
+
 // ensureUser (idempotent) provisions a member and returns its user id.
 async function ensureUser(
   admin: APIRequestContext,
@@ -119,6 +134,7 @@ test.describe("Enterprise MFA policy", () => {
   let opSecret = "";
 
   test.beforeAll(async () => {
+    if (!cellLicensed) return; // tests skip via the file-level gate
     admin = await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD);
     const opID = await ensureUser(admin, OP_EMAIL, OP_PASSWORD, "admin");
     await ensureUser(admin, MEMBER_EMAIL, MEMBER_PASSWORD, "viewer");
@@ -130,6 +146,7 @@ test.describe("Enterprise MFA policy", () => {
   });
 
   test.afterAll(async () => {
+    if (!op) return; // beforeAll never provisioned (unlicensed cell)
     // Leave the cell how we found it even after a mid-test failure: policy
     // off, operator's MFA unenrolled. Best-effort.
     try {
