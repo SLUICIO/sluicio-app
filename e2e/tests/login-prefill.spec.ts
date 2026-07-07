@@ -34,6 +34,15 @@ test.describe("Login credential pre-fill (demo cells)", () => {
     await expect(page.getByText("Public demo environment")).toHaveCount(0);
   });
 
+  test("fresh install → hint states the seeded admin credentials", async ({ browser }) => {
+    const page = await (await browser.newContext()).newPage();
+    await page.route("**/api/v1/auth/install-state", (route) =>
+      route.fulfill({ json: { fresh: true } }),
+    );
+    await page.goto("/");
+    await expect(page.getByText("admin@sluicio.local")).toBeVisible();
+  });
+
   test("prefill never overwrites what the user already typed", async ({ browser }) => {
     const page = await (await browser.newContext()).newPage();
     // Hold the install-state response until the user has typed.

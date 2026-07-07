@@ -9,8 +9,8 @@
 # ghcr.io/sluicio images. The frontend proxies /api to cell-api, so there's no
 # reverse proxy to set up — the browser talks to one port (8080) and it all
 # works. cell-api migrates Postgres and creates the ClickHouse tables on
-# startup, so the first `up` is all you need; the first screen lets you create
-# the admin account.
+# startup, so the first `up` is all you need. Sign in with the seeded admin
+# account (admin@sluicio.local / admin) and change the password.
 #
 # Send telemetry to it (OTLP/HTTP) at http://localhost:4318.
 #

@@ -290,7 +290,8 @@ export default function Login({ onSuccess }: Props) {
 
         {showFreshHint && mode === "login" && (
           <p className="muted" style={{ fontSize: 12, marginTop: 18, lineHeight: 1.5 }}>
-            Sluicio ships with a default admin account on first boot.
+            Sluicio ships with a default admin account on first boot:{" "}
+            <strong>admin@sluicio.local</strong> / <strong>admin</strong>.
             Once you’re in, change the password from the user menu.
           </p>
         )}

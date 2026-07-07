@@ -2,15 +2,19 @@
 
 # Sluicio quickstart
 
-The whole stack — Postgres, ClickHouse, and the Sluicio services — in one
-command, no configuration.
+The whole stack — Postgres, ClickHouse, and the Sluicio services — from one
+compose file, no configuration. You don't even need to clone the repo:
 
 ```bash
-docker compose -f deploy/quickstart/docker-compose.yml up -d
+curl -LO https://raw.githubusercontent.com/SLUICIO/sluicio-app/main/deploy/quickstart/docker-compose.yml
+docker compose up -d
 ```
 
-Then open **http://localhost:8080** and create your admin account on the
-first-run screen. That's it — you're running Sluicio (Community edition).
+(From a clone: `docker compose -f deploy/quickstart/docker-compose.yml up -d`.)
+
+Then open **http://localhost:8080** and sign in with the seeded admin account
+— `admin@sluicio.local` / `admin` — and change the password from the user
+menu. That's it — you're running Sluicio (Community edition).
 
 - **Send it telemetry:** point an OpenTelemetry Collector (or any OTLP/HTTP
   exporter) at **http://localhost:4318**. See

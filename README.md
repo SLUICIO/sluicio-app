@@ -35,16 +35,18 @@ next.
 
 ## Quick start
 
-The whole stack in one command — no configuration:
+One compose file — no clone, no configuration:
 
 ```bash
-docker compose -f deploy/quickstart/docker-compose.yml up -d
-# then open http://localhost:8080 and create your admin account
+curl -LO https://raw.githubusercontent.com/SLUICIO/sluicio-app/main/deploy/quickstart/docker-compose.yml
+docker compose up -d
 ```
 
-Send it telemetry (OTLP/HTTP) at `http://localhost:4318`. That's the free
-**Community edition** — unlimited integrations, users, and data. Details and
-production options (single-server, Kubernetes, bring-your-own databases) are in
+Open **http://localhost:8080** and sign in as `admin@sluicio.local` / `admin`
+(then change the password from the user menu). Send it telemetry (OTLP/HTTP)
+at `http://localhost:4318`. That's the free **Community edition** — unlimited
+integrations, users, and data. Details and production options (single-server,
+Kubernetes, bring-your-own databases) are in
 [`deploy/`](deploy/) → [quickstart](deploy/quickstart/) ·
 [server](deploy/server/) · [Helm](deploy/helm/cell/).
 
