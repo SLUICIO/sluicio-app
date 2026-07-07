@@ -98,8 +98,30 @@ const navGroups: NavGroup[] = [
   },
 ];
 
+// localStorage key for the sidebar visibility preference. Sticky across
+// sessions: on small screens people hide the nav once and expect it to
+// stay hidden.
+const NAV_HIDDEN_KEY = "sluicio.nav.hidden";
+
 export default function AppShell() {
   const { user } = useCurrentUser();
+  const [navHidden, setNavHidden] = useState(() => {
+    try {
+      return localStorage.getItem(NAV_HIDDEN_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggleNav = () =>
+    setNavHidden((v) => {
+      const next = !v;
+      try {
+        localStorage.setItem(NAV_HIDDEN_KEY, next ? "1" : "0");
+      } catch {
+        /* private mode etc. — the toggle still works for the session */
+      }
+      return next;
+    });
   // Hard gate: a pending temporary-password change replaces the whole app
   // until resolved (the cell-api 403s everything else anyway).
   if (user.mustResetPassword) {
@@ -108,9 +130,9 @@ export default function AppShell() {
   return (
     <BreadcrumbProvider>
       <div className="flex h-screen flex-col bg-background text-foreground">
-        <TopBar />
+        <TopBar navHidden={navHidden} onToggleNav={toggleNav} />
         <div className="flex min-h-0 flex-1">
-          <SideNav />
+          {!navHidden && <SideNav />}
           <main className="flex min-w-0 flex-1 flex-col overflow-auto">
             <div className="flex-1 px-8 py-6">
               <MFAEnrollmentBanner />
@@ -125,13 +147,24 @@ export default function AppShell() {
 }
 
 // ── Top bar ────────────────────────────────────────────────────────
-function TopBar() {
+function TopBar({ navHidden, onToggleNav }: { navHidden: boolean; onToggleNav: () => void }) {
   return (
     <header
       className="flex h-12 shrink-0 items-center gap-3 border-b border-border bg-surface-2 px-4"
       // Thin brand-blue accent across the very top of the app chrome.
       style={{ borderTop: "2px solid var(--primary)" }}
     >
+      <button
+        type="button"
+        aria-label={navHidden ? "Show navigation" : "Hide navigation"}
+        aria-expanded={!navHidden}
+        title={navHidden ? "Show navigation" : "Hide navigation"}
+        onClick={onToggleNav}
+        className="grid h-7 w-7 shrink-0 place-items-center rounded hover:bg-surface-3 focus:outline-none focus-visible:ring-2"
+        style={{ color: "var(--muted)" }}
+      >
+        <HamburgerIcon />
+      </button>
       <Brand />
       <OrgBadge />
       <Breadcrumb />
@@ -944,6 +977,15 @@ function SidebarFooter() {
 // Tiny inline SVGs at 16×16 with currentColor strokes so they pick up
 // the surrounding text color (set via inline style above for the
 // active/inactive nav states).
+
+// HamburgerIcon — the nav show/hide toggle in the top bar.
+function HamburgerIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden>
+      <path d="M2.5 4h11M2.5 8h11M2.5 12h11" />
+    </svg>
+  );
+}
 
 function DashboardIcon() {
   return (
