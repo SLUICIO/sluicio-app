@@ -20,6 +20,7 @@ import { useAccess } from "../lib/useAccess";
 import { useTimeWindow } from "../lib/useTimeWindow";
 import { formatRelative } from "../lib/format";
 import { alertCondition, alertSignalLabel } from "../lib/alertRule";
+import { useInstanceHighlight } from "../lib/useInstanceHighlight";
 import MaintenanceWindows from "../components/MaintenanceWindows";
 import NotificationProfiles from "../components/NotificationProfiles";
 import SearchableSelect from "../components/SearchableSelect";
@@ -81,6 +82,14 @@ export default function Alerts() {
   }, [reloadDeliveries]);
 
   const firing = useMemo(() => instances.filter((i) => i.state === "firing"), [instances]);
+
+  // Notification deep links carry ?instance=<id>; resolve it to the owning
+  // rule so its row can pulse (firing rows sort to the top of the list).
+  const highlight = useInstanceHighlight();
+  const highlightRuleId = useMemo(
+    () => instances.find((i) => i.id === highlight.target)?.alert_rule_id ?? null,
+    [instances, highlight.target],
+  );
 
   const [acting, setActing] = useState<string | null>(null);
   const actOnInstance = useCallback(
@@ -245,6 +254,7 @@ export default function Alerts() {
             onToggle={toggleRule}
             onDelete={deleteRule}
             ruleTitle={ruleTitle}
+            highlightRuleId={highlightRuleId}
           />
         )}
         {tab === "maintenance" && (
@@ -288,6 +298,7 @@ function HealthChecksColumn({
   onToggle,
   onDelete,
   ruleTitle,
+  highlightRuleId,
 }: {
   firing: AlertInstance[];
   rules: AlertRule[];
@@ -297,6 +308,9 @@ function HealthChecksColumn({
   onToggle: (r: AlertRule) => void;
   onDelete: (r: { id: string; name: string }) => void;
   ruleTitle: (r: AlertRule) => string;
+  // Rule whose row should pulse — resolved from the ?instance= deep link
+  // that notification emails carry.
+  highlightRuleId: string | null;
 }) {
   const [q, setQ] = useState("");
   // rule id → its firing instance (if any), so a row can badge itself and
@@ -335,6 +349,7 @@ function HealthChecksColumn({
         height={440}
         rowHeight={40}
         itemKey={(r) => r.id}
+        rowClassName={(r) => (r.id === highlightRuleId ? "instance-highlight" : "")}
         header={<><span>Name</span><span style={{ textAlign: "right" }}>Status</span></>}
         empty={<div className="placeholder" style={{ padding: 12 }}>No health checks. Create one from a metric in the Metrics explorer.</div>}
         renderRow={(rule) => {

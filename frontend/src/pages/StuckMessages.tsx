@@ -27,6 +27,7 @@ import { usePageTitle } from "../lib/usePageTitle";
 import { useTimeWindow } from "../lib/useTimeWindow";
 import { useCurrentUser } from "../lib/useCurrentUser";
 import { useAccess } from "../lib/useAccess";
+import { useInstanceHighlight } from "../lib/useInstanceHighlight";
 
 interface IntegrationGroup {
   ref: IntegrationRef;
@@ -409,8 +410,10 @@ function CheckRow({
   onError: (msg: string) => void;
   showTarget?: boolean;
 }) {
+  // Notification deep links land here with ?instance=<id> — pulse the row.
+  const highlight = useInstanceHighlight();
   return (
-    <div className="m-existing-row">
+    <div {...highlight.props(check.id, "m-existing-row")}>
       <div className={`m-ex-bar sev-${check.severity}`} />
       <div className="m-ex-mid">
         <div className="m-ex-name">{check.rule_name}</div>

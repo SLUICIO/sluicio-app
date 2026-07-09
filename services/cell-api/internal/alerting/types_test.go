@@ -42,15 +42,18 @@ func TestAlertLinkPath(t *testing.T) {
 		job  DeliveryJob
 		want string
 	}{
+		// Every destination carries ?instance= — the frontend highlighter's
+		// contract (lib/useInstanceHighlight): the recipient lands on the
+		// exact alert that paged them, not just the right page.
 		{
 			name: "failed-trace rule bound to an integration → integration errors page",
 			job:  DeliveryJob{AlertInstanceID: inst, RuleSignal: SignalTraceError, RuleKind: TraceErrorSpecKind, IntegrationID: &integ},
-			want: "/integrations/" + integ.String() + "/errors",
+			want: "/integrations/" + integ.String() + "/errors?instance=" + inst.String(),
 		},
 		{
 			name: "failed-trace rule with no integration → global errors overview",
 			job:  DeliveryJob{AlertInstanceID: inst, RuleSignal: SignalTraceError, RuleKind: TraceErrorSpecKind},
-			want: "/stuck",
+			want: "/stuck?instance=" + inst.String(),
 		},
 		{
 			name: "response-time (latency) trace rule → the alert itself",

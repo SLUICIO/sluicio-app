@@ -149,6 +149,20 @@ code, .mono {
 /* App shell layout, brand, sidebar, and top bar are now driven by
    Tailwind utilities directly in components/AppShell.tsx — see that
    file. The old .app-shell* classes lived here. */
+/* Deep-link target highlight — notifications link back with
+   ?instance=<id>; the matching alert row pulses and keeps a ring so the
+   recipient sees exactly what paged them. Warn palette: attention, not
+   "broken" (red stays semantic). */
+@keyframes instance-pulse {
+  0%, 100% { background-color: transparent; }
+  50% { background-color: var(--warn-soft); }
+}
+.instance-highlight {
+  animation: instance-pulse 1.1s ease-in-out 3;
+  box-shadow: 0 0 0 2px var(--warn);
+  border-radius: 8px;
+}
+
 /* page header */
 .page__header {
   display: flex;

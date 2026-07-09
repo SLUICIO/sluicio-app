@@ -237,13 +237,18 @@ func labelsWithLink(labels map[string]string, link string) map[string]string {
 // and acknowledge the errors. Every other rule points at the alert itself
 // on the Alerts page.
 func alertLinkPath(job DeliveryJob) string {
+	// Every destination carries ?instance=<alert-instance-id>: the target
+	// page resolves it, pulses the matching row, and scrolls it into view
+	// (frontend lib/useInstanceHighlight) — so the recipient lands on the
+	// exact alert that paged them, not just the right page.
+	instance := "instance=" + job.AlertInstanceID.String()
 	if job.RuleSignal == SignalTraceError && job.RuleKind == TraceErrorSpecKind {
 		if job.IntegrationID != nil {
-			return "/integrations/" + job.IntegrationID.String() + "/errors"
+			return "/integrations/" + job.IntegrationID.String() + "/errors?" + instance
 		}
-		return "/stuck"
+		return "/stuck?" + instance
 	}
-	return "/alerts?instance=" + job.AlertInstanceID.String()
+	return "/alerts?" + instance
 }
 
 // templateData is the variable map exposed to a rule's title/body

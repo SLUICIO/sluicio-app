@@ -36,6 +36,7 @@ import type {
 import { formatDateTime, formatNumber, formatRelative } from "../lib/format";
 import { usePageTitle } from "../lib/usePageTitle";
 import { useTimeWindow } from "../lib/useTimeWindow";
+import { useInstanceHighlight } from "../lib/useInstanceHighlight";
 
 // How many trace rows to preview per section. The headline counts come
 // from the server (window-accurate); these lists are a recent sample
@@ -53,6 +54,8 @@ export default function IntegrationErrors() {
   const [windowVal] = useTimeWindow();
   const { can } = useCurrentUser();
   const canWrite = can("integration.write");
+  // Notification deep links land here with ?instance=<id> — pulse the row.
+  const highlight = useInstanceHighlight();
 
   const [detail, setDetail] = useState<IntegrationDetail | null>(null);
   const [checks, setChecks] = useState<FailingCheck[]>([]);
@@ -225,7 +228,7 @@ export default function IntegrationErrors() {
                 {checks.map((c) => (
                   <div
                     key={c.id}
-                    className="grid items-center gap-3 border-t border-border px-4 py-2.5 text-sm first:border-t-0"
+                    {...highlight.props(c.id, "grid items-center gap-3 border-t border-border px-4 py-2.5 text-sm first:border-t-0")}
                     style={{ gridTemplateColumns: "20px 1fr 150px 120px auto" }}
                   >
                     <StatusPip kind={sevPip(c.severity)} />
