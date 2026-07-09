@@ -10,7 +10,7 @@ something we want to fix fast and disclose responsibly.
 
 **Please do not open a public issue for security problems.**
 
-Report privately to **security@romait.se**. Include:
+Report privately to **support@sluicio.com**. Include:
 
 - a description of the issue and its impact,
 - steps to reproduce (a proof of concept if you have one),
