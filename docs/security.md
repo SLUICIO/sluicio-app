@@ -17,9 +17,10 @@ everything here:
 
 ## Tamper-evident audit log (hash chain)
 
-Every audited action (logins, config changes, member/role changes,
-announcements, maintenance windows, …) is appended to a per-org
-**hash chain**:
+The audit log — recording, the hash chain, and verification — is an
+**Enterprise** feature. On a licensed cell, every audited action
+(logins, config changes, member/role changes, announcements,
+maintenance windows, …) is appended to a per-org **hash chain**:
 
 ```
 entry_hash = SHA-256( prev_hash ∥ canonical(entry) )
