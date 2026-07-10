@@ -3,6 +3,23 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.6 — 2026-07-10
+
+- feat(config): export & import org configuration between environments (3f86c42)
+- docs: config export/import design (draft for review) (fc148d7)
+- fix(demo): snapshot size guard is overridable (MIN_GOLDEN_BYTES) (974f417)
+- fix(demo): snapshot/reseed auto-detect podman; note cronie on Fedora (fd08169)
+- docs(deploy): fix stale pre-rename clone URL (ROMA-IT-AB/Sluicio → SLUICIO/sluicio-app) (53b3456)
+- docs(security): the whole audit log is Enterprise, not just verification (41064eb)
+- Change security contact email to support@sluicio.com (48e2d72)
+- chore: toolchain go1.25.12 — crypto/tls fix (GO-2026-5856) (c777989)
+- feat(alerting): notification links highlight the exact alert in the app (2ac719d)
+- docs: security principles — verifiable claims, code-linked (d9594aa)
+- chore: design guidelines move to the private brand repo (2f15d6a)
+- docs: Sluicio design guidelines — brand, tokens, idioms, voice (2c749d8)
+- docs: add service-facets user guide (62292f0)
+- release v0.11.5 — refresh internal changelog (56c8d66)
+
 ## v0.11.5 — 2026-07-07
 
 - fix(ui): cell-wide announcements move to Settings → System settings (4c52c6e)
