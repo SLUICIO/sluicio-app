@@ -29,7 +29,17 @@ set -a
 source "$ENV_FILE"
 set +a
 
-RUNTIME="${SLUICIO_RUNTIME:-docker}"
+# Container runtime: honor SLUICIO_RUNTIME (bootstrap.sh sets it), else
+# auto-detect — hand-rolled hosts (e.g. Fedora + Podman) rarely set it.
+RUNTIME="${SLUICIO_RUNTIME:-}"
+if [[ -z "$RUNTIME" ]]; then
+    if command -v podman >/dev/null 2>&1; then RUNTIME=podman
+    elif command -v docker >/dev/null 2>&1; then RUNTIME=docker
+    else
+        echo "$(basename "$0"): neither podman nor docker on PATH" >&2
+        exit 1
+    fi
+fi
 PG="$("$RUNTIME" ps --filter 'name=postgres' --format '{{.Names}}' | head -n1)"
 if [[ -z "$PG" ]]; then
     echo "snapshot: no running postgres container found" >&2

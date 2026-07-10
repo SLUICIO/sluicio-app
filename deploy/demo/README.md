@@ -49,7 +49,8 @@ docker compose \
 #    the golden snapshot:
 sudo deploy/demo/snapshot.sh
 
-# 5. Schedule the reseed (hourly here):
+# 5. Schedule the reseed (hourly here). Fedora/RHEL: install cron first
+#    (dnf install cronie && systemctl enable --now crond).
 sudo install -m 755 deploy/demo/reseed.sh /usr/local/bin/sluicio-demo-reseed
 echo '0 * * * * root /usr/local/bin/sluicio-demo-reseed >> /var/log/sluicio-reseed.log 2>&1' \
   | sudo tee /etc/cron.d/sluicio-demo-reseed
