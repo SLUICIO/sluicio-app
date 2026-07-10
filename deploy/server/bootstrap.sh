@@ -99,7 +99,7 @@ if [[ "$ID" != "ubuntu" ]]; then
 fi
 
 if [[ ! -d "$REPO_DIR/.git" ]]; then
-    fail "Repo not found at $REPO_DIR. Clone it first: git clone https://github.com/ROMA-IT-AB/Sluicio.git $REPO_DIR"
+    fail "Repo not found at $REPO_DIR. Clone it first: git clone https://github.com/SLUICIO/sluicio-app.git $REPO_DIR"
 fi
 
 # ── apt packages ───────────────────────────────────────────────────────

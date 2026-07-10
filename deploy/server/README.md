@@ -41,7 +41,7 @@ equivalents work at ~3–5× the cost.
 4. The repo cloned to `/opt/sluicio`:
    ```sh
    sudo mkdir -p /opt
-   sudo git clone https://github.com/ROMA-IT-AB/Sluicio.git /opt/sluicio
+   sudo git clone https://github.com/SLUICIO/sluicio-app.git /opt/sluicio
    ```
 
 ## Run it
