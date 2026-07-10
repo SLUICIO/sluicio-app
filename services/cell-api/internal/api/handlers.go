@@ -45,6 +45,7 @@ import (
 	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/systemtypes"
 	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/tags"
 	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/tracecompletion"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // Handlers groups the cell-api HTTP handlers and their dependencies.
@@ -70,6 +71,10 @@ type Handlers struct {
 	// Maintenance backs announcements + maintenance windows (see
 	// handlers_maintenance.go).
 	Maintenance *maintenance.Store
+	// PGPool is the raw Postgres pool for the few handlers that need
+	// transaction ownership across many domains (config export/import —
+	// the whole-bundle atomicity contract lives on one tx).
+	PGPool      *pgxpool.Pool
 	ServiceMeta *servicemeta.Store
 	Metadata    *metadata.Store
 	Catalog     *catalog.Store
@@ -1186,6 +1191,11 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 		mux.HandleFunc("GET /api/v1/operator/announcements", h.AuthMW.RequireOperator(h.listCellAnnouncements))
 		mux.HandleFunc("POST /api/v1/operator/announcements", h.AuthMW.RequireOperator(h.createCellAnnouncement))
 		mux.HandleFunc("DELETE /api/v1/operator/announcements/{id}", h.AuthMW.RequireOperator(h.deleteCellAnnouncement))
+		// Config export & import — org-admin, demo-blocked, CE both ways
+		// (docs/config-transfer-design.md).
+		mux.HandleFunc("GET /api/v1/settings/config-export", admin(h.blockDemo(h.exportConfig)))
+		mux.HandleFunc("POST /api/v1/settings/config-import", admin(h.blockDemo(h.importConfig)))
+
 		editor := func(fn http.HandlerFunc) http.HandlerFunc { return h.AuthMW.RequireRole(identity.Role.CanWrite, fn) }
 		mux.HandleFunc("GET /api/v1/maintenance-windows", h.listMaintenanceWindows)
 		mux.HandleFunc("POST /api/v1/maintenance-windows", editor(h.createMaintenanceWindow))

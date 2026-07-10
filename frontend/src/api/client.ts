@@ -5,6 +5,7 @@
 
 import type {
   Announcement,
+  ConfigImportReport,
   AnnouncementInput,
   MaintenanceWindow,
   MaintenanceWindowInput,
@@ -711,6 +712,20 @@ export const api = {
   putAlertEmailTemplate: (subject: string, body: string) =>
     put<void>(`/alert-email-template`, { subject, body }),
   listAlertInstances: (limit = 100) => get<{ instances: AlertInstance[] }>(`/alert-instances?limit=${limit}`),
+
+  // Config export & import (docs/config-transfer-design.md). Export
+  // returns the whole bundle (the UI turns it into a download); import
+  // returns the change report — with dryRun the server rolls the
+  // transaction back after producing it, so nothing changes.
+  exportConfigBundle: () => get<Record<string, unknown>>(`/settings/config-export`),
+  importConfigBundle: (
+    bundle: unknown,
+    opts: { mode: "strict" | "replace"; dryRun: boolean; matchMembersByEmail?: boolean },
+  ) =>
+    post<ConfigImportReport>(
+      `/settings/config-import?mode=${opts.mode}&dry_run=${opts.dryRun}&match_members_by_email=${opts.matchMembersByEmail ? "true" : "false"}`,
+      bundle,
+    ),
 
   // Announcements — persistent banners. The unprefixed pair is any authed
   // user (read + dismiss); /settings/* is org-admin; /operator/* manages

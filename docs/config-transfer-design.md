@@ -2,7 +2,14 @@
 
 # Configuration export & import (design)
 
-Status: **draft for review** — nothing here is built.
+Status: **v1 implemented** (2026-07-10), as reviewed — CE both
+directions, member email-matching as an import opt-in, cell settings
+carried (operator-only on import), replace never deletes, UI named
+"Export & import". Implementation: `services/cell-api/internal/configtransfer`
+(engine), `handlers_configtransfer.go` (transaction ownership),
+`frontend/src/components/ConfigTransfer.tsx` (Settings → Organization).
+The atomicity contract is e2e-proven: a mid-bundle failure rolls back
+rows already written (e2e/tests/config-transfer.spec.ts).
 
 Move an org's *configuration* between environments — dev → demo →
 prod, staging rebuilds, support ("send me your config"), and a

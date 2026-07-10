@@ -1618,6 +1618,15 @@ export interface NotificationProfileInput {
   channel_ids?: string[];
 }
 
+// ConfigImportReport is what config-import returns (dry-run and real).
+export interface ConfigImportReport {
+  mode: "strict" | "replace";
+  dry_run: boolean;
+  sections: Record<string, { created: number; updated: number; skipped: number }>;
+  needs_credentials?: string[];
+  warnings?: string[];
+}
+
 // Announcement is one persistent banner (org-scoped, or cell-wide when
 // org_id is absent). See docs/maintenance-and-announcements-design.md.
 export interface Announcement {

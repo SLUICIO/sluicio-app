@@ -219,6 +219,7 @@ func main() {
 		Tags:                tagStore,
 		Alerts:              alertStore,
 		Maintenance:         maintenance.NewStore(pg),
+		PGPool:              pg,
 		ServiceMeta:         serviceMetaStore,
 		Metadata:            metadataStore,
 		Catalog:             catalogStore,
