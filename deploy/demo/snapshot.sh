@@ -56,9 +56,15 @@ TS="$DEMO_DIR/golden-$(date -u +%FT%H%M%SZ).sql.gz"
     pg_dump -U "$POSTGRES_USER" -d controlplane --no-owner --clean --if-exists \
     | gzip -9 > "$TS"
 
+# Guard against promoting a broken/empty dump. A curated demo org gzips
+# well past this; a sparse just-bootstrapped cell may not — override with
+# MIN_GOLDEN_BYTES if you knowingly want a minimal golden.
+MIN_GOLDEN_BYTES="${MIN_GOLDEN_BYTES:-50000}"
 SIZE=$(wc -c < "$TS")
-if (( SIZE < 50000 )); then
-    echo "snapshot: dump suspiciously small ($SIZE bytes) — refusing to promote it to golden" >&2
+if (( SIZE < MIN_GOLDEN_BYTES )); then
+    echo "snapshot: dump is $SIZE bytes (< $MIN_GOLDEN_BYTES) — refusing to promote it to golden." >&2
+    echo "snapshot: if the demo org really is this small, rerun with MIN_GOLDEN_BYTES=$SIZE." >&2
+    echo "snapshot: timestamped dump kept at $TS" >&2
     exit 1
 fi
 cp "$TS" "$OUT"
