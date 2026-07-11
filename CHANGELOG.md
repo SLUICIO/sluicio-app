@@ -3,6 +3,12 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.7 — 2026-07-12
+
+- feat(config): SLUICIO_INGEST_URL — deployment-managed ingest endpoint (e749917)
+- feat(ui): metadata editor on integration Settings; ingest-URL nudge (25a4885)
+- release v0.11.6 — refresh internal changelog (4ef1fc1)
+
 ## v0.11.6 — 2026-07-10
 
 - feat(config): export & import org configuration between environments (3f86c42)
