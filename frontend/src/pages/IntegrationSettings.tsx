@@ -37,6 +37,7 @@ import IntegrationProfileSelect from "../components/IntegrationProfileSelect";
 import { useCurrentUser } from "../lib/useCurrentUser";
 import ResourceGroupsCard from "../components/ResourceGroupsCard";
 import ResourceSharesCard from "../components/ResourceSharesCard";
+import MetadataPanel from "../components/MetadataPanel";
 import { usePageTitle } from "../lib/usePageTitle";
 import { useTimeWindow } from "../lib/useTimeWindow";
 
@@ -241,6 +242,19 @@ export default function IntegrationSettings() {
 
       <ResourceGroupsCard kind="integration" id={id} />
       <ResourceSharesCard kind="integrations" id={id} canManage={canWrite} />
+
+      {/* Same editor as the Metadata tab — editing an integration should
+          not require leaving Settings to fill in its metadata. */}
+      {integration && (
+        <MetadataPanel
+          fields={integration.metadata_fields ?? []}
+          values={integration.metadata_values ?? {}}
+          onSave={async (next) => {
+            await api.setIntegrationMetadata(id, next);
+            refresh();
+          }}
+        />
+      )}
 
       <section
         className="overflow-hidden rounded-lg border bg-surface-2"

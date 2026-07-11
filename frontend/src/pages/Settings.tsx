@@ -1017,6 +1017,9 @@ function IngestKeysTab() {
   // admin-configured ingest URL (System settings); fall back to the host
   // the browser is on, which is correct for single-host deployments.
   const [ingestBase, setIngestBase] = useState(window.location.origin);
+  // null = still loading; false = falling back to the browser origin,
+  // which is WRONG whenever ingest runs on its own hostname.
+  const [ingestConfigured, setIngestConfigured] = useState<boolean | null>(null);
 
   const refresh = () => {
     api
@@ -1030,6 +1033,7 @@ function IngestKeysTab() {
       .getSystemSettings()
       .then((s) => {
         if (s.ingest_base_url) setIngestBase(s.ingest_base_url);
+        setIngestConfigured(Boolean(s.ingest_base_url));
       })
       .catch(() => {
         /* non-fatal: snippets keep the browser-origin default */
@@ -1102,6 +1106,15 @@ function IngestKeysTab() {
         telemetry without a valid key is rejected. Keep keys secret — anyone with one
         can write telemetry as this organization.
       </div>
+
+      {ingestConfigured === false && (
+        <div className="alert alert--warn" style={{ marginBottom: 12, fontSize: 13 }}>
+          Exporter snippets currently point at <code>{ingestBase}</code> — this UI's own
+          host. If OTLP ingest is served on its own hostname (e.g.{" "}
+          <code>demo-ingest.example.com</code>), set the <strong>Ingest URL</strong>{" "}
+          under Settings → System settings so keys ship with the correct endpoint.
+        </div>
+      )}
 
       {created && (
         <div className="card" style={{ padding: 14, marginBottom: 16, borderColor: "var(--primary)" }}>
