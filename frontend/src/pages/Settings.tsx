@@ -2654,8 +2654,9 @@ function SystemSettingsTab() {
   if (error) return <div className="alert alert--error">Failed to load: {error}</div>;
   if (!data) return <div className="placeholder">Loading…</div>;
 
+  const envManaged = data.ingest_url_source === "env";
   const envDirty = env.trim() !== data.environment && env.trim() !== "";
-  const ingestDirty = ingest.trim() !== (data.ingest_base_url ?? "");
+  const ingestDirty = !envManaged && ingest.trim() !== (data.ingest_base_url ?? "");
   const dirty = envDirty || ingestDirty;
 
   const save = async (e: FormEvent) => {
@@ -2668,7 +2669,8 @@ function SystemSettingsTab() {
       // browser-origin default.
       const r = await api.updateSystemSettings({
         environment: env.trim() || data.environment,
-        ingest_base_url: ingest.trim(),
+        // Never send an env-managed ingest URL — the server refuses it.
+        ...(envManaged ? {} : { ingest_base_url: ingest.trim() }),
       });
       setData(r);
       setEnv(r.environment);
@@ -2709,17 +2711,27 @@ function SystemSettingsTab() {
             className="search__input"
             value={ingest}
             maxLength={200}
-            disabled={!isAdmin}
+            disabled={!isAdmin || envManaged}
             onChange={(e) => setIngest(e.target.value)}
             placeholder={window.location.origin}
           />
-          <span className="form__hint" style={{ fontSize: 12 }}>
-            The external OTLP/HTTP endpoint of this cell's ingest (cell-ingest),
-            e.g. <code>https://ingest.acme.example.com</code>. Leave blank to use
-            the host you open the app on (<code>{window.location.origin}</code>) —
-            fine for single-host deployments. The OpenTelemetry SDK appends{" "}
-            <code>/v1/traces</code> etc. automatically, so omit the path.
-          </span>
+          {envManaged ? (
+            <span className="form__hint" style={{ fontSize: 12 }}>
+              Managed by the deployment (<code>SLUICIO_INGEST_URL</code>) — change it
+              in the server environment, not here. That keeps the endpoint correct
+              by construction instead of by memory.
+            </span>
+          ) : (
+            <span className="form__hint" style={{ fontSize: 12 }}>
+              The external OTLP/HTTP endpoint of this cell's ingest (cell-ingest),
+              e.g. <code>https://ingest.acme.example.com</code>. Prefer setting{" "}
+              <code>SLUICIO_INGEST_URL</code> in the deployment environment; this
+              field is the fallback for hand-rolled hosts. Leave blank to use
+              the host you open the app on (<code>{window.location.origin}</code>) —
+              fine for single-host deployments. The OpenTelemetry SDK appends{" "}
+              <code>/v1/traces</code> etc. automatically, so omit the path.
+            </span>
+          )}
         </label>
         {isAdmin ? (
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>

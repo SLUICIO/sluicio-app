@@ -38,16 +38,28 @@ test("integration Settings page carries the metadata editor", async ({ page }) =
 test("ingestion tab nudges when no ingest URL is configured", async ({ page }) => {
   await logIn(page);
   await page.route("**/api/v1/cell-settings/system", (route) =>
-    route.fulfill({ json: { environment: "e2e", ingest_base_url: "" } }),
+    route.fulfill({ json: { environment: "e2e", ingest_base_url: "", ingest_url_source: "unset" } }),
   );
   await page.goto("/settings?tab=ingestion");
   await expect(page.getByText(/set the Ingest URL/)).toBeVisible();
 });
 
+test("env-managed ingest URL renders read-only on System settings", async ({ page }) => {
+  await logIn(page);
+  await page.route("**/api/v1/cell-settings/system", (route) =>
+    route.fulfill({
+      json: { environment: "e2e", ingest_base_url: "https://demo-ingest.example.com", ingest_url_source: "env" },
+    }),
+  );
+  await page.goto("/settings?tab=system");
+  await expect(page.getByText(/Managed by the deployment/)).toBeVisible();
+  await expect(page.getByLabel("Ingest base URL")).toBeDisabled();
+});
+
 test("no nudge once the ingest URL is set — snippets use it", async ({ page }) => {
   await logIn(page);
   await page.route("**/api/v1/cell-settings/system", (route) =>
-    route.fulfill({ json: { environment: "e2e", ingest_base_url: "https://demo-ingest.example.com" } }),
+    route.fulfill({ json: { environment: "e2e", ingest_base_url: "https://demo-ingest.example.com", ingest_url_source: "setting" } }),
   );
   await page.goto("/settings?tab=ingestion");
   await expect(page.getByText("Ingest keys authenticate")).toBeVisible();

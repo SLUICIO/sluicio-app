@@ -1987,6 +1987,9 @@ export interface SystemSettings {
   // "https://ingest.acme.example.com". "" when unset — the UI then falls
   // back to the browser origin for the ready-to-paste exporter snippets.
   ingest_base_url: string;
+  // "env" = deployment-managed (SLUICIO_INGEST_URL, read-only here),
+  // "setting" = admin-editable cell setting, "unset" = origin fallback.
+  ingest_url_source?: "env" | "setting" | "unset";
 }
 export interface SystemSettingsRequest {
   environment?: string;

@@ -228,6 +228,14 @@ CLICKHOUSE_PASSWORD=$CLICKHOUSE_PASSWORD
 # --runtime=<docker|podman> to switch (which also handles uninstalling
 # the other runtime's apt packages).
 SLUICIO_RUNTIME=$RUNTIME
+
+# Public origins. Caddy (installed by this script) serves the UI at
+# https://$DOMAIN and OTLP ingest at https://ingest.$DOMAIN — these
+# values keep in-app deep links and exporter snippets correct by
+# construction. SLUICIO_INGEST_URL is authoritative: the in-app ingest
+# URL setting becomes read-only while it is set.
+SLUICIO_APP_URL=https://$DOMAIN
+SLUICIO_INGEST_URL=https://ingest.$DOMAIN
 EOF
     chmod 600 "$ENV_FILE"
     chown root:root "$ENV_FILE"
@@ -240,6 +248,9 @@ else
     else
         echo "SLUICIO_RUNTIME=$RUNTIME" >> "$ENV_FILE"
     fi
+    # Backfill the public origins on upgraded installs (see above).
+    grep -q '^SLUICIO_APP_URL=' "$ENV_FILE" || echo "SLUICIO_APP_URL=https://$DOMAIN" >> "$ENV_FILE"
+    grep -q '^SLUICIO_INGEST_URL=' "$ENV_FILE" || echo "SLUICIO_INGEST_URL=https://ingest.$DOMAIN" >> "$ENV_FILE" 
     say "Reusing existing secrets in $ENV_FILE (runtime: $RUNTIME)"
 fi
 

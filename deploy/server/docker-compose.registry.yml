@@ -113,6 +113,10 @@ services:
       # EE license token — enables sso / rbac_advanced / audit_log /
       # retention_long / mfa_policy. Set it in the server env (sluicio.env).
       # Empty = unlicensed (community features only).
+      # Public OTLP/HTTP origin collectors send telemetry to (the ingest
+      # hostname your reverse proxy serves, e.g. https://ingest.acme.com).
+      # Authoritative: when set, the in-app ingest-URL setting is read-only.
+      SLUICIO_INGEST_URL: ${SLUICIO_INGEST_URL:-}
       SLUICIO_LICENSE_KEY: ${SLUICIO_LICENSE_KEY:-}
       # AES-256 key (base64) encrypting MFA TOTP secrets at rest; required for
       # MFA enrollment. Empty = MFA enrollment unavailable.

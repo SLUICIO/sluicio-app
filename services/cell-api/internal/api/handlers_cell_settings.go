@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -296,6 +297,11 @@ func (h *Handlers) patchRetention(w http.ResponseWriter, r *http.Request) {
 type systemSettingsResponse struct {
 	Environment   string `json:"environment"`
 	IngestBaseURL string `json:"ingest_base_url"`
+	// IngestURLSource says where IngestBaseURL came from: "env" when the
+	// deployment sets SLUICIO_INGEST_URL (authoritative, read-only in the
+	// UI), "setting" for the admin-editable cell setting, "unset" when
+	// neither exists and clients fall back to their own origin.
+	IngestURLSource string `json:"ingest_url_source"`
 }
 
 // systemSettingsRequest is the PATCH body. Every field is optional so
@@ -315,7 +321,19 @@ func (h *Handlers) systemSettings(r *http.Request) (systemSettingsResponse, erro
 	if err != nil {
 		return systemSettingsResponse{}, err
 	}
-	return systemSettingsResponse{Environment: env, IngestBaseURL: ingest}, nil
+	resp := systemSettingsResponse{Environment: env, IngestBaseURL: ingest, IngestURLSource: "setting"}
+	// The deployment's SLUICIO_INGEST_URL is authoritative: ingest
+	// topology is the deployer's fact, not something an org admin should
+	// have to know. Every shipped deploy path sets it (bootstrap.sh,
+	// quickstart, registry compose); the DB setting remains the fallback
+	// for hand-rolled hosts.
+	if envURL := strings.TrimSpace(os.Getenv("SLUICIO_INGEST_URL")); envURL != "" {
+		resp.IngestBaseURL = strings.TrimRight(envURL, "/")
+		resp.IngestURLSource = "env"
+	} else if ingest == "" {
+		resp.IngestURLSource = "unset"
+	}
+	return resp, nil
 }
 
 // getSystemSettings: GET /api/v1/cell-settings/system — open to any
@@ -365,6 +383,11 @@ func (h *Handlers) patchSystemSettings(w http.ResponseWriter, r *http.Request) {
 		audit["environment"] = env
 	}
 	if body.IngestBaseURL != nil {
+		if strings.TrimSpace(os.Getenv("SLUICIO_INGEST_URL")) != "" {
+			httpserver.WriteError(w, http.StatusConflict,
+				"the ingest URL is managed by the deployment (SLUICIO_INGEST_URL) and can't be changed here")
+			return
+		}
 		url := strings.TrimSpace(*body.IngestBaseURL)
 		if err := h.Settings.SetIngestBaseURL(r.Context(), url); err != nil {
 			if errors.Is(err, settings.ErrInvalidIngestBaseURL) {

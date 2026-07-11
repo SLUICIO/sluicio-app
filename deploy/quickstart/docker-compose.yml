@@ -76,6 +76,9 @@ services:
       CELL_API_ADDR: ":8081"
       POSTGRES_DSN: postgres://${POSTGRES_USER:-sluicio}:${POSTGRES_PASSWORD:-sluicio_dev}@postgres:5432/controlplane?sslmode=disable
       SLUICIO_APP_URL: ${SLUICIO_APP_URL:-http://localhost:8080}
+      # Where collectors reach OTLP ingest — correct for this compose's
+      # published port; override if you remap CELL_INGEST_PORT.
+      SLUICIO_INGEST_URL: ${SLUICIO_INGEST_URL:-http://localhost:4318}
       SLUICIO_LICENSE_KEY: ${SLUICIO_LICENSE_KEY:-}
 
   cell-ingest:

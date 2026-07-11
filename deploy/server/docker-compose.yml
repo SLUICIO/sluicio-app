@@ -96,6 +96,7 @@ services:
       # Public origin Sluicio is reached at — background-sent alert/error
       # notifications build their deep links from this; empty = links omitted.
       SLUICIO_APP_URL: ${SLUICIO_APP_URL:-}
+      SLUICIO_INGEST_URL: ${SLUICIO_INGEST_URL:-}
     ports:
       # cell-api is the HTTP surface Caddy proxies to. Bound to loopback
       # so the only way to reach it from outside is through Caddy (TLS).
