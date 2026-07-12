@@ -211,6 +211,17 @@ func (h *Handlers) matcherContainmentOK(r *http.Request, ms []integrations.Match
 		if !m.IsServiceMatcher() {
 			return false, "attribute matchers require an org-wide editor role"
 		}
+		// An equals matcher names its service literally, so it can be
+		// vetted against the managed set directly — even when that
+		// service hasn't appeared in the catalog yet. Without this, a
+		// scoped editor could pre-claim an out-of-scope service that
+		// only starts sending telemetry later.
+		if m.Operator == integrations.OperatorEquals {
+			if _, ok := managed[m.Value]; !ok {
+				return false, fmt.Sprintf("matcher would include service %q, which is outside your managed scope", m.Value)
+			}
+			continue
+		}
 		for _, n := range names {
 			if m.Match(n) {
 				if _, ok := managed[n]; !ok {
