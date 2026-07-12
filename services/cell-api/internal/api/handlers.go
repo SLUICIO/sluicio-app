@@ -1153,6 +1153,10 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	// Scoped-capability mirror for the frontend (RBAC v2 §5): what may
 	// this session manage? Server gates stay authoritative.
 	mux.HandleFunc("GET /api/v1/me/access", h.meAccess)
+	// Per-user UI preferences (column layouts etc.) — any authed user,
+	// own rows only (user id comes from the session, never the path).
+	mux.HandleFunc("GET /api/v1/me/preferences/{key}", h.getPreference)
+	mux.HandleFunc("PUT /api/v1/me/preferences/{key}", h.putPreference)
 	mux.HandleFunc("GET /api/v1/settings/tokens", h.listTokens)
 	mux.HandleFunc("POST /api/v1/settings/tokens", h.createToken)
 	mux.HandleFunc("DELETE /api/v1/settings/tokens/{id}", h.revokeToken)

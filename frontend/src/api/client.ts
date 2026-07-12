@@ -349,6 +349,13 @@ export const api = {
   traceDetail: (traceId: string) =>
     get<TraceDetailResponse>(`/traces/${encodeURIComponent(traceId)}`),
 
+  // Per-user UI preferences (column layouts, view defaults). Values are
+  // small JSON blobs owned by the frontend; null means "nothing stored".
+  getPreference: <T,>(key: string) =>
+    get<{ key: string; value: T | null }>(`/me/preferences/${encodeURIComponent(key)}`),
+  putPreference: (key: string, value: unknown) =>
+    put<void>(`/me/preferences/${encodeURIComponent(key)}`, { value }),
+
   // Integrations. Pass { series: true } to include each integration's
   // traffic sparkline series (the dashboard); the plain list omits it to
   // avoid the extra per-row query.
