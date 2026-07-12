@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: FSL-1.1-Apache-2.0
 import { Link } from "react-router-dom";
+import { useTraceHref } from "../lib/traceHref";
 import type { TraceSearchResult } from "../api/types";
 import { formatDurationMs, formatNumber, formatRelative } from "../lib/format";
 import { pickKeyEntries, useKeyAttributes } from "../lib/keyAttributes";
@@ -40,6 +41,7 @@ function TraceCard({
   query: string;
   keyAttrs: string[];
 }) {
+  const traceHref = useTraceHref();
   const attrs = trace.attributes ?? {};
   const keyEntries = pickKeyEntries(attrs, keyAttrs);
   const keySet = new Set(keyEntries.map(([k]) => k));
@@ -94,7 +96,7 @@ function TraceCard({
         </div>
       )}
       <div className="result__actions">
-        <Link className="btn btn--link" to={`/traces/${trace.trace_id}`}>
+        <Link className="btn btn--link" to={traceHref(trace.trace_id)}>
           Open trace →
         </Link>
         <span className="muted mono" style={{ fontSize: 12, marginLeft: 8 }}>

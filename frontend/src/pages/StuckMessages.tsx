@@ -12,6 +12,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
+import { useTraceHref } from "../lib/traceHref";
 import { api } from "../api/client";
 import AlertInstanceActions from "../components/AlertInstanceActions";
 import type {
@@ -463,6 +464,7 @@ function OpenErrorRow({
   onError: (msg: string) => void;
   showName?: boolean;
 }) {
+  const traceHref = useTraceHref();
   const [busy, setBusy] = useState(false);
   const acknowledge = async () => {
     if (!window.confirm(`Acknowledge ${formatNumber(err.error_traces)} error trace${err.error_traces === 1 ? "" : "s"} on ${err.service_name}? It clears the service's error traces; new error traces after this re-open it.`)) {
@@ -498,7 +500,7 @@ function OpenErrorRow({
         </div>
       </div>
       {err.sample_trace_id && (
-        <Link className="m-ex-tgt" to={`/traces/${encodeURIComponent(err.sample_trace_id)}`}>
+        <Link className="m-ex-tgt" to={traceHref(err.sample_trace_id)}>
           view trace →
         </Link>
       )}

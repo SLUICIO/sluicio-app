@@ -7,6 +7,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import { useTraceHref } from "../../lib/traceHref";
 import type { LogEntry } from "../../api/types";
 import LevelBadge from "./LevelBadge";
 import LogTrimPanel from "./LogTrimPanel";
@@ -73,6 +74,7 @@ export default function LogDetailsDrawer({
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
   const [trimOpen, setTrimOpen] = useState(false);
+  const traceHref = useTraceHref();
 
   // Escape closes when focus is inside the drawer.
   useEffect(() => {
@@ -142,7 +144,7 @@ export default function LogDetailsDrawer({
                 View trace →
               </button>
             ) : (
-              <Link className="btn btn--primary" to={`/traces/${log.trace_id}`}>
+              <Link className="btn btn--primary" to={traceHref(log.trace_id)}>
                 View full trace →
               </Link>
             )

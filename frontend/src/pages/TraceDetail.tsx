@@ -22,11 +22,29 @@ import type {
 import { formatDateTime, formatDurationMs } from "../lib/format";
 import { pickKeyEntries, useKeyAttributes } from "../lib/keyAttributes";
 import { usePageTitle } from "../lib/usePageTitle";
+import { useBreadcrumbTrail, type Crumb } from "../lib/breadcrumb";
 import { flowFromSpans } from "../lib/serviceFlow";
 
 interface Range {
   start: number;
   end: number;
+}
+
+// sectionLabelFor names the place a ?from= path points at, for the
+// breadcrumb's origin crumb. Mirrors AppShell's section names.
+function sectionLabelFor(p: string): string {
+  if (p.startsWith("/logs")) return "Logs";
+  if (p.startsWith("/search")) return "Messages";
+  if (p.startsWith("/stuck")) return "Errors";
+  if (p.startsWith("/integrations")) return "Integrations";
+  if (p.startsWith("/services")) return "Services";
+  if (p.startsWith("/systems")) return "Systems";
+  if (p.startsWith("/alerts")) return "Alerts";
+  if (p.startsWith("/metrics")) return "Metrics";
+  if (p.startsWith("/maps")) return "Maps";
+  if (p.startsWith("/topology")) return "Topology";
+  if (p === "/" || p.startsWith("/health")) return "Dashboard";
+  return "Back";
 }
 
 function traceRange(spans: SpanSummary[]): Range {
@@ -51,6 +69,14 @@ export default function TraceDetail() {
   // integrations; one being late doesn't make it late everywhere.
   const [searchParams] = useSearchParams();
   const integrationContextId = searchParams.get("integration") ?? undefined;
+  // ?from=<path> — the in-app page (path + query) the user opened this
+  // trace from, forwarded by the TraceDrawer's "open full view" and the
+  // list pages' trace links. Drives the breadcrumb so the trail reads
+  // e.g. "Logs / Trace ab12…" and links back to the exact filtered
+  // list. Only same-app absolute paths are accepted.
+  const fromRaw = searchParams.get("from");
+  const fromPath =
+    fromRaw && fromRaw.startsWith("/") && !fromRaw.startsWith("//") ? fromRaw : null;
   usePageTitle(traceId ? `Trace · ${traceId.slice(0, 12)}` : "Trace");
   const [data, setData] = useState<TraceDetailResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -90,6 +116,30 @@ export default function TraceDetail() {
       .catch((e) => setError(String(e.message ?? e)))
       .finally(() => setLoading(false));
   }, [traceId]);
+
+  // Breadcrumb: origin first, then (when in an integration context)
+  // the integration, then this trace. Without any context the default
+  // URL-derived trail ("Trace / <id>") stands.
+  const shortId = traceId.length > 12 ? `${traceId.slice(0, 12)}…` : traceId;
+  useBreadcrumbTrail(
+    useMemo<Crumb[] | null>(() => {
+      if (!fromPath && !integrationContextId) return null;
+      const crumbs: Crumb[] = [];
+      if (integrationContextId) {
+        crumbs.push({ label: "Integrations", to: "/integrations" });
+        crumbs.push({
+          label: integrationContextName ?? "Integration",
+          // The integration crumb returns to the exact list (messages,
+          // errors, logs tab…) when we know it, else the overview.
+          to: fromPath ?? `/integrations/${integrationContextId}`,
+        });
+      } else if (fromPath) {
+        crumbs.push({ label: sectionLabelFor(fromPath), to: fromPath });
+      }
+      crumbs.push({ label: `Trace ${shortId}` });
+      return crumbs;
+    }, [fromPath, integrationContextId, integrationContextName, shortId]),
+  );
 
   // Trace-completion firings on THIS trace. A warning-severity rule
   // flips the header pip to warn; critical flips it to err (same as

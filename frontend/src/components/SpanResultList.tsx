@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: FSL-1.1-Apache-2.0
 import { Link } from "react-router-dom";
+import { useTraceHref } from "../lib/traceHref";
 import type { SpanSummary } from "../api/types";
 import { formatDurationMs, formatRelative } from "../lib/format";
 import { pickKeyEntries, useKeyAttributes } from "../lib/keyAttributes";
@@ -46,6 +47,7 @@ function SpanResult({
   showAdvanced: boolean;
   keyAttrs: string[];
 }) {
+  const traceHref = useTraceHref();
   const attrs = span.attributes ?? {};
   // Two chip rows: first the "key" attributes for this span's
   // service type (file.name, http.route, etc), then the ones that
@@ -93,7 +95,7 @@ function SpanResult({
         </div>
       )}
       <div className="result__actions">
-        <Link className="btn btn--link" to={`/traces/${span.trace_id}`}>
+        <Link className="btn btn--link" to={traceHref(span.trace_id)}>
           View full trace →
         </Link>
       </div>

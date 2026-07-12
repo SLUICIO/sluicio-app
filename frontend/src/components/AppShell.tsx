@@ -27,7 +27,7 @@ import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-do
 import { api } from "../api/client";
 import type { GlobalSearchGroup, Organization, OrganizationMembership } from "../api/types";
 import { switchToOrg } from "../lib/activeOrg";
-import { BreadcrumbProvider, useBreadcrumbLeafValue } from "../lib/breadcrumb";
+import { BreadcrumbProvider, useBreadcrumbLeafValue, useBreadcrumbTrailValue, type Crumb } from "../lib/breadcrumb";
 import { useCurrentUser } from "../lib/useCurrentUser";
 import { LogoMark } from "./brand/Logo";
 import TimeWindowPicker from "./TimeWindowPicker";
@@ -342,15 +342,13 @@ function OrgSwitcher({
   );
 }
 
-interface Crumb {
-  label: string;
-  to?: string;
-}
-
 function Breadcrumb() {
   const { pathname } = useLocation();
   const leaf = useBreadcrumbLeafValue();
-  const crumbs = trailForPath(pathname, leaf);
+  // Pages reached from several origins (the full trace view) set the
+  // whole trail themselves; everything else derives it from the URL.
+  const trailOverride = useBreadcrumbTrailValue();
+  const crumbs = trailOverride ?? trailForPath(pathname, leaf);
   return (
     <div className="ml-2 truncate text-sm" aria-label="Breadcrumb">
       {crumbs.map((c, i) => {

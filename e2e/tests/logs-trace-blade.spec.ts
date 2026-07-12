@@ -82,6 +82,25 @@ test("trace pill on a log row opens the trace blade in place", async ({ page }) 
   await expect(blade).toHaveCount(0);
 });
 
+test("full view from Logs gets a breadcrumb linking back to the filtered list", async ({ page }) => {
+  await logIn(page);
+  await stubLogsAndTrace(page);
+  await page.goto("/logs?logq=timeout");
+
+  await page.locator(".trace-pill").first().click();
+  const blade = page.getByRole("dialog", { name: "Trace detail" });
+  await blade.getByRole("link", { name: /open full view/ }).click();
+
+  await expect(page).toHaveURL(new RegExp(`/traces/${TID}`));
+  const crumbs = page.getByLabel("Breadcrumb");
+  await expect(crumbs.getByRole("link", { name: "Logs" })).toBeVisible();
+  await expect(crumbs).toContainText(`Trace ${TID.slice(0, 12)}`);
+
+  // The origin crumb returns to the exact filtered list, query intact.
+  await crumbs.getByRole("link", { name: "Logs" }).click();
+  await expect(page).toHaveURL(/\/logs\?logq=timeout/);
+});
+
 test("log details drawer's View trace opens the blade, not /traces", async ({ page }) => {
   await logIn(page);
   await stubLogsAndTrace(page);

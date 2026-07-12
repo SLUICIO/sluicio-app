@@ -8,6 +8,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { useTraceHref } from "../lib/traceHref";
 import { api } from "../api/client";
 import TraceWaterfall from "./TraceWaterfall";
 import { KVTable, StatusPip, attributeRows } from "./primitives";
@@ -51,6 +52,10 @@ export default function TraceDrawer({
   const [loading, setLoading] = useState(false);
   const [selectedSpan, setSelectedSpan] = useState<string | null>(null);
   const [firings, setFirings] = useState<TraceCompletionFiring[]>([]);
+  // "open full view" forwards where the drawer was opened (path +
+  // filters) so the full trace page can render a breadcrumb back to
+  // the exact list the user came from.
+  const traceHref = useTraceHref();
 
   // Fetch whenever the open trace changes.
   useEffect(() => {
@@ -221,11 +226,7 @@ export default function TraceDrawer({
           </div>
           <div className="flex items-center gap-3">
             <Link
-              to={
-                integrationContextId
-                  ? `/traces/${encodeURIComponent(traceId)}?integration=${encodeURIComponent(integrationContextId)}`
-                  : `/traces/${encodeURIComponent(traceId)}`
-              }
+              to={traceHref(traceId, integrationContextId)}
               className="whitespace-nowrap text-xs hover:underline"
               style={{ color: "var(--primary)" }}
             >
