@@ -140,8 +140,18 @@ func main() {
 		}
 
 		// Logs and metrics for the same demo services, so the
-		// ServiceDetail Logs / Metrics sections have data too.
-		logsReq, logCount := buildLogsRequest(rng)
+		// ServiceDetail Logs / Metrics sections have data too. Logs
+		// borrow trace context from the spans just sent (dead trace
+		// links otherwise).
+		var refs []traceRef
+		for _, rl := range req.ResourceSpans {
+			for _, sl := range rl.ScopeSpans {
+				for _, sp := range sl.Spans {
+					refs = append(refs, traceRef{traceID: sp.TraceId, spanID: sp.SpanId})
+				}
+			}
+		}
+		logsReq, logCount := buildLogsRequest(rng, refs)
 		if err := postProto(*logsEndpoint, logsReq); err != nil {
 			fmt.Fprintf(os.Stderr, "seed-traces: log send failed: %v\n", err)
 		} else {

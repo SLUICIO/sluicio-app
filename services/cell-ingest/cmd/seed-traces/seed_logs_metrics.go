@@ -271,9 +271,19 @@ func statusForSeverity(sev int32, rng *mrand.Rand) int64 {
 	}
 }
 
+// traceRef is a real (trace id, span id) pair from the trace batch sent
+// in the same cycle — log records borrow these so their trace context
+// always points at a trace that actually exists. Random ids here meant
+// every "view trace" link from a seeded log was a dead end.
+type traceRef struct {
+	traceID []byte
+	spanID  []byte
+}
+
 // buildLogsRequest emits a handful of log records per demo service over
-// the recent window. Returns the request and the total record count.
-func buildLogsRequest(rng *mrand.Rand) (*collogspb.ExportLogsServiceRequest, int) {
+// the recent window, correlated to the given real traces. Returns the
+// request and the total record count.
+func buildLogsRequest(rng *mrand.Rand, refs []traceRef) (*collogspb.ExportLogsServiceRequest, int) {
 	req := &collogspb.ExportLogsServiceRequest{}
 	now := time.Now().UTC()
 	records := 0
@@ -315,17 +325,24 @@ func buildLogsRequest(rng *mrand.Rand) (*collogspb.ExportLogsServiceRequest, int
 					stringAttr("exception.message", "downstream call exceeded deadline"),
 				)
 			}
-			recs = append(recs, &logspb.LogRecord{
+			rec := &logspb.LogRecord{
 				TimeUnixNano:         tsNano,
 				ObservedTimeUnixNano: tsNano,
 				SeverityNumber:       logspb.SeverityNumber(tmpl.severity),
 				SeverityText:         tmpl.text,
-				// Trace context so logs correlate to a trace/span in the UI.
-				TraceId:    randomID(16),
-				SpanId:     randomID(8),
-				Body:       &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: body}},
-				Attributes: attrs,
-			})
+				Body:                 &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: body}},
+				Attributes:           attrs,
+			}
+			// Trace context from REAL traces in this cycle's batch, so the
+			// UI's "view trace" always resolves. ~15% stay uncorrelated —
+			// plenty of real-world logs carry no trace context, and the UI's
+			// no-link rendering deserves data too.
+			if len(refs) > 0 && rng.Float64() >= 0.15 {
+				ref := refs[rng.Intn(len(refs))]
+				rec.TraceId = ref.traceID
+				rec.SpanId = ref.spanID
+			}
+			recs = append(recs, rec)
 			records++
 		}
 		req.ResourceLogs = append(req.ResourceLogs, &logspb.ResourceLogs{
