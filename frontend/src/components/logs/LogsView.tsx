@@ -41,6 +41,7 @@ import GroupRollup from "../groups/GroupRollup";
 import LevelBadge from "./LevelBadge";
 import LevelToggle from "./LevelToggle";
 import LogDetailsDrawer from "./LogDetailsDrawer";
+import TraceDrawer from "../TraceDrawer";
 import VolumeHistogram from "./VolumeHistogram";
 import VirtualInfiniteList from "../VirtualInfiniteList";
 import { severityBand } from "../../lib/severity";
@@ -176,6 +177,10 @@ export default function LogsView({ forcedIntegration, forcedIntegrationId, force
   }, [forcedIntegration]);
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [selected, setSelected] = useState<LogEntry | null>(null);
+  // A log's trace context opens the trace as a slide-over blade (the
+  // same TraceDrawer the integration Messages view uses) — inspecting
+  // a trace shouldn't navigate away from the filtered log list.
+  const [openTraceId, setOpenTraceId] = useState<string | null>(null);
   const [volume, setVolume] = useState<LogVolumeResponse | null>(null);
   const [volumeLoading, setVolumeLoading] = useState(true);
 
@@ -636,13 +641,17 @@ export default function LogsView({ forcedIntegration, forcedIntegrationId, force
                           {l.body || "—"}
                         </span>
                         {l.trace_id && (
-                          <Link
+                          <button
+                            type="button"
                             className="trace-pill"
-                            to={`/traces/${l.trace_id}`}
-                            onClick={(e) => e.stopPropagation()}
+                            title="View this trace"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setOpenTraceId(l.trace_id!);
+                            }}
                           >
                             ⟿ {l.trace_id.slice(0, 8)}
-                          </Link>
+                          </button>
                         )}
                       </span>
                       <span style={{ display: "flex", gap: 4, minWidth: 0, overflow: "hidden" }}>
@@ -672,10 +681,17 @@ export default function LogsView({ forcedIntegration, forcedIntegrationId, force
               log={selected}
               integrations={selected.service_name ? svcIntegrations.get(selected.service_name) ?? [] : []}
               onClose={() => setSelected(null)}
+              onOpenTrace={setOpenTraceId}
             />
           </div>
         )}
       </div>
+
+      <TraceDrawer
+        traceId={openTraceId}
+        onClose={() => setOpenTraceId(null)}
+        integrationContextId={forcedIntegrationId}
+      />
 
       {alertOpen && (
         <CreateLogAlertDialog

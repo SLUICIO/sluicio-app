@@ -61,11 +61,15 @@ export default function LogDetailsDrawer({
   log,
   integrations = [],
   onClose,
+  onOpenTrace,
 }: {
   log: LogEntry;
   // Integration(s) the log's service belongs to (persisted membership).
   integrations?: { id: string; name: string }[];
   onClose: () => void;
+  // When provided, "View trace" opens the trace as a slide-over blade
+  // in place (the TraceDrawer) instead of navigating to /traces/:id.
+  onOpenTrace?: (traceId: string) => void;
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
   const [trimOpen, setTrimOpen] = useState(false);
@@ -129,12 +133,22 @@ export default function LogDetailsDrawer({
         <p className="drawer__msg">{log.body || "—"}</p>
         <div className="drawer__actions">
           {log.trace_id ? (
-            <Link className="btn btn--primary" to={`/traces/${log.trace_id}`}>
-              View full trace →
-            </Link>
+            onOpenTrace ? (
+              <button
+                className="btn btn--primary"
+                type="button"
+                onClick={() => onOpenTrace(log.trace_id!)}
+              >
+                View trace →
+              </button>
+            ) : (
+              <Link className="btn btn--primary" to={`/traces/${log.trace_id}`}>
+                View full trace →
+              </Link>
+            )
           ) : (
             <button className="btn" type="button" disabled title="No trace context on this log">
-              View full trace →
+              View trace →
             </button>
           )}
           <CopyLinkButton logId={log.log_id} />
