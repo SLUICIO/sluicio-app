@@ -48,12 +48,7 @@ var _ coreaudit.Recorder = (*Store)(nil)
 // same predecessor. occurred_at is computed here — not by the DB default —
 // because the hash must cover it.
 func (s *Store) Record(ctx context.Context, e coreaudit.Entry) error {
-	payload := []byte("{}")
-	if len(e.Metadata) > 0 {
-		if b, err := json.Marshal(e.Metadata); err == nil {
-			payload = b
-		}
-	}
+	payload := canonicalMetadata(e.Metadata)
 	// Postgres stores microseconds; truncate so the hashed value and the
 	// stored value round-trip identically for Verify.
 	occurredAt := time.Now().UTC().Truncate(time.Microsecond)
@@ -99,6 +94,31 @@ func (s *Store) Record(ctx context.Context, e coreaudit.Entry) error {
 		return fmt.Errorf("audit: record: commit: %w", err)
 	}
 	return nil
+}
+
+// canonicalMetadata marshals entry metadata into the canonical JSON that
+// participates in the chain hash: the exact round-trip Verify performs
+// after JSONB storage (unmarshal into map[string]any, re-marshal with
+// sorted keys). Metadata values that aren't plain maps — structs, which
+// marshal in field-declaration order — would otherwise hash differently
+// at write time than at verify time, permanently flagging the entry as
+// tampered (the shipped config-import report did exactly that).
+func canonicalMetadata(metadata map[string]any) []byte {
+	payload := []byte("{}")
+	if len(metadata) > 0 {
+		if b, err := json.Marshal(metadata); err == nil {
+			payload = b
+		}
+	}
+	var canon map[string]any
+	if err := json.Unmarshal(payload, &canon); err != nil || len(canon) == 0 {
+		return []byte("{}")
+	}
+	b, err := json.Marshal(canon)
+	if err != nil {
+		return []byte("{}")
+	}
+	return b
 }
 
 // chainHash computes the tamper-evidence hash for one entry. Fields are
