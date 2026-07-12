@@ -3,6 +3,12 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.14 — 2026-07-12
+
+- feat(ui): reorderable integration columns, layout persisted per user (0fa8633)
+- feat(api): per-user UI preferences (GET/PUT /api/v1/me/preferences/{key}) (be1fb7d)
+- release v0.11.13 — refresh internal changelog (db526ca)
+
 ## v0.11.13 — 2026-07-12
 
 - feat(ui): trace page breadcrumb above the title; selected log mirrored into the URL (ea80442)
