@@ -3,6 +3,12 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.11 — 2026-07-12
+
+- feat(logs): trace ids open the trace blade in place (a3214ff)
+- fix(demo): seeded logs carry trace context from real spans (a7a8459)
+- release v0.11.10 — refresh internal changelog (aba8092)
+
 ## v0.11.10 — 2026-07-12
 
 - feat(ui): multi-level grouping of integrations by metadata fields (90b3b91)
