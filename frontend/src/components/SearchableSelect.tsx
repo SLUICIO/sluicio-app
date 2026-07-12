@@ -44,7 +44,7 @@ export default function SearchableSelect({
   const popRef = useRef<HTMLDivElement | null>(null);
   // Viewport coords for the portaled popover (position: fixed), so it escapes
   // any ancestor overflow:hidden (cards) / transform (drawers).
-  const [coords, setCoords] = useState<{ top: number; left: number; minWidth: number } | null>(null);
+  const [coords, setCoords] = useState<{ top: number; left: number; minWidth: number; openUp: boolean; listMax: number } | null>(null);
 
   // The selectable list always starts with the "all" entry (empty value).
   const filtered = useMemo(() => {
@@ -80,10 +80,21 @@ export default function SearchableSelect({
       const el = btnRef.current;
       if (!el) return;
       const r = el.getBoundingClientRect();
+      // Keep the popover inside the viewport: open upward when the space
+      // below the trigger is tight, and clamp the option list's height to
+      // whatever room the chosen direction actually has — otherwise long
+      // lists (e.g. every service in the org) run off-screen and the last
+      // entries can never be clicked.
+      const spaceBelow = window.innerHeight - r.bottom - 12;
+      const spaceAbove = r.top - 12;
+      const openUp = spaceBelow < 220 && spaceAbove > spaceBelow;
+      const listMax = Math.max(120, Math.min(280, (openUp ? spaceAbove : spaceBelow) - 64));
       setCoords({
-        top: r.bottom + 4,
+        top: openUp ? r.top - 4 : r.bottom + 4,
         left: align === "right" ? r.right : r.left,
         minWidth: Math.max(r.width, 240),
+        openUp,
+        listMax,
       });
     };
     place();
@@ -99,8 +110,6 @@ export default function SearchableSelect({
     if (open) {
       setQuery("");
       setActive(0);
-      // Focus the filter input once the popover is mounted.
-      requestAnimationFrame(() => inputRef.current?.focus());
     }
   }, [open]);
 
@@ -150,8 +159,12 @@ export default function SearchableSelect({
             zIndex: 2100,
             top: coords.top,
             left: coords.left,
-            // Right-align: anchor the popover's right edge to the trigger's.
-            transform: align === "right" ? "translateX(-100%)" : undefined,
+            // Right-align anchors the right edge to the trigger's; openUp
+            // hangs the popover above the trigger instead of below.
+            transform:
+              [align === "right" ? "translateX(-100%)" : "", coords.openUp ? "translateY(-100%)" : ""]
+                .filter(Boolean)
+                .join(" ") || undefined,
             minWidth: coords.minWidth,
             maxWidth: 360,
             background: "var(--surface-2)",
@@ -164,6 +177,11 @@ export default function SearchableSelect({
           <div style={{ padding: 8, borderBottom: "1px solid var(--border)" }}>
             <input
               ref={inputRef}
+              // The popover mounts a render after open (coords land async),
+              // so a one-shot rAF focus can fire before this input exists —
+              // autoFocus on the mounted element is the reliable way to make
+              // "click, then just type" work.
+              autoFocus
               type="search"
               className="search__input"
               placeholder={placeholder}
@@ -176,7 +194,7 @@ export default function SearchableSelect({
               style={{ width: "100%" }}
             />
           </div>
-          <div style={{ maxHeight: 280, overflowY: "auto" }}>
+          <div style={{ maxHeight: coords.listMax, overflowY: "auto" }}>
             {filtered.map((opt, i) => (
               <button
                 key={opt || "__all__"}
