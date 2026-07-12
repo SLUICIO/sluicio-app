@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
+import SearchableSelect from "../components/SearchableSelect";
 import type { Integration, MetadataField, Tag } from "../api/types";
 import { SortableTh } from "../components/primitives";
 import ColumnPicker, { type ColumnDef } from "../components/integrations/ColumnPicker";
@@ -195,6 +196,22 @@ export default function Integrations() {
     }
   };
 
+  // Multi-level grouping by metadata fields: ?group=country,business-unit
+  // nests level 2 inside level 1. Groups aggregate traffic so the list
+  // answers "where is the most traffic" per country / business unit / …
+  const groupKeys = useMemo(() => {
+    const raw = (searchParams.get("group") ?? "").split(",").filter(Boolean);
+    return raw.filter((k) => metadataFields.some((f) => f.key === k)).slice(0, 2);
+  }, [searchParams, metadataFields]);
+  const setGroupKeys = (keys: string[]) => {
+    const params = new URLSearchParams(searchParams);
+    const clean = keys.filter(Boolean);
+    if (clean.length > 0) params.set("group", clean.join(","));
+    else params.delete("group");
+    setSearchParams(params, { replace: true });
+  };
+  const fieldLabelFor = (key: string) => metadataFields.find((f) => f.key === key)?.label ?? key;
+
   // Health-status filter from the URL (?status=unhealthy), set by the
   // dashboard KPI drill-in. "unhealthy" spans both problem states —
   // errors and unhealthy — to match the dashboard's unhealthy count.
@@ -319,6 +336,89 @@ export default function Integrations() {
     visibleItems,
     sortLookup as Record<IntegrationSortKey, (i: Integration) => string | number | null>,
   );
+
+  interface IntegrationGroup {
+    value: string;
+    rows: Integration[];
+    traces: number;
+    errors: number;
+    children: IntegrationGroup[] | null;
+  }
+  type RenderEntry =
+    | { kind: "header"; level: number; fieldKey: string; group: IntegrationGroup }
+    | { kind: "row"; i: Integration };
+
+  // Group rows by the selected metadata keys, biggest traffic first at
+  // every level — the in-group row order keeps the table's sort.
+  const renderEntries = useMemo<RenderEntry[]>(() => {
+    if (groupKeys.length === 0) return sortedRows.map((i) => ({ kind: "row", i }));
+    const build = (rows: Integration[], keys: string[]): IntegrationGroup[] => {
+      const buckets = new Map<string, Integration[]>();
+      for (const r of rows) {
+        const v = r.metadata_values?.[keys[0]] ?? "";
+        const list = buckets.get(v);
+        if (list) list.push(r);
+        else buckets.set(v, [r]);
+      }
+      const groups = [...buckets.entries()].map(([value, rws]) => ({
+        value,
+        rows: rws,
+        traces: rws.reduce((sum, x) => sum + (x.trace_count ?? 0), 0),
+        errors: rws.reduce((sum, x) => sum + (x.error_trace_count ?? 0), 0),
+        children: keys.length > 1 ? build(rws, keys.slice(1)) : null,
+      }));
+      // Traffic first; on ties, real values before the "not set" bucket.
+      groups.sort(
+        (a, b) =>
+          b.traces - a.traces ||
+          Number(a.value === "") - Number(b.value === "") ||
+          a.value.localeCompare(b.value),
+      );
+      return groups;
+    };
+    const out: RenderEntry[] = [];
+    for (const g of build(sortedRows, groupKeys)) {
+      out.push({ kind: "header", level: 0, fieldKey: groupKeys[0], group: g });
+      if (g.children) {
+        for (const c of g.children) {
+          out.push({ kind: "header", level: 1, fieldKey: groupKeys[1], group: c });
+          for (const i of c.rows) out.push({ kind: "row", i });
+        }
+      } else {
+        for (const i of g.rows) out.push({ kind: "row", i });
+      }
+    }
+    return out;
+  }, [sortedRows, groupKeys]);
+
+  const renderGroupHeader = (entry: Extract<RenderEntry, { kind: "header" }>) => {
+    const { level, fieldKey, group } = entry;
+    return (
+      <tr
+        key={`g${level}-${fieldKey}-${group.value}`}
+        className="integration-group-row"
+        style={{ background: level === 0 ? "var(--surface-3)" : "var(--surface)", borderTop: "1px solid var(--border)" }}
+      >
+        <td colSpan={99} style={{ paddingLeft: level === 0 ? 12 : 28, padding: "7px 12px", paddingInlineStart: level === 0 ? 12 : 28 }}>
+          <span className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5 }}>
+            {fieldLabelFor(fieldKey)}:{" "}
+          </span>
+          <span style={{ fontWeight: 600, fontSize: 13 }}>
+            {group.value || <span className="muted">not set</span>}
+          </span>
+          <span className="muted" style={{ fontSize: 12, marginLeft: 10 }}>
+            {group.rows.length} integration{group.rows.length === 1 ? "" : "s"} ·{" "}
+            {formatNumber(group.traces)} traces
+            {group.errors > 0 && (
+              <>
+                {" "}· <span style={{ color: "var(--err)" }}>{formatNumber(group.errors)} errors</span>
+              </>
+            )}
+          </span>
+        </td>
+      </tr>
+    );
+  };
 
   return (
     <div>
@@ -446,6 +546,33 @@ export default function Integrations() {
         />
       </div>
 
+      {metadataFields.length > 0 && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "0 0 16px", flexWrap: "wrap" }}>
+          <span className="muted" style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: 0.5 }}>
+            group by
+          </span>
+          <SearchableSelect
+            value={groupKeys[0] ?? ""}
+            allLabel="No grouping"
+            options={metadataFields.map((f) => f.key)}
+            labelFor={fieldLabelFor}
+            onChange={(k) => setGroupKeys(k ? [k, ...(groupKeys[1] && groupKeys[1] !== k ? [groupKeys[1]] : [])] : [])}
+          />
+          {groupKeys[0] && (
+            <>
+              <span className="muted" style={{ fontSize: 12 }}>then by</span>
+              <SearchableSelect
+                value={groupKeys[1] ?? ""}
+                allLabel="—"
+                options={metadataFields.map((f) => f.key).filter((k) => k !== groupKeys[0])}
+                labelFor={fieldLabelFor}
+                onChange={(k) => setGroupKeys(k ? [groupKeys[0], k] : [groupKeys[0]])}
+              />
+            </>
+          )}
+        </div>
+      )}
+
       {statusFilter && (
         <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "0 0 12px" }}>
           <span className="chip">Showing {statusFilter === "unhealthy" ? "unhealthy" : statusFilter} integrations</span>
@@ -506,7 +633,10 @@ export default function Integrations() {
               </tr>
             </thead>
             <tbody>
-              {sortedRows.map((i) => (
+              {renderEntries.map((entry) => {
+                if (entry.kind === "header") return renderGroupHeader(entry);
+                const i = entry.i;
+                return (
                 <tr key={i.id}>
                   {isColVisible("name") && (
                     <td>
@@ -605,7 +735,8 @@ export default function Integrations() {
                     ) : null,
                   )}
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
