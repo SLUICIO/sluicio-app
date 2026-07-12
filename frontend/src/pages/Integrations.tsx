@@ -15,6 +15,7 @@ import IntegrationFilterBar, {
 import TagChip from "../components/tags/TagChip";
 import { formatNumber, formatRelative, statusLabel } from "../lib/format";
 import { useCurrentUser } from "../lib/useCurrentUser";
+import { useUserPreference } from "../lib/useUserPreference";
 import { useAccess } from "../lib/useAccess";
 import { usePageTitle } from "../lib/usePageTitle";
 import { useTableSort } from "../lib/useTableSort";
@@ -156,32 +157,15 @@ export default function Integrations() {
     setSearchParams(params, { replace: true });
   };
 
-  // Visible columns: ?cols=name,description,... takes precedence so a
-  // shared link / bookmark still pins a specific view, falling back to
-  // the user's persisted choice in localStorage. Absent in both = "all"
-  // so we don't hide things on first visit. localStorage is read inside
-  // the memo (not tracked by React), which is fine because the only
-  // writer is setVisibleCols and it always bumps searchParams too,
-  // re-running this memo.
-  const visibleCols = useMemo<Set<string> | null>(() => {
-    const raw = searchParams.get("cols") ?? readStoredCols();
-    return raw ? new Set(raw.split(",").filter(Boolean)) : null;
-  }, [searchParams]);
-  const isColVisible = (id: string) => (visibleCols ? visibleCols.has(id) : true);
-  const setVisibleCols = (next: Set<string>) => {
-    const raw = next.size === 0 ? "" : [...next].join(",");
-    // Persist as this user's default, then reflect into the URL so the
-    // current view stays shareable. Persisting survives a fresh nav to
-    // /integrations (no query string) — the memo above falls back to it.
-    try {
-      window.localStorage.setItem(COLS_STORAGE_KEY, raw);
-    } catch {
-      /* private mode — the URL still carries it for this session */
-    }
-    const params = new URLSearchParams(searchParams);
-    params.set("cols", raw);
-    setSearchParams(params, { replace: true });
-  };
+  // Column layout (order + hidden set), persisted per user on the
+  // server so it follows the account across browsers. Precedence:
+  // ?cols= (an ORDERED visible list — shared links pin a view) > the
+  // server preference > the legacy localStorage visible-set > defaults.
+  const {
+    value: layoutPref,
+    save: saveLayoutPref,
+  } = useUserPreference<{ order: string[]; hidden: string[] }>("integrations.columns");
+  const colsParam = searchParams.get("cols");
 
   // Pull the comparable cell value out of an integration for filtering.
   const cellValueFor = (i: Integration, field: string): string | number | null => {
@@ -304,6 +288,78 @@ export default function Integrations() {
     return base;
   }, [metadataFields]);
 
+  // Effective column order: the chosen source's ids first (unknown ids
+  // dropped — e.g. a deleted metadata field), then any columns it
+  // doesn't mention appended in default order, so new metadata fields
+  // show up instead of vanishing for users with a saved layout.
+  const defaultOrder = useMemo(() => columnDefs.map((c) => c.id), [columnDefs]);
+  const columnOrder = useMemo<string[]>(() => {
+    const known = new Set(defaultOrder);
+    const base = (
+      colsParam != null ? colsParam.split(",").filter(Boolean) : layoutPref?.order ?? []
+    ).filter((id) => known.has(id));
+    const seen = new Set(base);
+    return [...base, ...defaultOrder.filter((id) => !seen.has(id))];
+  }, [colsParam, layoutPref, defaultOrder]);
+
+  const hiddenCols = useMemo<Set<string>>(() => {
+    // ?cols= and the legacy localStorage value are visible-lists;
+    // the server preference stores the hidden set directly (so columns
+    // added later default to visible).
+    const fromVisibleList = (raw: string) => {
+      const vis = new Set(raw.split(",").filter(Boolean));
+      return new Set(defaultOrder.filter((id) => !vis.has(id)));
+    };
+    if (colsParam != null) return fromVisibleList(colsParam);
+    if (layoutPref) return new Set(layoutPref.hidden.filter((id) => defaultOrder.includes(id)));
+    const legacy = readStoredCols();
+    if (legacy != null) return fromVisibleList(legacy);
+    return new Set();
+  }, [colsParam, layoutPref, defaultOrder]);
+
+  // All defs in effective order (for the picker) and the visible subset
+  // (what the table renders).
+  const orderedDefs = useMemo(
+    () =>
+      columnOrder
+        .map((id) => columnDefs.find((c) => c.id === id))
+        .filter((d): d is ColumnDef => Boolean(d)),
+    [columnOrder, columnDefs],
+  );
+  const orderedVisibleDefs = useMemo(
+    () => orderedDefs.filter((d) => !hiddenCols.has(d.id)),
+    [orderedDefs, hiddenCols],
+  );
+
+  const applyColumnLayout = (order: string[], hidden: Set<string>) => {
+    saveLayoutPref({ order, hidden: [...hidden] });
+    // Mirror the visible columns (in order) into the URL so the current
+    // view stays shareable, and into localStorage as an offline fallback.
+    const raw = order.filter((id) => !hidden.has(id)).join(",");
+    try {
+      window.localStorage.setItem(COLS_STORAGE_KEY, raw);
+    } catch {
+      /* private mode — the URL still carries it for this session */
+    }
+    const params = new URLSearchParams(searchParams);
+    params.set("cols", raw);
+    setSearchParams(params, { replace: true });
+  };
+
+  const resetColumnLayout = () => {
+    saveLayoutPref(null);
+    try {
+      window.localStorage.removeItem(COLS_STORAGE_KEY);
+    } catch {
+      /* ignore */
+    }
+    const params = new URLSearchParams(searchParams);
+    params.delete("cols");
+    setSearchParams(params, { replace: true });
+  };
+
+  const NUM_COLS = useMemo(() => new Set(["service_count", "trace_count", "error_trace_count"]), []);
+
   // Sort runs after the tag filter so users can sort within the
   // current selection. Counts may be undefined on rows where the
   // backend didn't compute them; the comparator pushes those to the
@@ -420,6 +476,105 @@ export default function Integrations() {
     );
   };
 
+  // One cell renderer per column id, so the body follows the same
+  // user-chosen order as the header. Metadata ids fall through to the
+  // typed metadata formatter.
+  const renderCell = (id: string, i: Integration) => {
+    switch (id) {
+      case "name":
+        return (
+          <td key={id}>
+            <Link to={`/integrations/${i.id}`}>{i.name}</Link>
+          </td>
+        );
+      case "description":
+        return <td key={id}>{i.description ? i.description : <span className="muted">—</span>}</td>;
+      case "slug":
+        return <td key={id} className="muted mono">{i.slug}</td>;
+      case "tags":
+        return (
+          <td key={id}>
+            {i.tags && i.tags.length > 0 ? (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                {i.tags.map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      toggleSlug(t.slug);
+                    }}
+                    title={
+                      activeTagIds.has(t.id)
+                        ? `Remove ${t.name} from filter`
+                        : `Filter by ${t.name}`
+                    }
+                    style={{
+                      background: "transparent",
+                      border: 0,
+                      padding: 0,
+                      cursor: "pointer",
+                    }}
+                  >
+                    <TagChip tag={t} />
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <span className="muted">—</span>
+            )}
+          </td>
+        );
+      case "service_count":
+        return (
+          <td key={id} className="num">
+            {typeof i.service_count === "number" ? (
+              <>
+                {formatNumber(i.service_count)}
+                {i.unhealthy_count ? (
+                  <span className="muted"> · {i.unhealthy_count} unhealthy</span>
+                ) : null}
+              </>
+            ) : (
+              <span className="muted">—</span>
+            )}
+          </td>
+        );
+      case "trace_count":
+        return (
+          <td key={id} className="num">
+            {typeof i.trace_count === "number" ? formatNumber(i.trace_count) : <span className="muted">—</span>}
+          </td>
+        );
+      case "error_trace_count":
+        return (
+          <td key={id} className="num">
+            {typeof i.error_trace_count === "number" && i.error_trace_count > 0 ? (
+              <span className="pill pill--errors">{formatNumber(i.error_trace_count)}</span>
+            ) : (
+              <span className="muted">—</span>
+            )}
+          </td>
+        );
+      case "status":
+        return (
+          <td key={id}>
+            {i.status ? (
+              <span className={`pill pill--${i.status}`}>{statusLabel(i.status)}</span>
+            ) : (
+              <span className="muted">—</span>
+            )}
+          </td>
+        );
+      case "updated_at":
+        return <td key={id} className="muted">{formatRelative(i.updated_at)}</td>;
+      default: {
+        const f = metadataFields.find((mf) => `meta:${mf.key}` === id);
+        return f ? <td key={id}>{renderMetadataCell(f, i.metadata_values?.[f.key])}</td> : null;
+      }
+    }
+  };
+
   return (
     <div>
       <div className="page__header">
@@ -432,9 +587,10 @@ export default function Integrations() {
         </div>
         <div className="toolbar">
           <ColumnPicker
-            columns={columnDefs}
-            visible={visibleCols ?? new Set(columnDefs.map((c) => c.id))}
-            onChange={setVisibleCols}
+            columns={orderedDefs}
+            hidden={hiddenCols}
+            onChange={applyColumnLayout}
+            onReset={resetColumnLayout}
           />
           {canCreate ? (
             <Link className="btn btn--primary" to="/integrations/new">
@@ -614,22 +770,22 @@ export default function Integrations() {
           <table className="table">
             <thead>
               <tr>
-                {isColVisible("name") && <SortableTh sortKey="name" state={sort} onSort={toggleSort}>Name</SortableTh>}
-                {isColVisible("description") && <SortableTh sortKey="description" state={sort} onSort={toggleSort}>Description</SortableTh>}
-                {isColVisible("slug") && <SortableTh sortKey="slug" state={sort} onSort={toggleSort}>Slug</SortableTh>}
-                {isColVisible("tags") && <SortableTh sortKey="tags" state={sort} onSort={toggleSort}>Tags</SortableTh>}
-                {isColVisible("service_count") && <SortableTh sortKey="service_count" state={sort} onSort={toggleSort} className="num">Services</SortableTh>}
-                {isColVisible("trace_count") && <SortableTh sortKey="trace_count" state={sort} onSort={toggleSort} className="num">Traces</SortableTh>}
-                {isColVisible("error_trace_count") && <SortableTh sortKey="error_trace_count" state={sort} onSort={toggleSort} className="num">Errors</SortableTh>}
-                {isColVisible("status") && <SortableTh sortKey="status" state={sort} onSort={toggleSort}>Status</SortableTh>}
-                {isColVisible("updated_at") && <SortableTh sortKey="updated_at" state={sort} onSort={toggleSort}>Updated</SortableTh>}
-                {metadataFields.map((f) =>
-                  isColVisible(`meta:${f.key}`) ? (
-                    <SortableTh key={f.id} sortKey={`meta:${f.key}` as IntegrationSortKey} state={sort} onSort={toggleSort}>
-                      <span title={f.description || undefined}>{f.label}</span>
+                {orderedVisibleDefs.map((def) => {
+                  const mf = def.id.startsWith("meta:")
+                    ? metadataFields.find((f) => `meta:${f.key}` === def.id)
+                    : undefined;
+                  return (
+                    <SortableTh
+                      key={def.id}
+                      sortKey={def.id as IntegrationSortKey}
+                      state={sort}
+                      onSort={toggleSort}
+                      className={NUM_COLS.has(def.id) ? "num" : undefined}
+                    >
+                      {mf ? <span title={mf.description || undefined}>{mf.label}</span> : def.label}
                     </SortableTh>
-                  ) : null,
-                )}
+                  );
+                })}
               </tr>
             </thead>
             <tbody>
@@ -638,102 +794,7 @@ export default function Integrations() {
                 const i = entry.i;
                 return (
                 <tr key={i.id}>
-                  {isColVisible("name") && (
-                    <td>
-                      <Link to={`/integrations/${i.id}`}>{i.name}</Link>
-                    </td>
-                  )}
-                  {isColVisible("description") && (
-                    <td>
-                      {i.description ? i.description : <span className="muted">—</span>}
-                    </td>
-                  )}
-                  {isColVisible("slug") && <td className="muted mono">{i.slug}</td>}
-                  {isColVisible("tags") && (
-                    <td>
-                      {i.tags && i.tags.length > 0 ? (
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                          {i.tags.map((t) => (
-                            <button
-                              key={t.id}
-                              type="button"
-                              onClick={(e) => {
-                                e.preventDefault();
-                                toggleSlug(t.slug);
-                              }}
-                              title={
-                                activeTagIds.has(t.id)
-                                  ? `Remove ${t.name} from filter`
-                                  : `Filter by ${t.name}`
-                              }
-                              style={{
-                                background: "transparent",
-                                border: 0,
-                                padding: 0,
-                                cursor: "pointer",
-                              }}
-                            >
-                              <TagChip tag={t} />
-                            </button>
-                          ))}
-                        </div>
-                      ) : (
-                        <span className="muted">—</span>
-                      )}
-                    </td>
-                  )}
-                  {isColVisible("service_count") && (
-                    <td className="num">
-                      {typeof i.service_count === "number" ? (
-                        <>
-                          {formatNumber(i.service_count)}
-                          {i.unhealthy_count ? (
-                            <span className="muted">
-                              {" "}
-                              · {i.unhealthy_count} unhealthy
-                            </span>
-                          ) : null}
-                        </>
-                      ) : (
-                        <span className="muted">—</span>
-                      )}
-                    </td>
-                  )}
-                  {isColVisible("trace_count") && (
-                    <td className="num">
-                      {typeof i.trace_count === "number" ? (
-                        formatNumber(i.trace_count)
-                      ) : (
-                        <span className="muted">—</span>
-                      )}
-                    </td>
-                  )}
-                  {isColVisible("error_trace_count") && (
-                    <td className="num">
-                      {typeof i.error_trace_count === "number" && i.error_trace_count > 0 ? (
-                        <span className="pill pill--errors">{formatNumber(i.error_trace_count)}</span>
-                      ) : (
-                        <span className="muted">—</span>
-                      )}
-                    </td>
-                  )}
-                  {isColVisible("status") && (
-                    <td>
-                      {i.status ? (
-                        <span className={`pill pill--${i.status}`}>{statusLabel(i.status)}</span>
-                      ) : (
-                        <span className="muted">—</span>
-                      )}
-                    </td>
-                  )}
-                  {isColVisible("updated_at") && (
-                    <td className="muted">{formatRelative(i.updated_at)}</td>
-                  )}
-                  {metadataFields.map((f) =>
-                    isColVisible(`meta:${f.key}`) ? (
-                      <td key={f.id}>{renderMetadataCell(f, i.metadata_values?.[f.key])}</td>
-                    ) : null,
-                  )}
+                  {orderedVisibleDefs.map((def) => renderCell(def.id, i))}
                 </tr>
                 );
               })}
