@@ -3,6 +3,11 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.13 — 2026-07-12
+
+- feat(ui): trace page breadcrumb above the title; selected log mirrored into the URL (ea80442)
+- release v0.11.12 — refresh internal changelog (02f44ea)
+
 ## v0.11.12 — 2026-07-12
 
 - feat(ui): full trace view gets an origin-aware breadcrumb (01ef762)
