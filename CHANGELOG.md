@@ -3,6 +3,11 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.10 — 2026-07-12
+
+- feat(ui): multi-level grouping of integrations by metadata fields (90b3b91)
+- release v0.11.9 — refresh internal changelog (c896aae)
+
 ## v0.11.9 — 2026-07-12
 
 - fix(ui): typeahead focuses on open and stays inside the viewport (5c9ee28)
