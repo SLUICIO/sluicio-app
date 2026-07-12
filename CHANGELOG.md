@@ -3,6 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.12 — 2026-07-12
+
+- feat(ui): full trace view gets an origin-aware breadcrumb (01ef762)
+- fix(rbac): equals matchers vetted against managed scope, not just the catalog (49dd182)
+- fix(audit): canonicalize metadata before hashing — struct payloads broke verify (0466ae8)
+- release v0.11.11 — refresh internal changelog (f78c6c4)
+
 ## v0.11.11 — 2026-07-12
 
 - feat(logs): trace ids open the trace blade in place (a3214ff)
