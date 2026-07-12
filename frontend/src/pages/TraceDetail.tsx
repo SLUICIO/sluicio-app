@@ -121,25 +121,24 @@ export default function TraceDetail() {
   // the integration, then this trace. Without any context the default
   // URL-derived trail ("Trace / <id>") stands.
   const shortId = traceId.length > 12 ? `${traceId.slice(0, 12)}…` : traceId;
-  useBreadcrumbTrail(
-    useMemo<Crumb[] | null>(() => {
-      if (!fromPath && !integrationContextId) return null;
-      const crumbs: Crumb[] = [];
-      if (integrationContextId) {
-        crumbs.push({ label: "Integrations", to: "/integrations" });
-        crumbs.push({
-          label: integrationContextName ?? "Integration",
-          // The integration crumb returns to the exact list (messages,
-          // errors, logs tab…) when we know it, else the overview.
-          to: fromPath ?? `/integrations/${integrationContextId}`,
-        });
-      } else if (fromPath) {
-        crumbs.push({ label: sectionLabelFor(fromPath), to: fromPath });
-      }
-      crumbs.push({ label: `Trace ${shortId}` });
-      return crumbs;
-    }, [fromPath, integrationContextId, integrationContextName, shortId]),
-  );
+  const trail = useMemo<Crumb[] | null>(() => {
+    if (!fromPath && !integrationContextId) return null;
+    const crumbs: Crumb[] = [];
+    if (integrationContextId) {
+      crumbs.push({ label: "Integrations", to: "/integrations" });
+      crumbs.push({
+        label: integrationContextName ?? "Integration",
+        // The integration crumb returns to the exact list (messages,
+        // errors, logs tab…) when we know it, else the overview.
+        to: fromPath ?? `/integrations/${integrationContextId}`,
+      });
+    } else if (fromPath) {
+      crumbs.push({ label: sectionLabelFor(fromPath), to: fromPath });
+    }
+    crumbs.push({ label: `Trace ${shortId}` });
+    return crumbs;
+  }, [fromPath, integrationContextId, integrationContextName, shortId]);
+  useBreadcrumbTrail(trail);
 
   // Trace-completion firings on THIS trace. A warning-severity rule
   // flips the header pip to warn; critical flips it to err (same as
@@ -297,18 +296,25 @@ export default function TraceDetail() {
       {/* Header */}
       <header className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <p className="text-xs uppercase tracking-wide text-muted">
-            message trace
-            {integrationContextId && (
-              <>
-                {" · status for "}
-                <Link
-                  to={`/integrations/${encodeURIComponent(integrationContextId)}`}
-                  style={{ color: "var(--primary)" }}
-                >
-                  {integrationContextName ?? "integration"}
-                </Link>
-              </>
+          {/* Same above-title breadcrumb the integration pages carry, so
+              orientation is consistent: the origin crumb returns to the
+              exact list this trace was opened from. */}
+          <p className="text-xs uppercase tracking-wide text-muted" data-testid="trace-crumbs">
+            {trail ? (
+              trail.map((c, i) => (
+                <span key={`${c.label}-${i}`}>
+                  {i > 0 && " / "}
+                  {c.to ? (
+                    <Link to={c.to} className="hover:underline">
+                      {c.label}
+                    </Link>
+                  ) : (
+                    c.label
+                  )}
+                </span>
+              ))
+            ) : (
+              <>message trace</>
             )}
           </p>
           <h1 className="mt-1 truncate font-mono text-2xl">{traceId}</h1>

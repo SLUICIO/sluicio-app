@@ -96,9 +96,28 @@ test("full view from Logs gets a breadcrumb linking back to the filtered list", 
   await expect(crumbs.getByRole("link", { name: "Logs" })).toBeVisible();
   await expect(crumbs).toContainText(`Trace ${TID.slice(0, 12)}`);
 
+  // Same trail above the page title, like the integration pages.
+  const pageCrumbs = page.getByTestId("trace-crumbs");
+  await expect(pageCrumbs.getByRole("link", { name: "Logs" })).toBeVisible();
+  await expect(pageCrumbs).toContainText(`Trace ${TID.slice(0, 12)}`);
+
   // The origin crumb returns to the exact filtered list, query intact.
-  await crumbs.getByRole("link", { name: "Logs" }).click();
+  await pageCrumbs.getByRole("link", { name: "Logs" }).click();
   await expect(page).toHaveURL(/\/logs\?logq=timeout/);
+});
+
+test("selecting a log mirrors it into the URL for plain copy-paste sharing", async ({ page }) => {
+  await logIn(page);
+  await stubLogsAndTrace(page);
+  await page.goto("/logs");
+
+  await page.getByText("e2e: downstream timeout").first().click();
+  await expect(page.getByLabel("Log details")).toBeVisible();
+  await expect(page).toHaveURL(/[?&]log=e2e-log-1/);
+
+  // Closing the drawer clears the param again.
+  await page.getByRole("button", { name: "Close details" }).click();
+  await expect(page).not.toHaveURL(/[?&]log=/);
 });
 
 test("log details drawer's View trace opens the blade, not /traces", async ({ page }) => {
