@@ -211,7 +211,9 @@ interface InputProps {
   onChange: (v: string) => void;
 }
 
-function FieldInput({ field, value, onChange }: InputProps) {
+// Exported: the integration-creation form reuses the same per-field
+// inputs so metadata capture at create time matches the editor exactly.
+export function FieldInput({ field, value, onChange }: InputProps) {
   const labelEl = (
     <>
       <span className="text-sm font-medium">

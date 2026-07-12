@@ -65,3 +65,30 @@ test("no nudge once the ingest URL is set — snippets use it", async ({ page })
   await expect(page.getByText("Ingest keys authenticate")).toBeVisible();
   await expect(page.getByText(/set the Ingest URL/)).toHaveCount(0);
 });
+
+test("creating an integration captures metadata inline; required blocks", async ({ page }) => {
+  const admin = await pwRequest.newContext({ baseURL: BASE_URL });
+  await admin.post("/api/v1/auth/login", { data: { email: ADMIN_EMAIL, password: ADMIN_PASSWORD } });
+  const field = await (
+    await admin.post("/api/v1/metadata-fields", {
+      data: {
+        key: "e2e-contact", label: "E2E Contact", type: "text", description: "",
+        applies_to_integration: true, applies_to_service: false, applies_to_system: false,
+        system_type_key: "", required: true,
+      },
+    })
+  ).json();
+  try {
+    await logIn(page);
+    await page.goto("/integrations/new");
+    // The metadata section renders the org's integration fields inline.
+    await expect(page.getByText("E2E Contact")).toBeVisible();
+    await page.getByLabel(/^Name/).first().fill("E2E Meta Create");
+    // Required metadata blocks creation before any request fires.
+    await page.getByRole("button", { name: /Create integration/ }).click();
+    await expect(page.getByText('"E2E Contact" is required.')).toBeVisible();
+  } finally {
+    await admin.delete(`/api/v1/metadata-fields/${field.id}`);
+    await admin.dispose();
+  }
+});

@@ -2,7 +2,8 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
-import type { CreateTagRequest, Tag } from "../api/types";
+import type { CreateTagRequest, MetadataField, Tag } from "../api/types";
+import { FieldInput } from "../components/MetadataPanel";
 import ServiceDependencySuggestions from "../components/ServiceDependencySuggestions";
 import MatcherRules, { Rule, blankRule, rulesToMatchers } from "../components/MatcherRules";
 import TagPicker from "../components/tags/TagPicker";
@@ -46,8 +47,18 @@ export default function IntegrationNew() {
   // Tag ids selected for attachment after the integration is created.
   // The picker can also create new tags inline via createTag below.
   const [tagIds, setTagIds] = useState<string[]>([]);
+  // Metadata fields that apply to integrations — captured as part of
+  // creation, not as a post-create detour to the Metadata tab.
+  const [metaFields, setMetaFields] = useState<MetadataField[]>([]);
+  const [metaValues, setMetaValues] = useState<Record<string, string>>({});
   const [allTags, setAllTags] = useState<Tag[]>([]);
   const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    api
+      .listMetadataFields()
+      .then((r) => setMetaFields((r.fields ?? []).filter((f) => f.applies_to_integration)))
+      .catch(() => setMetaFields([]));
+  }, []);
   const [submitting, setSubmitting] = useState(false);
 
   // Known service names for the service-rule autocomplete.
@@ -133,6 +144,13 @@ export default function IntegrationNew() {
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
+    // Required metadata blocks creation client-side (server re-checks).
+    for (const f of metaFields) {
+      if (f.required && !(metaValues[f.key] ?? "").trim()) {
+        setError(`"${f.label}" is required.`);
+        return;
+      }
+    }
     setSubmitting(true);
     setError(null);
     try {
@@ -154,6 +172,18 @@ export default function IntegrationNew() {
           setError(
             `Integration created, but ${failed} tag(s) failed to attach. You can re-add them from the detail page.`,
           );
+        }
+      }
+      // Metadata rides the same non-fatal pattern as tags: the
+      // integration exists either way; a failed save is finishable
+      // from its Settings page.
+      const metaPayload: Record<string, string> = {};
+      for (const f of metaFields) metaPayload[f.key] = (metaValues[f.key] ?? "").trim();
+      if (Object.values(metaPayload).some((v) => v !== "")) {
+        try {
+          await api.setIntegrationMetadata(created.integration.id, metaPayload);
+        } catch {
+          setError("Integration created, but saving metadata failed. You can finish it under Settings.");
         }
       }
       nav(`/integrations/${created.integration.id}`);
@@ -267,6 +297,27 @@ export default function IntegrationNew() {
             onCreate={createTag}
           />
         </div>
+
+        {metaFields.length > 0 && (
+          <div className="form__section">
+            <div className="form__section-title">Metadata</div>
+            <p className="muted form__hint">
+              The org-defined fields that apply to integrations (managed under{" "}
+              <Link to="/metadata-fields">Metadata fields</Link>). Required ones
+              must be filled before the integration can be created.
+            </p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, maxWidth: 480 }}>
+              {metaFields.map((f) => (
+                <FieldInput
+                  key={f.id}
+                  field={f}
+                  value={metaValues[f.key] ?? ""}
+                  onChange={(v) => setMetaValues((cur) => ({ ...cur, [f.key]: v }))}
+                />
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="form__section">
           <div className="form__section-title">Rules</div>
