@@ -3,6 +3,11 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.8 — 2026-07-12
+
+- feat(ui): metadata fields are part of integration creation (955b6d6)
+- release v0.11.7 — refresh internal changelog (c5ee703)
+
 ## v0.11.7 — 2026-07-12
 
 - feat(config): SLUICIO_INGEST_URL — deployment-managed ingest endpoint (e749917)
