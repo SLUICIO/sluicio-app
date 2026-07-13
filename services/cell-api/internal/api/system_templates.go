@@ -51,6 +51,13 @@ type systemCheck struct {
 	MinSeverity  int32  // OTLP severity floor (error≈17); 0 = any
 	BodyContains string // case-insensitive substring; "" = no text filter
 	LogThreshold int    // matches over the window that fire; default 1
+	// trace-signal fields. Signal "trace_error" fires on >= TraceThreshold
+	// failed traces (Attrs narrow which error spans count); "trace_latency"
+	// fires when p95 span latency >= ThresholdMs; "trace_volume" fires when
+	// the distinct trace count drops BELOW TraceThreshold (dead-man).
+	TraceThreshold int // trace_error / trace_volume; default 1
+	ThresholdMs    int // trace_latency
+	WindowSeconds  int // trailing window for trace checks; default 300
 	// shared
 	Severity alerting.Severity
 	Unit     string
@@ -90,6 +97,22 @@ var monitoringTemplates = []monitoringTemplate{
 			{Name: "Artemis queue backlog", Description: "Messages building up on an address/queue.", Metric: "artemis_message_count", Agg: alerting.AggMax, Op: alerting.OpGT, Threshold: 5000, Severity: alerting.SeverityWarning, Unit: "msgs", Display: true},
 			{Name: "Artemis no consumers", Description: "An address/queue has no consumers.", Metric: "artemis_consumer_count", Agg: alerting.AggMin, Op: alerting.OpLT, Threshold: 1, Severity: alerting.SeverityWarning, Unit: "consumers", Display: true},
 			{Name: "Artemis address memory", Description: "Address memory usage is high.", Metric: "artemis_address_memory_usage", Agg: alerting.AggMax, Op: alerting.OpGT, Threshold: 0, Severity: alerting.SeverityWarning, Unit: "bytes", Display: true},
+		},
+	},
+	{
+		// Grounded in what krakend-otel actually emits (verified against
+		// KrakenD 2.13): krakend.* histograms drive detection; the checks
+		// use trace signals since the gateway's failures live in spans.
+		// NOTE: KrakenD reports 5xx only as the http.response.status_code
+		// attribute (span status stays OK), so the failed-trace check needs
+		// the cell setting "Treat HTTP 5xx as errors" (Settings → System)
+		// to see them — the check description says so.
+		Kind: "krakend", Label: "KrakenD API Gateway", System: true,
+		DetectPrefixes: []string{"krakend."},
+		Checks: []systemCheck{
+			{Name: "KrakenD 5xx responses", Description: "The gateway returned server errors. Requires the 'Treat HTTP 5xx as errors' system setting — KrakenD records 5xx only as a span attribute, not as span status.", Signal: "trace_error", TraceThreshold: 1, WindowSeconds: 300, Attrs: []alerting.AttrFilter{{Key: "http.response.status_code", Op: "gte", Value: "500"}}, Severity: alerting.SeverityWarning},
+			{Name: "KrakenD response time", Description: "p95 gateway latency is high — tune the threshold to your traffic.", Signal: "trace_latency", ThresholdMs: 2000, WindowSeconds: 300, Severity: alerting.SeverityWarning, Unit: "ms"},
+			{Name: "KrakenD gateway silent", Description: "No traces at all in 15 minutes — the gateway (or its telemetry pipeline) is down. Disable if this gateway legitimately idles.", Signal: "trace_volume", TraceThreshold: 1, WindowSeconds: 900, Severity: alerting.SeverityWarning},
 		},
 	},
 	{
@@ -177,7 +200,16 @@ func (h *Handlers) createTemplateChecks(r *http.Request, orgID uuid.UUID, servic
 			ResolveMode:    alerting.ResolveAuto,
 			ChannelIDs:     channels,
 		}
-		if c.Signal == alerting.SignalLog {
+		traceWindow := c.WindowSeconds
+		if traceWindow < 60 {
+			traceWindow = 300
+		}
+		traceThreshold := c.TraceThreshold
+		if traceThreshold < 1 {
+			traceThreshold = 1
+		}
+		switch c.Signal {
+		case alerting.SignalLog:
 			th := c.LogThreshold
 			if th < 1 {
 				th = 1
@@ -190,7 +222,30 @@ func (h *Handlers) createTemplateChecks(r *http.Request, orgID uuid.UUID, servic
 				WindowSeconds: 300,
 				Comparison:    alerting.LogComparisonAtLeast,
 			}
-		} else {
+		case "trace_error":
+			rule.Signal = alerting.SignalTraceError
+			rule.TraceErrorSpec = &alerting.TraceErrorRuleSpec{
+				Kind:          alerting.TraceErrorSpecKind,
+				Threshold:     traceThreshold,
+				WindowSeconds: traceWindow,
+				Attrs:         c.Attrs,
+			}
+		case "trace_latency":
+			rule.Signal = alerting.SignalTraceError
+			rule.TraceLatencySpec = &alerting.TraceLatencyRuleSpec{
+				Kind:          alerting.TraceLatencySpecKind,
+				ThresholdMs:   c.ThresholdMs,
+				WindowSeconds: traceWindow,
+				Aggregation:   "p95",
+			}
+		case "trace_volume":
+			rule.Signal = alerting.SignalTraceError
+			rule.TraceVolumeSpec = &alerting.TraceVolumeRuleSpec{
+				Kind:          alerting.TraceVolumeSpecKind,
+				Threshold:     traceThreshold,
+				WindowSeconds: traceWindow,
+			}
+		default:
 			rule.Signal = alerting.SignalMetric
 			rule.DisplayOnService = c.Display
 			rule.Spec = alerting.MetricRuleSpec{

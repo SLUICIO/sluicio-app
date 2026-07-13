@@ -30,20 +30,23 @@ func customCheckToSystemCheck(c monitoringtemplates.Check) systemCheck {
 		attrs[i] = alerting.AttrFilter{Key: a.Key, Op: a.Op, Value: a.Value}
 	}
 	return systemCheck{
-		Name:         c.Name,
-		Description:  c.Description,
-		Signal:       c.Signal,
-		Metric:       c.Metric,
-		Agg:          alerting.Aggregation(c.Agg),
-		Op:           alerting.Operator(c.Op),
-		Threshold:    c.Threshold,
-		Attrs:        attrs,
-		MinSeverity:  c.MinSeverity,
-		BodyContains: c.BodyContains,
-		LogThreshold: c.LogThreshold,
-		Severity:     alerting.Severity(c.Severity),
-		Unit:         c.Unit,
-		Display:      c.Display,
+		Name:           c.Name,
+		Description:    c.Description,
+		Signal:         c.Signal,
+		Metric:         c.Metric,
+		Agg:            alerting.Aggregation(c.Agg),
+		Op:             alerting.Operator(c.Op),
+		Threshold:      c.Threshold,
+		Attrs:          attrs,
+		MinSeverity:    c.MinSeverity,
+		BodyContains:   c.BodyContains,
+		LogThreshold:   c.LogThreshold,
+		TraceThreshold: c.TraceThreshold,
+		ThresholdMs:    c.ThresholdMs,
+		WindowSeconds:  c.WindowSeconds,
+		Severity:       alerting.Severity(c.Severity),
+		Unit:           c.Unit,
+		Display:        c.Display,
 	}
 }
 
@@ -54,26 +57,30 @@ func systemCheckToCustom(c systemCheck) monitoringtemplates.Check {
 		attrs[i] = monitoringtemplates.AttrFilter{Key: a.Key, Op: a.Op, Value: a.Value}
 	}
 	return monitoringtemplates.Check{
-		Name:         c.Name,
-		Description:  c.Description,
-		Signal:       c.Signal,
-		Metric:       c.Metric,
-		Agg:          string(c.Agg),
-		Op:           string(c.Op),
-		Threshold:    c.Threshold,
-		Attrs:        attrs,
-		MinSeverity:  c.MinSeverity,
-		BodyContains: c.BodyContains,
-		LogThreshold: c.LogThreshold,
-		Severity:     string(c.Severity),
-		Unit:         c.Unit,
-		Display:      c.Display,
+		Name:           c.Name,
+		Description:    c.Description,
+		Signal:         c.Signal,
+		Metric:         c.Metric,
+		Agg:            string(c.Agg),
+		Op:             string(c.Op),
+		Threshold:      c.Threshold,
+		Attrs:          attrs,
+		MinSeverity:    c.MinSeverity,
+		BodyContains:   c.BodyContains,
+		LogThreshold:   c.LogThreshold,
+		TraceThreshold: c.TraceThreshold,
+		ThresholdMs:    c.ThresholdMs,
+		WindowSeconds:  c.WindowSeconds,
+		Severity:       string(c.Severity),
+		Unit:           c.Unit,
+		Display:        c.Display,
 	}
 }
 
 // alertRuleToCustomCheck converts a service's existing health check (alert
-// rule) into a template Check. Only metric + log rules are templatable; other
-// signals (trace) return ok=false and are skipped.
+// rule) into a template Check. Metric, log, and trace (failed-trace /
+// latency / volume) rules are templatable; anything else (e.g.
+// trace-completion) returns ok=false and is skipped.
 func alertRuleToCustomCheck(r alerting.AlertRule) (monitoringtemplates.Check, bool) {
 	switch r.Signal {
 	case alerting.SignalMetric:
@@ -107,6 +114,34 @@ func alertRuleToCustomCheck(r alerting.AlertRule) (monitoringtemplates.Check, bo
 			LogThreshold: r.LogSpec.Threshold,
 			Severity:     string(r.Severity),
 		}, true
+	case alerting.SignalTraceError:
+		// One of the trace flavours — templatable since trace-signal checks
+		// joined the template vocabulary (the KrakenD template uses them).
+		switch {
+		case r.TraceErrorSpec != nil:
+			attrs := make([]monitoringtemplates.AttrFilter, len(r.TraceErrorSpec.Attrs))
+			for i, a := range r.TraceErrorSpec.Attrs {
+				attrs[i] = monitoringtemplates.AttrFilter{Key: a.Key, Op: a.Op, Value: a.Value}
+			}
+			return monitoringtemplates.Check{
+				Name: r.Name, Description: r.Description, Signal: "trace_error",
+				TraceThreshold: r.TraceErrorSpec.Threshold, WindowSeconds: r.TraceErrorSpec.WindowSeconds,
+				Attrs: attrs, Severity: string(r.Severity),
+			}, true
+		case r.TraceLatencySpec != nil:
+			return monitoringtemplates.Check{
+				Name: r.Name, Description: r.Description, Signal: "trace_latency",
+				ThresholdMs: r.TraceLatencySpec.ThresholdMs, WindowSeconds: r.TraceLatencySpec.WindowSeconds,
+				Severity: string(r.Severity), Unit: r.Unit,
+			}, true
+		case r.TraceVolumeSpec != nil:
+			return monitoringtemplates.Check{
+				Name: r.Name, Description: r.Description, Signal: "trace_volume",
+				TraceThreshold: r.TraceVolumeSpec.Threshold, WindowSeconds: r.TraceVolumeSpec.WindowSeconds,
+				Severity: string(r.Severity),
+			}, true
+		}
+		return monitoringtemplates.Check{}, false
 	default:
 		return monitoringtemplates.Check{}, false
 	}
