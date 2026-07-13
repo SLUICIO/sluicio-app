@@ -3,6 +3,11 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.19 — 2026-07-13
+
+- feat(templates): Azure Service Bus system type; split-by in template checks (c2f0b1a)
+- release v0.11.18 — refresh internal changelog (183dcd6)
+
 ## v0.11.18 — 2026-07-13
 
 - fix(ui): system-types page renders trace checks; shared check formatter (b7a767b)
