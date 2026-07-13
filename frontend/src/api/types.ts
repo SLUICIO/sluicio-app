@@ -2245,7 +2245,7 @@ export interface ServiceGroupsResponse {
 export interface MonitoringTemplateCheck {
   name: string;
   description?: string;
-  signal?: string; // "" | "metric" | "log"
+  signal?: string; // "" | "metric" | "log" | "trace_error" | "trace_latency" | "trace_volume"
   metric?: string;
   agg?: string;
   op?: string;
@@ -2254,6 +2254,10 @@ export interface MonitoringTemplateCheck {
   min_severity?: number;
   body_contains?: string;
   log_threshold?: number;
+  // trace-signal fields
+  trace_threshold?: number; // trace_error / trace_volume
+  threshold_ms?: number; // trace_latency (p95)
+  window_seconds?: number; // trace checks
   severity?: string;
   unit?: string;
   display?: boolean;

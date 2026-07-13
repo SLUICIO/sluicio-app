@@ -22,6 +22,16 @@ function checkLine(c: MonitoringTemplateCheck): string {
     const body = c.body_contains ? ` body~"${c.body_contains}"` : "";
     return `log · ${sev}${body} · ≥${c.log_threshold ?? 1} in window`;
   }
+  if (c.signal === "trace_error") {
+    const attrs = (c.attrs ?? []).map((a) => `${a.key} ${a.op} ${a.value}`).join(", ");
+    return `trace · ≥${c.trace_threshold ?? 1} failed traces in window${attrs ? ` [${attrs}]` : ""}`;
+  }
+  if (c.signal === "trace_latency") {
+    return `trace · p95 latency ≥ ${c.threshold_ms ?? 0} ms`;
+  }
+  if (c.signal === "trace_volume") {
+    return `trace · fewer than ${c.trace_threshold ?? 1} traces in window (dead-man)`;
+  }
   return `metric · ${c.agg} ${c.metric} ${c.op} ${c.threshold}${c.unit ? ` ${c.unit}` : ""}`;
 }
 
@@ -293,7 +303,11 @@ export default function MonitoringTemplates() {
                           <option value="warning">warning</option>
                           <option value="critical">critical</option>
                         </select>
-                        {c.signal === "log" ? (
+                        {c.signal?.startsWith("trace") ? (
+                          <span className="mono" style={{ fontSize: 11.5, color: "var(--muted)" }}>
+                            {checkLine(c)}
+                          </span>
+                        ) : c.signal === "log" ? (
                           <label className="mono" style={{ fontSize: 11.5, color: "var(--muted)", display: "flex", alignItems: "center", gap: 4 }}>
                             ≥
                             <input type="number" className="search__input" value={c.log_threshold ?? 1} min={1} aria-label="Log threshold"
