@@ -3,6 +3,14 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.15 — 2026-07-13
+
+- feat(ui): 5xx-as-errors toggle + attribute conditions on failed-trace alerts (4b58f0b)
+- feat(alerting): attribute predicates on failed-trace rules (125e2f9)
+- feat(ingest): opt-in 5xx→Error span-status normalization (f5d2db4)
+- test(ingest): pin both ingest-key auth headers (621598f)
+- release v0.11.14 — refresh internal changelog (5e85cf8)
+
 ## v0.11.14 — 2026-07-12
 
 - feat(ui): reorderable integration columns, layout persisted per user (0fa8633)
