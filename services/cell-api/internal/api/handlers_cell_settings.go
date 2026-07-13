@@ -302,13 +302,19 @@ type systemSettingsResponse struct {
 	// UI), "setting" for the admin-editable cell setting, "unset" when
 	// neither exists and clients fall back to their own origin.
 	IngestURLSource string `json:"ingest_url_source"`
+	// MapHTTP5xxToError: normalize span status at ingest — spans carrying
+	// an HTTP 5xx attribute but a non-Error span status are stored as
+	// Error spans. For emitters (API gateways) that don't follow the OTel
+	// convention of marking server 5xx spans as errors.
+	MapHTTP5xxToError bool `json:"map_http_5xx_to_error"`
 }
 
 // systemSettingsRequest is the PATCH body. Every field is optional so
 // knobs can be patched independently — supply only what you're changing.
 type systemSettingsRequest struct {
-	Environment   *string `json:"environment,omitempty"`
-	IngestBaseURL *string `json:"ingest_base_url,omitempty"`
+	Environment       *string `json:"environment,omitempty"`
+	IngestBaseURL     *string `json:"ingest_base_url,omitempty"`
+	MapHTTP5xxToError *bool   `json:"map_http_5xx_to_error,omitempty"`
 }
 
 // systemSettings reads the current system settings into the response shape.
@@ -321,7 +327,11 @@ func (h *Handlers) systemSettings(r *http.Request) (systemSettingsResponse, erro
 	if err != nil {
 		return systemSettingsResponse{}, err
 	}
-	resp := systemSettingsResponse{Environment: env, IngestBaseURL: ingest, IngestURLSource: "setting"}
+	map5xx, err := h.Settings.GetMapHTTP5xxToError(r.Context())
+	if err != nil {
+		return systemSettingsResponse{}, err
+	}
+	resp := systemSettingsResponse{Environment: env, IngestBaseURL: ingest, IngestURLSource: "setting", MapHTTP5xxToError: map5xx}
 	// The deployment's SLUICIO_INGEST_URL is authoritative: ingest
 	// topology is the deployer's fact, not something an org admin should
 	// have to know. Every shipped deploy path sets it (bootstrap.sh,
@@ -364,7 +374,7 @@ func (h *Handlers) patchSystemSettings(w http.ResponseWriter, r *http.Request) {
 		httpserver.WriteError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	if body.Environment == nil && body.IngestBaseURL == nil {
+	if body.Environment == nil && body.IngestBaseURL == nil && body.MapHTTP5xxToError == nil {
 		httpserver.WriteError(w, http.StatusBadRequest, "no settings to update")
 		return
 	}
@@ -399,6 +409,14 @@ func (h *Handlers) patchSystemSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		audit["ingest_base_url"] = url
+	}
+	if body.MapHTTP5xxToError != nil {
+		if err := h.Settings.SetMapHTTP5xxToError(r.Context(), *body.MapHTTP5xxToError); err != nil {
+			h.Logger.Error("set map_http_5xx_to_error failed", "err", err)
+			httpserver.WriteError(w, http.StatusInternalServerError, "save failed")
+			return
+		}
+		audit["map_http_5xx_to_error"] = *body.MapHTTP5xxToError
 	}
 	h.recordAudit(r, "system_settings.update", "cell_settings", "system", audit)
 	resp, err := h.systemSettings(r)

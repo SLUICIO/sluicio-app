@@ -87,8 +87,12 @@ func main() {
 		return ingest.RequireIngestKey(keys, allowAnonymous, defaultOrgID, signal, logger, h)
 	}
 
+	// Cell-level ingest flags (e.g. 5xx→Error span normalization),
+	// TTL-cached so the hot path costs one PG read per 30s, not per batch.
+	flags := ingest.NewCellFlags(pg, 0)
+
 	mux := http.NewServeMux()
-	mux.Handle("POST /v1/traces", wrap("traces", ingest.TracesHandler(store, logger)))
+	mux.Handle("POST /v1/traces", wrap("traces", ingest.TracesHandler(store, flags, logger)))
 	mux.Handle("POST /v1/logs", wrap("logs", ingest.LogsHandler(store, logger)))
 	mux.Handle("POST /v1/metrics", wrap("metrics", ingest.MetricsHandler(store, logger)))
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {

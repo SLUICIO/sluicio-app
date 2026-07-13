@@ -304,8 +304,9 @@ func RequireIngestKey(ks *ingestauth.KeyStore, allowAnonymous bool, defaultOrg, 
 	})
 }
 
-// TracesHandler implements OTLP/HTTP traces at POST /v1/traces.
-func TracesHandler(store *Store, logger *slog.Logger) http.Handler {
+// TracesHandler implements OTLP/HTTP traces at POST /v1/traces. flags
+// may be nil (normalization off).
+func TracesHandler(store *Store, flags *CellFlags, logger *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		body, ok := readOTLPBody(w, r, logger, "traces")
@@ -322,6 +323,12 @@ func TracesHandler(store *Store, logger *slog.Logger) http.Handler {
 		org := orgIDFromContext(r.Context())
 		for i := range rows {
 			rows[i].OrganizationID = org
+		}
+		// Optional status normalization (cell setting): spans carrying an
+		// HTTP 5xx as an attribute but no Error status become Error spans,
+		// so under-instrumented gateways still surface as failures.
+		if flags.MapHTTP5xx(r.Context()) {
+			MapHTTP5xxToError(rows)
 		}
 		if len(rows) > 0 {
 			if err := store.InsertSpans(r.Context(), rows); err != nil {

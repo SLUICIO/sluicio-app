@@ -566,6 +566,47 @@ func (s *Store) SetMFARequired(ctx context.Context, required bool) error {
 	return nil
 }
 
+// ── ingest normalization ──────────────────────────────────────────────
+
+// GetMapHTTP5xxToError reports whether the cell normalizes span status at
+// ingest: spans carrying http.response.status_code >= 500 but a non-Error
+// span status are stored as Error spans (OTel semconv says servers SHOULD
+// mark 5xx as Error; some emitters — API gateways notably — don't).
+// Defaults false. cell-ingest reads the same key with its own cached
+// reader; this accessor backs the settings API.
+func (s *Store) GetMapHTTP5xxToError(ctx context.Context) (bool, error) {
+	var raw []byte
+	err := s.pool.QueryRow(ctx, `SELECT value FROM cell_settings WHERE key = 'ingest.map_http_5xx_to_error'`).Scan(&raw)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("settings: get map_http_5xx_to_error: %w", err)
+	}
+	var v struct {
+		Enabled bool `json:"enabled"`
+	}
+	_ = json.Unmarshal(raw, &v)
+	return v.Enabled, nil
+}
+
+// SetMapHTTP5xxToError toggles 5xx→Error span-status normalization.
+// Takes effect for newly ingested spans within the ingest cache TTL
+// (~30s); already-stored spans keep their status.
+func (s *Store) SetMapHTTP5xxToError(ctx context.Context, enabled bool) error {
+	raw, _ := json.Marshal(struct {
+		Enabled bool `json:"enabled"`
+	}{enabled})
+	const q = `
+		INSERT INTO cell_settings (key, value, updated_at)
+		VALUES ('ingest.map_http_5xx_to_error', $1::jsonb, now())
+		ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`
+	if _, err := s.pool.Exec(ctx, q, raw); err != nil {
+		return fmt.Errorf("settings: set map_http_5xx_to_error: %w", err)
+	}
+	return nil
+}
+
 // ── audit retention ─────────────────────────────────────────────────
 //
 // How long audit_log rows are kept before the retention enforcer prunes
