@@ -3,6 +3,12 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.16 — 2026-07-13
+
+- feat(ui+e2e): render trace-signal template checks; KrakenD template spec (a4e277a)
+- feat(templates): trace-signal checks in monitoring templates (b8fc067)
+- release v0.11.15 — refresh internal changelog (670b62c)
+
 ## v0.11.15 — 2026-07-13
 
 - feat(ui): 5xx-as-errors toggle + attribute conditions on failed-trace alerts (4b58f0b)
