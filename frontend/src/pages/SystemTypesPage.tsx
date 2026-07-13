@@ -9,19 +9,11 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
-import type { MonitoringTemplateCheck, SystemType } from "../api/types";
+import type { SystemType } from "../api/types";
 import { usePageTitle } from "../lib/usePageTitle";
 import { useCurrentUser } from "../lib/useCurrentUser";
 import { EditDrawer } from "../components/primitives";
-
-function checkLine(c: MonitoringTemplateCheck): string {
-  if (c.signal === "log") {
-    const sev = c.min_severity ? `severity≥${c.min_severity}` : "any severity";
-    const body = c.body_contains ? ` body~"${c.body_contains}"` : "";
-    return `log · ${sev}${body} · ≥${c.log_threshold ?? 1} in window`;
-  }
-  return `metric · ${c.agg} ${c.metric} ${c.op} ${c.threshold}`;
-}
+import { checkLine } from "../lib/checkLine";
 
 const blankDraft = { key: "", label: "", is_system: true, prefixes: "", copyFrom: "" };
 

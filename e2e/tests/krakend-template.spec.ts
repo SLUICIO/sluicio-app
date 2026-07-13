@@ -5,7 +5,7 @@
 // attribute conditions, p95 latency, dead-man volume, plus the two
 // transport-failure metric counters), and remove-template deletes them.
 import { test, expect, request as pwRequest, type APIRequestContext } from "@playwright/test";
-import { ADMIN_EMAIL, ADMIN_PASSWORD } from "./fixtures";
+import { logIn, ADMIN_EMAIL, ADMIN_PASSWORD } from "./fixtures";
 
 const BASE_URL = process.env.E2E_BASE_URL || "http://localhost:5173";
 const SVC = "e2e-krakend-svc";
@@ -66,6 +66,21 @@ test("krakend template applies three trace-signal checks", async () => {
   // Removing the template deletes exactly those checks.
   const rm = await admin.post(`/api/v1/services/${SVC}/remove-template`, { data: { kind: "krakend" } });
   expect((await rm.json()).removed).toBe(5);
+});
+
+test("System types page renders krakend's trace checks readably", async ({ page }) => {
+  await logIn(page);
+  await page.goto("/system-types");
+  // The innermost div holding the label is the row header; its ▸ button
+  // (aria-label "Expand") toggles the check list.
+  const row = page.locator("div").filter({ hasText: "KrakenD API Gateway" }).last();
+  await row.getByRole("button", { name: "Expand" }).click();
+  // Every check renders a real summary — the trace signals once fell
+  // through to the metric formatter as "metric · undefined undefined …".
+  await expect(page.getByText(/≥1 failed traces in window \[http\.response\.status_code gte 500\]/)).toBeVisible();
+  await expect(page.getByText(/p95 latency ≥ 2000 ms/)).toBeVisible();
+  await expect(page.getByText(/fewer than 1 traces in window/)).toBeVisible();
+  await expect(page.getByText(/undefined/)).toHaveCount(0);
 });
 
 test("krakend appears in the system-types catalog", async () => {
