@@ -501,22 +501,43 @@ func (s *Store) LatencyMsForServices(ctx context.Context, serviceNames []string,
 	return safeFloat(latencyMs), samples, nil
 }
 
+// errorSpanCondition renders the "this span is a failure" condition for
+// failed-trace counting: StatusCode='Error', AND-ed with any attribute
+// predicates (over span + resource attributes). Returns the condition
+// SQL and its bind args — the caller must place those args FIRST when
+// the condition sits in the SELECT clause (placeholder order).
+func errorSpanCondition(attrs []LogAttrFilter) (string, []any) {
+	cond := "StatusCode = 'Error'"
+	var args []any
+	for _, f := range attrs {
+		c, a := attrClauseIn("SpanAttributes", f)
+		cond += " AND " + c
+		args = append(args, a...)
+	}
+	return cond, args
+}
+
 // CountErrorTracesForServices counts the distinct traces that have at
 // least one error span on any of the given services within [from,to].
 // Powers the trace_error alert evaluator ("alert when this integration
-// has ≥ N failed traces in the last W minutes").
-func (s *Store) CountErrorTracesForServices(ctx context.Context, serviceNames []string, from, to time.Time) (uint64, error) {
+// has ≥ N failed traces in the last W minutes"). attrs narrow which
+// error spans count (AND-ed span/resource attribute predicates; keys
+// validated upstream via attrKeyRe); empty = any error span.
+func (s *Store) CountErrorTracesForServices(ctx context.Context, serviceNames []string, from, to time.Time, attrs []LogAttrFilter) (uint64, error) {
 	if len(serviceNames) == 0 {
 		return 0, nil
 	}
-	args := []any{from, to}
+	cond, condArgs := errorSpanCondition(attrs)
+	// Placeholder order: the condition (SELECT clause) binds first, then
+	// the Timestamp bounds, then the ServiceName IN-list.
+	args := append(condArgs, from, to)
 	svc := make([]string, len(serviceNames))
 	for i, n := range serviceNames {
 		svc[i] = "?"
 		args = append(args, n)
 	}
 	q := `
-		SELECT toUInt64(uniqExactIf(TraceId, StatusCode = 'Error'))
+		SELECT toUInt64(uniqExactIf(TraceId, ` + cond + `))
 		FROM traces
 		WHERE Timestamp >= ? AND Timestamp <= ?
 		  AND ServiceName IN (` + strings.Join(svc, ",") + `)`
@@ -710,13 +731,15 @@ func (s *Store) ServiceStatsSeries(ctx context.Context, service string, from, to
 // since the acknowledgement watermark, so it reads healthy again until
 // fresh failures arrive. Same error definition as everywhere else
 // (uniqExactIf(TraceId, StatusCode='Error')).
-func (s *Store) ErrorTraceCountSince(ctx context.Context, service string, since, to time.Time) (uint64, error) {
-	const q = `
-		SELECT toUInt64(uniqExactIf(TraceId, StatusCode = 'Error'))
+func (s *Store) ErrorTraceCountSince(ctx context.Context, service string, since, to time.Time, attrs []LogAttrFilter) (uint64, error) {
+	cond, condArgs := errorSpanCondition(attrs)
+	q := `
+		SELECT toUInt64(uniqExactIf(TraceId, ` + cond + `))
 		FROM traces
 		WHERE ServiceName = ? AND Timestamp > ? AND Timestamp <= ?`
+	args := append(condArgs, service, since, to)
 	var n uint64
-	if err := s.conn.QueryRow(ctx, q, service, since, to).Scan(&n); err != nil {
+	if err := s.conn.QueryRow(ctx, q, args...).Scan(&n); err != nil {
 		return 0, fmt.Errorf("error trace count since: %w", err)
 	}
 	return n, nil

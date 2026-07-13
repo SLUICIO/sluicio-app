@@ -585,6 +585,17 @@ func (h *Handlers) buildRule(orgID uuid.UUID, id uuid.UUID, req alertRuleRequest
 			if req.TraceErrorSpec.Threshold < 1 {
 				return alerting.AlertRule{}, errors.New("trace_error_spec.threshold must be at least 1")
 			}
+			// Optional attribute predicates narrow which error spans count
+			// (same key/op vocabulary as log rules).
+			for i := range req.TraceErrorSpec.Attrs {
+				req.TraceErrorSpec.Attrs[i].Key = strings.TrimSpace(req.TraceErrorSpec.Attrs[i].Key)
+				if !attrKeyRe.MatchString(req.TraceErrorSpec.Attrs[i].Key) {
+					return alerting.AlertRule{}, errors.New("invalid attribute key: " + req.TraceErrorSpec.Attrs[i].Key)
+				}
+				if !validAttrOps[req.TraceErrorSpec.Attrs[i].Op] {
+					return alerting.AlertRule{}, errors.New("invalid attribute operator: " + req.TraceErrorSpec.Attrs[i].Op)
+				}
+			}
 			// Stamp the kind so this row is distinguishable from a
 			// trace-completion rule (both use signal='trace'). Every reader
 			// keys off rule_spec->>'kind'.

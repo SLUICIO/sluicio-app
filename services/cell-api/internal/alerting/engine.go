@@ -57,6 +57,9 @@ type TraceErrorQuery struct {
 	IntegrationID *uuid.UUID
 	ServiceName   string
 	From, To      time.Time
+	// Attrs narrow which error spans make a trace count as failed
+	// (AND-ed span/resource attribute predicates; empty = any error span).
+	Attrs []AttrFilter
 }
 
 // TraceErrorCounter counts the distinct failed traces (traces with an
@@ -996,6 +999,7 @@ func (e *Engine) evaluateTraceErrorRule(ctx context.Context, rule AlertRule) {
 		ServiceName:   rule.ServiceName,
 		From:          from,
 		To:            to,
+		Attrs:         spec.Attrs,
 	})
 	if err != nil {
 		e.log.Error("trace alert eval: count failed", "rule", rule.ID, "err", err)
@@ -1050,12 +1054,20 @@ func traceErrorRuleSummary(rule AlertRule, count uint64, state string) string {
 		}
 		win = rule.TraceErrorSpec.WindowDuration().String()
 	}
-	if state == "resolved" {
-		return fmt.Sprintf("%s — recovered: %d failed traces in %s (threshold ≥%d)",
-			rule.Name, count, win, threshold)
+	criteria := ""
+	if rule.TraceErrorSpec != nil && len(rule.TraceErrorSpec.Attrs) > 0 {
+		parts := make([]string, 0, len(rule.TraceErrorSpec.Attrs))
+		for _, a := range rule.TraceErrorSpec.Attrs {
+			parts = append(parts, fmt.Sprintf("%s %s %s", a.Key, a.Op, a.Value))
+		}
+		criteria = " [" + strings.Join(parts, ", ") + "]"
 	}
-	return fmt.Sprintf("%s — %d failed traces in %s (threshold ≥%d)",
-		rule.Name, count, win, threshold)
+	if state == "resolved" {
+		return fmt.Sprintf("%s — recovered: %d failed traces in %s (threshold ≥%d)%s",
+			rule.Name, count, win, threshold, criteria)
+	}
+	return fmt.Sprintf("%s — %d failed traces in %s (threshold ≥%d)%s",
+		rule.Name, count, win, threshold, criteria)
 }
 
 // ── trace_latency rules (response time) ───────────────────────────────

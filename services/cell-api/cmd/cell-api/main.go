@@ -638,7 +638,11 @@ func (a traceErrorCounterAdapter) CountErrorTraces(ctx context.Context, q alerti
 		// No resolved services yet → no traces to fail.
 		return 0, nil
 	}
-	return a.countRespectingClears(ctx, svcs, q.From, q.To)
+	attrs := make([]store.LogAttrFilter, 0, len(q.Attrs))
+	for _, f := range q.Attrs {
+		attrs = append(attrs, store.LogAttrFilter{Key: f.Key, Op: f.Op, Value: f.Value})
+	}
+	return a.countRespectingClears(ctx, svcs, q.From, q.To, attrs)
 }
 
 // countRespectingClears counts failed traces over [from,to] for the service
@@ -649,7 +653,7 @@ func (a traceErrorCounterAdapter) CountErrorTraces(ctx context.Context, q alerti
 // in the window does it switch to a per-service sum since each watermark
 // (which counts a trace failing on two of the set's services twice — a
 // negligible over-count confined to the post-clear path).
-func (a traceErrorCounterAdapter) countRespectingClears(ctx context.Context, svcs []string, from, to time.Time) (uint64, error) {
+func (a traceErrorCounterAdapter) countRespectingClears(ctx context.Context, svcs []string, from, to time.Time, attrs []store.LogAttrFilter) (uint64, error) {
 	acks := map[string]erroracks.Ack{}
 	if a.acks != nil {
 		if m, err := a.acks.GetAll(ctx, a.orgID); err == nil {
@@ -664,7 +668,7 @@ func (a traceErrorCounterAdapter) countRespectingClears(ctx context.Context, svc
 		}
 	}
 	if !cleared {
-		return a.s.CountErrorTracesForServices(ctx, svcs, from, to)
+		return a.s.CountErrorTracesForServices(ctx, svcs, from, to, attrs)
 	}
 	var total uint64
 	for _, svc := range svcs {
@@ -672,7 +676,7 @@ func (a traceErrorCounterAdapter) countRespectingClears(ctx context.Context, svc
 		if wm := acks[svc].AcknowledgedUntil; wm.After(since) {
 			since = wm
 		}
-		n, err := a.s.ErrorTraceCountSince(ctx, svc, since, to)
+		n, err := a.s.ErrorTraceCountSince(ctx, svc, since, to, attrs)
 		if err != nil {
 			return 0, err
 		}

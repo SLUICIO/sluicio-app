@@ -55,7 +55,7 @@ func (h *Handlers) badgeStatus(ctx context.Context, orgID uuid.UUID, members []s
 	if h.Store != nil {
 		to := time.Now().UTC()
 		from := to.Add(-24 * time.Hour)
-		if n, err := h.Store.CountErrorTracesForServices(ctx, members, from, to); err == nil && n > 0 {
+		if n, err := h.Store.CountErrorTracesForServices(ctx, members, from, to, nil); err == nil && n > 0 {
 			return "errors"
 		}
 	}

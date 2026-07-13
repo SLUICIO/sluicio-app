@@ -223,7 +223,7 @@ func (h *Handlers) openServiceErrors(r *http.Request, visible []ServiceSummary) 
 		// If cleared inside the lookback, narrow the count to errors after
 		// the watermark so it reflects only the new ones.
 		if watermark.After(from) {
-			if n, cErr := h.Store.ErrorTraceCountSince(r.Context(), svc.ServiceName, watermark, to); cErr == nil {
+			if n, cErr := h.Store.ErrorTraceCountSince(r.Context(), svc.ServiceName, watermark, to, nil); cErr == nil {
 				count = n
 			}
 		}

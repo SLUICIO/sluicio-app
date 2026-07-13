@@ -273,6 +273,11 @@ type TraceErrorRuleSpec struct {
 	Threshold int `json:"threshold"`
 	// WindowSeconds is the trailing window the failed traces are counted over.
 	WindowSeconds int `json:"window_seconds"`
+	// Attrs narrow WHICH error spans count: a trace is a failed trace for
+	// this rule only if it has a span that is Error AND matches all
+	// predicates (key·op·value over span+resource attributes). Empty =
+	// every error span counts (the classic failed-trace rule).
+	Attrs []AttrFilter `json:"attrs,omitempty"`
 }
 
 // WindowDuration parses WindowSeconds, clamped to [1m, maxCheckWindow]
