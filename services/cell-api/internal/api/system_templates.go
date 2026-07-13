@@ -47,6 +47,10 @@ type systemCheck struct {
 	Op        alerting.Operator
 	Threshold float64
 	Attrs     []alerting.AttrFilter
+	// SplitBy evaluates per distinct value of this metric attribute and
+	// the firing enumerates each breaching value ("DLQ depth > 0 split
+	// by queue" names WHICH queue backed up).
+	SplitBy string
 	// log-signal fields
 	MinSeverity  int32  // OTLP severity floor (error≈17); 0 = any
 	BodyContains string // case-insensitive substring; "" = no text filter
@@ -97,6 +101,21 @@ var monitoringTemplates = []monitoringTemplate{
 			{Name: "Artemis queue backlog", Description: "Messages building up on an address/queue.", Metric: "artemis_message_count", Agg: alerting.AggMax, Op: alerting.OpGT, Threshold: 5000, Severity: alerting.SeverityWarning, Unit: "msgs", Display: true},
 			{Name: "Artemis no consumers", Description: "An address/queue has no consumers.", Metric: "artemis_consumer_count", Agg: alerting.AggMin, Op: alerting.OpLT, Threshold: 1, Severity: alerting.SeverityWarning, Unit: "consumers", Display: true},
 			{Name: "Artemis address memory", Description: "Address memory usage is high.", Metric: "artemis_address_memory_usage", Agg: alerting.AggMax, Op: alerting.OpGT, Threshold: 0, Severity: alerting.SeverityWarning, Unit: "bytes", Display: true},
+		},
+	},
+	{
+		// Grounded in the Integrio azureservicebusreceiver's documented
+		// metrics (github.com/Integrio/azureservicebusreceiver — an OTel
+		// Collector receiver scraping Azure APIs; all gauges, attributes
+		// queue / topic / subscription). Backlog thresholds mirror the
+		// RabbitMQ defaults — tune to your traffic.
+		Kind: "azure-servicebus", Label: "Azure Service Bus", System: true,
+		DetectPrefixes: []string{"servicebus."},
+		Checks: []systemCheck{
+			{Name: "Service Bus dead-lettered messages", Description: "Messages are landing in a queue's dead-letter sub-queue — processing is failing.", Metric: "servicebus.queue.deadletter_messages", Agg: alerting.AggMax, Op: alerting.OpGT, Threshold: 0, SplitBy: "queue", Severity: alerting.SeverityWarning, Unit: "msgs", Display: true},
+			{Name: "Service Bus dead-lettered messages (subscriptions)", Description: "Messages are landing in a topic subscription's dead-letter sub-queue.", Metric: "servicebus.topic.subscription.deadletter_messages", Agg: alerting.AggMax, Op: alerting.OpGT, Threshold: 0, SplitBy: "subscription", Severity: alerting.SeverityWarning, Unit: "msgs"},
+			{Name: "Service Bus queue backlog", Description: "Active (undelivered) messages are building up on a queue.", Metric: "servicebus.queue.active_messages", Agg: alerting.AggMax, Op: alerting.OpGT, Threshold: 5000, SplitBy: "queue", Severity: alerting.SeverityWarning, Unit: "msgs", Display: true},
+			{Name: "Service Bus subscription backlog", Description: "Active messages are building up on a topic subscription.", Metric: "servicebus.topic.subscription.active_messages", Agg: alerting.AggMax, Op: alerting.OpGT, Threshold: 5000, SplitBy: "subscription", Severity: alerting.SeverityWarning, Unit: "msgs"},
 		},
 	},
 	{
@@ -260,6 +279,7 @@ func (h *Handlers) createTemplateChecks(r *http.Request, orgID uuid.UUID, servic
 				Threshold:   c.Threshold,
 				ForWindow:   "5m",
 				Attrs:       c.Attrs,
+				SplitBy:     c.SplitBy,
 			}
 		}
 		if _, cerr := h.Alerts.CreateRule(r.Context(), rule); cerr != nil {

@@ -43,6 +43,7 @@ type Check struct {
 	Op        string       `json:"op,omitempty"`
 	Threshold float64      `json:"threshold,omitempty"`
 	Attrs     []AttrFilter `json:"attrs,omitempty"`
+	SplitBy   string       `json:"split_by,omitempty"`
 	// log
 	MinSeverity  int32  `json:"min_severity,omitempty"`
 	BodyContains string `json:"body_contains,omitempty"`

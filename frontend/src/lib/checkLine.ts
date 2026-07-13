@@ -25,5 +25,6 @@ export function checkLine(c: MonitoringTemplateCheck): string {
   }
   // threshold (and friends) are omitempty server-side — a 0 threshold
   // arrives as undefined, so default the numerics explicitly.
-  return `metric · ${c.agg} ${c.metric} ${c.op} ${c.threshold ?? 0}${c.unit ? ` ${c.unit}` : ""}`;
+  const split = c.split_by ? ` · split by ${c.split_by}` : "";
+  return `metric · ${c.agg} ${c.metric} ${c.op} ${c.threshold ?? 0}${c.unit ? ` ${c.unit}` : ""}${split}`;
 }

@@ -2254,6 +2254,7 @@ export interface MonitoringTemplateCheck {
   min_severity?: number;
   body_contains?: string;
   log_threshold?: number;
+  split_by?: string; // metric checks: evaluate per distinct attribute value
   // trace-signal fields
   trace_threshold?: number; // trace_error / trace_volume
   threshold_ms?: number; // trace_latency (p95)
