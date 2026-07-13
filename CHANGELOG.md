@@ -3,6 +3,11 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.17 — 2026-07-13
+
+- feat(templates): transport-failure checks in the KrakenD template (ff38560)
+- release v0.11.16 — refresh internal changelog (9e5bb71)
+
 ## v0.11.16 — 2026-07-13
 
 - feat(ui+e2e): render trace-signal template checks; KrakenD template spec (a4e277a)
