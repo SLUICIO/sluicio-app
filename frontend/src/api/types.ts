@@ -1458,6 +1458,9 @@ export interface LogRuleSpec {
 export interface TraceErrorRuleSpec {
   threshold: number; // fire when failed-trace count >= this; min 1
   window_seconds: number; // trailing window failed traces are counted over
+  // Optional predicates narrowing WHICH error spans make a trace count as
+  // failed (AND-ed, same key/op vocabulary as log rules).
+  attrs?: LogAttrFilter[];
 }
 
 // trace_latency rule spec: fire when the bound scope's windowed quantile
@@ -1990,10 +1993,14 @@ export interface SystemSettings {
   // "env" = deployment-managed (SLUICIO_INGEST_URL, read-only here),
   // "setting" = admin-editable cell setting, "unset" = origin fallback.
   ingest_url_source?: "env" | "setting" | "unset";
+  // Normalize span status at ingest: spans carrying an HTTP 5xx attribute
+  // but a non-Error span status are stored as error spans.
+  map_http_5xx_to_error?: boolean;
 }
 export interface SystemSettingsRequest {
   environment?: string;
   ingest_base_url?: string;
+  map_http_5xx_to_error?: boolean;
 }
 
 export interface AuthUser {

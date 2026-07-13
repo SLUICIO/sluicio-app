@@ -10,13 +10,27 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
-import type { AlertSeverity, NotificationChannel } from "../api/types";
+import type { AlertSeverity, LogAttrFilter, LogAttrOp, NotificationChannel } from "../api/types";
 import { EditDrawer } from "./primitives";
 
 const WINDOW_OPTS: { label: string; seconds: number }[] = [
   { label: "5 minutes", seconds: 300 },
   { label: "15 minutes", seconds: 900 },
   { label: "1 hour", seconds: 3600 },
+];
+
+// Operators a failed-trace rule's attribute predicates support (matches
+// the backend's validAttrOps vocabulary, shared with log rules).
+const ATTR_OPS: { value: LogAttrOp; label: string }[] = [
+  { value: "eq", label: "=" },
+  { value: "neq", label: "≠" },
+  { value: "contains", label: "contains" },
+  { value: "not_contains", label: "doesn't contain" },
+  { value: "gt", label: ">" },
+  { value: "gte", label: "≥" },
+  { value: "lt", label: "<" },
+  { value: "lte", label: "≤" },
+  { value: "exists", label: "exists" },
 ];
 
 export default function CreateTraceAlertDrawer({
@@ -34,6 +48,7 @@ export default function CreateTraceAlertDrawer({
   const [threshold, setThreshold] = useState(1);
   const [windowSeconds, setWindowSeconds] = useState(300);
   const [severity, setSeverity] = useState<AlertSeverity>("warning");
+  const [attrs, setAttrs] = useState<LogAttrFilter[]>([]);
   const [selectedChannels, setSelectedChannels] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -52,6 +67,13 @@ export default function CreateTraceAlertDrawer({
       setError("Threshold must be at least 1.");
       return;
     }
+    const cleanAttrs = attrs
+      .map((a) => ({ ...a, key: a.key.trim() }))
+      .filter((a) => a.key !== "");
+    if (cleanAttrs.some((a) => a.op !== "exists" && a.value.trim() === "")) {
+      setError("Every attribute condition needs a value (or use 'exists').");
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -64,7 +86,11 @@ export default function CreateTraceAlertDrawer({
         // or a service for a trace rule.
         integration_id: integrationId || undefined,
         service_name: serviceName || undefined,
-        trace_error_spec: { threshold, window_seconds: windowSeconds },
+        trace_error_spec: {
+          threshold,
+          window_seconds: windowSeconds,
+          ...(cleanAttrs.length > 0 ? { attrs: cleanAttrs } : {}),
+        },
         channel_ids: selectedChannels,
       });
       setDone(true);
@@ -133,6 +159,68 @@ export default function CreateTraceAlertDrawer({
                 ))}
               </select>
             </label>
+          </div>
+          <div className="form__label">
+            Only count error spans where… <span className="muted" style={{ fontWeight: 400 }}>(optional)</span>
+            <span className="form__hint">
+              Narrow which error spans make a trace count as failed — e.g.{" "}
+              <code>http.route</code> = <code>/checkout</code>, or{" "}
+              <code>http.response.status_code</code> ≥ <code>500</code>.
+              Conditions are AND-ed over span and resource attributes.
+            </span>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, paddingTop: 4 }}>
+              {attrs.map((a, i) => (
+                <div key={i} style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <input
+                    className="search__input mono"
+                    style={{ flex: 2, fontSize: 12.5 }}
+                    placeholder="attribute key"
+                    value={a.key}
+                    onChange={(e) =>
+                      setAttrs((cur) => cur.map((x, j) => (j === i ? { ...x, key: e.target.value } : x)))
+                    }
+                  />
+                  <select
+                    className="toolbar__select"
+                    value={a.op}
+                    onChange={(e) =>
+                      setAttrs((cur) => cur.map((x, j) => (j === i ? { ...x, op: e.target.value as LogAttrOp } : x)))
+                    }
+                  >
+                    {ATTR_OPS.map((op) => (
+                      <option key={op.value} value={op.value}>{op.label}</option>
+                    ))}
+                  </select>
+                  {a.op !== "exists" && (
+                    <input
+                      className="search__input mono"
+                      style={{ flex: 2, fontSize: 12.5 }}
+                      placeholder="value"
+                      value={a.value}
+                      onChange={(e) =>
+                        setAttrs((cur) => cur.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)))
+                      }
+                    />
+                  )}
+                  <button
+                    type="button"
+                    className="btn"
+                    aria-label="Remove condition"
+                    onClick={() => setAttrs((cur) => cur.filter((_, j) => j !== i))}
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+              <button
+                type="button"
+                className="btn"
+                style={{ alignSelf: "flex-start" }}
+                onClick={() => setAttrs((cur) => [...cur, { key: "", op: "eq", value: "" }])}
+              >
+                + Add attribute condition
+              </button>
+            </div>
           </div>
           <label className="form__label">
             Severity

@@ -2636,6 +2636,7 @@ function SystemSettingsTab() {
   const [data, setData] = useState<SystemSettings | null>(null);
   const [env, setEnv] = useState("");
   const [ingest, setIngest] = useState("");
+  const [map5xx, setMap5xx] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState(0);
@@ -2647,6 +2648,7 @@ function SystemSettingsTab() {
         setData(d);
         setEnv(d.environment);
         setIngest(d.ingest_base_url ?? "");
+        setMap5xx(Boolean(d.map_http_5xx_to_error));
       })
       .catch((e) => setError(String((e as Error).message ?? e)));
   }, []);
@@ -2657,7 +2659,8 @@ function SystemSettingsTab() {
   const envManaged = data.ingest_url_source === "env";
   const envDirty = env.trim() !== data.environment && env.trim() !== "";
   const ingestDirty = !envManaged && ingest.trim() !== (data.ingest_base_url ?? "");
-  const dirty = envDirty || ingestDirty;
+  const map5xxDirty = map5xx !== Boolean(data.map_http_5xx_to_error);
+  const dirty = envDirty || ingestDirty || map5xxDirty;
 
   const save = async (e: FormEvent) => {
     e.preventDefault();
@@ -2671,10 +2674,12 @@ function SystemSettingsTab() {
         environment: env.trim() || data.environment,
         // Never send an env-managed ingest URL — the server refuses it.
         ...(envManaged ? {} : { ingest_base_url: ingest.trim() }),
+        map_http_5xx_to_error: map5xx,
       });
       setData(r);
       setEnv(r.environment);
       setIngest(r.ingest_base_url);
+      setMap5xx(Boolean(r.map_http_5xx_to_error));
       setSavedAt(Date.now());
     } catch (e) {
       setError(String((e as Error).message ?? e));
@@ -2732,6 +2737,27 @@ function SystemSettingsTab() {
               <code>/v1/traces</code> etc. automatically, so omit the path.
             </span>
           )}
+        </label>
+        <label className="form__label" style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}>
+          <input
+            type="checkbox"
+            checked={map5xx}
+            disabled={!isAdmin}
+            onChange={(e) => setMap5xx(e.target.checked)}
+            style={{ marginTop: 3 }}
+          />
+          <span>
+            Treat HTTP 5xx as errors
+            <span className="form__hint" style={{ display: "block", fontSize: 12, fontWeight: 400 }}>
+              Some emitters — API gateways like KrakenD, notably — record a
+              5xx only as the <code>http.response.status_code</code> attribute
+              and leave the span status OK, making failures invisible to health,
+              error counts, and failed-trace alert rules. When enabled, this cell
+              stores such spans as error spans at ingest (stamped{" "}
+              <code>sluicio.status_mapped</code>). Applies to newly ingested
+              spans only; takes effect within ~30 seconds.
+            </span>
+          </span>
         </label>
         {isAdmin ? (
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
