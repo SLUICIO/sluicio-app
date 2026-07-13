@@ -113,6 +113,11 @@ var monitoringTemplates = []monitoringTemplate{
 			{Name: "KrakenD 5xx responses", Description: "The gateway returned server errors. Requires the 'Treat HTTP 5xx as errors' system setting — KrakenD records 5xx only as a span attribute, not as span status.", Signal: "trace_error", TraceThreshold: 1, WindowSeconds: 300, Attrs: []alerting.AttrFilter{{Key: "http.response.status_code", Op: "gte", Value: "500"}}, Severity: alerting.SeverityWarning},
 			{Name: "KrakenD response time", Description: "p95 gateway latency is high — tune the threshold to your traffic.", Signal: "trace_latency", ThresholdMs: 2000, WindowSeconds: 300, Severity: alerting.SeverityWarning, Unit: "ms"},
 			{Name: "KrakenD gateway silent", Description: "No traces at all in 15 minutes — the gateway (or its telemetry pipeline) is down. Disable if this gateway legitimately idles.", Signal: "trace_volume", TraceThreshold: 1, WindowSeconds: 900, Severity: alerting.SeverityWarning},
+			// Transport-level failures — a different class than 5xx: the
+			// backend didn't answer at all. krakend-otel emits these
+			// counters only once such events occur (verified live).
+			{Name: "KrakenD backend unreachable", Description: "Requests to a backend failed at the transport level (connection refused/reset) — the backend is down or unreachable, not merely erroring.", Metric: "http.client.request.failed.count", Agg: alerting.AggIncrease, Op: alerting.OpGT, Threshold: 0, Severity: alerting.SeverityWarning, Unit: "requests", Display: true},
+			{Name: "KrakenD backend timeouts", Description: "Backend calls exceeded the gateway's timeout budget — names the cause behind 500s and latency alerts.", Metric: "http.client.request.timedout.count", Agg: alerting.AggIncrease, Op: alerting.OpGT, Threshold: 0, Severity: alerting.SeverityWarning, Unit: "requests"},
 		},
 	},
 	{

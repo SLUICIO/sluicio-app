@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // KrakenD system type / monitoring template: applying the built-in
-// "krakend" kind creates its three trace-signal health checks (failed
-// 5xx traces with attribute conditions, p95 latency, dead-man volume),
-// and remove-template deletes them again.
+// "krakend" kind creates its five health checks (failed 5xx traces with
+// attribute conditions, p95 latency, dead-man volume, plus the two
+// transport-failure metric counters), and remove-template deletes them.
 import { test, expect, request as pwRequest, type APIRequestContext } from "@playwright/test";
 import { ADMIN_EMAIL, ADMIN_PASSWORD } from "./fixtures";
 
@@ -32,11 +32,11 @@ test("krakend template applies three trace-signal checks", async () => {
     data: { kind: "krakend" },
   });
   expect(apply.ok()).toBeTruthy();
-  expect((await apply.json()).created).toBe(3);
+  expect((await apply.json()).created).toBe(5);
 
   const rules = (await (await admin.get("/api/v1/alert-rules")).json()).rules ?? [];
   const mine = rules.filter((r: { service_name?: string }) => r.service_name === SVC);
-  expect(mine).toHaveLength(3);
+  expect(mine).toHaveLength(5);
 
   const byName = Object.fromEntries(mine.map((r: { name: string }) => [r.name, r]));
 
@@ -55,9 +55,17 @@ test("krakend template applies three trace-signal checks", async () => {
   expect(silent.trace_volume_spec.threshold).toBe(1);
   expect(silent.trace_volume_spec.window_seconds).toBe(900);
 
+  const unreachable = byName["KrakenD backend unreachable"];
+  expect(unreachable.signal).toBe("metric");
+  expect(unreachable.spec.metric_name).toBe("http.client.request.failed.count");
+  expect(unreachable.spec.aggregation).toBe("increase");
+
+  const timeouts = byName["KrakenD backend timeouts"];
+  expect(timeouts.spec.metric_name).toBe("http.client.request.timedout.count");
+
   // Removing the template deletes exactly those checks.
   const rm = await admin.post(`/api/v1/services/${SVC}/remove-template`, { data: { kind: "krakend" } });
-  expect((await rm.json()).removed).toBe(3);
+  expect((await rm.json()).removed).toBe(5);
 });
 
 test("krakend appears in the system-types catalog", async () => {
