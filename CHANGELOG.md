@@ -3,6 +3,11 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.18 — 2026-07-13
+
+- fix(ui): system-types page renders trace checks; shared check formatter (b7a767b)
+- release v0.11.17 — refresh internal changelog (fba2f4f)
+
 ## v0.11.17 — 2026-07-13
 
 - feat(templates): transport-failure checks in the KrakenD template (ff38560)
