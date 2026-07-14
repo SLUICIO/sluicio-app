@@ -64,19 +64,58 @@ type TabKey =
   | "audit"
   | "license";
 
-const TABS: { key: TabKey; label: string; enterprise?: boolean }[] = [
-  { key: "organization", label: "Organization" },
-  { key: "members", label: "Members" },
-  { key: "service-accounts", label: "Service accounts" },
-  { key: "groups", label: "Groups" },
-  { key: "ingestion", label: "Ingestion" },
-  { key: "retention", label: "Retention" },
-  { key: "reports", label: "Reports" },
-  { key: "system", label: "System settings" },
-  { key: "sso", label: "SSO", enterprise: true },
-  { key: "audit", label: "Audit log", enterprise: true },
-  { key: "license", label: "License" },
+const TABS: { key: TabKey; label: string; subtitle: string; enterprise?: boolean }[] = [
+  { key: "organization", label: "Organization", subtitle: "Org profile and announcements. Personal tokens and theme live under your Account." },
+  { key: "members", label: "Members", subtitle: "People with access to this organization." },
+  { key: "service-accounts", label: "Service accounts", subtitle: "Machine identities and their API tokens." },
+  { key: "groups", label: "Groups", subtitle: "Group membership drives scoped access and team dashboards." },
+  { key: "ingestion", label: "Ingestion", subtitle: "Ingest keys and ready-to-paste exporter configuration." },
+  { key: "retention", label: "Retention", subtitle: "How long telemetry and audit history are kept, cell-wide." },
+  { key: "reports", label: "Reports", subtitle: "Scheduled summaries delivered by email." },
+  { key: "system", label: "System settings", subtitle: "Cell-wide knobs: environment label, ingest URL, email, security policy." },
+  { key: "sso", label: "SSO", subtitle: "Single sign-on for this organization.", enterprise: true },
+  { key: "audit", label: "Audit log", subtitle: "Who changed what, when — tamper-evident.", enterprise: true },
+  { key: "license", label: "License", subtitle: "License status and Enterprise entitlements." },
 ];
+
+// The left-nav groups, mirroring the settings information architecture:
+// org-shaped things, data-shaped things, security, and cell platform.
+const TAB_GROUPS: { label: string; keys: TabKey[] }[] = [
+  { label: "Organization", keys: ["organization", "members", "service-accounts", "groups"] },
+  { label: "Data", keys: ["ingestion", "retention", "reports"] },
+  { label: "Security & access", keys: ["sso", "audit"] },
+  { label: "Platform", keys: ["system", "license"] },
+];
+
+// TabIcon — minimal 16px glyphs for the settings nav, stroke follows
+// text color so active/inactive states tint them for free.
+function TabIcon({ k }: { k: TabKey }) {
+  const common = { width: 15, height: 15, viewBox: "0 0 16 16", fill: "none", stroke: "currentColor", strokeWidth: 1.4, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true };
+  switch (k) {
+    case "organization":
+      return <svg {...common}><path d="M2.5 13.5v-9l5.5-2.5 5.5 2.5v9M6.5 13.5v-3h3v3" /></svg>;
+    case "members":
+      return <svg {...common}><circle cx="5.5" cy="6" r="2.2" /><path d="M1.8 13.2c.5-2 1.9-3 3.7-3s3.2 1 3.7 3M10.5 4.2a2.2 2.2 0 0 1 0 3.9M11.6 10.4c1.3.4 2.2 1.3 2.6 2.8" /></svg>;
+    case "service-accounts":
+      return <svg {...common}><circle cx="6" cy="8" r="3" /><path d="M9 8h4.5M11.5 8v2.5" /></svg>;
+    case "groups":
+      return <svg {...common}><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1" /><rect x="9" y="2.5" width="4.5" height="4.5" rx="1" /><rect x="2.5" y="9" width="4.5" height="4.5" rx="1" /><rect x="9" y="9" width="4.5" height="4.5" rx="1" /></svg>;
+    case "ingestion":
+      return <svg {...common}><path d="M2 8h8M7.5 5.5 10 8l-2.5 2.5M12.5 3v10" /></svg>;
+    case "retention":
+      return <svg {...common}><circle cx="8" cy="8" r="5.5" /><path d="M8 5v3.2l2.2 1.3" /></svg>;
+    case "reports":
+      return <svg {...common}><path d="M4 2.5h6l2.5 2.5v8.5h-8.5zM5.8 8h4.4M5.8 10.5h4.4" /></svg>;
+    case "system":
+      return <svg {...common}><path d="M2.5 5h11M2.5 11h11" /><circle cx="6" cy="5" r="1.6" fill="var(--surface)" /><circle cx="10" cy="11" r="1.6" fill="var(--surface)" /></svg>;
+    case "sso":
+      return <svg {...common}><path d="M8 1.8 13 4v4c0 3.2-2.1 5.3-5 6.2C5.1 13.3 3 11.2 3 8V4z" /></svg>;
+    case "audit":
+      return <svg {...common}><path d="M3 3.5h10M3 6.5h10M3 9.5h6M3 12.5h4" /></svg>;
+    case "license":
+      return <svg {...common}><circle cx="8" cy="6.5" r="3.5" /><path d="M6 9.5 5 14l3-1.5L11 14l-1-4.5" /></svg>;
+  }
+}
 
 // Cell-wide tabs — retention, system (SMTP + security), and license apply
 // to every org on the cell, so only operators may see/change them. In
@@ -101,63 +140,59 @@ export default function Settings() {
       { replace: true },
     );
 
+  const active = TABS.find((t) => t.key === tab)!;
+
   return (
-    <div>
-      <div className="page__header">
-        <div>
-          <h1 className="page__title">Organization settings</h1>
-          <p className="page__subtitle">
-            Org profile, members, groups, and SSO. Personal tokens
-            and theme preferences live under your{" "}
-            <a href="/account">Account</a>.
+    <div className="settings-layout">
+      {/* Grouped settings nav (per the Sluicio Settings design): section
+          labels + icon items + amber ENT badges; active item is a soft
+          primary pill. Same ?tab= addressing and operator gating as the
+          old horizontal strip — only the layout changed. */}
+      <nav className="settings-nav" aria-label="Settings sections">
+        {TAB_GROUPS.map((g) => {
+          const items = g.keys
+            .map((k) => visibleTabs.find((t) => t.key === k))
+            .filter((t): t is (typeof TABS)[number] => Boolean(t));
+          if (items.length === 0) return null;
+          return (
+            <div key={g.label}>
+              <div className="settings-nav__label">{g.label}</div>
+              {items.map((t) => (
+                <button
+                  key={t.key}
+                  type="button"
+                  className={`settings-nav__item ${tab === t.key ? "is-active" : ""}`}
+                  onClick={() => setTab(t.key)}
+                >
+                  <TabIcon k={t.key} />
+                  {t.label}
+                  {t.enterprise && (
+                    <span className="ent-badge" title="Sluicio Enterprise feature">
+                      ENT
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+          );
+        })}
+      </nav>
+
+      <div className="settings-content">
+        <div style={{ marginBottom: 16 }}>
+          <h1 className="page__title">{active.label}</h1>
+          <p className="page__subtitle" style={{ marginTop: 2 }}>
+            {active.key === "organization" ? (
+              <>
+                Org profile and announcements. Personal tokens and theme live under your{" "}
+                <a href="/account">Account</a>.
+              </>
+            ) : (
+              active.subtitle
+            )}
           </p>
         </div>
-      </div>
-
-      <div
-        className="card"
-        style={{ padding: 0, border: "1px solid var(--border)", borderRadius: 8 }}
-      >
-        <div
-          style={{
-            display: "flex",
-            borderBottom: "1px solid var(--border)",
-            background: "var(--surface-2)",
-            padding: "4px 4px 0 4px",
-          }}
-        >
-          {visibleTabs.map((t) => (
-            <button
-              key={t.key}
-              type="button"
-              onClick={() => setTab(t.key)}
-              style={{
-                padding: "10px 16px",
-                background: "transparent",
-                border: 0,
-                borderBottom: tab === t.key ? "2px solid var(--primary)" : "2px solid transparent",
-                color: tab === t.key ? "var(--ink)" : "var(--muted)",
-                fontWeight: tab === t.key ? 600 : 500,
-                cursor: "pointer",
-                fontSize: 13,
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 6,
-              }}
-            >
-              {t.label}
-              {t.enterprise && (
-                <span
-                  title="Sluicio Enterprise feature"
-                  style={{ fontSize: 9, color: "var(--accent, #4c9aff)" }}
-                >
-                  ★
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
-        <div style={{ padding: 18 }}>
+        <div>
           {tab === "organization" && <OrganizationTab />}
           {tab === "members" && <MembersTab />}
           {tab === "service-accounts" && <ServiceAccountsTab />}
