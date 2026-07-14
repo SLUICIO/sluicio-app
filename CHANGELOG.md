@@ -3,6 +3,12 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.23 — 2026-07-14
+
+- feat(mcp): logs search, metric series, integration detail, alert instances (eb54cef)
+- chore(github): issue forms — user-story-shaped bugs and feature requests (6f3fe31)
+- release v0.11.22 — refresh internal changelog (f6385c3)
+
 ## v0.11.22 — 2026-07-14
 
 - feat(ui): drop the redundant name filter from the Services toolbar (14f6edd)
