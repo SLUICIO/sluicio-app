@@ -147,7 +147,22 @@ export default function LogsView({ forcedIntegration, forcedIntegrationId, force
   const [qInput, setQInput] = useState(() => initialLogFilters.get("logq") ?? "");
   const [appliedQ, setAppliedQ] = useState(() => initialLogFilters.get("logq") ?? "");
   const [minSeverity, setMinSeverity] = useState(() => Number(initialLogFilters.get("logmin")) || 0);
-  const [attrs, setAttrs] = useState<LogAttrFilter[]>([]);
+  const [attrs, setAttrs] = useState<LogAttrFilter[]>(() =>
+    initialLogFilters
+      .getAll("logattr")
+      .map((raw) => {
+        try {
+          const v = JSON.parse(raw);
+          if (v && typeof v.key === "string" && typeof v.op === "string" && typeof v.value === "string") {
+            return v as LogAttrFilter;
+          }
+        } catch {
+          /* malformed param — drop it */
+        }
+        return null;
+      })
+      .filter((v): v is LogAttrFilter => v !== null),
+  );
 
   const [fields, setFields] = useState<LogFieldEntry[]>([]);
   const [recent, setRecent] = useState<string[]>(loadRecent);
@@ -177,29 +192,15 @@ export default function LogsView({ forcedIntegration, forcedIntegrationId, force
   }, [forcedIntegration]);
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [selected, setSelected] = useState<LogEntry | null>(null);
-  // selectLog mirrors the open log into the URL (`?log=<LogId>`, the
-  // same param the deep-link effect consumes) so the address bar is
-  // shareable as-is — copying the URL is enough, no Copy-link needed.
   // setSearchParams goes through a ref because react-router does not
-  // keep its identity stable across URL writes — depending on it
-  // directly made selectLog change identity on every selection, which
-  // re-ran the first-page effect and instantly deselected the log.
+  // keep its identity stable across URL writes. ALL url-mirroring for
+  // this page happens in ONE effect below — two writers in the same
+  // commit stomp each other, because react-router's functional updater
+  // computes from render-time params, not the pending navigation.
   const setSearchParamsRef = useRef(setSearchParams);
   useEffect(() => {
     setSearchParamsRef.current = setSearchParams;
   });
-  const selectLog = useCallback((l: LogEntry | null) => {
-    setSelected(l);
-    setSearchParamsRef.current(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        if (l?.log_id) next.set("log", l.log_id);
-        else next.delete("log");
-        return next;
-      },
-      { replace: true },
-    );
-  }, []);
   // A log's trace context opens the trace as a slide-over blade (the
   // same TraceDrawer the integration Messages view uses) — inspecting
   // a trace shouldn't navigate away from the filtered log list.
@@ -207,10 +208,44 @@ export default function LogsView({ forcedIntegration, forcedIntegrationId, force
   const [volume, setVolume] = useState<LogVolumeResponse | null>(null);
   const [volumeLoading, setVolumeLoading] = useState(true);
 
-  const [group, setGroup] = useState<GroupValue>({ by: "none", key: "" });
+  const [group, setGroup] = useState<GroupValue>(() => {
+    const raw = initialLogFilters.get("loggroup") ?? "";
+    if (!raw) return { by: "none", key: "" };
+    const [by, ...rest] = raw.split(":");
+    return { by, key: rest.join(":") };
+  });
   const [groups, setGroups] = useState<LogGroup[]>([]);
   const [groupsLoading, setGroupsLoading] = useState(false);
   const grouped = group.by !== "none" && (group.by !== "attribute" || group.key !== "");
+
+  // Mirror the page state into the URL — the SINGLE writer for this
+  // page's params (?logq body text, ?logmin severity floor, repeated
+  // ?logattr JSON chips, ?loggroup, ?log open drawer) so a filtered
+  // view is shareable by copying the address bar; the same params the
+  // mount-time hydration consumes. replace: true keeps keystrokes out
+  // of the back button. Deliberately one effect: a second concurrent
+  // setSearchParams writer computes from stale render-time params and
+  // reverts this one's write.
+  useEffect(() => {
+    setSearchParamsRef.current(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (appliedQ) next.set("logq", appliedQ);
+        else next.delete("logq");
+        if (minSeverity) next.set("logmin", String(minSeverity));
+        else next.delete("logmin");
+        next.delete("logattr");
+        for (const a of attrs) next.append("logattr", JSON.stringify(a));
+        if (group.by !== "none") next.set("loggroup", group.key ? `${group.by}:${group.key}` : group.by);
+        else next.delete("loggroup");
+        if (selected?.log_id) next.set("log", selected.log_id);
+        else next.delete("log");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [appliedQ, minSeverity, attrs, group, selected]);
+
 
   // Dropping "integration" from the dimension list when we're already
   // scoped to one integration — every row would land in the same group.
@@ -316,17 +351,13 @@ export default function LogsView({ forcedIntegration, forcedIntegrationId, force
       .finally(() => setVolumeLoading(false));
   }, [windowVal, appliedQ, minSeverity, attrs, forcedIntegration, forcedService, reloadKey]);
 
-  // First page on any filter/window change; clears selection (and the
-  // `?log=` deep-link param — but not on the initial run, where that
-  // param is still being resolved into the drawer).
-  const filtersDirty = useRef(false);
+  // First page on any filter/window change; clears selection (the URL
+  // mirror drops the `?log=` param with it).
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    if (filtersDirty.current) selectLog(null);
-    else setSelected(null);
-    filtersDirty.current = true;
+    setSelected(null);
     api
       .searchLogs(windowVal, {
         q: appliedQ || undefined,
@@ -347,7 +378,7 @@ export default function LogsView({ forcedIntegration, forcedIntegrationId, force
     return () => {
       cancelled = true;
     };
-  }, [windowVal, appliedQ, minSeverity, attrs, forcedIntegration, forcedService, reloadKey, selectLog]);
+  }, [windowVal, appliedQ, minSeverity, attrs, forcedIntegration, forcedService, reloadKey]);
 
   // Deep link: `?log=<LogId>` opens that exact log in the drawer on load,
   // regardless of the current window / filters / keyset page. Fetched by
@@ -362,7 +393,7 @@ export default function LogsView({ forcedIntegration, forcedIntegrationId, force
     api
       .getLog(logId)
       .then((entry) => {
-        if (!cancelled) selectLog(entry);
+        if (!cancelled) setSelected(entry);
       })
       .catch(() => {
         /* not found / no access — leave the list as-is */
@@ -577,7 +608,7 @@ export default function LogsView({ forcedIntegration, forcedIntegrationId, force
                           key={i}
                           className="grp-logrow"
                           style={{ cursor: "pointer" }}
-                          onClick={() => selectLog(l)}
+                          onClick={() => setSelected(l)}
                         >
                           <span className="t" title={l.timestamp}>{fmtTime(l.timestamp)}</span>
                           <span><LevelBadge num={l.severity_number} /></span>
@@ -608,7 +639,7 @@ export default function LogsView({ forcedIntegration, forcedIntegrationId, force
                   const tint = band === "fatal" ? "logrow--fatal" : band === "err" ? "logrow--err" : "";
                   return `logrow ${tint} ${selected === l ? "is-selected" : ""}`;
                 }}
-                onRowClick={(l) => selectLog(selected === l ? null : l)}
+                onRowClick={(l) => setSelected(selected === l ? null : l)}
                 empty={
                   <div className="placeholder" style={{ margin: 12 }}>
                     No log events match your filters in this window.
@@ -708,7 +739,7 @@ export default function LogsView({ forcedIntegration, forcedIntegrationId, force
             <LogDetailsDrawer
               log={selected}
               integrations={selected.service_name ? svcIntegrations.get(selected.service_name) ?? [] : []}
-              onClose={() => selectLog(null)}
+              onClose={() => setSelected(null)}
               onOpenTrace={setOpenTraceId}
             />
           </div>

@@ -106,6 +106,19 @@ test("full view from Logs gets a breadcrumb linking back to the filtered list", 
   await expect(page).toHaveURL(/\/logs\?logq=timeout/);
 });
 
+test("filters mirror into the URL for copy-paste sharing", async ({ page }) => {
+  await logIn(page);
+  await stubLogsAndTrace(page);
+  await page.goto("/logs");
+
+  await page.getByPlaceholder("Filter logs by message text…").fill("timeout");
+  await expect(page).toHaveURL(/logq=timeout/);
+
+  // And the reverse: a shared URL hydrates the filter state.
+  await page.goto("/logs?logq=deadline&logmin=17");
+  await expect(page.getByPlaceholder("Filter logs by message text…")).toHaveValue("deadline");
+});
+
 test("selecting a log mirrors it into the URL for plain copy-paste sharing", async ({ page }) => {
   await logIn(page);
   await stubLogsAndTrace(page);
