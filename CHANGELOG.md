@@ -3,6 +3,11 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.21 — 2026-07-14
+
+- test(e2e): ce-upsell clicks the group row, not the removed name button (259bc69)
+- release v0.11.20 — refresh internal changelog (c7ec4d4)
+
 ## v0.11.20 — 2026-07-14
 
 - feat(ui): group rows open the blade, matching the members pattern (805c7bf)
