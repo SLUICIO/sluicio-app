@@ -620,9 +620,12 @@ function LivePulse() {
 }
 
 function EnvLabel() {
-  // Per Chrome anatomy: env label is --muted text, no background. The
-  // value comes from the cell-wide system setting (Settings → System
+  // The value comes from the cell-wide system setting (Settings → System
   // settings); falls back to "prod" until loaded / if unavailable.
+  // Production reads as muted text (calm default); every OTHER
+  // environment renders as a soft warning chip — the loud variant is
+  // for the non-prod tabs, so prod-vs-staging is distinguishable at a
+  // glance and the classic wrong-tab edit gets a visual guard.
   const [env, setEnv] = useState("prod");
   useEffect(() => {
     let cancelled = false;
@@ -638,8 +641,27 @@ function EnvLabel() {
       cancelled = true;
     };
   }, []);
+  const isProd = /^prod(uction)?$/i.test(env.trim());
+  if (isProd) {
+    return (
+      <span className="text-xs uppercase tracking-wide" style={{ color: "var(--muted)" }}>
+        env · {env}
+      </span>
+    );
+  }
   return (
-    <span className="text-xs uppercase tracking-wide" style={{ color: "var(--muted)" }}>
+    <span
+      className="text-xs uppercase tracking-wide"
+      title="Non-production environment"
+      style={{
+        color: "var(--warn-ink)",
+        background: "var(--warn-soft)",
+        border: "1px solid var(--warn)",
+        borderRadius: 999,
+        padding: "2px 9px",
+        fontWeight: 600,
+      }}
+    >
       env · {env}
     </span>
   );
@@ -932,36 +954,20 @@ function SideNav() {
   );
 }
 
-// SidebarFooter — the muted env + version block pinned to the bottom of
-// the nav. env comes from the cell-wide system setting (Settings →
-// System settings, same source as the top-bar EnvLabel); the version is
-// the real package.json version injected at build time, and the channel
-// reflects the actual build (dev server vs production bundle). No more
-// hardcoded "production / v0.1".
+// SidebarFooter — the version block pinned to the bottom of the nav.
+// Product identity only: the environment label lives SOLELY in the top
+// bar (EnvLabel) — the sidebar is collapsible, and "which environment
+// am I in" must survive a collapsed sidebar, so it isn't duplicated
+// here. The version is the real package.json version injected at build
+// time; the channel reflects the actual build (dev server vs bundle).
 function SidebarFooter() {
-  const [env, setEnv] = useState("production");
-  useEffect(() => {
-    let cancelled = false;
-    api
-      .getSystemSettings()
-      .then((s) => {
-        if (!cancelled && s.environment) setEnv(s.environment);
-      })
-      .catch(() => {
-        /* keep the fallback label */
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
   const channel = import.meta.env.DEV ? "dev" : "prod";
   return (
     <div
       className="mt-2 border-t border-border px-4 py-3 text-xs"
       style={{ color: "var(--muted)" }}
     >
-      <div>env · {env}</div>
-      <div className="mt-0.5">
+      <div>
         {/* The git-derived version already carries a leading "v"
             (v0.1.0-dirty); the package.json fallback ("0.0.0") doesn't.
             Strip any leading v and re-add one so we never render "vv…".
