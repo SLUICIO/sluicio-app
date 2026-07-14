@@ -131,7 +131,7 @@ export default function Settings() {
   const [searchParams, setSearchParams] = useSearchParams();
   const tabParam = searchParams.get("tab");
   const tab: TabKey = visibleTabs.some((x) => x.key === tabParam) ? (tabParam as TabKey) : "organization";
-  const setTab = (key: TabKey) =>
+  const setTab = (key: TabKey) => {
     setSearchParams(
       (prev) => {
         prev.set("tab", key);
@@ -139,6 +139,12 @@ export default function Settings() {
       },
       { replace: true },
     );
+    // Each tab is its own page — start it at the top. The app's <main>
+    // is the scroll container (not the window); resetting it also keeps
+    // the sticky nav from inheriting a deep scroll position from the
+    // previous (taller) tab.
+    document.querySelector("main")?.scrollTo({ top: 0 });
+  };
 
   const active = TABS.find((t) => t.key === tab)!;
 

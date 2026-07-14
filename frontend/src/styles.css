@@ -384,7 +384,13 @@ code, .mono {
 .settings-layout { display: flex; gap: 26px; align-items: flex-start; }
 .settings-nav {
   width: 220px; flex-shrink: 0; display: flex; flex-direction: column; gap: 18px;
-  position: sticky; top: 74px;
+  /* The scroll container is the app's <main> (overflow-auto), so the
+     sticky offset is relative to IT — the nav's natural offset inside
+     main is just the content padding (24px). A larger offset made the
+     nav visibly drop ~50px once a tab's content was tall enough to
+     scroll, then pop back up on a short tab. Pinned == natural → no
+     wandering. */
+  position: sticky; top: 24px;
 }
 .settings-nav__label {
   font: 600 10.5px 'Inter', sans-serif; letter-spacing: 0.08em; text-transform: uppercase;
