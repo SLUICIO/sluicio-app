@@ -87,7 +87,6 @@ export default function Services() {
   const [data, setData] = useState<ServicesResponse | null>(null);
   const [allTags, setAllTags] = useState<Tag[]>([]);
   const [metadataFields, setMetadataFields] = useState<MetadataField[]>([]);
-  const [nameFilter, setNameFilter] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -225,10 +224,8 @@ export default function Services() {
     }
   };
 
-  const nameQuery = nameFilter.trim().toLowerCase();
   const visibleServices = useMemo(() => {
     return services.filter((s) => {
-      if (nameQuery && !s.service_name.toLowerCase().includes(nameQuery)) return false;
       if (activeTagIds.size > 0) {
         const ids = new Set((s.tags ?? []).map((t) => t.id));
         for (const need of activeTagIds) if (!ids.has(need)) return false;
@@ -240,10 +237,9 @@ export default function Services() {
       return true;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [services, activeTagIds, filters, dep, nameQuery]);
+  }, [services, activeTagIds, filters, dep]);
 
-  const filterActive =
-    activeTagIds.size > 0 || filters.length > 0 || dep !== "" || nameQuery !== "";
+  const filterActive = activeTagIds.size > 0 || filters.length > 0 || dep !== "";
 
   // Group-by options: static dimensions + one per service metadata field.
   const groupOptions = useMemo(
@@ -282,15 +278,6 @@ export default function Services() {
           </p>
         </div>
         <div className="toolbar">
-          <input
-            className="search__input"
-            type="search"
-            placeholder="Filter services by name…"
-            value={nameFilter}
-            onChange={(e) => setNameFilter(e.target.value)}
-            style={{ minWidth: 220 }}
-            aria-label="Filter services by name"
-          />
           <button className="btn" onClick={refresh} disabled={loading}>
             {loading ? "Loading…" : "Refresh"}
           </button>
@@ -432,7 +419,6 @@ export default function Services() {
             type="button"
             className="btn btn--link"
             onClick={() => {
-              setNameFilter("");
               patchParams((p) => {
                 p.delete("tags");
                 p.delete("filter");
@@ -461,7 +447,6 @@ export default function Services() {
             type="button"
             className="btn btn--link"
             onClick={() => {
-              setNameFilter("");
               patchParams((p) => {
                 p.delete("tags");
                 p.delete("filter");
