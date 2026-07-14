@@ -789,6 +789,12 @@ function CreateLogAlertDialog({
   onClose: () => void;
 }) {
   const svcAttr = attrs.find((a) => a.key === "service.name" && a.op === "eq");
+  // Inside an integration's Logs tab the rule is integration-bound
+  // (integration_id): while it fires, THIS integration reads unhealthy —
+  // other integrations sharing the same services stay green. Marking a
+  // service unhealthy too is the blunt instrument (it poisons every
+  // integration using the service), so it's an explicit opt-in there.
+  const [bindService, setBindService] = useState(false);
   const [name, setName] = useState("");
   const [severity, setSeverity] = useState<AlertSeverity>("warning");
   const [threshold, setThreshold] = useState(1);
@@ -836,6 +842,10 @@ function CreateLogAlertDialog({
     .map((a) => ({ key: a.key, op: a.op, value: a.value }));
 
   const submit = async () => {
+    if (forcedIntegrationId && bindService && !serviceName.trim()) {
+      setError("Pick a service, or choose the integration-only option above.");
+      return;
+    }
     setBusy(true);
     setError(null);
     const body: AlertRuleInput = {
@@ -851,7 +861,8 @@ function CreateLogAlertDialog({
         window_seconds: Math.max(60, windowSeconds),
       },
       channel_ids: channelIDs,
-      service_name: serviceName.trim() || undefined,
+      service_name:
+        forcedIntegrationId && !bindService ? undefined : serviceName.trim() || undefined,
       integration_id: forcedIntegrationId || undefined,
     };
     try {
@@ -929,21 +940,69 @@ function CreateLogAlertDialog({
           </label>
         </div>
 
-        <label className="form__label">
-          ♥ Add as a health check to a service (optional)
-          <SearchableSelect
-            value={serviceName}
-            onChange={setServiceName}
-            options={allServices}
-            allLabel="Don't — just alert, leave service health unchanged"
-            placeholder="Pick the service this rule reflects…"
-          />
-          <span className="form__hint">
-            {serviceName
-              ? `${serviceName} (and any integration it belongs to) reads "unhealthy" while this rule is firing — a log-based health check.`
-              : "Optional — bind this rule to a service so it (and its integrations) reads unhealthy whenever it fires."}
-          </span>
-        </label>
+        {forcedIntegrationId ? (
+          <div className="form__label">
+            ♥ Health impact
+            <label style={{ display: "flex", gap: 8, alignItems: "flex-start", fontWeight: 400, marginTop: 4 }}>
+              <input
+                type="radio"
+                name="log-rule-health"
+                checked={!bindService}
+                onChange={() => setBindService(false)}
+                style={{ marginTop: 3 }}
+              />
+              <span style={{ fontSize: 13 }}>
+                Mark <strong>{forcedIntegration || "this integration"}</strong> unhealthy while firing
+                <span className="form__hint" style={{ display: "block" }}>
+                  Recommended — other integrations sharing these services stay healthy.
+                </span>
+              </span>
+            </label>
+            <label style={{ display: "flex", gap: 8, alignItems: "flex-start", fontWeight: 400, marginTop: 6 }}>
+              <input
+                type="radio"
+                name="log-rule-health"
+                checked={bindService}
+                onChange={() => setBindService(true)}
+                style={{ marginTop: 3 }}
+              />
+              <span style={{ fontSize: 13, minWidth: 0, flex: 1 }}>
+                Also mark a member service unhealthy
+                <span className="form__hint" style={{ display: "block" }}>
+                  The service — and <strong>every</strong> integration that uses it — reads
+                  unhealthy while this rule fires.
+                </span>
+                {bindService && (
+                  <span style={{ display: "block", marginTop: 6 }}>
+                    <SearchableSelect
+                      value={serviceName}
+                      onChange={setServiceName}
+                      options={allServices}
+                      allLabel="Pick a service…"
+                      placeholder="Pick the service this rule reflects…"
+                    />
+                  </span>
+                )}
+              </span>
+            </label>
+          </div>
+        ) : (
+          <label className="form__label">
+            ♥ Add as a health check to a service (optional)
+            <SearchableSelect
+              value={serviceName}
+              onChange={setServiceName}
+              options={allServices}
+              allLabel="Don't — just alert, leave service health unchanged"
+              placeholder="Pick the service this rule reflects…"
+            />
+            <span className="form__hint">
+              {serviceName
+                ? `${serviceName} (and any integration it belongs to) reads "unhealthy" while this rule is firing — a log-based health check.`
+                : "Optional — bind this rule to a service so it (and its integrations) reads unhealthy whenever it fires."}
+            </span>
+          </label>
+        )}
 
         <div className="form__label">
           <span>Alert channels</span>
