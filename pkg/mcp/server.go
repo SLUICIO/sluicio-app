@@ -27,7 +27,7 @@ import (
 const (
 	defaultProtocol = "2024-11-05"
 	serverName      = "sluicio-mcp"
-	serverVersion   = "0.1.0"
+	serverVersion   = "0.2.0"
 )
 
 // Server holds the connection config for one MCP session. BaseURL is the
@@ -123,7 +123,7 @@ func (s *Server) initialize(params json.RawMessage) map[string]any {
 		"protocolVersion": proto,
 		"capabilities":    map[string]any{"tools": map[string]any{}},
 		"serverInfo":      map[string]any{"name": serverName, "version": serverVersion},
-		"instructions":    "Read-only access to a Sluicio monitoring cell. Report on integration/service/system health, errors, metrics, and the since-last-visit digest. You cannot change anything.",
+		"instructions":    "Read-only access to a Sluicio monitoring cell. Report on integration/service/system health, errors, alerts, logs, metrics, and traces/messages — everything is filtered by the token's RBAC scope. You cannot change anything.",
 	}
 }
 
@@ -354,6 +354,82 @@ func buildTools(s *Server) []tool {
 					limit = 100
 				}
 				return s.post("/api/v1/messages/search", rangeArg(a, "24h"), map[string]any{"filters": filters, "limit": limit})
+			}},
+		{Name: "sluicio_get_integration", Description: "Get one integration by id: its matchers, member services with per-service health over the window, tags, and aggregate status. Use an id from sluicio_list_integrations.", Schema: objSchema(map[string]any{
+			"id":     strProp("The integration id (uuid)."),
+			"window": strProp("Time window for the per-service stats, e.g. 1h, 24h. Default 24h."),
+		}, "id"),
+			Call: func(a map[string]any) (string, error) {
+				id := argStr(a, "id")
+				if id == "" {
+					return "", fmt.Errorf("id is required")
+				}
+				return s.get("/api/v1/integrations/"+url.PathEscape(id), rangeArg(a, "24h"))
+			}},
+		{Name: "sluicio_search_logs", Description: "Search log events within a time window: free-text body match, OTLP severity floor (info≈9, warn≈13, error≈17, fatal≈21), scope to a service or an integration's member services, and attribute predicates. Results are RBAC-filtered to what the token may see. Returns up to `limit` logs plus a next_cursor when more match.", Schema: objSchema(map[string]any{
+			"query":        strProp("Case-insensitive substring of the log body."),
+			"min_severity": map[string]any{"type": "integer", "description": "OTLP SeverityNumber floor; 17 = errors and worse. Omit for any severity."},
+			"service":      strProp("Scope to one service name."),
+			"integration":  strProp("Scope to an integration name — its member services."),
+			"window":       strProp("Time window, e.g. 1h, 24h, 7d. Default 24h."),
+			"attrs": map[string]any{"type": "array", "description": "Attribute predicates, AND-ed. Each: {key, op, value} with op one of eq, neq, contains, not_contains, starts_with, ends_with, gt, gte, lt, lte, exists.",
+				"items": map[string]any{"type": "object"}},
+			"limit": map[string]any{"type": "integer", "description": "Max logs to return (1-500). Default 100."},
+		}),
+			Call: func(a map[string]any) (string, error) {
+				q := rangeArg(a, "24h")
+				if v := argStr(a, "query"); v != "" {
+					q.Set("q", v)
+				}
+				if v := argInt(a, "min_severity", 0); v > 0 {
+					q.Set("min_severity", fmt.Sprintf("%d", v))
+				}
+				if v := argStr(a, "service"); v != "" {
+					q.Set("service", v)
+				}
+				if v := argStr(a, "integration"); v != "" {
+					q.Set("integration", v)
+				}
+				limit := argInt(a, "limit", 100)
+				if limit <= 0 || limit > 500 {
+					limit = 100
+				}
+				q.Set("limit", fmt.Sprintf("%d", limit))
+				if raw, ok := a["attrs"].([]any); ok {
+					for _, item := range raw {
+						if b, err := json.Marshal(item); err == nil {
+							q.Add("attr", string(b))
+						}
+					}
+				}
+				return s.get("/api/v1/logs", q)
+			}},
+		{Name: "sluicio_metric_series", Description: "Fetch one metric's time series (per service) over a window — the values behind the catalog. Use a metric name from sluicio_metric_catalog.", Schema: objSchema(map[string]any{
+			"metric":  strProp("The exact metric name (e.g. servicebus.queue.deadletter_messages)."),
+			"service": strProp("Scope to one service name (optional; omit for all emitting services)."),
+			"window":  strProp("Time window, e.g. 1h, 24h. Default 1h."),
+		}, "metric"),
+			Call: func(a map[string]any) (string, error) {
+				m := argStr(a, "metric")
+				if m == "" {
+					return "", fmt.Errorf("metric is required")
+				}
+				q := rangeArg(a, "1h")
+				q.Set("metric", m)
+				if v := argStr(a, "service"); v != "" {
+					q.Add("service", v)
+				}
+				return s.get("/api/v1/metric-series", q)
+			}},
+		{Name: "sluicio_alert_instances", Description: "Recent alert instances (rule firings) — each with its rule, severity, state (firing/resolved), summary, and timestamps. RBAC-filtered. The 'alerts' complement to sluicio_errors: this is rule-firing history, not the open-error feed.", Schema: objSchema(map[string]any{
+			"limit": map[string]any{"type": "integer", "description": "Max instances (1-500). Default 100."},
+		}),
+			Call: func(a map[string]any) (string, error) {
+				limit := argInt(a, "limit", 100)
+				if limit <= 0 || limit > 500 {
+					limit = 100
+				}
+				return s.get("/api/v1/alert-instances", url.Values{"limit": {fmt.Sprintf("%d", limit)}})
 			}},
 		{Name: "sluicio_get_trace", Description: "Fetch one trace by id — all its spans across services, with timings and errors. Use a trace_id from sluicio_search_traces or a sample_trace_id from sluicio_errors.", Schema: objSchema(map[string]any{"trace_id": strProp("The trace id (hex string).")}, "trace_id"),
 			Call: func(a map[string]any) (string, error) {
