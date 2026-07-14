@@ -316,6 +316,19 @@ function MemberDetails({
         )}
       </div>
 
+      {isAdmin && isSelf && (
+        <div>
+          <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>
+            Admin actions
+          </div>
+          <p className="muted" style={{ fontSize: 12.5, margin: 0 }}>
+            Not available on your own account — you can't remove yourself or
+            admin-reset your own password. Your credentials live under{" "}
+            <a href="/account">Account</a>. Admin actions appear here for other
+            members.
+          </p>
+        </div>
+      )}
       {isAdmin && !isSelf && (
         <div>
           <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>
