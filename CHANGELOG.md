@@ -3,6 +3,20 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.20 — 2026-07-14
+
+- feat(ui): group rows open the blade, matching the members pattern (805c7bf)
+- fix(ui): member blade explains absent admin actions on your own account (1361cf4)
+- feat(ui): member details blade; members table slimmed to what you scan for (7815662)
+- fix(ui): settings tables and buttons cope with the narrower content pane (50009a4)
+- fix(ui): settings nav no longer wanders between tabs (733e829)
+- feat(ui): settings page adopts the grouped left-nav design (72eb14d)
+- feat(ui): env label lives only in the top nav, loud when non-prod (58c2ebf)
+- feat(ui): ingest-URL nudge links to System settings (a8c7a3d)
+- fix(ui): alert bodies are prose, not flex items (2324a5d)
+- docs: telemetry advisor + alert fatigue advisor design (draft for review) (b07d2ee)
+- release v0.11.19 — refresh internal changelog (f5eb6a2)
+
 ## v0.11.19 — 2026-07-13
 
 - feat(templates): Azure Service Bus system type; split-by in template checks (c2f0b1a)
