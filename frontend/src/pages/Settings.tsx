@@ -298,6 +298,9 @@ function MembersTab() {
         </EditDrawer>
       )}
 
+      {/* 12 columns — in the settings content pane this scrolls
+          horizontally rather than crushing the trailing actions. */}
+      <div style={{ overflowX: "auto" }}>
       <table className="table">
         <thead>
           <tr>
@@ -447,6 +450,7 @@ function MembersTab() {
           ))}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }

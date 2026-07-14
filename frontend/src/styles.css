@@ -199,6 +199,9 @@ code, .mono {
   font-size: 14px;
   cursor: pointer;
   font-weight: 500;
+  /* A button's label never wraps — when a flex row squeezes, the
+     button keeps its width and the row wraps instead. */
+  white-space: nowrap;
   transition: background 120ms ease, border-color 120ms ease;
 }
 .btn:hover { background: var(--surface-3); }
