@@ -1112,7 +1112,11 @@ function IngestKeysTab() {
           Exporter snippets currently point at <code>{ingestBase}</code> — this UI's own
           host. If OTLP ingest is served on its own hostname (e.g.{" "}
           <code>demo-ingest.example.com</code>), set the <strong>Ingest URL</strong>{" "}
-          under Settings → System settings so keys ship with the correct endpoint.
+          under{" "}
+          <Link to="/settings?tab=system" style={{ color: "inherit", fontWeight: 600, textDecoration: "underline" }}>
+            Settings → System settings
+          </Link>{" "}
+          so keys ship with the correct endpoint.
         </div>
       )}
 
