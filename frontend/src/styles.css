@@ -358,9 +358,10 @@ code, .mono {
   border-radius: 10px;
   margin: 16px 0;
   border-left: 4px solid;
-  display: flex;
-  gap: 10px;
-  align-items: flex-start;
+  /* Block, not flex: alert bodies are prose with inline <code>/<strong>
+     children — as a flex container every inline child became its own
+     flex item, spreading the sentence across the full width. */
+  display: block;
   font-size: 14px;
   line-height: 1.5;
 }
