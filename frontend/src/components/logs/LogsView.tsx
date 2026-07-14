@@ -803,13 +803,27 @@ function CreateLogAlertDialog({
 
   useEffect(() => {
     api.listChannels().then((r) => setChannels(r.channels ?? [])).catch(() => setChannels([]));
-    // Every service in the catalog — bind this log rule to any of them as
-    // a health check, not just the one the logs are currently scoped to.
+    // The health-binding service picker. Inside an integration's Logs
+    // tab, only that integration's member services are offered — a rule
+    // created there is integration-bound, and binding its health to an
+    // unrelated service is a foot-gun. Everywhere else (the global Logs
+    // page, the service tab), any catalog service can be bound.
+    if (forcedIntegrationId) {
+      api
+        .getIntegration(forcedIntegrationId, "24h")
+        .then((d) =>
+          setAllServices(
+            (d.services ?? []).map((s) => s.service_name).sort(),
+          ),
+        )
+        .catch(() => setAllServices([]));
+      return;
+    }
     api
       .listServices("24h")
       .then((r) => setAllServices((r.services ?? []).map((s) => s.service_name).sort()))
       .catch(() => setAllServices([]));
-  }, []);
+  }, [forcedIntegrationId]);
 
   const windowSeconds =
     windowUnit === "hours" ? windowN * 3600 : windowUnit === "minutes" ? windowN * 60 : windowN;
