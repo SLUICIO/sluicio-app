@@ -1414,54 +1414,21 @@ function GroupsTab() {
               <th>Description</th>
               <th>Members</th>
               <th>Services</th>
-              <th></th>
             </tr>
           </thead>
           <tbody>
             {groups.map((g) => (
-              <tr key={g.id}>
-                <td>
-                  <button
-                    type="button"
-                    className="font-medium"
-                    style={{ background: "transparent", border: 0, padding: 0, cursor: "pointer" }}
-                    onClick={() => setSelected(g)}
-                  >
-                    {g.name} <span className="muted" style={{ fontSize: 11 }}>▸</span>
-                  </button>
-                </td>
+              <tr
+                key={g.id}
+                onClick={() => setSelected(g)}
+                style={{ cursor: "pointer" }}
+                title="Group details"
+              >
+                <td className="font-medium">{g.name}</td>
                 <td className="mono">{g.slug}</td>
                 <td>{g.description || <span className="muted">—</span>}</td>
                 <td>{g.member_count}</td>
                 <td>{g.service_count}</td>
-                <td className="num">
-                  <button
-                    type="button"
-                    className="btn btn--link"
-                    onClick={() => setSelected(g)}
-                  >
-                    Edit
-                  </button>
-                  {isAdmin && (
-                    <button
-                      type="button"
-                      className="btn btn--link"
-                      style={{ color: "var(--err-ink, #ef4444)" }}
-                      onClick={async () => {
-                        if (!confirm(`Delete "${g.name}"? Members + service assignments are removed; the services themselves stay.`)) return;
-                        try {
-                          await api.deleteGroup(g.id);
-                          if (selected?.id === g.id) setSelected(null);
-                          refresh();
-                        } catch (e) {
-                          alert(String((e as Error).message ?? e));
-                        }
-                      }}
-                    >
-                      Delete
-                    </button>
-                  )}
-                </td>
               </tr>
             ))}
           </tbody>
@@ -1490,6 +1457,29 @@ function GroupsTab() {
               refresh();
             }}
           />
+          {isAdmin && (
+            <div style={{ marginTop: 20 }}>
+              <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>
+                Admin actions
+              </div>
+              <button
+                type="button"
+                className="btn btn--danger"
+                onClick={async () => {
+                  if (!confirm(`Delete "${selected.name}"? Members + service assignments are removed; the services themselves stay.`)) return;
+                  try {
+                    await api.deleteGroup(selected.id);
+                    setSelected(null);
+                    refresh();
+                  } catch (e) {
+                    alert(String((e as Error).message ?? e));
+                  }
+                }}
+              >
+                Delete group
+              </button>
+            </div>
+          )}
         </EditDrawer>
       )}
     </div>
