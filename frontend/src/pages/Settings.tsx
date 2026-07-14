@@ -227,6 +227,129 @@ export default function Settings() {
 
 // ── Members tab ────────────────────────────────────────────────────────
 
+// MemberDetails — the member blade. The table stays scannable (identity
+// + role + recency); everything else lives here: account facts, security
+// posture, and the admin actions (role change, password reset, removal).
+function MemberDetails({
+  member,
+  isAdmin,
+  isSelf,
+  onChanged,
+  onResetPassword,
+  onRemoved,
+}: {
+  member: MemberRow;
+  isAdmin: boolean;
+  isSelf: boolean;
+  onChanged: () => void;
+  onResetPassword: () => void;
+  onRemoved: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const u = member.user;
+  const dt = (v?: string | null, relative = false) =>
+    v ? (relative ? formatRelative(v) : new Date(v).toLocaleString()) : "—";
+
+  const Row = ({ label, children }: { label: string; children: React.ReactNode }) => (
+    <div style={{ display: "flex", gap: 12, padding: "7px 0", borderBottom: "1px solid var(--border)", fontSize: 13 }}>
+      <span className="muted" style={{ width: 150, flexShrink: 0 }}>{label}</span>
+      <span style={{ minWidth: 0 }}>{children}</span>
+    </div>
+  );
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div>
+        <div className="mono" style={{ fontSize: 13 }}>{u.email}</div>
+        {isSelf && <span className="muted" style={{ fontSize: 12 }}>This is you.</span>}
+      </div>
+
+      <div>
+        <Row label="Role">
+          {isAdmin && !isSelf ? (
+            <RoleSelect
+              value={member.role}
+              onChange={async (next) => {
+                try {
+                  await api.updateMemberRole(u.id, next);
+                  onChanged();
+                } catch (e) {
+                  alert(String((e as Error).message ?? e));
+                }
+              }}
+            />
+          ) : (
+            <span className="badge">{member.role}</span>
+          )}
+        </Row>
+        <Row label="Sign-in">
+          {member.sso_providers.length === 0 && !member.has_password ? (
+            "—"
+          ) : (
+            <span style={{ display: "inline-flex", gap: 4, flexWrap: "wrap" }}>
+              {member.sso_providers.map((p) => (
+                <span key={p} className="pill">{p}</span>
+              ))}
+              {member.has_password && <span className="muted">Password</span>}
+            </span>
+          )}
+        </Row>
+        <Row label="MFA">{u.mfa_enabled ? <span className="badge">Enabled</span> : <span className="muted">Off</span>}</Row>
+        <Row label="Joined this org">{member.joined_at ? new Date(member.joined_at).toLocaleDateString() : "—"}</Row>
+        <Row label="Account created">{dt(u.created_at)}</Row>
+        <Row label="Last login">{dt(u.last_login_at, true)}</Row>
+        <Row label="Last active">{dt(u.last_active_at, true)}</Row>
+        <Row label="Successful logins">{u.login_count ?? 0}</Row>
+        <Row label="Failed attempts">
+          {u.failed_login_count ? (
+            <span style={{ color: "var(--err-ink, #ef4444)", fontWeight: 600 }} title="Consecutive failed password attempts since last login">
+              {u.failed_login_count}
+            </span>
+          ) : (
+            "0"
+          )}
+        </Row>
+        {u.must_reset_password && (
+          <Row label="Password">
+            <span className="muted">Must set a new password on next login</span>
+          </Row>
+        )}
+      </div>
+
+      {isAdmin && !isSelf && (
+        <div>
+          <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>
+            Admin actions
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button type="button" className="btn" onClick={onResetPassword} disabled={busy}>
+              Reset password…
+            </button>
+            <button
+              type="button"
+              className="btn btn--danger"
+              disabled={busy}
+              onClick={async () => {
+                if (!confirm(`Remove ${u.email} from this org?`)) return;
+                setBusy(true);
+                try {
+                  await api.removeMember(u.id);
+                  onRemoved();
+                } catch (e) {
+                  alert(String((e as Error).message ?? e));
+                  setBusy(false);
+                }
+              }}
+            >
+              Remove from org
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MembersTab() {
   const { can, user: me } = useCurrentUser();
   const isAdmin = can("org.manage");
@@ -234,6 +357,7 @@ function MembersTab() {
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [resetting, setResetting] = useState<MemberRow | null>(null);
+  const [viewing, setViewing] = useState<MemberRow | null>(null);
 
   const refresh = () => {
     api
@@ -298,9 +422,6 @@ function MembersTab() {
         </EditDrawer>
       )}
 
-      {/* 12 columns — in the settings content pane this scrolls
-          horizontally rather than crushing the trailing actions. */}
-      <div style={{ overflowX: "auto" }}>
       <table className="table">
         <thead>
           <tr>
@@ -309,18 +430,17 @@ function MembersTab() {
             <th>Sign-in</th>
             <th>Role</th>
             <th>Joined</th>
-            <th>Member since</th>
             <th>Last login</th>
-            <th>Last active</th>
-            <th>MFA</th>
-            <th className="num">Logins</th>
-            <th className="num">Failed</th>
-            <th></th>
           </tr>
         </thead>
         <tbody>
           {members.map((m) => (
-            <tr key={m.user.id}>
+            <tr
+              key={m.user.id}
+              onClick={() => setViewing(m)}
+              style={{ cursor: "pointer" }}
+              title="Member details"
+            >
               <td>{m.user.name || <span className="muted">—</span>}</td>
               <td className="mono">{m.user.email}</td>
               <td>
@@ -339,37 +459,8 @@ function MembersTab() {
                   </span>
                 )}
               </td>
-              <td>
-                {isAdmin && m.user.id !== me.id ? (
-                  <RoleSelect
-                    value={m.role}
-                    onChange={async (next) => {
-                      try {
-                        await api.updateMemberRole(m.user.id, next);
-                        refresh();
-                      } catch (e) {
-                        alert(String((e as Error).message ?? e));
-                      }
-                    }}
-                  />
-                ) : (
-                  <span className="badge">{m.role}</span>
-                )}
-              </td>
+              <td><span className="badge">{m.role}</span></td>
               <td>{m.joined_at ? new Date(m.joined_at).toLocaleDateString() : "—"}</td>
-              <td
-                title={
-                  m.user.created_at
-                    ? new Date(m.user.created_at).toLocaleString()
-                    : undefined
-                }
-              >
-                {m.user.created_at ? (
-                  new Date(m.user.created_at).toLocaleDateString()
-                ) : (
-                  <span className="muted">—</span>
-                )}
-              </td>
               <td
                 title={
                   m.user.last_login_at
@@ -383,74 +474,35 @@ function MembersTab() {
                   <span className="muted">Never</span>
                 )}
               </td>
-              <td
-                title={
-                  m.user.last_active_at
-                    ? new Date(m.user.last_active_at).toLocaleString()
-                    : undefined
-                }
-              >
-                {m.user.last_active_at ? (
-                  formatRelative(m.user.last_active_at)
-                ) : (
-                  <span className="muted">—</span>
-                )}
-              </td>
-              <td>
-                {m.user.mfa_enabled ? (
-                  <span className="badge" title="MFA enabled">On</span>
-                ) : (
-                  <span className="muted">Off</span>
-                )}
-              </td>
-              <td className="num">{m.user.login_count ?? 0}</td>
-              <td className="num">
-                {m.user.failed_login_count ? (
-                  <span
-                    title="Consecutive failed password attempts since last login"
-                    style={{ color: "var(--err-ink, #ef4444)", fontWeight: 600 }}
-                  >
-                    {m.user.failed_login_count}
-                  </span>
-                ) : (
-                  <span className="muted">0</span>
-                )}
-              </td>
-              <td className="num">
-                {isAdmin && m.user.id !== me.id && (
-                  <button
-                    type="button"
-                    className="btn btn--link"
-                    onClick={() => setResetting(m)}
-                    style={{ marginRight: 8 }}
-                  >
-                    Reset password
-                  </button>
-                )}
-                {isAdmin && m.user.id !== me.id && (
-                  <button
-                    type="button"
-                    className="btn btn--link"
-                    style={{ color: "var(--err-ink, #ef4444)" }}
-                    onClick={async () => {
-                      if (!confirm(`Remove ${m.user.email} from this org?`)) return;
-                      try {
-                        await api.removeMember(m.user.id);
-                        refresh();
-                      } catch (e) {
-                        alert(String((e as Error).message ?? e));
-                      }
-                    }}
-                  >
-                    Remove
-                  </button>
-                )}
-              </td>
             </tr>
           ))}
         </tbody>
       </table>
-      </div>
+
+      {viewing && (
+        <EditDrawer
+          title={viewing.user.name || viewing.user.email}
+          width="medium"
+          onClose={() => setViewing(null)}
+        >
+          <MemberDetails
+            member={viewing}
+            isAdmin={isAdmin}
+            isSelf={viewing.user.id === me.id}
+            onChanged={() => {
+              refresh();
+            }}
+            onResetPassword={() => {
+              setViewing(null);
+              setResetting(viewing);
+            }}
+            onRemoved={() => {
+              setViewing(null);
+              refresh();
+            }}
+          />
+        </EditDrawer>
+      )}
     </div>
   );
 }
