@@ -3,6 +3,14 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.22 — 2026-07-14
+
+- feat(ui): drop the redundant name filter from the Services toolbar (14f6edd)
+- feat(logs): integration-scoped alert dialog offers an explicit health-impact choice (cab9169)
+- fix(logs): integration-scoped alert dialog offers only the integration's services (e179bb9)
+- feat(logs): filters mirror into the URL — a filtered view is shareable (7dfdeee)
+- release v0.11.21 — refresh internal changelog (c0fc92f)
+
 ## v0.11.21 — 2026-07-14
 
 - test(e2e): ce-upsell clicks the group row, not the removed name button (259bc69)
