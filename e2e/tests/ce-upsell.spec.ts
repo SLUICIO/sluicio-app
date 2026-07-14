@@ -50,8 +50,8 @@ test.describe("Enterprise features upsell in the Community edition", () => {
     const group = await created.json();
     try {
       await page.goto("/settings?tab=groups");
-      // The row button's accessible name is "<name> ▸" — match on the name.
-      await page.getByRole("button", { name: new RegExp(group.name) }).click();
+      // Group rows are the trigger (v0.11.20): click the row itself.
+      await page.getByRole("row", { name: new RegExp(group.name) }).click();
       await expect(page.getByText("Access policies", { exact: false }).first()).toBeVisible();
       if (ee) {
         await expect(page.getByRole("button", { name: "+ Add policy" })).toBeVisible();
