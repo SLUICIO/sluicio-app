@@ -1,0 +1,87 @@
+name: 🐛 Bug report
+description: Something in Sluicio doesn't work the way it should.
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time! A well-framed report usually gets fixed in the next release —
+        the fields below are what we need to reproduce and reason about it.
+  - type: textarea
+    id: user-story
+    attributes:
+      label: User story
+      description: 'Frame what happened from your perspective: **who** you are, **what** you tried, **what** stopped you.'
+      placeholder: 'As an integration operator, I wanted to create an integration for our order flow, but saving failed with a validation error even though every field was filled in.'
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Go to Integrations → New integration
+        2. Fill in name + one matcher
+        3. Click "Create integration"
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+      placeholder: The integration is created and I land on its overview page.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+      description: What happened instead — include exact error messages verbatim.
+      placeholder: 'A red banner says "create failed" and nothing is saved.'
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Sluicio version
+      description: Bottom-left of the sidebar, or the image tag you deploy.
+      placeholder: v0.11.22
+    validations:
+      required: true
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment
+      options:
+        - Quickstart (docker compose)
+        - Server (compose behind a reverse proxy)
+        - Kubernetes (Helm)
+        - Development checkout
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: edition
+    attributes:
+      label: Edition
+      options:
+        - Community
+        - Enterprise
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Logs, screenshots, trace ids
+      description: Anything that helps — cell-api/cell-ingest log lines, browser console errors, screenshots. Redact anything sensitive.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and this isn't a duplicate.
+          required: true
+        - label: This is not a security vulnerability (those go to support@sluicio.com, never a public issue).
+          required: true

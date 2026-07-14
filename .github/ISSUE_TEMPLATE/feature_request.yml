@@ -1,0 +1,43 @@
+name: 💡 Feature request
+description: Propose an improvement or new capability.
+title: "[feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Feature requests are treated as **user stories**: tell us who needs it, what they're trying
+        to achieve, and why the current behaviour falls short. The "so that" is the important part.
+  - type: textarea
+    id: user-story
+    attributes:
+      label: User story
+      placeholder: 'As a platform operator, I want alert rules to bind to a single integration, so that a noisy log on a shared service doesn''t flag every integration using it.'
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What's the problem today?
+      description: The current behaviour and where it falls short — concrete situations beat abstractions.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+      description: What should happen instead? Sketch the flow as you'd want to experience it.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Workarounds you use today, or other shapes this could take. (Optional)
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and this isn't a duplicate.
+          required: true

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 🔒 Security vulnerability
+    url: https://github.com/SLUICIO/sluicio-app/blob/main/SECURITY.md
+    about: Please do NOT open a public issue for security problems — report privately per our security policy.
+  - name: 💬 Questions & help
+    url: https://github.com/SLUICIO/sluicio-app/blob/main/CONTRIBUTING.md
+    about: Not a bug or feature request? Start with the contributing guide.
