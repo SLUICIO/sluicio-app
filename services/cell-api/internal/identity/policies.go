@@ -17,16 +17,26 @@
 package identity
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
+
+// ErrPolicyExists is returned by CreatePolicy when the group already
+// carries a policy of the identical shape (same kind, targets,
+// attribute_match, conditions, and signal set). The API maps it to
+// 409 Conflict — duplicates are semantically harmless (the resolver
+// unions) but litter the org and used to make config-transfer bundles
+// self-conflict on strict import.
+var ErrPolicyExists = errors.New("identity: an identical policy already exists on this group")
 
 // PolicyKind enumerates the five access-policy shapes.
 type PolicyKind string
@@ -198,10 +208,40 @@ func validatePolicyInput(in *AccessPolicyInput) error {
 // ── CRUD ────────────────────────────────────────────────────────────
 
 // CreatePolicy inserts a row into group_access_policies after
-// validating the kind-specific shape.
+// validating the kind-specific shape. Creating a policy identical to
+// one already on the group returns ErrPolicyExists (→ 409 at the API)
+// rather than an idempotent success, matching every other "already
+// exists" surface in the API. The check is a read-then-insert without
+// a backing unique constraint, so a concurrent identical pair can
+// still slip through — the config-transfer exporter dedupes on the
+// same key as defense in depth (configtransfer/export.go).
 func (s *Store) CreatePolicy(ctx context.Context, groupID uuid.UUID, in AccessPolicyInput) (AccessPolicy, error) {
 	if err := validatePolicyInput(&in); err != nil {
 		return AccessPolicy{}, err
+	}
+	var integrationID, systemID *uuid.UUID
+	if in.TargetIntegrationID != "" {
+		id, err := uuid.Parse(in.TargetIntegrationID)
+		if err != nil {
+			return AccessPolicy{}, fmt.Errorf("invalid target_integration_id: %v", err)
+		}
+		integrationID = &id
+	}
+	if in.TargetSystemID != "" {
+		id, err := uuid.Parse(in.TargetSystemID)
+		if err != nil {
+			return AccessPolicy{}, fmt.Errorf("invalid target_system_id: %v", err)
+		}
+		systemID = &id
+	}
+	existing, err := s.ListPoliciesForGroup(ctx, groupID)
+	if err != nil {
+		return AccessPolicy{}, err
+	}
+	for _, p := range existing {
+		if policyMatchesInput(p, in, integrationID, systemID) {
+			return AccessPolicy{}, ErrPolicyExists
+		}
 	}
 	var (
 		serviceArg     interface{}
@@ -210,24 +250,16 @@ func (s *Store) CreatePolicy(ctx context.Context, groupID uuid.UUID, in AccessPo
 	if in.TargetServiceName != "" {
 		serviceArg = in.TargetServiceName
 	}
-	if in.TargetIntegrationID != "" {
-		id, err := uuid.Parse(in.TargetIntegrationID)
-		if err != nil {
-			return AccessPolicy{}, fmt.Errorf("invalid target_integration_id: %v", err)
-		}
-		integrationArg = id
+	if integrationID != nil {
+		integrationArg = *integrationID
 	}
 	var systemKindArg interface{}
 	if in.TargetSystemKind != "" {
 		systemKindArg = in.TargetSystemKind
 	}
 	var systemIDArg interface{}
-	if in.TargetSystemID != "" {
-		id, err := uuid.Parse(in.TargetSystemID)
-		if err != nil {
-			return AccessPolicy{}, fmt.Errorf("invalid target_system_id: %v", err)
-		}
-		systemIDArg = id
+	if systemID != nil {
+		systemIDArg = *systemID
 	}
 	attrJSON, err := json.Marshal(in.AttributeMatch)
 	if err != nil {
@@ -256,6 +288,68 @@ func (s *Store) CreatePolicy(ctx context.Context, groupID uuid.UUID, in AccessPo
 		RETURNING id, group_id, kind, target_service_name, target_integration_id, target_system_kind, target_system_id, attribute_match, conditions, signals, created_at`
 	row := s.pool.QueryRow(ctx, q, groupID, in.Kind, serviceArg, integrationArg, systemKindArg, systemIDArg, string(attrJSON), condArg, signalsArg)
 	return scanPolicy(row)
+}
+
+// policyMatchesInput reports whether an existing policy row has exactly
+// the shape a validated input would create — the duplicate test behind
+// ErrPolicyExists. integrationID/systemID are the input's pre-parsed
+// UUID targets (nil when unset). Signals compare as a set (input order
+// is not meaningful); attribute_match as a map; conditions by their
+// canonical JSON encoding, which is also how they round-trip through
+// the DB.
+func policyMatchesInput(p AccessPolicy, in AccessPolicyInput, integrationID, systemID *uuid.UUID) bool {
+	return p.Kind == in.Kind &&
+		strDeref(p.TargetServiceName) == in.TargetServiceName &&
+		uuidPtrEqual(p.TargetIntegrationID, integrationID) &&
+		strDeref(p.TargetSystemKind) == in.TargetSystemKind &&
+		uuidPtrEqual(p.TargetSystemID, systemID) &&
+		maps.Equal(p.AttributeMatch, in.AttributeMatch) &&
+		exprJSONEqual(p.Conditions, in.Conditions) &&
+		signalSetEqual(p.Signals, in.Signals)
+}
+
+func strDeref(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
+}
+
+func uuidPtrEqual(a, b *uuid.UUID) bool {
+	if (a == nil) != (b == nil) {
+		return false
+	}
+	return a == nil || *a == *b
+}
+
+func exprJSONEqual(a, b *PolicyExpr) bool {
+	if (a == nil) != (b == nil) {
+		return false
+	}
+	if a == nil {
+		return true
+	}
+	aj, errA := json.Marshal(a)
+	bj, errB := json.Marshal(b)
+	return errA == nil && errB == nil && bytes.Equal(aj, bj)
+}
+
+// signalSetEqual assumes both slices are deduped (validatePolicyInput
+// guarantees that for input, and stored rows passed through it too).
+func signalSetEqual(a, b []Signal) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	set := make(map[Signal]struct{}, len(a))
+	for _, s := range a {
+		set[s] = struct{}{}
+	}
+	for _, s := range b {
+		if _, ok := set[s]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 // DeletePolicy removes a single policy by id. Caller is expected to

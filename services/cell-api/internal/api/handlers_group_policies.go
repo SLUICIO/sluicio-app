@@ -65,6 +65,13 @@ func (h *Handlers) createGroupPolicy(w http.ResponseWriter, r *http.Request) {
 	}
 	policy, err := h.Identity.CreatePolicy(r.Context(), groupID, body)
 	if err != nil {
+		// Re-posting an identical policy is a conflict, not an
+		// idempotent success — consistent with the other
+		// already-exists surfaces in this API.
+		if errors.Is(err, identity.ErrPolicyExists) {
+			httpserver.WriteError(w, http.StatusConflict, "an identical policy already exists on this group")
+			return
+		}
 		// CreatePolicy's own validation errors go straight back as 400.
 		httpserver.WriteError(w, http.StatusBadRequest, err.Error())
 		return
