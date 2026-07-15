@@ -3,6 +3,11 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.24 — 2026-07-15
+
+- feat(api-docs): Scalar try-it reference + llms.txt, all embedded (0beaaed)
+- release v0.11.23 — refresh internal changelog (dd30bc4)
+
 ## v0.11.23 — 2026-07-14
 
 - feat(mcp): logs search, metric series, integration detail, alert instances (eb54cef)
