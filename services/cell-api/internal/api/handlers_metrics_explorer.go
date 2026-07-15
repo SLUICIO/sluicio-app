@@ -52,8 +52,11 @@ func (h *Handlers) metricCatalog(w http.ResponseWriter, r *http.Request) {
 	serviceIn, integGroups, _ := h.integrationFilter(r.Context(), r, func() ([]string, error) {
 		return h.Store.DistinctMetricServices(r.Context(), tr.From, tr.To)
 	})
-	// G5: intersect with the caller's group-policy service allowlist.
-	pf := h.resolveServiceFilter(r, strings.TrimSpace(r.URL.Query().Get("service")), serviceIn)
+	// G5: intersect with the caller's group-policy service allowlist —
+	// through the METRICS tier, like every other metrics endpoint. This
+	// endpoint originally used the signal-agnostic filter, which leaked
+	// metric values to viewers whose grant excluded the metrics signal.
+	pf := h.resolveServiceFilterSignal(r, strings.TrimSpace(r.URL.Query().Get("service")), serviceIn, identity.SignalMetrics)
 	if pf.Blocked {
 		httpserver.WriteError(w, http.StatusNotFound, "service not found")
 		return

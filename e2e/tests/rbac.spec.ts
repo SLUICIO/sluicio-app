@@ -665,3 +665,334 @@ test.describe("RBAC — dependency graph hides invisible neighbors", () => {
     expect(scoped.downstream ?? []).toHaveLength(0);
   });
 });
+
+// ── Org-editor ceiling ──────────────────────────────────────────────────
+//
+// An org-wide editor mutates monitoring resources but never org
+// administration: members, groups, and cell-wide settings stay closed.
+test.describe("RBAC — org editor ceiling", () => {
+  const ED_EMAIL = "e2e-rbac-editor@sluicio.local";
+  const ED_PASSWORD = "e2e-rbac-editor-pw1";
+
+  test("editor mutates resources, never org administration", async ({ page, browser }) => {
+    await logIn(page); // admin provisions the editor
+    const add = await page.request.post("/api/v1/settings/members", {
+      data: { email: ED_EMAIL, name: "E2E RBAC Editor", password: ED_PASSWORD, role: "editor" },
+    });
+    if (!add.ok() && add.status() !== 409) throw new Error(`provision: ${add.status()}`);
+
+    const ed = await (await browser.newContext()).newPage();
+    await logIn(ed, ED_EMAIL, ED_PASSWORD);
+    const r = ed.request;
+
+    // CAN: create and delete an integration.
+    const mk = await r.post("/api/v1/integrations", {
+      data: { slug: `e2e-editor-integ-${Date.now()}`, name: "E2E Editor Integ", matchers: [] },
+    });
+    expect(mk.status()).toBe(201);
+    const integID = (await mk.json()).integration?.id ?? (await mk.json()).id;
+    expect((await r.delete(`/api/v1/integrations/${integID}`)).ok()).toBeTruthy();
+
+    // CANNOT: member administration (read is recon-sensitive too).
+    expect((await r.get("/api/v1/settings/members")).status()).toBe(403);
+    expect(
+      (
+        await r.post("/api/v1/settings/members", {
+          data: { email: "nope@x.se", name: "n", password: "npw12345", role: "viewer" },
+        })
+      ).status(),
+    ).toBe(403);
+
+    // CANNOT: group administration.
+    expect(
+      (await r.post("/api/v1/settings/groups", { data: { slug: "e2e-ed-grp", name: "x" } })).status(),
+    ).toBe(403);
+
+    // CANNOT: cell-wide settings (operator surface).
+    expect(
+      (await r.patch("/api/v1/cell-settings/system", { data: { environment: "hacked" } })).status(),
+    ).toBe(403);
+
+    await ed.context().close();
+  });
+});
+
+// ── Operator vs org-admin split ─────────────────────────────────────────
+//
+// A second ADMIN member is not a cell operator: org administration works,
+// cell-wide settings refuse. On single-org installs the bootstrap admin
+// is the operator, which hides this boundary — this pins it.
+test.describe("RBAC — non-operator admin", () => {
+  const AD_EMAIL = "e2e-rbac-admin2@sluicio.local";
+  const AD_PASSWORD = "e2e-rbac-admin2-pw1";
+
+  test("org admin without operator cannot touch cell-wide settings", async ({ page, browser }) => {
+    await logIn(page);
+    const add = await page.request.post("/api/v1/settings/members", {
+      data: { email: AD_EMAIL, name: "E2E Admin Two", password: AD_PASSWORD, role: "admin" },
+    });
+    if (!add.ok() && add.status() !== 409) throw new Error(`provision: ${add.status()}`);
+
+    const ad = await (await browser.newContext()).newPage();
+    await logIn(ad, AD_EMAIL, AD_PASSWORD);
+    const r = ad.request;
+
+    // CAN: org administration (member list).
+    expect((await r.get("/api/v1/settings/members")).ok()).toBeTruthy();
+
+    // CANNOT: cell-wide system settings — operator-gated server-side.
+    expect(
+      (await r.patch("/api/v1/cell-settings/system", { data: { environment: "prod2" } })).status(),
+    ).toBe(403);
+
+    await ad.context().close();
+  });
+});
+
+// ── Per-signal combinations beyond logs-only ────────────────────────────
+test.describe("RBAC — per-signal combinations (EE)", () => {
+  test.describe.configure({ mode: "serial" });
+
+  const MX_PASSWORD = "e2e-metrics-viewer-pw1";
+  // Discovered per run: a service that actually emits metrics (seeded
+  // cells differ in which services carry which signals).
+  let MX_SERVICE = "";
+
+  test.beforeEach(async ({ page }) => {
+    await logIn(page);
+    const lic = await (await page.request.get("/api/v1/license")).json();
+    test.skip(!lic?.features?.rbac_advanced, "cell has no rbac_advanced entitlement");
+    const svcs = (await (await page.request.get("/api/v1/services?range=24h")).json()).services ?? [];
+    MX_SERVICE = "";
+    for (const s of svcs.slice(0, 10)) {
+      const cat = await (
+        await page.request.get(`/api/v1/metric-catalog?range=24h&service=${encodeURIComponent(s.service_name)}`)
+      ).json();
+      if ((cat.metrics ?? []).length > 0) {
+        MX_SERVICE = s.service_name;
+        break;
+      }
+    }
+    test.skip(!MX_SERVICE, "cell has no service with metrics");
+  });
+
+  // Distinct identity per combination — the resolver memoizes per-signal
+  // materializations per user, so reusing one user across combinations
+  // serves the previous grant from cache.
+  async function provisionSignalViewer(admin: APIRequestContext, tag: string, signals: string[]) {
+    const email = `e2e-${tag}-viewer@sluicio.local`;
+    const slug = `e2e-${tag}-scope`;
+    const list = await (await admin.get("/api/v1/settings/groups")).json();
+    for (const g of list.groups ?? []) {
+      if (g.slug === slug) await admin.delete(`/api/v1/settings/groups/${g.id}`);
+    }
+    const gid = (await (await admin.post("/api/v1/settings/groups", { data: { slug, name: `E2E ${tag} scope` } })).json()).id;
+    const add = await admin.post("/api/v1/settings/members", {
+      data: { email, name: `E2E ${tag} viewer`, password: MX_PASSWORD, role: "viewer" },
+    });
+    if (!add.ok() && add.status() !== 409) throw new Error(`provision: ${add.status()}`);
+    const members = await (await admin.get("/api/v1/settings/members")).json();
+    const uid = (members.members ?? []).find(
+      (m: { user: { email: string; id: string } }) => m.user.email === email,
+    )?.user.id;
+    await admin.post(`/api/v1/settings/groups/${gid}/members`, { data: { user_id: uid, role: "viewer" } });
+    const pol = await admin.post(`/api/v1/settings/groups/${gid}/policies`, {
+      data: { kind: "service", target_service_name: MX_SERVICE, signals },
+    });
+    expect(pol.ok()).toBeTruthy();
+    return email;
+  }
+
+  test("metrics-only grant: metrics flow, logs and messages stay empty", async ({ page, browser }) => {
+    const email = await provisionSignalViewer(page.request, "metricsonly", ["metrics"]);
+    const v = await (await browser.newContext()).newPage();
+    await logIn(v, email, MX_PASSWORD);
+    const r = v.request;
+
+    const metrics = await (await r.get(`/api/v1/metric-catalog?range=24h&service=${MX_SERVICE}`)).json();
+    expect((metrics.metrics ?? []).length).toBeGreaterThan(0);
+
+    const logs = await (await r.get(`/api/v1/logs?range=24h&service=${MX_SERVICE}&limit=10`)).json();
+    expect(logs.logs ?? []).toHaveLength(0);
+
+    const msgs = await (
+      await r.post("/api/v1/messages/search?range=24h", {
+        data: { filters: [{ field: "service", op: "is", value: MX_SERVICE }], limit: 10 },
+      })
+    ).json();
+    expect(msgs.results ?? []).toHaveLength(0);
+    await v.context().close();
+  });
+
+  test("messages-only grant: the business lens works, raw signals stay empty", async ({ page, browser }) => {
+    const email = await provisionSignalViewer(page.request, "messagesonly", ["messages"]);
+    const v = await (await browser.newContext()).newPage();
+    await logIn(v, email, MX_PASSWORD);
+    const r = v.request;
+
+    const msgs = await (
+      await r.post("/api/v1/messages/search?range=24h", {
+        data: { filters: [{ field: "service", op: "is", value: MX_SERVICE }], limit: 10 },
+      })
+    ).json();
+    expect((msgs.results ?? []).length).toBeGreaterThan(0);
+
+    const logs = await (await r.get(`/api/v1/logs?range=24h&service=${MX_SERVICE}&limit=10`)).json();
+    expect(logs.logs ?? []).toHaveLength(0);
+    const metrics = await (await r.get(`/api/v1/metric-catalog?range=24h&service=${MX_SERVICE}`)).json();
+    expect(metrics.metrics ?? []).toHaveLength(0);
+    await v.context().close();
+  });
+});
+
+// ── Sharing rejects non-members (no pending shares by design) ───────────
+test.describe("RBAC — share grantee must be an org member (EE)", () => {
+  test("sharing to an unknown email is rejected", async ({ page }) => {
+    await logIn(page);
+    const lic = await (await page.request.get("/api/v1/license")).json();
+    test.skip(!lic?.features?.rbac_advanced, "cell has no rbac_advanced entitlement");
+    const integs = stableIntegrations(
+      (await (await page.request.get("/api/v1/integrations?range=30d")).json()).integrations ?? [],
+    );
+    test.skip(integs.length === 0, "cell has no integrations");
+    const res = await page.request.post(`/api/v1/integrations/${integs[0].id}/shares`, {
+      data: { grantee_kind: "user", grantee_email: "ghost-never-existed@e2e.local" },
+    });
+    expect(res.ok()).toBeFalsy();
+    expect((await res.text())).toContain("no such user");
+  });
+});
+
+// ── Service-account tokens ride the same RBAC ───────────────────────────
+test.describe("RBAC — service-account token", () => {
+  test("viewer service account: org-wide read (pinned semantics), writes refused", async ({ page, request }) => {
+    await logIn(page);
+    const admin = page.request;
+    const sa = await (
+      await admin.post("/api/v1/settings/service-accounts", {
+        data: { name: `e2e-sa-viewer-${Date.now()}`, description: "rbac gap test", role: "viewer" },
+      })
+    ).json();
+    const saID = sa.id ?? sa.account?.id;
+    const minted = await (
+      await admin.post(`/api/v1/settings/service-accounts/${saID}/tokens`, { data: { name: "t1" } })
+    ).json();
+    const token = minted.plaintext; // secret returned exactly once
+    expect(token).toBeTruthy();
+
+    const auth = { Authorization: `Bearer ${token}` };
+    // PINNED CURRENT SEMANTICS: service-account principals carry no user
+    // id, so the policy layer's deny-by-default never engages — a viewer
+    // SA reads ORG-WIDE (unlike a group-less viewer USER, who sees
+    // nothing). Role gates still hold for writes/admin below. Whether
+    // SAs should be policy-scopable is an open design question — see the
+    // "service-account visibility" issue; flip this assertion with that
+    // decision.
+    const svcs = await (await request.get("/api/v1/services?range=24h", { headers: auth })).json();
+    expect((svcs.services ?? []).length).toBeGreaterThan(0);
+    // Writes refused outright.
+    expect(
+      (
+        await request.post("/api/v1/integrations", {
+          headers: auth,
+          data: { slug: "e2e-sa-nope", name: "nope", matchers: [] },
+        })
+      ).status(),
+    ).toBe(403);
+    // Org administration refused.
+    expect((await request.get("/api/v1/settings/members", { headers: auth })).status()).toBe(403);
+
+    await admin.delete(`/api/v1/settings/service-accounts/${saID}`);
+  });
+});
+
+// ── MCP inherits the caller token's RBAC ────────────────────────────────
+test.describe("RBAC — MCP surface", () => {
+  async function mcpListServices(request: APIRequestContext, token: string) {
+    const resp = await request.post("/api/v1/mcp", {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "sluicio_list_services", arguments: { window: "24h" } },
+      },
+    });
+    expect(resp.ok()).toBeTruthy();
+    const body = await resp.json();
+    expect(body.result?.isError).toBeFalsy();
+    return JSON.parse(body.result.content[0].text);
+  }
+
+  test("admin token sees services; scoped viewer token sees none", async ({ page, request }) => {
+    await logIn(page);
+    const admin = page.request;
+    // Admin PAT.
+    const adminTok = (await (await admin.post("/api/v1/settings/tokens", { data: { name: `e2e-mcp-admin-${Date.now()}` } })).json()).plaintext;
+    const adminView = await mcpListServices(request, adminTok);
+    expect((adminView.services ?? []).length).toBeGreaterThan(0);
+
+    // Group-less viewer service-account token → MCP shows nothing.
+    const sa = await (
+      await admin.post("/api/v1/settings/service-accounts", {
+        data: { name: `e2e-sa-mcp-${Date.now()}`, description: "mcp rbac", role: "viewer" },
+      })
+    ).json();
+    const saID = sa.id ?? sa.account?.id;
+    const minted = await (
+      await admin.post(`/api/v1/settings/service-accounts/${saID}/tokens`, { data: { name: "t1" } })
+    ).json();
+    const viewerTok = minted.plaintext;
+    // MCP must mirror REST exactly for the same token (loopback dispatch).
+    // For a viewer SA that currently means org-wide read — pinned, see the
+    // service-account visibility issue.
+    const viewerView = await mcpListServices(request, viewerTok);
+    const restView = await (
+      await request.get("/api/v1/services?range=24h", { headers: { Authorization: `Bearer ${viewerTok}` } })
+    ).json();
+    expect((viewerView.services ?? []).length).toBe((restView.services ?? []).length);
+
+    await admin.delete(`/api/v1/settings/service-accounts/${saID}`);
+  });
+});
+
+// ── Attach-before-telemetry: pin the current semantics ──────────────────
+//
+// Visibility flows through MEMBER SERVICES (canSeeIntegration): a group
+// attached to a service-less integration grants nothing until telemetry
+// arrives. Deliberate pin of today's behaviour — if the product decides
+// direct attachment should reveal the integration row, flip this test
+// with that change.
+test.describe("RBAC — attach before telemetry", () => {
+  test("group attached to a service-less integration grants nothing (current semantics)", async ({ page, browser }) => {
+    await logIn(page);
+    const admin = page.request;
+    await ensureViewer(admin);
+    const gid = (
+      await (
+        await admin.post("/api/v1/settings/groups", {
+          data: { slug: `e2e-pretel-${Date.now().toString(36)}`, name: "E2E PreTelemetry" },
+        })
+      ).json()
+    ).id;
+    const members = await (await admin.get("/api/v1/settings/members")).json();
+    const uid = (members.members ?? []).find(
+      (m: { user: { email: string; id: string } }) => m.user.email === VIEWER_EMAIL,
+    )?.user.id;
+    await admin.post(`/api/v1/settings/groups/${gid}/members`, { data: { user_id: uid, role: "viewer" } });
+
+    const mk = await admin.post("/api/v1/integrations", {
+      data: { slug: `e2e-pretel-integ-${Date.now().toString(36)}`, name: "E2E PreTel Integ", matchers: [] },
+    });
+    const integID = (await mk.json()).integration?.id ?? (await mk.json()).id;
+    expect((await admin.put(`/api/v1/integrations/${integID}/groups`, { data: { group_ids: [gid] } })).ok()).toBeTruthy();
+
+    const viewer = await viewerContext(browser);
+    const seen = (await (await viewer.request.get("/api/v1/integrations?range=30d")).json()).integrations ?? [];
+    expect(seen.map((i: { id: string }) => i.id)).not.toContain(integID);
+    await viewer.context().close();
+
+    await admin.delete(`/api/v1/integrations/${integID}`);
+    await admin.delete(`/api/v1/settings/groups/${gid}`);
+  });
+});

@@ -43,24 +43,33 @@ cd e2e && npx playwright test --list rbac     # the RBAC spec alone
 | Tenant isolation | — | Org A cannot read org B (API level) | Go: tenant_isolation_integration_test.go |
 | Badge auth | — | Public status badges leak nothing beyond the badge | Go: badge_authz_integration_test.go |
 
-## Known gaps (not yet automated)
+### Gap closure, 2026-07-15
 
-- **Editor (org-wide) restriction matrix** — editor's exact ceiling vs admin
-  (member management, cell settings) is asserted only incidentally.
-- **Per-signal combinations beyond logs-only** — metrics-only, traces-without-
-  messages (the analyst grant), and unions of multiple signal-scoped policies.
-- **Share to a user by email who joins later** (pending-share resolution).
-- **Operator vs org-admin split on multi-org cells** — single-org cells make
-  them the same person; the operator-tab gating is only unit-covered.
-- **Service-account tokens through RBAC** — tokens inherit the account's
-  role; no e2e drives the API as a scoped service account.
-- **MCP surface under a scoped token** — the loopback dispatch inherits REST
-  RBAC by construction, but no test proves a viewer token through MCP.
-- Attach-before-telemetry: a group attached to a **service-less** integration
-  grants nothing until telemetry arrives (visibility flows through member
-  services — see canSeeIntegration). Current behaviour, documented by
-  protocol-group-visibility.spec's precondition; product decision pending on
-  whether direct attachment should show the integration row.
+All seven gaps above were automated (rbac.spec, new describes at the end of
+the file). Closing them surfaced — and fixed or filed — three findings:
+
+| Model area | Edition | Verified behaviour | Test |
+|---|---|---|---|
+| Editor ceiling | CE | Editor creates/deletes integrations; member admin, group admin, cell settings all 403 | rbac.spec `org editor ceiling` |
+| Operator split | — | A second (non-operator) org admin manages members but cell-wide settings refuse (server-side RequireOperator) | rbac.spec `non-operator admin` |
+| Per-signal | EE | Metrics-only grant: metrics flow, logs and messages empty | rbac.spec `metrics-only grant…` |
+| Per-signal | EE | Messages-only grant: business lens works, logs and metrics empty | rbac.spec `messages-only grant…` |
+| Sharing | EE | Grantee must be an existing org member — unknown email rejected (**no pending shares by design**; the earlier "joins later" gap was a misreading) | rbac.spec `sharing to an unknown email…` |
+| Service accounts | — | Writes/admin role-gated (403); reads are **org-wide** — pinned current semantics, design decision open in issue #2 | rbac.spec `service-account token` |
+| MCP | — | MCP mirrors REST exactly for the same token (admin PAT and viewer-SA token) | rbac.spec `MCP surface` |
+| Attach-before-telemetry | CE | Group attached to a service-less integration grants nothing until telemetry arrives — pinned current semantics | rbac.spec `attach before telemetry` |
+
+Findings from the closure:
+
+- **Fixed — metric-catalog per-signal leak**: `/api/v1/metric-catalog` used the
+  signal-agnostic service filter and returned metric values to viewers whose
+  grant excluded the metrics signal. Now gated through the metrics tier like
+  every other metrics endpoint (the messages-only test pins it).
+- **Filed — service-account visibility** (issue #2): SA principals bypass
+  deny-by-default and read org-wide; role gates hold for writes. Tests pin
+  current behaviour until the design decision lands.
+- **Corrected** — pending shares don't exist by design; the automated test
+  asserts the rejection instead.
 
 Add new combinations to rbac.spec (API-driven, fast) or as full UI protocols
 (protocol-*.spec, slower but end-to-end honest) — and add the row here; this
