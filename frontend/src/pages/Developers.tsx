@@ -2,7 +2,7 @@
 //
 // Developers — an in-app getting-started for consuming the Sluicio API and
 // wiring up the MCP server. Ties together token creation (personal + service
-// account), the REST base URL, the live OpenAPI/Redoc reference, and a
+// account), the REST base URL, the live API reference (Scalar), and a
 // copy-paste MCP client config. Static + a couple of dynamic bits (the cell's
 // own origin); no data fetching, visible to any authenticated user.
 
@@ -132,10 +132,6 @@ export default function Developers() {
             llms.txt ↗
           </a>
         </div>
-        <p className="muted" style={{ fontSize: 12.5, marginTop: 10 }}>
-          The reference (Redoc) and the machine-readable OpenAPI document are generated from the live route table,
-          so they always match this cell.
-        </p>
       </Section>
 
       <Section n={3} title="Connect an AI assistant (MCP)">
