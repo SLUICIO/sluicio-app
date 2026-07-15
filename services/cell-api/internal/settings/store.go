@@ -607,6 +607,44 @@ func (s *Store) SetMapHTTP5xxToError(ctx context.Context, enabled bool) error {
 	return nil
 }
 
+// GetForbidOrgWideServiceAccounts reports whether this cell refuses
+// org-wide service accounts (compliance posture — see
+// docs/service-account-scoping-design.md). When enabled: creating or
+// switching an SA to scope='org_wide' is rejected, and any existing
+// org-wide SA resolves visibility as if scoped (group memberships
+// only) — defense in depth for SAs created before the toggle.
+// Defaults false.
+func (s *Store) GetForbidOrgWideServiceAccounts(ctx context.Context) (bool, error) {
+	var raw []byte
+	err := s.pool.QueryRow(ctx, `SELECT value FROM cell_settings WHERE key = 'rbac.forbid_org_wide_service_accounts'`).Scan(&raw)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("settings: get forbid_org_wide_service_accounts: %w", err)
+	}
+	var v struct {
+		Enabled bool `json:"enabled"`
+	}
+	_ = json.Unmarshal(raw, &v)
+	return v.Enabled, nil
+}
+
+// SetForbidOrgWideServiceAccounts toggles the org-wide-SA prohibition.
+func (s *Store) SetForbidOrgWideServiceAccounts(ctx context.Context, enabled bool) error {
+	raw, _ := json.Marshal(struct {
+		Enabled bool `json:"enabled"`
+	}{enabled})
+	const q = `
+		INSERT INTO cell_settings (key, value, updated_at)
+		VALUES ('rbac.forbid_org_wide_service_accounts', $1::jsonb, now())
+		ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`
+	if _, err := s.pool.Exec(ctx, q, raw); err != nil {
+		return fmt.Errorf("settings: set forbid_org_wide_service_accounts: %w", err)
+	}
+	return nil
+}
+
 // ── audit retention ─────────────────────────────────────────────────
 //
 // How long audit_log rows are kept before the retention enforcer prunes

@@ -295,19 +295,50 @@ func (s *Store) ListPoliciesForGroup(ctx context.Context, groupID uuid.UUID) ([]
 	return out, rows.Err()
 }
 
+// MemberRef identifies the group-membership-bearing principal a
+// visibility resolution runs for: a user or a service account
+// (docs/service-account-scoping-design.md). Exactly one field is set.
+// Internal callers and org-wide short-circuits never reach the
+// resolver — handlers decide that BEFORE building a ref.
+type MemberRef struct {
+	UserID           *uuid.UUID
+	ServiceAccountID *uuid.UUID
+}
+
+// UserRef builds a MemberRef for a user principal.
+func UserRef(id uuid.UUID) MemberRef { return MemberRef{UserID: &id} }
+
+// ServiceAccountRef builds a MemberRef for a scoped service account.
+func ServiceAccountRef(id uuid.UUID) MemberRef { return MemberRef{ServiceAccountID: &id} }
+
 // ListPoliciesForUser returns every policy active for one user
 // across all their groups within an org. Used by the visibility
 // resolver below; called once per request and cached on the
 // principal-context where possible.
 func (s *Store) ListPoliciesForUser(ctx context.Context, userID, orgID uuid.UUID) ([]UserPolicy, error) {
-	const q = `
+	return s.ListPoliciesForMember(ctx, UserRef(userID), orgID)
+}
+
+// ListPoliciesForMember is ListPoliciesForUser generalised over the
+// two membership kinds — same join, membership column picked by ref.
+func (s *Store) ListPoliciesForMember(ctx context.Context, ref MemberRef, orgID uuid.UUID) ([]UserPolicy, error) {
+	memberCol, memberID := "gm.user_id", uuid.Nil
+	switch {
+	case ref.UserID != nil:
+		memberID = *ref.UserID
+	case ref.ServiceAccountID != nil:
+		memberCol, memberID = "gm.service_account_id", *ref.ServiceAccountID
+	default:
+		return nil, fmt.Errorf("identity: empty member ref")
+	}
+	q := `
 		SELECT p.id, p.group_id, p.kind, p.target_service_name, p.target_integration_id, p.target_system_kind, p.target_system_id, p.attribute_match, p.conditions, p.signals, p.created_at, gm.role
 		FROM group_access_policies p
 		JOIN groups g ON g.id = p.group_id
 		JOIN group_members gm ON gm.group_id = g.id
-		WHERE gm.user_id = $1 AND g.org_id = $2
+		WHERE ` + memberCol + ` = $1 AND g.org_id = $2
 		ORDER BY p.created_at DESC`
-	rows, err := s.pool.Query(ctx, q, userID, orgID)
+	rows, err := s.pool.Query(ctx, q, memberID, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("identity: list user policies: %w", err)
 	}
@@ -497,7 +528,13 @@ func (a AccessSets) VisibleFor(sig Signal) (map[string]struct{}, bool) {
 // integrations.Resolver.ServicesFor). expandSystem resolves kind=system
 // policies to flagged-system services.
 func (s *Store) ResolveEffectiveAccess(ctx context.Context, userID, orgID uuid.UUID, expand integrationExpander, expandSystem systemExpander) (EffectiveAccess, error) {
-	policies, err := s.ListPoliciesForUser(ctx, userID, orgID)
+	return s.ResolveEffectiveAccessMember(ctx, UserRef(userID), orgID, expand, expandSystem)
+}
+
+// ResolveEffectiveAccessMember is ResolveEffectiveAccess for any
+// membership-bearing principal (user or scoped service account).
+func (s *Store) ResolveEffectiveAccessMember(ctx context.Context, ref MemberRef, orgID uuid.UUID, expand integrationExpander, expandSystem systemExpander) (EffectiveAccess, error) {
+	policies, err := s.ListPoliciesForMember(ctx, ref, orgID)
 	if err != nil {
 		return EffectiveAccess{}, err
 	}
@@ -646,7 +683,15 @@ func (s *Store) allServiceAttributes(ctx context.Context, orgID uuid.UUID) (map[
 // grants only services in A that also have env=prod in their catalog
 // attributes.
 func (s *Store) ResolveVisibleServiceSet(ctx context.Context, userID, orgID uuid.UUID, expand integrationExpander, expandSystem systemExpander, universe serviceUniverseProvider) (set map[string]struct{}, wildcard bool, err error) {
-	access, err := s.ResolveEffectiveAccess(ctx, userID, orgID, expand, expandSystem)
+	return s.ResolveVisibleServiceSetMember(ctx, UserRef(userID), orgID, expand, expandSystem, universe)
+}
+
+// ResolveVisibleServiceSetMember is ResolveVisibleServiceSet for any
+// membership-bearing principal. Shares are a user-only supplement
+// (resource shares target org members, not machines — §6); service
+// accounts resolve from group policies alone.
+func (s *Store) ResolveVisibleServiceSetMember(ctx context.Context, ref MemberRef, orgID uuid.UUID, expand integrationExpander, expandSystem systemExpander, universe serviceUniverseProvider) (set map[string]struct{}, wildcard bool, err error) {
+	access, err := s.ResolveEffectiveAccessMember(ctx, ref, orgID, expand, expandSystem)
 	if err != nil {
 		return nil, false, err
 	}
@@ -654,8 +699,11 @@ func (s *Store) ResolveVisibleServiceSet(ctx context.Context, userID, orgID uuid
 	if err != nil || wildcard {
 		return set, wildcard, err
 	}
+	if ref.UserID == nil {
+		return set, false, nil
+	}
 	// Shares supplement Visible (never Managed) — see §6.
-	shared, err := s.expandShares(ctx, userID, orgID, expand, expandSystem)
+	shared, err := s.expandShares(ctx, *ref.UserID, orgID, expand, expandSystem)
 	if err != nil {
 		return nil, false, err
 	}
@@ -669,7 +717,14 @@ func (s *Store) ResolveVisibleServiceSet(ctx context.Context, userID, orgID uuid
 // ALL the user's policies, Managed from only the policies carried by
 // groups where the user is editor+. One policy fetch, two compositions.
 func (s *Store) ResolveAccessSets(ctx context.Context, userID, orgID uuid.UUID, expand integrationExpander, expandSystem systemExpander, universe serviceUniverseProvider) (AccessSets, error) {
-	policies, err := s.ListPoliciesForUser(ctx, userID, orgID)
+	return s.ResolveAccessSetsMember(ctx, UserRef(userID), orgID, expand, expandSystem, universe)
+}
+
+// ResolveAccessSetsMember is ResolveAccessSets for any membership-
+// bearing principal. Shares (the user-only Visible supplement) are
+// skipped for service accounts.
+func (s *Store) ResolveAccessSetsMember(ctx context.Context, ref MemberRef, orgID uuid.UUID, expand integrationExpander, expandSystem systemExpander, universe serviceUniverseProvider) (AccessSets, error) {
+	policies, err := s.ListPoliciesForMember(ctx, ref, orgID)
 	if err != nil {
 		return AccessSets{}, err
 	}
@@ -762,9 +817,11 @@ func (s *Store) ResolveAccessSets(ctx context.Context, userID, orgID uuid.UUID, 
 				out.VisibleBySignal[sig] = cp
 			}
 		}
-		shared, err := s.expandShares(ctx, userID, orgID, expand, expandSystem)
-		if err != nil {
-			return AccessSets{}, err
+		shared := map[string]struct{}{}
+		if ref.UserID != nil {
+			if shared, err = s.expandShares(ctx, *ref.UserID, orgID, expand, expandSystem); err != nil {
+				return AccessSets{}, err
+			}
 		}
 		// Visible may alias the memoized map too — copy before adding shares.
 		vis := make(map[string]struct{}, len(out.Visible)+len(shared))

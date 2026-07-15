@@ -39,11 +39,15 @@ type Group struct {
 }
 
 // GroupMember is one row in the group_members table joined with the
-// member's user row, ready for rendering on the per-group screen.
+// member's identity row, ready for rendering on the per-group screen.
+// Exactly one of User / ServiceAccount is set — memberships are
+// polymorphic since service-account scoping
+// (docs/service-account-scoping-design.md).
 type GroupMember struct {
-	User     User      `json:"user"`
-	Role     Role      `json:"role"`
-	JoinedAt time.Time `json:"joined_at"`
+	User           *User           `json:"user,omitempty"`
+	ServiceAccount *ServiceAccount `json:"service_account,omitempty"`
+	Role           Role            `json:"role"`
+	JoinedAt       time.Time       `json:"joined_at"`
 }
 
 // UserGroupRole is what the visibility filter cares about: which
@@ -181,12 +185,102 @@ func (s *Store) AddGroupMember(ctx context.Context, userID, groupID uuid.UUID, r
 		`INSERT INTO group_members (user_id, group_id, role) VALUES ($1, $2, $3)`,
 		userID, groupID, role)
 	if err != nil {
-		if strings.Contains(err.Error(), "group_members_pkey") {
+		if strings.Contains(err.Error(), "group_members_user_group_key") {
 			return ErrAlreadyMember
 		}
 		return fmt.Errorf("identity: add group member: %w", err)
 	}
 	return nil
+}
+
+// ── service-account group membership ──────────────────────────────────
+//
+// Service accounts join groups exactly like users; the group's policies
+// become the SA's visibility scope (design doc §"service accounts are
+// group members"). Only SAs with scope='scoped' consult these rows, but
+// membership may be prepared on an org-wide SA before narrowing it.
+
+// AddGroupServiceAccount inserts (service_account, group, role).
+func (s *Store) AddGroupServiceAccount(ctx context.Context, saID, groupID uuid.UUID, role Role) error {
+	if !role.IsValid() {
+		return fmt.Errorf("identity: invalid role: %s", role)
+	}
+	_, err := s.pool.Exec(ctx,
+		`INSERT INTO group_members (service_account_id, group_id, role) VALUES ($1, $2, $3)`,
+		saID, groupID, role)
+	if err != nil {
+		if strings.Contains(err.Error(), "group_members_sa_group_key") {
+			return ErrAlreadyMember
+		}
+		return fmt.Errorf("identity: add group service account: %w", err)
+	}
+	return nil
+}
+
+// UpdateGroupServiceAccountRole changes an SA membership's role.
+func (s *Store) UpdateGroupServiceAccountRole(ctx context.Context, saID, groupID uuid.UUID, role Role) error {
+	if !role.IsValid() {
+		return fmt.Errorf("identity: invalid role: %s", role)
+	}
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE group_members SET role = $3 WHERE service_account_id = $1 AND group_id = $2`,
+		saID, groupID, role)
+	if err != nil {
+		return fmt.Errorf("identity: update group service-account role: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// RemoveGroupServiceAccount deletes (service_account, group).
+func (s *Store) RemoveGroupServiceAccount(ctx context.Context, saID, groupID uuid.UUID) error {
+	tag, err := s.pool.Exec(ctx,
+		`DELETE FROM group_members WHERE service_account_id = $1 AND group_id = $2`,
+		saID, groupID)
+	if err != nil {
+		return fmt.Errorf("identity: remove group service account: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// ServiceAccountGroup is one group a service account belongs to, with
+// the membership role — the SA-blade's membership editor shape.
+type ServiceAccountGroup struct {
+	Group    Group     `json:"group"`
+	Role     Role      `json:"role"`
+	JoinedAt time.Time `json:"joined_at"`
+}
+
+// ListGroupsForServiceAccount returns the SA's group memberships
+// within an org, alphabetical by group name.
+func (s *Store) ListGroupsForServiceAccount(ctx context.Context, saID, orgID uuid.UUID) ([]ServiceAccountGroup, error) {
+	const q = `
+		SELECT g.id, g.org_id, g.slug, g.name, g.description, g.created_at, g.updated_at,
+		       gm.role, gm.joined_at
+		FROM group_members gm
+		JOIN groups g ON g.id = gm.group_id
+		WHERE gm.service_account_id = $1 AND g.org_id = $2
+		ORDER BY lower(g.name)`
+	rows, err := s.pool.Query(ctx, q, saID, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("identity: list service-account groups: %w", err)
+	}
+	defer rows.Close()
+	out := make([]ServiceAccountGroup, 0)
+	for rows.Next() {
+		var sg ServiceAccountGroup
+		if err := rows.Scan(&sg.Group.ID, &sg.Group.OrgID, &sg.Group.Slug, &sg.Group.Name, &sg.Group.Description,
+			&sg.Group.CreatedAt, &sg.Group.UpdatedAt, &sg.Role, &sg.JoinedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, sg)
+	}
+	return out, rows.Err()
 }
 
 // UpdateGroupMemberRole changes the role of an existing membership.
@@ -221,8 +315,9 @@ func (s *Store) RemoveGroupMember(ctx context.Context, userID, groupID uuid.UUID
 	return nil
 }
 
-// ListGroupMembers returns every (user, role) row for the group,
-// joined with the user row.
+// ListGroupMembers returns every membership row for the group — user
+// members joined with their user row, service-account members joined
+// with the SA row. Users sort first (by email), then SAs (by name).
 func (s *Store) ListGroupMembers(ctx context.Context, groupID uuid.UUID) ([]GroupMember, error) {
 	const q = `
 		SELECT u.id, u.email, u.name,
@@ -240,18 +335,48 @@ func (s *Store) ListGroupMembers(ctx context.Context, groupID uuid.UUID) ([]Grou
 	defer rows.Close()
 	out := make([]GroupMember, 0)
 	for rows.Next() {
+		var u User
 		var gm GroupMember
 		if err := rows.Scan(
-			&gm.User.ID, &gm.User.Email, &gm.User.Name,
-			&gm.User.PasswordHash, &gm.User.MustResetPassword,
-			&gm.User.LastLoginAt, &gm.User.CreatedAt, &gm.User.UpdatedAt,
+			&u.ID, &u.Email, &u.Name,
+			&u.PasswordHash, &u.MustResetPassword,
+			&u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt,
 			&gm.Role, &gm.JoinedAt,
 		); err != nil {
 			return nil, err
 		}
+		gm.User = &u
 		out = append(out, gm)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	const qsa = `
+		SELECT sa.id, sa.org_id, sa.name, sa.description, sa.role, sa.scope, sa.created_by, sa.created_at,
+		       gm.role, gm.joined_at
+		FROM group_members gm
+		JOIN service_accounts sa ON sa.id = gm.service_account_id
+		WHERE gm.group_id = $1
+		ORDER BY lower(sa.name)`
+	saRows, err := s.pool.Query(ctx, qsa, groupID)
+	if err != nil {
+		return nil, fmt.Errorf("identity: list group service-account members: %w", err)
+	}
+	defer saRows.Close()
+	for saRows.Next() {
+		var sa ServiceAccount
+		var gm GroupMember
+		if err := saRows.Scan(
+			&sa.ID, &sa.OrgID, &sa.Name, &sa.Description, &sa.Role, &sa.Scope, &sa.CreatedBy, &sa.CreatedAt,
+			&gm.Role, &gm.JoinedAt,
+		); err != nil {
+			return nil, err
+		}
+		gm.ServiceAccount = &sa
+		out = append(out, gm)
+	}
+	return out, saRows.Err()
 }
 
 // CanUserWriteAnywhere reports whether the user has a non-viewer
@@ -284,12 +409,27 @@ func (s *Store) CanUserWriteAnywhere(ctx context.Context, userID, orgID uuid.UUI
 // within an org. Used by the visibility filter (the auth middleware
 // also caches this per request so concurrent handlers can share).
 func (s *Store) ListUserGroups(ctx context.Context, userID, orgID uuid.UUID) ([]UserGroupRole, error) {
-	const q = `
+	return s.ListMemberGroups(ctx, UserRef(userID), orgID)
+}
+
+// ListMemberGroups is ListUserGroups generalised over the two
+// membership kinds (user / service account).
+func (s *Store) ListMemberGroups(ctx context.Context, ref MemberRef, orgID uuid.UUID) ([]UserGroupRole, error) {
+	memberCol, memberID := "gm.user_id", uuid.Nil
+	switch {
+	case ref.UserID != nil:
+		memberID = *ref.UserID
+	case ref.ServiceAccountID != nil:
+		memberCol, memberID = "gm.service_account_id", *ref.ServiceAccountID
+	default:
+		return nil, fmt.Errorf("identity: empty member ref")
+	}
+	q := `
 		SELECT gm.group_id, gm.role
 		FROM group_members gm
 		JOIN groups g ON g.id = gm.group_id
-		WHERE gm.user_id = $1 AND g.org_id = $2`
-	rows, err := s.pool.Query(ctx, q, userID, orgID)
+		WHERE ` + memberCol + ` = $1 AND g.org_id = $2`
+	rows, err := s.pool.Query(ctx, q, memberID, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("identity: list user groups: %w", err)
 	}

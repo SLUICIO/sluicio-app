@@ -71,6 +71,7 @@ import type {
   ResourceShare,
   ListTokensResponse,
   ServiceAccount,
+  ServiceAccountGroup,
   Group,
   GroupInput,
   ListGroupsResponse,
@@ -1111,11 +1112,13 @@ export const api = {
 
   // ── Settings → Service accounts (machine identities + their tokens) ──
   listServiceAccounts: () => get<{ service_accounts: ServiceAccount[] }>(`/settings/service-accounts`),
-  createServiceAccount: (body: { name: string; description?: string; role: string }) =>
+  createServiceAccount: (body: { name: string; description?: string; role: string; scope?: string }) =>
     post<ServiceAccount>(`/settings/service-accounts`, body),
-  updateServiceAccount: (id: string, body: { name: string; description?: string; role: string }) =>
+  updateServiceAccount: (id: string, body: { name: string; description?: string; role: string; scope?: string }) =>
     put<ServiceAccount>(`/settings/service-accounts/${encodeURIComponent(id)}`, body),
   deleteServiceAccount: (id: string) => del(`/settings/service-accounts/${encodeURIComponent(id)}`),
+  listServiceAccountGroups: (id: string) =>
+    get<{ groups: ServiceAccountGroup[] }>(`/settings/service-accounts/${encodeURIComponent(id)}/groups`),
   listServiceAccountTokens: (id: string) =>
     get<ListTokensResponse>(`/settings/service-accounts/${encodeURIComponent(id)}/tokens`),
   createServiceAccountToken: (id: string, name: string, scopeRole = "", expiresInDays = 0) =>
@@ -1149,12 +1152,16 @@ export const api = {
   deleteGroup: (id: string) => del(`/settings/groups/${encodeURIComponent(id)}`),
   listGroupMembers: (groupId: string) =>
     get<ListGroupMembersResponse>(`/settings/groups/${encodeURIComponent(groupId)}/members`),
-  addGroupMember: (groupId: string, body: { user_id: string; role: AuthRole }) =>
+  addGroupMember: (groupId: string, body: { user_id?: string; service_account_id?: string; role: AuthRole }) =>
     post<void>(`/settings/groups/${encodeURIComponent(groupId)}/members`, body),
   updateGroupMemberRole: (groupId: string, userId: string, role: AuthRole) =>
     patch<void>(`/settings/groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(userId)}`, { role }),
   removeGroupMember: (groupId: string, userId: string) =>
     del(`/settings/groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(userId)}`),
+  updateGroupServiceAccountRole: (groupId: string, saId: string, role: AuthRole) =>
+    patch<void>(`/settings/groups/${encodeURIComponent(groupId)}/service-accounts/${encodeURIComponent(saId)}`, { role }),
+  removeGroupServiceAccount: (groupId: string, saId: string) =>
+    del(`/settings/groups/${encodeURIComponent(groupId)}/service-accounts/${encodeURIComponent(saId)}`),
 
   // Per-service group assignment surface.
   listServiceGroups: (name: string) =>

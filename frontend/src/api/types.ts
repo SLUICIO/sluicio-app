@@ -1996,11 +1996,15 @@ export interface SystemSettings {
   // Normalize span status at ingest: spans carrying an HTTP 5xx attribute
   // but a non-Error span status are stored as error spans.
   map_http_5xx_to_error?: boolean;
+  // Compliance posture: refuse org-wide service accounts — every SA must
+  // resolve visibility through group memberships (scoped).
+  forbid_org_wide_service_accounts?: boolean;
 }
 export interface SystemSettingsRequest {
   environment?: string;
   ingest_base_url?: string;
   map_http_5xx_to_error?: boolean;
+  forbid_org_wide_service_accounts?: boolean;
 }
 
 export interface AuthUser {
@@ -2130,8 +2134,19 @@ export interface ServiceAccount {
   name: string;
   description: string;
   role: "admin" | "editor" | "viewer";
+  // Visibility model: "scoped" (default) resolves what the SA can see
+  // from its group memberships, deny-by-default like a user; "org_wide"
+  // is the explicit, audited opt-in to read the whole org.
+  scope: "scoped" | "org_wide";
   created_by?: string;
   created_at?: string;
+}
+
+// One group a service account belongs to (its visibility scope).
+export interface ServiceAccountGroup {
+  group: Group;
+  role: AuthRole;
+  joined_at: string;
 }
 
 export interface CreateTokenResponse {
@@ -2219,8 +2234,11 @@ export interface GroupInput {
   description: string;
 }
 
+// Exactly one of user / service_account is set — group memberships are
+// polymorphic (service accounts join groups to gain scoped visibility).
 export interface GroupMember {
-  user: AuthUser;
+  user?: AuthUser;
+  service_account?: ServiceAccount;
   role: AuthRole;
   joined_at: string;
 }

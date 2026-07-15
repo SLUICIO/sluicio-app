@@ -58,11 +58,11 @@ func (h *Handlers) putServiceSystem(w http.ResponseWriter, r *http.Request) {
 // visibleServiceChecker resolves the request's visible-service predicate once
 // (admins / wildcard see all).
 func (h *Handlers) visibleServiceChecker(r *http.Request) (func(string) bool, bool, error) {
-	p := middleware.Principal(r)
-	if p.UserID == nil || p.ReadRole().CanAdmin() {
+	ref, restricted := h.visibilityMember(r)
+	if !restricted {
 		return func(string) bool { return true }, true, nil
 	}
-	visible, wildcard, err := h.Identity.ResolveVisibleServiceSet(r.Context(), *p.UserID, p.OrgID, h.integrationExpander, h.systemExpander, h.serviceUniverse)
+	visible, wildcard, err := h.Identity.ResolveVisibleServiceSetMember(r.Context(), ref, middleware.Principal(r).OrgID, h.integrationExpander, h.systemExpander, h.serviceUniverse)
 	if err != nil {
 		return nil, false, err
 	}

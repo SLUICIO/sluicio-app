@@ -314,13 +314,62 @@ func (h *Handlers) resolveServiceFilterSignal(r *http.Request, service string, s
 	return applyAllowlist(service, serviceIn, allowed, hasFilter)
 }
 
+// visibilityMember decides how READ visibility resolves for this
+// request's principal (docs/service-account-scoping-design.md):
+//
+//   - admins (uncapped read role) and internal callers carrying no
+//     principal at all: unrestricted (restricted=false);
+//   - org-wide service accounts: unrestricted — unless the cell
+//     forbids org-wide SAs, in which case they resolve as scoped;
+//   - scoped service accounts: resolve via SA group memberships;
+//   - users: resolve via user group memberships.
+//
+// This replaces the old "UserID == nil → allow" shortcut, which
+// conflated internal callers with service accounts and gave every SA
+// token org-wide reads (issue #2).
+func (h *Handlers) visibilityMember(r *http.Request) (identity.MemberRef, bool) {
+	p := middleware.Principal(r)
+	if p.ReadRole().CanAdmin() {
+		return identity.MemberRef{}, false
+	}
+	switch {
+	case p.Kind == identity.PrincipalServiceAccount && p.ServiceAccountID != nil:
+		if p.SAScope == identity.SAScopeOrgWide && !h.forbidOrgWideServiceAccounts(r) {
+			return identity.MemberRef{}, false
+		}
+		return identity.ServiceAccountRef(*p.ServiceAccountID), true
+	case p.UserID != nil:
+		return identity.UserRef(*p.UserID), true
+	default:
+		// No principal at all — internal caller. Authenticated external
+		// requests always carry a user or service-account principal.
+		return identity.MemberRef{}, false
+	}
+}
+
+// forbidOrgWideServiceAccounts reads the cell-wide prohibition knob.
+// Only consulted on the (rare) org-wide-SA request path. Fails open to
+// the SA's stored scope — the knob is a posture tightener, not the
+// primary gate.
+func (h *Handlers) forbidOrgWideServiceAccounts(r *http.Request) bool {
+	if h.Settings == nil {
+		return false
+	}
+	forbid, err := h.Settings.GetForbidOrgWideServiceAccounts(r.Context())
+	if err != nil {
+		h.Logger.Warn("forbid_org_wide_service_accounts read failed; honoring stored scope", "err", err)
+		return false
+	}
+	return forbid
+}
+
 // signalServiceFilter mirrors visibleServiceFilter for one signal.
 func (h *Handlers) signalServiceFilter(r *http.Request, sig identity.Signal) ([]string, bool) {
-	p := middleware.Principal(r)
-	if p.UserID == nil || p.ReadRole().CanAdmin() {
+	ref, restricted := h.visibilityMember(r)
+	if !restricted {
 		return nil, false
 	}
-	sets, err := h.Identity.ResolveAccessSets(r.Context(), *p.UserID, p.OrgID, h.integrationExpander, h.systemExpander, h.serviceUniverse)
+	sets, err := h.Identity.ResolveAccessSetsMember(r.Context(), ref, middleware.Principal(r).OrgID, h.integrationExpander, h.systemExpander, h.serviceUniverse)
 	if err != nil {
 		h.Logger.Warn("signal filter resolve failed; allowing", "err", err, "signal", sig)
 		return nil, false
@@ -404,11 +453,11 @@ func applyAllowlist(service string, serviceIn []string, allowed []string, hasFil
 // An empty (non-nil) slice means the caller can see NOTHING — the
 // caller should return an empty response without hitting ClickHouse.
 func (h *Handlers) visibleServiceFilter(r *http.Request) ([]string, bool) {
-	p := middleware.Principal(r)
-	if p.UserID == nil || p.ReadRole().CanAdmin() {
+	ref, restricted := h.visibilityMember(r)
+	if !restricted {
 		return nil, false
 	}
-	allowed, wildcard, err := h.Identity.ResolveVisibleServiceSet(r.Context(), *p.UserID, p.OrgID, h.integrationExpander, h.systemExpander, h.serviceUniverse)
+	allowed, wildcard, err := h.Identity.ResolveVisibleServiceSetMember(r.Context(), ref, middleware.Principal(r).OrgID, h.integrationExpander, h.systemExpander, h.serviceUniverse)
 	if err != nil {
 		h.Logger.Warn("visible service filter resolve failed; allowing", "err", err)
 		return nil, false
@@ -481,11 +530,11 @@ func (h *Handlers) serviceUniverse(ctx context.Context, orgID uuid.UUID) ([]stri
 // policy engine and check the service name against the resolved set
 // (or the wildcard).
 func (h *Handlers) canSeeService(r *http.Request, serviceName string) bool {
-	p := middleware.Principal(r)
-	if p.UserID == nil || p.ReadRole().CanAdmin() {
+	ref, restricted := h.visibilityMember(r)
+	if !restricted {
 		return true
 	}
-	allowed, wildcard, err := h.Identity.ResolveVisibleServiceSet(r.Context(), *p.UserID, p.OrgID, h.integrationExpander, h.systemExpander, h.serviceUniverse)
+	allowed, wildcard, err := h.Identity.ResolveVisibleServiceSetMember(r.Context(), ref, middleware.Principal(r).OrgID, h.integrationExpander, h.systemExpander, h.serviceUniverse)
 	if err != nil {
 		h.Logger.Warn("service visibility check failed; allowing", "err", err, "service", serviceName)
 		return true
@@ -503,11 +552,11 @@ func (h *Handlers) canSeeService(r *http.Request, serviceName string) bool {
 // caller should see everything (org admins, wildcard policy holders,
 // or no auth context).
 func (h *Handlers) applyServiceVisibility(r *http.Request, catalogRows []catalog.Service) ([]catalog.Service, bool) {
-	p := middleware.Principal(r)
-	if p.UserID == nil || p.ReadRole().CanAdmin() {
+	ref, restricted := h.visibilityMember(r)
+	if !restricted {
 		return nil, false
 	}
-	allowed, wildcard, err := h.Identity.ResolveVisibleServiceSet(r.Context(), *p.UserID, p.OrgID, h.integrationExpander, h.systemExpander, h.serviceUniverse)
+	allowed, wildcard, err := h.Identity.ResolveVisibleServiceSetMember(r.Context(), ref, middleware.Principal(r).OrgID, h.integrationExpander, h.systemExpander, h.serviceUniverse)
 	if err != nil {
 		h.Logger.Warn("service visibility lookup failed; falling back to no filter", "err", err)
 		return nil, false
@@ -1177,6 +1226,7 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 		mux.HandleFunc("POST /api/v1/settings/service-accounts", admin(h.createServiceAccount))
 		mux.HandleFunc("PUT /api/v1/settings/service-accounts/{id}", admin(h.updateServiceAccount))
 		mux.HandleFunc("DELETE /api/v1/settings/service-accounts/{id}", admin(h.deleteServiceAccount))
+		mux.HandleFunc("GET /api/v1/settings/service-accounts/{id}/groups", admin(h.listServiceAccountGroups))
 		mux.HandleFunc("GET /api/v1/settings/service-accounts/{id}/tokens", admin(h.listServiceAccountTokens))
 		mux.HandleFunc("POST /api/v1/settings/service-accounts/{id}/tokens", admin(h.createServiceAccountToken))
 		mux.HandleFunc("DELETE /api/v1/settings/service-accounts/{id}/tokens/{tid}", admin(h.revokeServiceAccountToken))
@@ -1227,6 +1277,13 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 			h.AuthMW.RequireRole(identity.Role.CanAdmin, h.updateGroupMemberRoleAdmin))
 		mux.HandleFunc("DELETE /api/v1/settings/groups/{id}/members/{user_id}",
 			h.AuthMW.RequireRole(identity.Role.CanAdmin, h.removeGroupMemberAdmin))
+		// Service-account memberships — how scoped SAs gain visibility
+		// (docs/service-account-scoping-design.md). Adding goes through
+		// POST …/members with service_account_id in the body.
+		mux.HandleFunc("PATCH /api/v1/settings/groups/{id}/service-accounts/{sa_id}",
+			h.AuthMW.RequireRole(identity.Role.CanAdmin, h.updateGroupServiceAccountRoleAdmin))
+		mux.HandleFunc("DELETE /api/v1/settings/groups/{id}/service-accounts/{sa_id}",
+			h.AuthMW.RequireRole(identity.Role.CanAdmin, h.removeGroupServiceAccountAdmin))
 	}
 
 	// Access policies on a group — the second-axis ABAC layer that

@@ -313,6 +313,7 @@ func (r *Resolver) principalFromToken(req *http.Request, lookup identity.TokenLo
 		return identity.Principal{
 			Kind:             identity.PrincipalServiceAccount,
 			ServiceAccountID: &said,
+			SAScope:          sa.Scope, // scoped → group-resolved visibility; org_wide → org reads
 			OrgID:            sa.OrgID,
 			// Cap the token below the service account's role when scoped.
 			Role:     sa.Role.Cap(identity.Role(lookup.ScopeRole)),

@@ -14,9 +14,14 @@ system's members", "what's spiking in the metrics?".
 - **One shared core** (`pkg/mcp`): the tool catalogue + JSON-RPC handling. Two
   transports embed it (below).
 - **Least-privilege auth.** Authenticate with a Sluicio Bearer token; use a
-  **viewer service-account token** (Settings → Service accounts) so the
+  **scoped viewer service-account token** (Settings → Service accounts) so the
   assistant can observe but never mutate. The token role cap (docs/api.md
-  phase C) enforces it even though every tool is already read-only.
+  phase C) enforces read-only even though every tool is already read-only,
+  and the account's *scope* bounds WHAT it reads: a scoped SA sees only the
+  services its group memberships grant — per-signal grants included — so an
+  assistant can be handed "team A's logs and metrics" and nothing else
+  (docs/service-account-scoping-design.md). MCP inherits all of this from
+  REST automatically; there is no MCP-side filtering to configure.
 - **Curated, read-only tools** — a small set keeps the model's tool selection
   accurate.
 

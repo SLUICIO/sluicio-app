@@ -183,11 +183,11 @@ func parseChannelIDs(raw []string) ([]uuid.UUID, error) {
 // is acceptable because alerts aren't a secrecy boundary the way raw
 // telemetry is — team scoping here is about focus/ownership.
 func (h *Handlers) alertVisibleGroups(r *http.Request) (map[uuid.UUID]bool, bool) {
-	p := middleware.Principal(r)
-	if p.UserID == nil || p.ReadRole().CanAdmin() {
+	ref, restricted := h.visibilityMember(r)
+	if !restricted {
 		return nil, false
 	}
-	groups, err := h.Identity.ListUserGroups(r.Context(), *p.UserID, p.OrgID)
+	groups, err := h.Identity.ListMemberGroups(r.Context(), ref, middleware.Principal(r).OrgID)
 	if err != nil {
 		h.Logger.Warn("alert team visibility lookup failed; allowing", "err", err)
 		return nil, false

@@ -109,7 +109,9 @@ export default function Developers() {
         </ul>
         <p className="muted" style={{ fontSize: 13 }}>
           Least privilege: cap a token at <strong>read-only</strong> (or editor) when minting it, and set an
-          expiry. A read-only token is exactly right for dashboards and the MCP server.
+          expiry. A read-only token is exactly right for dashboards and the MCP server. Service accounts are{" "}
+          <strong>scoped</strong> by default — they see nothing until you add them to a group, so a leaked token
+          exposes only what its groups grant. Reserve org-wide accounts for trusted platform automation.
         </p>
       </Section>
 
@@ -138,8 +140,9 @@ export default function Developers() {
         <p className="muted" style={{ fontSize: 13, marginTop: 0 }}>
           Sluicio exposes a read-only MCP server so Claude Desktop/Code, Cursor, and other MCP clients can answer
           questions about this cell from live data (“which integrations are unhealthy?”, “show the order-bus system”).
-          Pair it with a <strong>viewer service-account token</strong> so the assistant can observe but never change
-          anything.
+          Pair it with a <strong>scoped viewer service-account token</strong> so the assistant can observe but never
+          change anything — and, via the account's group memberships, only the services (and signals) you chose to
+          hand it.
         </p>
         <p className="muted" style={{ fontSize: 13 }}>
           Add a <strong>custom connector</strong> in your client pointing at this cell — nothing to install. It rides

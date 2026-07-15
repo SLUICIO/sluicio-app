@@ -2,7 +2,8 @@
 
 # Service-account scoping (design)
 
-Status: **draft for review** (2026-07-15). Companion to issue #2.
+Status: **accepted 2026-07-15, implemented** (see "Decisions" at the
+bottom). Companion to issue #2.
 
 Today a service-account (SA) token's **role gates writes**, but its **reads are
 org-wide**: SA principals carry no user id, and every visibility predicate
@@ -97,10 +98,32 @@ discourages them for integrations/agents.
   express per-signal or expressions, and drifts from the group engine. The
   group model already exists, is tested, and is what admins know.
 
-## Open questions
+## Decisions (Robert, 2026-07-15)
 
-1. Backfill default for existing SAs: `org-wide` (proposed — no breakage) vs
-   `scoped` (stricter, but silently breaks running automations on upgrade).
-2. Should the optional "forbid org-wide SAs" cell setting ship in v1 or wait?
-3. UI placement of the group-membership editor: SA blade only (proposed), or
-   also selectable from the group blade's Add-member picker.
+1. **Backfill:** moot — no installation has any service accounts, so there
+   is nothing to migrate. Every SA starts `scoped`; `org_wide` exists only
+   as the explicit opt-in. (The migration still defaults the column to
+   `scoped` so any row predating an upgrade would land on the safe side.)
+2. **Forbid-org-wide cell setting ships in v1**
+   (`rbac.forbid_org_wide_service_accounts`, on the System settings tab):
+   rejects creating/switching to `org_wide`, and existing org-wide SAs
+   resolve as scoped while enabled — defense in depth.
+3. **Group membership editable from both sides:** the SA row's Access
+   panel (scope switch + memberships) AND the group blade's Add-member
+   picker, where service accounts appear in their own labelled optgroup
+   with a machine marker so they can't be mistaken for people.
+
+## Implementation notes (v1, shipped with this doc)
+
+- Migration 0069: `service_accounts.scope`; `group_members` polymorphic
+  (nullable `user_id` + `service_account_id`, CHECK exactly-one-of, two
+  UNIQUE constraints replacing the PK so SSO's upsert keeps working).
+- Resolution: `identity.MemberRef` + `ResolveVisibleServiceSetMember` /
+  `ResolveAccessSetsMember` / `ListPoliciesForMember` — one resolver for
+  both principal kinds; user-keyed names remain as wrappers. Shares stay
+  user-only. The handler chokepoint is `visibilityMember`
+  (handlers.go), which also names the internal-caller case explicitly.
+- Scoped SAs with a write role manage at most what they can see
+  (Managed ⊆ Visible); org-wide SAs keep the old role-gated behaviour.
+- SA group role is accepted as viewer/editor in the UI; the SA's own
+  role remains the write-capability ceiling enforced by the mux gates.

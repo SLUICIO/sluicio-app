@@ -74,12 +74,34 @@ func (h *Handlers) listServiceAccounts(w http.ResponseWriter, r *http.Request) {
 	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"service_accounts": sas})
 }
 
+// saScopeFromBody normalises + validates the "scope" request field.
+// Empty defaults to scoped — least privilege is the default; org-wide
+// is the explicit, audited opt-in
+// (docs/service-account-scoping-design.md). Writes the error response
+// itself when invalid or when the cell forbids org-wide SAs.
+func (h *Handlers) saScopeFromBody(w http.ResponseWriter, r *http.Request, raw string) (identity.ServiceAccountScope, bool) {
+	scope := identity.ServiceAccountScope(strings.TrimSpace(raw))
+	if scope == "" {
+		scope = identity.SAScopeScoped
+	}
+	if !scope.IsValid() {
+		httpserver.WriteError(w, http.StatusBadRequest, "scope must be scoped or org_wide")
+		return "", false
+	}
+	if scope == identity.SAScopeOrgWide && h.forbidOrgWideServiceAccounts(r) {
+		httpserver.WriteError(w, http.StatusForbidden, "this cell disallows org-wide service accounts — grant access via group memberships instead")
+		return "", false
+	}
+	return scope, true
+}
+
 // createServiceAccount: POST /api/v1/settings/service-accounts  (admin)
 func (h *Handlers) createServiceAccount(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Name        string `json:"name"`
 		Description string `json:"description"`
 		Role        string `json:"role"`
+		Scope       string `json:"scope"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		httpserver.WriteError(w, http.StatusBadRequest, "invalid JSON body")
@@ -94,7 +116,11 @@ func (h *Handlers) createServiceAccount(w http.ResponseWriter, r *http.Request) 
 		httpserver.WriteError(w, http.StatusBadRequest, "role must be admin, editor, or viewer")
 		return
 	}
-	sa, err := h.Identity.CreateServiceAccount(r.Context(), middleware.OrgID(r), name, strings.TrimSpace(body.Description), identity.Role(body.Role), middleware.Principal(r).UserID)
+	scope, ok := h.saScopeFromBody(w, r, body.Scope)
+	if !ok {
+		return
+	}
+	sa, err := h.Identity.CreateServiceAccount(r.Context(), middleware.OrgID(r), name, strings.TrimSpace(body.Description), identity.Role(body.Role), scope, middleware.Principal(r).UserID)
 	if err != nil {
 		if isUniqueViolation(err) {
 			httpserver.WriteError(w, http.StatusConflict, "a service account with that name already exists")
@@ -108,7 +134,11 @@ func (h *Handlers) createServiceAccount(w http.ResponseWriter, r *http.Request) 
 		h.Logger.Warn("audit: admin-role service account created",
 			"name", sa.Name, "service_account_id", sa.ID, "by", auditActor(r), "org", sa.OrgID)
 	}
-	h.recordAudit(r, "service_account.created", "service_account", sa.ID.String(), map[string]any{"name": sa.Name, "role": string(sa.Role)})
+	if sa.Scope == identity.SAScopeOrgWide {
+		h.Logger.Warn("audit: org-wide service account created",
+			"name", sa.Name, "service_account_id", sa.ID, "by", auditActor(r), "org", sa.OrgID)
+	}
+	h.recordAudit(r, "service_account.created", "service_account", sa.ID.String(), map[string]any{"name": sa.Name, "role": string(sa.Role), "scope": string(sa.Scope)})
 	httpserver.WriteJSON(w, http.StatusCreated, sa)
 }
 
@@ -119,13 +149,15 @@ func (h *Handlers) updateServiceAccount(w http.ResponseWriter, r *http.Request) 
 		httpserver.WriteError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	if _, ok := h.orgServiceAccount(w, r, id); !ok {
+	existing, ok := h.orgServiceAccount(w, r, id)
+	if !ok {
 		return
 	}
 	var body struct {
 		Name        string `json:"name"`
 		Description string `json:"description"`
 		Role        string `json:"role"`
+		Scope       string `json:"scope"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		httpserver.WriteError(w, http.StatusBadRequest, "invalid JSON body")
@@ -140,7 +172,23 @@ func (h *Handlers) updateServiceAccount(w http.ResponseWriter, r *http.Request) 
 		httpserver.WriteError(w, http.StatusBadRequest, "role must be admin, editor, or viewer")
 		return
 	}
-	sa, err := h.Identity.UpdateServiceAccount(r.Context(), middleware.OrgID(r), id, name, strings.TrimSpace(body.Description), identity.Role(body.Role))
+	// PUT without a scope keeps the stored one (older clients don't
+	// send it). Only the TRANSITION to org_wide passes the forbid gate:
+	// keeping an already-org-wide scope through a rename is allowed —
+	// on a forbidding cell resolution treats it as scoped anyway.
+	scope := identity.ServiceAccountScope(strings.TrimSpace(body.Scope))
+	if scope == "" {
+		scope = existing.Scope
+	}
+	if !scope.IsValid() {
+		httpserver.WriteError(w, http.StatusBadRequest, "scope must be scoped or org_wide")
+		return
+	}
+	if scope == identity.SAScopeOrgWide && existing.Scope != identity.SAScopeOrgWide && h.forbidOrgWideServiceAccounts(r) {
+		httpserver.WriteError(w, http.StatusForbidden, "this cell disallows org-wide service accounts — grant access via group memberships instead")
+		return
+	}
+	sa, err := h.Identity.UpdateServiceAccount(r.Context(), middleware.OrgID(r), id, name, strings.TrimSpace(body.Description), identity.Role(body.Role), scope)
 	if err != nil {
 		if errors.Is(err, identity.ErrNotFound) {
 			httpserver.WriteError(w, http.StatusNotFound, "service account not found")
@@ -154,8 +202,37 @@ func (h *Handlers) updateServiceAccount(w http.ResponseWriter, r *http.Request) 
 		httpserver.WriteError(w, http.StatusInternalServerError, "update failed")
 		return
 	}
-	h.recordAudit(r, "service_account.updated", "service_account", sa.ID.String(), map[string]any{"name": sa.Name, "role": string(sa.Role)})
+	if sa.Scope == identity.SAScopeOrgWide && existing.Scope != identity.SAScopeOrgWide {
+		h.Logger.Warn("audit: service account widened to org-wide",
+			"name", sa.Name, "service_account_id", sa.ID, "by", auditActor(r), "org", sa.OrgID)
+	}
+	audit := map[string]any{"name": sa.Name, "role": string(sa.Role), "scope": string(sa.Scope)}
+	if sa.Scope != existing.Scope {
+		audit["previous_scope"] = string(existing.Scope)
+	}
+	h.recordAudit(r, "service_account.updated", "service_account", sa.ID.String(), audit)
 	httpserver.WriteJSON(w, http.StatusOK, sa)
+}
+
+// listServiceAccountGroups: GET /api/v1/settings/service-accounts/{id}/groups
+// The SA blade's membership editor — which groups this SA belongs to
+// (its visibility scope when scope=scoped).
+func (h *Handlers) listServiceAccountGroups(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	if _, ok := h.orgServiceAccount(w, r, id); !ok {
+		return
+	}
+	groups, err := h.Identity.ListGroupsForServiceAccount(r.Context(), id, middleware.OrgID(r))
+	if err != nil {
+		h.Logger.Error("list service-account groups failed", "err", err)
+		httpserver.WriteError(w, http.StatusInternalServerError, "query failed")
+		return
+	}
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"groups": groups})
 }
 
 // deleteServiceAccount: DELETE /api/v1/settings/service-accounts/{id}  (admin)

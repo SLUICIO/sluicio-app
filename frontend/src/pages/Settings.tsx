@@ -34,6 +34,7 @@ import type {
   PolicyExprMatch,
   RetentionResponse,
   ServiceAccount,
+  ServiceAccountGroup,
   ApiToken,
   SystemSettings,
 } from "../api/types";
@@ -892,9 +893,10 @@ function ServiceAccountsTab() {
   const [name, setName] = useState("");
   const [desc, setDesc] = useState("");
   const [role, setRole] = useState("editor");
+  const [scope, setScope] = useState("scoped");
   const [busy, setBusy] = useState(false);
   const [minted, setMinted] = useState<{ key: string; sa: string } | null>(null);
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [open, setOpen] = useState<{ id: string; panel: "tokens" | "access" } | null>(null);
 
   const refresh = () =>
     api.listServiceAccounts().then((r) => setSas(r.service_accounts)).catch((e) => setError(String((e as Error).message ?? e)));
@@ -907,7 +909,7 @@ function ServiceAccountsTab() {
     setBusy(true);
     setError(null);
     try {
-      await api.createServiceAccount({ name: name.trim(), description: desc.trim(), role });
+      await api.createServiceAccount({ name: name.trim(), description: desc.trim(), role, scope });
       setName("");
       setDesc("");
       refresh();
@@ -922,7 +924,7 @@ function ServiceAccountsTab() {
     if (!confirm(`Delete service account "${sa.name}"? Its tokens are revoked immediately.`)) return;
     try {
       await api.deleteServiceAccount(sa.id);
-      if (openId === sa.id) setOpenId(null);
+      if (open?.id === sa.id) setOpen(null);
       refresh();
     } catch (e) {
       setError(String((e as Error).message ?? e));
@@ -970,6 +972,13 @@ function ServiceAccountsTab() {
               <option value="admin">admin</option>
             </select>
           </label>
+          <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12 }}>
+            Visibility
+            <select className="toolbar__select" value={scope} onChange={(e) => setScope(e.target.value)} title="What this account's tokens can read">
+              <option value="scoped">Scoped (via groups)</option>
+              <option value="org_wide">Org-wide read</option>
+            </select>
+          </label>
           <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, flex: 1, minWidth: 200 }}>
             Description
             <input className="search__input" placeholder="optional" value={desc} onChange={(e) => setDesc(e.target.value)} />
@@ -980,6 +989,19 @@ function ServiceAccountsTab() {
               ⚠ An <strong>admin</strong> service account can do anything in the org — manage members, tokens, and
               settings. Its tokens are durable admin credentials; prefer the least role the automation needs
               (read-only for dashboards / MCP).
+            </div>
+          )}
+          {scope === "scoped" && role !== "admin" && (
+            <div className="muted" style={{ flexBasis: "100%", fontSize: 12 }}>
+              A scoped account sees <strong>nothing</strong> until you add it to a group — its group memberships
+              define exactly which services its tokens can read (open “Access” after creating).
+            </div>
+          )}
+          {scope === "org_wide" && role !== "admin" && (
+            <div style={{ flexBasis: "100%", fontSize: 12, color: "var(--warn)" }}>
+              ⚠ An <strong>org-wide</strong> account's tokens read every service, log, trace and message in the org
+              — hand one to an external tool or AI assistant and it sees everything. Prefer scoped + group
+              memberships.
             </div>
           )}
         </div>
@@ -994,22 +1016,47 @@ function ServiceAccountsTab() {
               <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                 <span style={{ fontWeight: 600 }}>{sa.name}</span>
                 <span className="badge-brand">{sa.role}</span>
+                {sa.scope === "org_wide" ? (
+                  <span
+                    className="badge"
+                    style={{ background: "color-mix(in srgb, var(--warn) 18%, transparent)", color: "var(--warn)", borderColor: "var(--warn)" }}
+                    title="This account's tokens read every service in the org"
+                  >
+                    org-wide read
+                  </span>
+                ) : (
+                  <span className="badge" title="Sees only what its group memberships grant">scoped</span>
+                )}
                 {sa.description && <span className="muted" style={{ fontSize: 12 }}>{sa.description}</span>}
                 {isAdmin && (
                   <span style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-                    <button type="button" className="btn btn--sm" onClick={() => setOpenId(openId === sa.id ? null : sa.id)}>
-                      {openId === sa.id ? "Hide tokens" : "Tokens"}
+                    <button
+                      type="button"
+                      className="btn btn--sm"
+                      onClick={() => setOpen(open?.id === sa.id && open.panel === "access" ? null : { id: sa.id, panel: "access" })}
+                    >
+                      {open?.id === sa.id && open.panel === "access" ? "Hide access" : "Access"}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn--sm"
+                      onClick={() => setOpen(open?.id === sa.id && open.panel === "tokens" ? null : { id: sa.id, panel: "tokens" })}
+                    >
+                      {open?.id === sa.id && open.panel === "tokens" ? "Hide tokens" : "Tokens"}
                     </button>
                     <button type="button" className="btn btn--sm btn--danger" onClick={() => remove(sa)}>Delete</button>
                   </span>
                 )}
               </div>
-              {openId === sa.id && (
+              {open?.id === sa.id && open.panel === "tokens" && (
                 <ServiceAccountTokens
                   sa={sa}
                   onMinted={(key) => setMinted({ key, sa: sa.name })}
                   onError={(m) => setError(m)}
                 />
+              )}
+              {open?.id === sa.id && open.panel === "access" && (
+                <ServiceAccountAccess sa={sa} onChanged={refresh} onError={(m) => setError(m)} />
               )}
             </div>
           ))}
@@ -1111,6 +1158,147 @@ function ServiceAccountTokens({ sa, onMinted, onError }: { sa: ServiceAccount; o
           </div>
         ))
       )}
+    </div>
+  );
+}
+
+// ServiceAccountAccess — the visibility editor for one service account:
+// its scope (scoped vs org-wide) and, for scoped accounts, the group
+// memberships that define what its tokens can see
+// (docs/service-account-scoping-design.md).
+function ServiceAccountAccess({ sa, onChanged, onError }: { sa: ServiceAccount; onChanged: () => void; onError: (m: string) => void }) {
+  const [groups, setGroups] = useState<ServiceAccountGroup[] | null>(null);
+  const [allGroups, setAllGroups] = useState<Group[]>([]);
+  const [addId, setAddId] = useState("");
+  const [addRole, setAddRole] = useState<AuthRole>("viewer");
+  const [busy, setBusy] = useState(false);
+
+  const refresh = () => {
+    Promise.all([api.listServiceAccountGroups(sa.id), api.listGroups()])
+      .then(([sg, g]) => {
+        setGroups(sg.groups);
+        setAllGroups(g.groups);
+      })
+      .catch((e) => onError(String((e as Error).message ?? e)));
+  };
+  useEffect(() => {
+    refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sa.id]);
+
+  const setScope = async (scope: "scoped" | "org_wide") => {
+    if (scope === sa.scope) return;
+    if (
+      scope === "org_wide" &&
+      !confirm(`Make "${sa.name}" org-wide? Its tokens will read EVERY service, log, trace and message in the org.`)
+    )
+      return;
+    setBusy(true);
+    try {
+      await api.updateServiceAccount(sa.id, { name: sa.name, description: sa.description, role: sa.role, scope });
+      onChanged();
+    } catch (e) {
+      onError(String((e as Error).message ?? e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const inGroups = new Set((groups ?? []).map((g) => g.group.id));
+  const addable = allGroups.filter((g) => !inGroups.has(g.id));
+
+  const add = async () => {
+    if (!addId) return;
+    setBusy(true);
+    try {
+      await api.addGroupMember(addId, { service_account_id: sa.id, role: addRole });
+      setAddId("");
+      refresh();
+    } catch (e) {
+      onError(String((e as Error).message ?? e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={{ marginLeft: 8, marginTop: 8, paddingLeft: 12, borderLeft: "2px solid var(--border)", display: "flex", flexDirection: "column", gap: 10, fontSize: 12.5 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <label style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
+          <input type="radio" name={`sa-scope-${sa.id}`} checked={sa.scope !== "org_wide"} disabled={busy} onChange={() => setScope("scoped")} />
+          <span>
+            <strong>Scoped</strong> (recommended) — tokens see only what this account's group memberships grant,
+            exactly like a user. No groups → sees nothing.
+          </span>
+        </label>
+        <label style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
+          <input type="radio" name={`sa-scope-${sa.id}`} checked={sa.scope === "org_wide"} disabled={busy} onChange={() => setScope("org_wide")} />
+          <span>
+            <strong style={{ color: "var(--warn)" }}>Org-wide read</strong> — tokens read every service in the org.
+            For trusted platform automation only.
+          </span>
+        </label>
+      </div>
+
+      <div>
+        <div style={{ fontWeight: 600, marginBottom: 4 }}>
+          Group memberships
+          {sa.scope === "org_wide" && (
+            <span className="muted" style={{ fontWeight: 400, marginLeft: 8 }}>
+              (kept, but inactive while the account is org-wide)
+            </span>
+          )}
+        </div>
+        {groups === null ? (
+          <div className="muted">Loading…</div>
+        ) : groups.length === 0 ? (
+          <div className="muted">
+            No groups yet{sa.scope !== "org_wide" ? " — this account currently sees nothing" : ""}.
+          </div>
+        ) : (
+          groups.map((g) => (
+            <div key={g.group.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "3px 0" }}>
+              <span>{g.group.name}</span>
+              <span className="badge-brand">{g.role}</span>
+              <button
+                type="button"
+                className="btn btn--link"
+                style={{ color: "var(--err-ink, #ef4444)", marginLeft: "auto" }}
+                disabled={busy}
+                onClick={async () => {
+                  if (!confirm(`Remove "${sa.name}" from "${g.group.name}"?`)) return;
+                  setBusy(true);
+                  try {
+                    await api.removeGroupServiceAccount(g.group.id, sa.id);
+                    refresh();
+                  } catch (e) {
+                    onError(String((e as Error).message ?? e));
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                Remove
+              </button>
+            </div>
+          ))
+        )}
+        {addable.length > 0 && (
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6 }}>
+            <select className="toolbar__select" value={addId} onChange={(e) => setAddId(e.target.value)}>
+              <option value="">Add to group…</option>
+              {addable.map((g) => (
+                <option key={g.id} value={g.id}>{g.name}</option>
+              ))}
+            </select>
+            <select className="toolbar__select" value={addRole} onChange={(e) => setAddRole(e.target.value as AuthRole)} title="Role within the group">
+              <option value="viewer">viewer</option>
+              <option value="editor">editor</option>
+            </select>
+            <button type="button" className="btn btn--sm" disabled={busy || !addId} onClick={add}>Add</button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -1574,14 +1762,23 @@ function CreateGroupForm({ onClose, onCreated }: { onClose: () => void; onCreate
 function GroupDetail({ group, isAdmin, onChanged, onGone }: { group: Group; isAdmin: boolean; onChanged: () => void; onGone: () => void }) {
   const [members, setMembers] = useState<GroupMember[] | null>(null);
   const [orgMembers, setOrgMembers] = useState<MemberRow[] | null>(null);
+  const [orgSAs, setOrgSAs] = useState<ServiceAccount[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
 
   const refresh = () => {
-    Promise.all([api.listGroupMembers(group.id), api.listMembers()])
-      .then(([gm, om]) => {
+    Promise.all([
+      api.listGroupMembers(group.id),
+      api.listMembers(),
+      // Service accounts join groups too (that's how scoped SAs gain
+      // visibility). The SA list is admin-only; non-admins still see SA
+      // members rendered from the membership list itself.
+      isAdmin ? api.listServiceAccounts().then((r) => r.service_accounts).catch(() => []) : Promise.resolve([]),
+    ])
+      .then(([gm, om, sas]) => {
         setMembers(gm.members);
         setOrgMembers(om.members);
+        setOrgSAs(sas);
       })
       .catch((e) => {
         const msg = String((e as Error).message ?? e);
@@ -1602,9 +1799,11 @@ function GroupDetail({ group, isAdmin, onChanged, onGone }: { group: Group; isAd
     return <div className="alert alert--error">Failed to load: {error}</div>;
   if (!members || !orgMembers) return <div className="placeholder">Loading members…</div>;
 
-  // Org members not already in this group — candidates to add.
-  const inGroup = new Set(members.map((m) => m.user.id));
+  // Org members / service accounts not already in this group — candidates to add.
+  const inGroup = new Set(members.filter((m) => m.user).map((m) => m.user!.id));
+  const saInGroup = new Set(members.filter((m) => m.service_account).map((m) => m.service_account!.id));
   const addable = orgMembers.filter((m) => !inGroup.has(m.user.id));
+  const addableSAs = orgSAs.filter((sa) => !saInGroup.has(sa.id));
 
   // Rendered inside an EditDrawer (the blade owns the frame + title), so
   // no card chrome and no duplicated name/slug here.
@@ -1621,7 +1820,7 @@ function GroupDetail({ group, isAdmin, onChanged, onGone }: { group: Group; isAd
             type="button"
             className="btn btn--primary"
             onClick={() => setAdding(true)}
-            disabled={addable.length === 0 || adding}
+            disabled={(addable.length === 0 && addableSAs.length === 0) || adding}
           >
             + Add member
           </button>
@@ -1637,6 +1836,7 @@ function GroupDetail({ group, isAdmin, onChanged, onGone }: { group: Group; isAd
           <AddGroupMemberForm
             groupId={group.id}
             candidates={addable}
+            saCandidates={addableSAs}
             onClose={() => setAdding(false)}
             onAdded={() => {
               setAdding(false);
@@ -1660,55 +1860,75 @@ function GroupDetail({ group, isAdmin, onChanged, onGone }: { group: Group; isAd
             </tr>
           </thead>
           <tbody>
-            {members.map((m) => (
-              <tr key={m.user.id}>
-                <td className="mono">{m.user.email}</td>
-                <td>
-                  {isAdmin ? (
-                    <select
-                      className="toolbar__select"
-                      value={m.role}
-                      onChange={async (e) => {
-                        try {
-                          await api.updateGroupMemberRole(group.id, m.user.id, e.target.value as AuthRole);
-                          refresh();
-                        } catch (err) {
-                          alert(String((err as Error).message ?? err));
-                        }
-                      }}
-                    >
-                      <option value="admin">admin</option>
-                      <option value="editor">editor</option>
-                      <option value="viewer">viewer</option>
-                    </select>
-                  ) : (
-                    <span className="badge">{m.role}</span>
-                  )}
-                </td>
-                <td>{new Date(m.joined_at).toLocaleDateString()}</td>
-                <td className="num">
-                  {isAdmin && (
-                    <button
-                      type="button"
-                      className="btn btn--link"
-                      style={{ color: "var(--err-ink, #ef4444)" }}
-                      onClick={async () => {
-                        if (!confirm(`Remove ${m.user.email} from "${group.name}"?`)) return;
-                        try {
-                          await api.removeGroupMember(group.id, m.user.id);
-                          refresh();
-                          onChanged();
-                        } catch (e) {
-                          alert(String((e as Error).message ?? e));
-                        }
-                      }}
-                    >
-                      Remove
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
+            {members.map((m) => {
+              const isSA = !!m.service_account;
+              const memberId = isSA ? m.service_account!.id : m.user!.id;
+              const label = isSA ? m.service_account!.name : m.user!.email;
+              return (
+                <tr key={memberId}>
+                  <td className="mono">
+                    {label}
+                    {isSA && (
+                      <span className="badge" style={{ marginLeft: 8 }} title="Machine identity — this group defines what the service account can see">
+                        service account
+                      </span>
+                    )}
+                  </td>
+                  <td>
+                    {isAdmin ? (
+                      <select
+                        className="toolbar__select"
+                        value={m.role}
+                        onChange={async (e) => {
+                          try {
+                            if (isSA) {
+                              await api.updateGroupServiceAccountRole(group.id, memberId, e.target.value as AuthRole);
+                            } else {
+                              await api.updateGroupMemberRole(group.id, memberId, e.target.value as AuthRole);
+                            }
+                            refresh();
+                          } catch (err) {
+                            alert(String((err as Error).message ?? err));
+                          }
+                        }}
+                      >
+                        <option value="admin">admin</option>
+                        <option value="editor">editor</option>
+                        <option value="viewer">viewer</option>
+                      </select>
+                    ) : (
+                      <span className="badge">{m.role}</span>
+                    )}
+                  </td>
+                  <td>{new Date(m.joined_at).toLocaleDateString()}</td>
+                  <td className="num">
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        className="btn btn--link"
+                        style={{ color: "var(--err-ink, #ef4444)" }}
+                        onClick={async () => {
+                          if (!confirm(`Remove ${label} from "${group.name}"?`)) return;
+                          try {
+                            if (isSA) {
+                              await api.removeGroupServiceAccount(group.id, memberId);
+                            } else {
+                              await api.removeGroupMember(group.id, memberId);
+                            }
+                            refresh();
+                            onChanged();
+                          } catch (e) {
+                            alert(String((e as Error).message ?? e));
+                          }
+                        }}
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       )}
@@ -2381,24 +2601,33 @@ function CreatePolicyForm({
 function AddGroupMemberForm({
   groupId,
   candidates,
+  saCandidates,
   onClose,
   onAdded,
 }: {
   groupId: string;
   candidates: MemberRow[];
+  saCandidates: ServiceAccount[];
   onClose: () => void;
   onAdded: () => void;
 }) {
-  const [userID, setUserID] = useState(candidates[0]?.user.id ?? "");
+  // One picker for both principal kinds; values are prefixed so a user
+  // id can never be mistaken for a service-account id. The optgroup
+  // labels + the ⚙ marker keep service accounts visibly distinct.
+  const [memberKey, setMemberKey] = useState(
+    candidates[0] ? `u:${candidates[0].user.id}` : saCandidates[0] ? `sa:${saCandidates[0].id}` : "",
+  );
   const [role, setRole] = useState<AuthRole>("editor");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const isSA = memberKey.startsWith("sa:");
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true);
     setError(null);
     try {
-      await api.addGroupMember(groupId, { user_id: userID, role });
+      const id = memberKey.slice(memberKey.indexOf(":") + 1);
+      await api.addGroupMember(groupId, isSA ? { service_account_id: id, role } : { user_id: id, role });
       onAdded();
     } catch (e) {
       setError(String((e as Error).message ?? e));
@@ -2413,17 +2642,34 @@ function AddGroupMemberForm({
           Org member
           <select
             className="toolbar__select"
-            value={userID}
-            onChange={(e) => setUserID(e.target.value)}
+            value={memberKey}
+            onChange={(e) => setMemberKey(e.target.value)}
             required
           >
-            {candidates.map((m) => (
-              <option key={m.user.id} value={m.user.id}>
-                {m.user.email}
-              </option>
-            ))}
+            {candidates.length > 0 && (
+              <optgroup label="Members">
+                {candidates.map((m) => (
+                  <option key={m.user.id} value={`u:${m.user.id}`}>
+                    {m.user.email}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            {saCandidates.length > 0 && (
+              <optgroup label="Service accounts (machine identities)">
+                {saCandidates.map((sa) => (
+                  <option key={sa.id} value={`sa:${sa.id}`}>
+                    ⚙ {sa.name} — service account
+                  </option>
+                ))}
+              </optgroup>
+            )}
           </select>
-          <span className="form__hint">Only org members not already in this group are listed.</span>
+          <span className="form__hint">
+            {isSA
+              ? "A service account is a machine identity — membership here defines what its tokens can see."
+              : "Only org members not already in this group are listed."}
+          </span>
         </label>
         <label className="form__label">
           Role in group
@@ -2443,7 +2689,7 @@ function AddGroupMemberForm({
         <button type="button" className="btn" onClick={onClose} disabled={busy}>
           Cancel
         </button>
-        <button type="submit" className="btn btn--primary" disabled={busy || !userID}>
+        <button type="submit" className="btn btn--primary" disabled={busy || !memberKey}>
           {busy ? "Adding…" : "Add to group"}
         </button>
       </div>
@@ -2741,6 +2987,7 @@ function SystemSettingsTab() {
   const [env, setEnv] = useState("");
   const [ingest, setIngest] = useState("");
   const [map5xx, setMap5xx] = useState(false);
+  const [forbidOrgWideSAs, setForbidOrgWideSAs] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState(0);
@@ -2753,6 +3000,7 @@ function SystemSettingsTab() {
         setEnv(d.environment);
         setIngest(d.ingest_base_url ?? "");
         setMap5xx(Boolean(d.map_http_5xx_to_error));
+        setForbidOrgWideSAs(Boolean(d.forbid_org_wide_service_accounts));
       })
       .catch((e) => setError(String((e as Error).message ?? e)));
   }, []);
@@ -2764,7 +3012,8 @@ function SystemSettingsTab() {
   const envDirty = env.trim() !== data.environment && env.trim() !== "";
   const ingestDirty = !envManaged && ingest.trim() !== (data.ingest_base_url ?? "");
   const map5xxDirty = map5xx !== Boolean(data.map_http_5xx_to_error);
-  const dirty = envDirty || ingestDirty || map5xxDirty;
+  const forbidSAsDirty = forbidOrgWideSAs !== Boolean(data.forbid_org_wide_service_accounts);
+  const dirty = envDirty || ingestDirty || map5xxDirty || forbidSAsDirty;
 
   const save = async (e: FormEvent) => {
     e.preventDefault();
@@ -2779,11 +3028,13 @@ function SystemSettingsTab() {
         // Never send an env-managed ingest URL — the server refuses it.
         ...(envManaged ? {} : { ingest_base_url: ingest.trim() }),
         map_http_5xx_to_error: map5xx,
+        forbid_org_wide_service_accounts: forbidOrgWideSAs,
       });
       setData(r);
       setEnv(r.environment);
       setIngest(r.ingest_base_url);
       setMap5xx(Boolean(r.map_http_5xx_to_error));
+      setForbidOrgWideSAs(Boolean(r.forbid_org_wide_service_accounts));
       setSavedAt(Date.now());
     } catch (e) {
       setError(String((e as Error).message ?? e));
@@ -2860,6 +3111,25 @@ function SystemSettingsTab() {
               stores such spans as error spans at ingest (stamped{" "}
               <code>sluicio.status_mapped</code>). Applies to newly ingested
               spans only; takes effect within ~30 seconds.
+            </span>
+          </span>
+        </label>
+        <label className="form__label" style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}>
+          <input
+            type="checkbox"
+            checked={forbidOrgWideSAs}
+            disabled={!isAdmin}
+            onChange={(e) => setForbidOrgWideSAs(e.target.checked)}
+            style={{ marginTop: 3 }}
+          />
+          <span>
+            Disallow org-wide service accounts
+            <span className="form__hint" style={{ display: "block", fontSize: 12, fontWeight: 400 }}>
+              Compliance posture: every service account must be <strong>scoped</strong> —
+              its tokens see only what its group memberships grant, exactly like a
+              user. Creating or switching an account to org-wide read is rejected,
+              and any existing org-wide account resolves as scoped while this is
+              enabled. Admin-role accounts are unaffected (admin is admin).
             </span>
           </span>
         </label>
@@ -3365,8 +3635,10 @@ function AuditLogTab() {
 
   return (
     <div>
+      {/* The tab's page header already titles the screen "Audit log" —
+          a second in-card heading duplicated it (and broke strict-mode
+          heading locators). Keep just the ENT badge row. */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Audit log</h2>
         <EnterpriseBadge />
       </div>
 

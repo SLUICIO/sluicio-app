@@ -369,6 +369,7 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 - POST /api/v1/settings/service-accounts — Create setting
 - PUT /api/v1/settings/service-accounts/{id} — Update setting
 - DELETE /api/v1/settings/service-accounts/{id} — Delete setting
+- GET /api/v1/settings/service-accounts/{id}/groups — List settings
 - GET /api/v1/settings/service-accounts/{id}/tokens — List settings
 - POST /api/v1/settings/service-accounts/{id}/tokens — Create setting
 - DELETE /api/v1/settings/service-accounts/{id}/tokens/{tid} — Delete setting
@@ -386,6 +387,8 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 - POST /api/v1/settings/groups/{id}/members — Create setting
 - PATCH /api/v1/settings/groups/{id}/members/{user_id} — Update setting
 - DELETE /api/v1/settings/groups/{id}/members/{user_id} — Delete setting
+- PATCH /api/v1/settings/groups/{id}/service-accounts/{sa_id} — Update setting
+- DELETE /api/v1/settings/groups/{id}/service-accounts/{sa_id} — Delete setting
 - GET /api/v1/settings/groups/{id}/policies — List settings
 - POST /api/v1/settings/groups/{id}/policies — Create setting
 - DELETE /api/v1/settings/groups/{id}/policies/{policy_id} — Delete setting

@@ -21,15 +21,22 @@ import (
 	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/identity"
 )
 
-// callerGroupRoles returns the caller's group_id → role map (empty for
-// service accounts / no auth).
+// callerGroupRoles returns the caller's group_id → role map. Users and
+// service accounts both resolve through their group memberships
+// (docs/service-account-scoping-design.md); internal callers get none.
 func (h *Handlers) callerGroupRoles(r *http.Request) map[uuid.UUID]identity.Role {
 	p := middleware.Principal(r)
 	out := map[uuid.UUID]identity.Role{}
-	if p.UserID == nil {
+	var ref identity.MemberRef
+	switch {
+	case p.UserID != nil:
+		ref = identity.UserRef(*p.UserID)
+	case p.Kind == identity.PrincipalServiceAccount && p.ServiceAccountID != nil:
+		ref = identity.ServiceAccountRef(*p.ServiceAccountID)
+	default:
 		return out
 	}
-	groups, err := h.Identity.ListUserGroups(r.Context(), *p.UserID, p.OrgID)
+	groups, err := h.Identity.ListMemberGroups(r.Context(), ref, p.OrgID)
 	if err != nil {
 		h.Logger.Warn("caller group roles lookup failed", "err", err)
 		return out

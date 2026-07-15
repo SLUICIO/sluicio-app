@@ -126,7 +126,8 @@ func (h *Handlers) notifyShare(sharer, resourceKind, resourceName string, grante
 				if i >= emailCap {
 					break
 				}
-				if m.User.Email != "" {
+				// SA members have no mailbox — notify user members only.
+				if m.User != nil && m.User.Email != "" {
 					to = append(to, m.User.Email)
 				}
 			}

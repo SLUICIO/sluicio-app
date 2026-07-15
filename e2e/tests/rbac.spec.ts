@@ -542,13 +542,20 @@ test.describe("RBAC — per-signal visibility (EE)", () => {
   const SIG_EMAIL = "e2e-signal-viewer@sluicio.local";
   const SIG_PASSWORD = "e2e-signal-viewer-pw1";
   const SIG_GROUP = "e2e-signal-scope";
-  const SIG_SERVICE = "sluicio-otel-collector";
+  // Resolved in beforeEach: a catalog service that actually HAS logs on
+  // this cell. Hardcoding a name here is a trap — a previous pin to
+  // "sluicio-otel-collector" only passed on stacks that happened to
+  // receive a local collector's self-telemetry.
+  let SIG_SERVICE = "";
 
   test.beforeEach(async ({ page }) => {
     await logIn(page); // admin
     const lic = await (await page.request.get("/api/v1/license")).json();
     test.skip(!lic?.features?.rbac_advanced, "cell has no rbac_advanced entitlement");
     const admin = page.request;
+    const logs = (await (await admin.get("/api/v1/logs?range=30d&limit=50")).json()).logs ?? [];
+    SIG_SERVICE = (logs.find((l: { service_name?: string }) => l.service_name)?.service_name as string) ?? "";
+    test.skip(!SIG_SERVICE, "cell has no logs — seed telemetry first");
     const list = await (await admin.get("/api/v1/settings/groups")).json();
     for (const g of list.groups ?? []) {
       if (g.slug === SIG_GROUP) await admin.delete(`/api/v1/settings/groups/${g.id}`);
@@ -650,10 +657,19 @@ test.describe("RBAC — dependency graph hides invisible neighbors", () => {
     const members = (await (await admin.get("/api/v1/settings/members")).json()).members ?? [];
     const uid = members.find((m: { user: { email: string } }) => m.user.email === NB_EMAIL).user.id;
     await admin.post(`/api/v1/settings/groups/${gid}/members`, { data: { user_id: uid, role: "viewer" } });
-    const pol = await admin.post(`/api/v1/settings/groups/${gid}/policies`, {
-      data: { kind: "service", target_service_name: NB_SERVICE },
-    });
-    if (!pol.ok() && pol.status() !== 409) throw new Error(`policy: ${pol.status()}`);
+    // Idempotent: the policies API happily stores exact duplicates (the
+    // resolver unions, so it's harmless there) — but stacking one per
+    // run litters the org, so only add when absent.
+    const existing = (await (await admin.get(`/api/v1/settings/groups/${gid}/policies`)).json()).policies ?? [];
+    const already = existing.some(
+      (p: { kind: string; target_service_name?: string }) => p.kind === "service" && p.target_service_name === NB_SERVICE,
+    );
+    if (!already) {
+      const pol = await admin.post(`/api/v1/settings/groups/${gid}/policies`, {
+        data: { kind: "service", target_service_name: NB_SERVICE },
+      });
+      if (!pol.ok() && pol.status() !== 409) throw new Error(`policy: ${pol.status()}`);
+    }
 
     const viewer = await (await browser.newContext()).newPage();
     await logIn(viewer, NB_EMAIL, NB_PASSWORD);
@@ -863,46 +879,193 @@ test.describe("RBAC — share grantee must be an org member (EE)", () => {
   });
 });
 
-// ── Service-account tokens ride the same RBAC ───────────────────────────
-test.describe("RBAC — service-account token", () => {
-  test("viewer service account: org-wide read (pinned semantics), writes refused", async ({ page, request }) => {
+// ── Service-account scoping: SAs are group members ──────────────────────
+// docs/service-account-scoping-design.md — the resolution of issue #2.
+// Scoped (the default) means deny-by-default with visibility resolved
+// from group memberships exactly like a user's; org_wide is the
+// explicit, audited opt-in to the old org-wide read.
+test.describe("RBAC — service-account scoping", () => {
+  test("scoped viewer SA: deny-by-default, group membership grants exactly its scope; writes refused", async ({ page, request }) => {
     await logIn(page);
     const admin = page.request;
+    const stamp = Date.now().toString(36);
+
+    // Pick a real service for the group's grant.
+    const catalog = await (await admin.get("/api/v1/services?range=24h")).json();
+    const svc = (catalog.services ?? [])[0]?.service_name as string | undefined;
+    expect(svc).toBeTruthy();
+
     const sa = await (
       await admin.post("/api/v1/settings/service-accounts", {
-        data: { name: `e2e-sa-viewer-${Date.now()}`, description: "rbac gap test", role: "viewer" },
+        data: { name: `e2e-sa-scoped-${stamp}`, description: "rbac scoping test", role: "viewer" },
       })
     ).json();
-    const saID = sa.id ?? sa.account?.id;
+    const saID = sa.id;
+    expect(sa.scope).toBe("scoped"); // least privilege is the default
     const minted = await (
       await admin.post(`/api/v1/settings/service-accounts/${saID}/tokens`, { data: { name: "t1" } })
     ).json();
     const token = minted.plaintext; // secret returned exactly once
     expect(token).toBeTruthy();
-
     const auth = { Authorization: `Bearer ${token}` };
-    // PINNED CURRENT SEMANTICS: service-account principals carry no user
-    // id, so the policy layer's deny-by-default never engages — a viewer
-    // SA reads ORG-WIDE (unlike a group-less viewer USER, who sees
-    // nothing). Role gates still hold for writes/admin below. Whether
-    // SAs should be policy-scopable is an open design question — see the
-    // "service-account visibility" issue; flip this assertion with that
-    // decision.
-    const svcs = await (await request.get("/api/v1/services?range=24h", { headers: auth })).json();
-    expect((svcs.services ?? []).length).toBeGreaterThan(0);
-    // Writes refused outright.
-    expect(
-      (
-        await request.post("/api/v1/integrations", {
-          headers: auth,
-          data: { slug: "e2e-sa-nope", name: "nope", matchers: [] },
-        })
-      ).status(),
-    ).toBe(403);
-    // Org administration refused.
-    expect((await request.get("/api/v1/settings/members", { headers: auth })).status()).toBe(403);
 
-    await admin.delete(`/api/v1/settings/service-accounts/${saID}`);
+    let integID = "";
+    let gid = "";
+    try {
+      // Group-less scoped SA sees NOTHING — same deny-by-default as a
+      // group-less viewer user.
+      const before = await (await request.get("/api/v1/services?range=24h", { headers: auth })).json();
+      expect((before.services ?? []).length).toBe(0);
+
+      // Grant via the group machinery (CE attach): integration matching
+      // one service, group attached, SA joins the group as viewer.
+      const mk = await admin.post("/api/v1/integrations", {
+        data: { slug: `e2e-sa-integ-${stamp}`, name: "E2E SA Integ", matchers: [{ operator: "equals", value: svc }] },
+      });
+      integID = (await mk.json()).integration.id;
+      gid = (
+        await (
+          await admin.post("/api/v1/settings/groups", {
+            data: { slug: `e2e-sa-group-${stamp}`, name: "E2E SA Group" },
+          })
+        ).json()
+      ).id;
+      expect((await admin.put(`/api/v1/integrations/${integID}/groups`, { data: { group_ids: [gid] } })).ok()).toBeTruthy();
+      expect(
+        (
+          await admin.post(`/api/v1/settings/groups/${gid}/members`, {
+            data: { service_account_id: saID, role: "viewer" },
+          })
+        ).ok(),
+      ).toBeTruthy();
+
+      // Now the SA sees exactly the granted service — nothing else.
+      const after = await (await request.get("/api/v1/services?range=24h", { headers: auth })).json();
+      const names = (after.services ?? []).map((s: { service_name: string }) => s.service_name);
+      expect(names).toEqual([svc]);
+
+      // Role gates still hold: writes and org administration refused.
+      expect(
+        (
+          await request.post("/api/v1/integrations", {
+            headers: auth,
+            data: { slug: "e2e-sa-nope", name: "nope", matchers: [] },
+          })
+        ).status(),
+      ).toBe(403);
+      expect((await request.get("/api/v1/settings/members", { headers: auth })).status()).toBe(403);
+    } finally {
+      if (integID) await admin.delete(`/api/v1/integrations/${integID}`);
+      if (gid) await admin.delete(`/api/v1/settings/groups/${gid}`);
+      await admin.delete(`/api/v1/settings/service-accounts/${saID}`);
+    }
+  });
+
+  test("org-wide SA is an explicit opt-in and reads the whole org", async ({ page, request }) => {
+    await logIn(page);
+    const admin = page.request;
+    const adminCount = ((await (await admin.get("/api/v1/services?range=24h")).json()).services ?? []).length;
+    expect(adminCount).toBeGreaterThan(0);
+
+    const sa = await (
+      await admin.post("/api/v1/settings/service-accounts", {
+        data: { name: `e2e-sa-orgwide-${Date.now().toString(36)}`, role: "viewer", scope: "org_wide" },
+      })
+    ).json();
+    try {
+      expect(sa.scope).toBe("org_wide");
+      const token = (
+        await (await admin.post(`/api/v1/settings/service-accounts/${sa.id}/tokens`, { data: { name: "t1" } })).json()
+      ).plaintext;
+      const view = await (
+        await request.get("/api/v1/services?range=24h", { headers: { Authorization: `Bearer ${token}` } })
+      ).json();
+      expect((view.services ?? []).length).toBe(adminCount);
+    } finally {
+      await admin.delete(`/api/v1/settings/service-accounts/${sa.id}`);
+    }
+  });
+
+  test("settings UI: scope badge, Access panel, and the group picker's labelled SA section", async ({ page }) => {
+    await logIn(page);
+    const admin = page.request;
+    const stamp2 = Date.now().toString(36);
+    const saName = `e2e-sa-ui-${stamp2}`;
+    const groupName = `E2E SA UI Group ${stamp2}`;
+    const sa = await (
+      await admin.post("/api/v1/settings/service-accounts", { data: { name: saName, role: "viewer" } })
+    ).json();
+    const gid = (
+      await (
+        await admin.post("/api/v1/settings/groups", { data: { slug: `e2e-sa-ui-${stamp2}`, name: groupName } })
+      ).json()
+    ).id;
+
+    try {
+      // SA list: the scoped badge is on the row; the Access panel lists
+      // the (empty) memberships and offers the org-wide switch.
+      await page.goto("/settings?tab=service-accounts");
+      const row = page.locator("div").filter({ hasText: saName }).last();
+      await expect(page.getByText(saName)).toBeVisible();
+      await expect(row.getByText("scoped", { exact: true })).toBeVisible();
+      await row.getByRole("button", { name: "Access" }).click();
+      await expect(page.getByText("this account currently sees nothing")).toBeVisible();
+      // Join the group from the Access panel.
+      await page.getByRole("combobox").filter({ hasText: "Add to group…" }).selectOption({ label: groupName });
+      await page.getByRole("button", { name: "Add", exact: true }).click();
+      await expect(page.getByText(groupName).first()).toBeVisible();
+
+      // Group blade: the SA member renders with the machine marker, and
+      // the Add-member picker labels service accounts distinctly.
+      await page.goto("/settings?tab=groups");
+      await page.getByRole("row", { name: new RegExp(groupName) }).click();
+      await expect(page.getByRole("cell", { name: saName })).toBeVisible();
+      await expect(page.getByText("service account", { exact: true }).first()).toBeVisible();
+    } finally {
+      await admin.delete(`/api/v1/settings/groups/${gid}`);
+      await admin.delete(`/api/v1/settings/service-accounts/${sa.id}`);
+    }
+  });
+
+  test("forbid-org-wide cell setting rejects the opt-in and downgrades existing org-wide SAs", async ({ page, request }) => {
+    await logIn(page);
+    const admin = page.request;
+
+    // An org-wide SA created BEFORE the prohibition…
+    const sa = await (
+      await admin.post("/api/v1/settings/service-accounts", {
+        data: { name: `e2e-sa-forbid-${Date.now().toString(36)}`, role: "viewer", scope: "org_wide" },
+      })
+    ).json();
+    const token = (
+      await (await admin.post(`/api/v1/settings/service-accounts/${sa.id}/tokens`, { data: { name: "t1" } })).json()
+    ).plaintext;
+    const auth = { Authorization: `Bearer ${token}` };
+
+    try {
+      expect(
+        (
+          await admin.patch("/api/v1/cell-settings/system", { data: { forbid_org_wide_service_accounts: true } })
+        ).ok(),
+      ).toBeTruthy();
+
+      // …creating a new org-wide SA is refused…
+      expect(
+        (
+          await admin.post("/api/v1/settings/service-accounts", {
+            data: { name: `e2e-sa-forbid2-${Date.now().toString(36)}`, role: "viewer", scope: "org_wide" },
+          })
+        ).status(),
+      ).toBe(403);
+
+      // …and the pre-existing org-wide SA resolves as scoped (group-less
+      // → nothing) while the prohibition is on. Defense in depth.
+      const view = await (await request.get("/api/v1/services?range=24h", { headers: auth })).json();
+      expect((view.services ?? []).length).toBe(0);
+    } finally {
+      await admin.patch("/api/v1/cell-settings/system", { data: { forbid_org_wide_service_accounts: false } });
+      await admin.delete(`/api/v1/settings/service-accounts/${sa.id}`);
+    }
   });
 });
 
@@ -944,12 +1107,14 @@ test.describe("RBAC — MCP surface", () => {
     ).json();
     const viewerTok = minted.plaintext;
     // MCP must mirror REST exactly for the same token (loopback dispatch).
-    // For a viewer SA that currently means org-wide read — pinned, see the
-    // service-account visibility issue.
+    // A group-less SCOPED viewer SA is deny-by-default — an AI assistant
+    // holding this token sees nothing until the SA joins a group
+    // (docs/service-account-scoping-design.md).
     const viewerView = await mcpListServices(request, viewerTok);
     const restView = await (
       await request.get("/api/v1/services?range=24h", { headers: { Authorization: `Bearer ${viewerTok}` } })
     ).json();
+    expect((viewerView.services ?? []).length).toBe(0);
     expect((viewerView.services ?? []).length).toBe((restView.services ?? []).length);
 
     await admin.delete(`/api/v1/settings/service-accounts/${saID}`);

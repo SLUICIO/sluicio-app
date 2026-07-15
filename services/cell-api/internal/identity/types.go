@@ -164,8 +164,26 @@ type ServiceAccount struct {
 	Name        string     `json:"name"`
 	Description string     `json:"description"`
 	Role        Role       `json:"role"`
-	CreatedBy   *uuid.UUID `json:"created_by,omitempty"`
-	CreatedAt   time.Time  `json:"created_at,omitempty"`
+	// Scope is the visibility model (docs/service-account-scoping-design.md):
+	// SAScopeScoped (default) — deny-by-default, visibility resolved from
+	// group memberships exactly like a user's; SAScopeOrgWide — explicit,
+	// audited opt-in to org-wide reads. Role stays the capability axis
+	// either way.
+	Scope     ServiceAccountScope `json:"scope"`
+	CreatedBy *uuid.UUID          `json:"created_by,omitempty"`
+	CreatedAt time.Time           `json:"created_at,omitempty"`
+}
+
+// ServiceAccountScope is the service_accounts.scope enum.
+type ServiceAccountScope string
+
+const (
+	SAScopeScoped  ServiceAccountScope = "scoped"
+	SAScopeOrgWide ServiceAccountScope = "org_wide"
+)
+
+func (s ServiceAccountScope) IsValid() bool {
+	return s == SAScopeScoped || s == SAScopeOrgWide
 }
 
 // AuthProvider is one row in the auth_providers table — a per-org
@@ -245,8 +263,13 @@ type Principal struct {
 	Kind             PrincipalKind `json:"kind"`
 	UserID           *uuid.UUID    `json:"user_id,omitempty"`
 	ServiceAccountID *uuid.UUID    `json:"service_account_id,omitempty"`
-	OrgID            uuid.UUID     `json:"org_id"`
-	Role             Role          `json:"role"`
+	// SAScope mirrors service_accounts.scope for service-account
+	// principals: scoped SAs resolve visibility through group
+	// memberships (deny-by-default), org-wide SAs read the whole org.
+	// Empty for users.
+	SAScope ServiceAccountScope `json:"sa_scope,omitempty"`
+	OrgID   uuid.UUID           `json:"org_id"`
+	Role    Role                `json:"role"`
 	// BaseRole is the identity's role on the active org BEFORE any token
 	// scope-cap (ScopeRole). Role may be capped below it for least-privilege;
 	// BaseRole is what the identity could do unscoped. Used for READ

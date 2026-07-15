@@ -151,8 +151,11 @@ func (h *Handlers) listGroupMembersAdmin(w http.ResponseWriter, r *http.Request)
 
 // addGroupMemberAdmin: POST /api/v1/settings/groups/{id}/members  (admin only)
 //
-// Body: { user_id, role }. The user must already be a member of the
-// org (no auto-invite — invite via Settings → Members first).
+// Body: { user_id XOR service_account_id, role }. A user must already
+// be a member of the org (no auto-invite — invite via Settings →
+// Members first); a service account must belong to the org. SA
+// membership is how scoped service accounts gain visibility
+// (docs/service-account-scoping-design.md).
 func (h *Handlers) addGroupMemberAdmin(w http.ResponseWriter, r *http.Request) {
 	groupID, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
@@ -164,21 +167,55 @@ func (h *Handlers) addGroupMemberAdmin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		UserID string `json:"user_id"`
-		Role   string `json:"role"`
+		UserID           string `json:"user_id"`
+		ServiceAccountID string `json:"service_account_id"`
+		Role             string `json:"role"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		httpserver.WriteError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	userID, err := uuid.Parse(strings.TrimSpace(body.UserID))
-	if err != nil {
-		httpserver.WriteError(w, http.StatusBadRequest, "invalid user_id")
-		return
-	}
 	role := identity.Role(body.Role)
 	if !role.IsValid() {
 		httpserver.WriteError(w, http.StatusBadRequest, "role must be admin, editor, or viewer")
+		return
+	}
+	hasUser := strings.TrimSpace(body.UserID) != ""
+	hasSA := strings.TrimSpace(body.ServiceAccountID) != ""
+	if hasUser == hasSA {
+		httpserver.WriteError(w, http.StatusBadRequest, "provide exactly one of user_id or service_account_id")
+		return
+	}
+
+	if hasSA {
+		saID, err := uuid.Parse(strings.TrimSpace(body.ServiceAccountID))
+		if err != nil {
+			httpserver.WriteError(w, http.StatusBadRequest, "invalid service_account_id")
+			return
+		}
+		// Sanity: the SA belongs to the caller's org.
+		sa, err := h.Identity.GetServiceAccount(r.Context(), saID)
+		if err != nil || sa.OrgID != middleware.OrgID(r) {
+			httpserver.WriteError(w, http.StatusBadRequest, "service account not found in this org")
+			return
+		}
+		if err := h.Identity.AddGroupServiceAccount(r.Context(), saID, groupID, role); err != nil {
+			if errors.Is(err, identity.ErrAlreadyMember) {
+				httpserver.WriteError(w, http.StatusConflict, "service account is already a member of this group")
+				return
+			}
+			h.Logger.Error("add group service account failed", "err", err)
+			httpserver.WriteError(w, http.StatusInternalServerError, "save failed")
+			return
+		}
+		h.recordAudit(r, "group_member.added", "group", groupID.String(), map[string]any{"service_account_id": saID.String(), "role": string(role)})
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	userID, err := uuid.Parse(strings.TrimSpace(body.UserID))
+	if err != nil {
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid user_id")
 		return
 	}
 	// Sanity: target is a member of the org.
@@ -266,6 +303,82 @@ func (h *Handlers) removeGroupMemberAdmin(w http.ResponseWriter, r *http.Request
 		return
 	}
 	h.recordAudit(r, "group_member.removed", "group", groupID.String(), map[string]any{"user_id": userID.String()})
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// groupAndSAFromPath parses + org-checks the {id} group and {sa_id}
+// service account of the SA-membership routes. Writes the error
+// response itself on failure.
+func (h *Handlers) groupAndSAFromPath(w http.ResponseWriter, r *http.Request) (groupID, saID uuid.UUID, ok bool) {
+	groupID, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid group id")
+		return groupID, saID, false
+	}
+	saID, err = uuid.Parse(r.PathValue("sa_id"))
+	if err != nil {
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid service account id")
+		return groupID, saID, false
+	}
+	if _, err := h.Identity.GetGroup(r.Context(), middleware.OrgID(r), groupID); err != nil {
+		httpserver.WriteError(w, http.StatusNotFound, "group not found")
+		return groupID, saID, false
+	}
+	sa, err := h.Identity.GetServiceAccount(r.Context(), saID)
+	if err != nil || sa.OrgID != middleware.OrgID(r) {
+		httpserver.WriteError(w, http.StatusNotFound, "service account not found")
+		return groupID, saID, false
+	}
+	return groupID, saID, true
+}
+
+// updateGroupServiceAccountRoleAdmin: PATCH /api/v1/settings/groups/{id}/service-accounts/{sa_id}
+func (h *Handlers) updateGroupServiceAccountRoleAdmin(w http.ResponseWriter, r *http.Request) {
+	groupID, saID, ok := h.groupAndSAFromPath(w, r)
+	if !ok {
+		return
+	}
+	var body struct {
+		Role string `json:"role"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	role := identity.Role(body.Role)
+	if !role.IsValid() {
+		httpserver.WriteError(w, http.StatusBadRequest, "role must be admin, editor, or viewer")
+		return
+	}
+	if err := h.Identity.UpdateGroupServiceAccountRole(r.Context(), saID, groupID, role); err != nil {
+		if errors.Is(err, identity.ErrNotFound) {
+			httpserver.WriteError(w, http.StatusNotFound, "service account is not a member of this group")
+			return
+		}
+		h.Logger.Error("update group service-account role failed", "err", err)
+		httpserver.WriteError(w, http.StatusInternalServerError, "save failed")
+		return
+	}
+	h.recordAudit(r, "group_member.role_changed", "group", groupID.String(), map[string]any{"service_account_id": saID.String(), "role": string(role)})
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// removeGroupServiceAccountAdmin: DELETE /api/v1/settings/groups/{id}/service-accounts/{sa_id}
+func (h *Handlers) removeGroupServiceAccountAdmin(w http.ResponseWriter, r *http.Request) {
+	groupID, saID, ok := h.groupAndSAFromPath(w, r)
+	if !ok {
+		return
+	}
+	if err := h.Identity.RemoveGroupServiceAccount(r.Context(), saID, groupID); err != nil {
+		if errors.Is(err, identity.ErrNotFound) {
+			httpserver.WriteError(w, http.StatusNotFound, "service account is not a member of this group")
+			return
+		}
+		h.Logger.Error("remove group service account failed", "err", err)
+		httpserver.WriteError(w, http.StatusInternalServerError, "delete failed")
+		return
+	}
+	h.recordAudit(r, "group_member.removed", "group", groupID.String(), map[string]any{"service_account_id": saID.String()})
 	w.WriteHeader(http.StatusNoContent)
 }
 

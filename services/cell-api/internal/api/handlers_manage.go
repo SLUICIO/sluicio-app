@@ -26,6 +26,7 @@ import (
 	"github.com/integration-monitor/integration-monitor/pkg/httpserver"
 	"github.com/integration-monitor/integration-monitor/pkg/license"
 	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/api/middleware"
+	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/identity"
 	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/integrations"
 )
 
@@ -35,8 +36,27 @@ import (
 // accounts never gain from group roles: capped → role decides alone.
 func (h *Handlers) managedServiceFilter(r *http.Request) (map[string]struct{}, bool) {
 	p := middleware.Principal(r)
+	if p.Kind == identity.PrincipalServiceAccount && p.ServiceAccountID != nil {
+		// A service account's role is its write capability (the mux
+		// gates enforce it); its SCOPE bounds where that capability
+		// applies. Org-wide SAs manage unrestricted like before; scoped
+		// SAs manage at most what they can see (Managed ⊆ Visible).
+		ref, restricted := h.visibilityMember(r)
+		if !restricted {
+			return nil, false
+		}
+		set, wildcard, err := h.Identity.ResolveVisibleServiceSetMember(r.Context(), ref, p.OrgID, h.integrationExpander, h.systemExpander, h.serviceUniverse)
+		if err != nil {
+			h.Logger.Warn("service-account managed set resolve failed; denying manage", "err", err)
+			return map[string]struct{}{}, true
+		}
+		if wildcard {
+			return nil, false
+		}
+		return set, true
+	}
 	if p.UserID == nil {
-		// Service accounts / no-auth: org role is the whole story.
+		// Internal caller (no principal): org role is the whole story.
 		return nil, false
 	}
 	if p.Role.CanWrite() {

@@ -336,12 +336,12 @@ func (s *Store) GetMembership(ctx context.Context, userID, orgID uuid.UUID) (Rol
 // GetServiceAccount returns the SA row by id.
 func (s *Store) GetServiceAccount(ctx context.Context, id uuid.UUID) (ServiceAccount, error) {
 	const q = `
-		SELECT id, org_id, name, description, role, created_by, created_at
+		SELECT id, org_id, name, description, role, scope, created_by, created_at
 		FROM service_accounts WHERE id = $1`
 	row := s.pool.QueryRow(ctx, q, id)
 	var sa ServiceAccount
 	if err := row.Scan(
-		&sa.ID, &sa.OrgID, &sa.Name, &sa.Description, &sa.Role, &sa.CreatedBy, &sa.CreatedAt,
+		&sa.ID, &sa.OrgID, &sa.Name, &sa.Description, &sa.Role, &sa.Scope, &sa.CreatedBy, &sa.CreatedAt,
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ServiceAccount{}, ErrNotFound
@@ -354,7 +354,7 @@ func (s *Store) GetServiceAccount(ctx context.Context, id uuid.UUID) (ServiceAcc
 // ListServiceAccounts returns the org's service accounts, newest first.
 func (s *Store) ListServiceAccounts(ctx context.Context, orgID uuid.UUID) ([]ServiceAccount, error) {
 	const q = `
-		SELECT id, org_id, name, description, role, created_by, created_at
+		SELECT id, org_id, name, description, role, scope, created_by, created_at
 		FROM service_accounts WHERE org_id = $1 ORDER BY created_at DESC`
 	rows, err := s.pool.Query(ctx, q, orgID)
 	if err != nil {
@@ -364,7 +364,7 @@ func (s *Store) ListServiceAccounts(ctx context.Context, orgID uuid.UUID) ([]Ser
 	out := make([]ServiceAccount, 0)
 	for rows.Next() {
 		var sa ServiceAccount
-		if err := rows.Scan(&sa.ID, &sa.OrgID, &sa.Name, &sa.Description, &sa.Role, &sa.CreatedBy, &sa.CreatedAt); err != nil {
+		if err := rows.Scan(&sa.ID, &sa.OrgID, &sa.Name, &sa.Description, &sa.Role, &sa.Scope, &sa.CreatedBy, &sa.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, sa)
@@ -373,28 +373,35 @@ func (s *Store) ListServiceAccounts(ctx context.Context, orgID uuid.UUID) ([]Ser
 }
 
 // CreateServiceAccount inserts a new service account in the org.
-func (s *Store) CreateServiceAccount(ctx context.Context, orgID uuid.UUID, name, description string, role Role, createdBy *uuid.UUID) (ServiceAccount, error) {
+func (s *Store) CreateServiceAccount(ctx context.Context, orgID uuid.UUID, name, description string, role Role, scope ServiceAccountScope, createdBy *uuid.UUID) (ServiceAccount, error) {
+	if !scope.IsValid() {
+		return ServiceAccount{}, fmt.Errorf("identity: invalid service-account scope: %s", scope)
+	}
 	const q = `
-		INSERT INTO service_accounts (org_id, name, description, role, created_by)
-		VALUES ($1, $2, $3, $4, $5)
-		RETURNING id, org_id, name, description, role, created_by, created_at`
-	row := s.pool.QueryRow(ctx, q, orgID, name, description, string(role), createdBy)
+		INSERT INTO service_accounts (org_id, name, description, role, scope, created_by)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		RETURNING id, org_id, name, description, role, scope, created_by, created_at`
+	row := s.pool.QueryRow(ctx, q, orgID, name, description, string(role), string(scope), createdBy)
 	var sa ServiceAccount
-	if err := row.Scan(&sa.ID, &sa.OrgID, &sa.Name, &sa.Description, &sa.Role, &sa.CreatedBy, &sa.CreatedAt); err != nil {
+	if err := row.Scan(&sa.ID, &sa.OrgID, &sa.Name, &sa.Description, &sa.Role, &sa.Scope, &sa.CreatedBy, &sa.CreatedAt); err != nil {
 		return ServiceAccount{}, fmt.Errorf("identity: create service account: %w", err)
 	}
 	return sa, nil
 }
 
-// UpdateServiceAccount updates a service account's name / description / role.
-func (s *Store) UpdateServiceAccount(ctx context.Context, orgID, id uuid.UUID, name, description string, role Role) (ServiceAccount, error) {
+// UpdateServiceAccount updates a service account's name / description /
+// role / scope.
+func (s *Store) UpdateServiceAccount(ctx context.Context, orgID, id uuid.UUID, name, description string, role Role, scope ServiceAccountScope) (ServiceAccount, error) {
+	if !scope.IsValid() {
+		return ServiceAccount{}, fmt.Errorf("identity: invalid service-account scope: %s", scope)
+	}
 	const q = `
-		UPDATE service_accounts SET name = $3, description = $4, role = $5, updated_at = now()
+		UPDATE service_accounts SET name = $3, description = $4, role = $5, scope = $6, updated_at = now()
 		WHERE org_id = $1 AND id = $2
-		RETURNING id, org_id, name, description, role, created_by, created_at`
-	row := s.pool.QueryRow(ctx, q, orgID, id, name, description, string(role))
+		RETURNING id, org_id, name, description, role, scope, created_by, created_at`
+	row := s.pool.QueryRow(ctx, q, orgID, id, name, description, string(role), string(scope))
 	var sa ServiceAccount
-	if err := row.Scan(&sa.ID, &sa.OrgID, &sa.Name, &sa.Description, &sa.Role, &sa.CreatedBy, &sa.CreatedAt); err != nil {
+	if err := row.Scan(&sa.ID, &sa.OrgID, &sa.Name, &sa.Description, &sa.Role, &sa.Scope, &sa.CreatedBy, &sa.CreatedAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ServiceAccount{}, ErrNotFound
 		}
