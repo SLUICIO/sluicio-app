@@ -309,12 +309,21 @@ func stateSubject(state, body string) string {
 }
 
 // firstLine returns the first line of s, so a multi-line body still
-// yields a sensible single-line subject.
+// yields a sensible single-line subject. Cuts at either CR or LF — a
+// lone \r would otherwise survive into header contexts.
 func firstLine(s string) string {
-	if i := strings.IndexByte(s, '\n'); i >= 0 {
+	if i := strings.IndexAny(s, "\r\n"); i >= 0 {
 		return s[:i]
 	}
 	return s
+}
+
+// headerSafe strips CR/LF from a value destined for an RFC 822 header
+// line. Subjects and addresses are assembled from user-controlled text
+// (rule names, channel config) — without this, a crafted value could
+// inject extra headers (Bcc:, a second Subject:, …) into the message.
+func headerSafe(s string) string {
+	return strings.NewReplacer("\r", " ", "\n", " ").Replace(s)
 }
 
 // DeliverTest sends a one-off sample notification to a channel so an
@@ -416,9 +425,9 @@ func (emailNotifier) Send(ctx context.Context, _ *http.Client, msg Message) erro
 // emailMessage builds a minimal RFC 822 text/plain message.
 func emailMessage(from string, to []string, subject, body string) []byte {
 	var b bytes.Buffer
-	fmt.Fprintf(&b, "From: %s\r\n", from)
-	fmt.Fprintf(&b, "To: %s\r\n", strings.Join(to, ", "))
-	fmt.Fprintf(&b, "Subject: %s\r\n", subject)
+	fmt.Fprintf(&b, "From: %s\r\n", headerSafe(from))
+	fmt.Fprintf(&b, "To: %s\r\n", headerSafe(strings.Join(to, ", ")))
+	fmt.Fprintf(&b, "Subject: %s\r\n", headerSafe(subject))
 	fmt.Fprintf(&b, "Date: %s\r\n", time.Now().UTC().Format(time.RFC1123Z))
 	b.WriteString("MIME-Version: 1.0\r\n")
 	b.WriteString("Content-Type: text/plain; charset=utf-8\r\n")
@@ -433,9 +442,9 @@ func emailMessage(from string, to []string, subject, body string) []byte {
 func emailMessageMultipart(from string, to []string, subject, text, html string) []byte {
 	const boundary = "----=_sluicio_alt_b0undary_2f8a"
 	var b bytes.Buffer
-	fmt.Fprintf(&b, "From: %s\r\n", from)
-	fmt.Fprintf(&b, "To: %s\r\n", strings.Join(to, ", "))
-	fmt.Fprintf(&b, "Subject: %s\r\n", subject)
+	fmt.Fprintf(&b, "From: %s\r\n", headerSafe(from))
+	fmt.Fprintf(&b, "To: %s\r\n", headerSafe(strings.Join(to, ", ")))
+	fmt.Fprintf(&b, "Subject: %s\r\n", headerSafe(subject))
 	fmt.Fprintf(&b, "Date: %s\r\n", time.Now().UTC().Format(time.RFC1123Z))
 	b.WriteString("MIME-Version: 1.0\r\n")
 	fmt.Fprintf(&b, "Content-Type: multipart/alternative; boundary=\"%s\"\r\n\r\n", boundary)
@@ -515,6 +524,12 @@ type pagerdutyNotifier struct{}
 
 func (pagerdutyNotifier) Kind() string { return ChannelPagerDuty }
 
+// pagerdutyEventsURL is the default Events API v2 endpoint (US service
+// region). EU-region accounts must use events.eu.pagerduty.com — set the
+// channel's optional config.events_url for that (also what tests point
+// at a local sink).
+const pagerdutyEventsURL = "https://events.pagerduty.com/v2/enqueue"
+
 func (pagerdutyNotifier) Send(ctx context.Context, client *http.Client, msg Message) error {
 	action := "resolve"
 	if msg.State == "firing" {
@@ -531,7 +546,16 @@ func (pagerdutyNotifier) Send(ctx context.Context, client *http.Client, msg Mess
 	if dedup == "" {
 		dedup = msg.Body
 	}
-	return postJSON(ctx, client, "https://events.pagerduty.com/v2/enqueue", map[string]any{
+	// PagerDuty rejects dedup_keys over 255 chars; the body fallback can
+	// exceed that. Truncation keeps the key stable for identical bodies.
+	if len(dedup) > 255 {
+		dedup = dedup[:255]
+	}
+	url := strings.TrimSpace(msg.Config["events_url"])
+	if url == "" {
+		url = pagerdutyEventsURL
+	}
+	return postJSON(ctx, client, url, map[string]any{
 		"routing_key":  msg.Config["routing_key"],
 		"event_action": action,
 		"dedup_key":    dedup,

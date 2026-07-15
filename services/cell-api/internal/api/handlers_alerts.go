@@ -877,6 +877,12 @@ func validateChannel(req *channelRequest) error {
 		if strings.TrimSpace(req.Config["routing_key"]) == "" {
 			return errors.New("config.routing_key is required")
 		}
+		// Optional Events API endpoint override (EU service region:
+		// https://events.eu.pagerduty.com/v2/enqueue). Empty = US default.
+		if u := strings.TrimSpace(req.Config["events_url"]); u != "" &&
+			!strings.HasPrefix(u, "http://") && !strings.HasPrefix(u, "https://") {
+			return errors.New("config.events_url must be an http(s) URL when set")
+		}
 	case alerting.ChannelEmail:
 		// Recipients are always required. The SMTP server (smtp_host / from /
 		// auth) is optional: when omitted, delivery falls back to the org's
@@ -920,6 +926,10 @@ func (h *Handlers) createChannel(w http.ResponseWriter, r *http.Request) {
 		Config:         req.Config,
 	})
 	if err != nil {
+		if isUniqueViolation(err) {
+			httpserver.WriteError(w, http.StatusConflict, "a notification channel with that name already exists")
+			return
+		}
 		h.Logger.Error("create channel failed", "err", err)
 		httpserver.WriteError(w, http.StatusInternalServerError, "create failed")
 		return

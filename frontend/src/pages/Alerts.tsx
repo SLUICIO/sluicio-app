@@ -545,6 +545,7 @@ function ChannelsCard({
   const [kind, setKind] = useState("slack");
   const [saving, setSaving] = useState(false);
   const [dest, setDest] = useState("");
+  const [pdEventsUrl, setPdEventsUrl] = useState("");
   const [email, setEmail] = useState({ smtp_host: "", smtp_port: "587", from: "", to: "", username: "", password: "" });
   const [useSystemEmail, setUseSystemEmail] = useState(true);
 
@@ -572,10 +573,14 @@ function ChannelsCard({
               ...(email.username.trim() ? { username: email.username.trim() } : {}),
               ...(email.password ? { password: email.password } : {}),
             }
-        : { [destKey]: dest.trim() };
+        : {
+            [destKey]: dest.trim(),
+            ...(kind === "pagerduty" && pdEventsUrl.trim() ? { events_url: pdEventsUrl.trim() } : {}),
+          };
       await api.createChannel({ name: name.trim(), kind, config });
       setName("");
       setDest("");
+      setPdEventsUrl("");
       setEmail({ smtp_host: "", smtp_port: "587", from: "", to: "", username: "", password: "" });
       setUseSystemEmail(true);
       onChanged();
@@ -668,10 +673,18 @@ function ChannelsCard({
                   )}
                 </>
               ) : (
-                <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, flex: 1, minWidth: 220 }}>
-                  <span className="muted">{destLabel}</span>
-                  <input className="search__input mono" style={{ fontSize: 13 }} value={dest} onChange={(e) => setDest(e.target.value)} placeholder={kind === "pagerduty" ? "R0ABC…" : "https://hooks.slack.com/…"} />
-                </label>
+                <>
+                  <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, flex: 1, minWidth: 220 }}>
+                    <span className="muted">{destLabel}</span>
+                    <input className="search__input mono" style={{ fontSize: 13 }} value={dest} onChange={(e) => setDest(e.target.value)} placeholder={kind === "pagerduty" ? "R0ABC…" : "https://hooks.slack.com/…"} />
+                  </label>
+                  {kind === "pagerduty" && (
+                    <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, flex: 1, minWidth: 220 }}>
+                      <span className="muted">Events API URL (optional — EU accounts: https://events.eu.pagerduty.com/v2/enqueue)</span>
+                      <input className="search__input mono" style={{ fontSize: 13 }} value={pdEventsUrl} onChange={(e) => setPdEventsUrl(e.target.value)} placeholder="default: US service region" />
+                    </label>
+                  )}
+                </>
               )}
               <button className="btn btn--primary" type="button" disabled={saving || !ready} onClick={create}>
                 {saving ? "Adding…" : "Add channel"}

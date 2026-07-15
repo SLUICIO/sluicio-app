@@ -51,6 +51,20 @@ test.describe("Integrations column layout", () => {
     await expect(ths.first()).toContainText("Slug");
     await expect(ths.filter({ hasText: "Description" })).toHaveCount(0);
 
+    // The preference PUT is asynchronous — under parallel-suite load the
+    // navigation below can beat it and restore a stale layout. Wait until
+    // the SERVER actually holds the new order before navigating.
+    await expect
+      .poll(
+        async () => {
+          const res = await page.request.get(`/api/v1/me/preferences/${PREF_KEY}`);
+          if (!res.ok()) return "";
+          return JSON.stringify((await res.json()).value ?? "");
+        },
+        { timeout: 10_000 },
+      )
+      .toMatch(/"order":\["slug"/);
+
     // Fresh navigation: no ?cols=, no localStorage — only the per-user
     // server preference can restore the layout.
     await page.evaluate(() => window.localStorage.removeItem("im.integrations.cols"));
