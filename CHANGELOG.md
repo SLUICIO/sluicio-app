@@ -3,6 +3,16 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.26 — 2026-07-15
+
+- test(e2e): dashboards×RBAC + alert-lifecycle suites; fix latent licensed-cell flakes (1efc2d2)
+- feat(rbac): scoped service accounts — SAs join groups; org-wide is an explicit opt-in (ff9b6a3)
+- docs(rbac): service-account scoping design — SAs as first-class group members (8860971)
+- fix(rbac): metric-catalog honors the per-signal metrics tier; gap tests (0ce48ac)
+- docs(testing): RBAC coverage index — what runs on every tag, and the gaps (8d9e533)
+- test(e2e): manual test protocol executed verbatim — group-granted visibility (e9fb7f5)
+- release v0.11.25 — refresh internal changelog (2b06c55)
+
 ## v0.11.25 — 2026-07-15
 
 - fix(ui): drop the stale Redoc caption on the API & MCP page (391145a)
