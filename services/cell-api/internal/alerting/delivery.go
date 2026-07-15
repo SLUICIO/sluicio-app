@@ -180,9 +180,69 @@ func messageFromJob(ctx context.Context, job DeliveryJob, env, company string) M
 			}
 		}
 	case ChannelWebhook:
-		msg.Payload = actx.webhookPayload(content)
+		payload := actx.webhookPayload(content)
+		if isCloudEventsChannel(job.Channel.Config) {
+			// Stable event id per (instance, state): at-least-once retries
+			// and duplicate routes dedupe on it; firing and resolved stay
+			// distinct events.
+			id := uuid.NewString()
+			if job.AlertInstanceID != uuid.Nil {
+				id = job.AlertInstanceID.String() + "." + job.State
+			}
+			msg.Payload = cloudEventEnvelope(id, job.State, job.Labels["rule_id"], actx.SentAt, payload)
+		} else {
+			msg.Payload = payload
+		}
 	}
 	return msg
+}
+
+// ── CloudEvents (opt-in webhook payload format) ──────────────────────
+//
+// config.format = "cloudevents" wraps the canonical payload in a
+// CloudEvents 1.0 structured-mode envelope
+// (application/cloudevents+json) so CE-aware routers — Azure Event
+// Grid, EventBridge, Knative, Dapr, n8n — can consume Sluicio alerts
+// without bespoke parsing. The default (empty format) stays the bare
+// canonical JSON; existing receivers are untouched.
+
+const (
+	// FormatCloudEvents is the config.format value enabling the envelope.
+	FormatCloudEvents = "cloudevents"
+	// CloudEventsContentType is structured-mode CE over HTTP.
+	CloudEventsContentType = "application/cloudevents+json"
+)
+
+func isCloudEventsChannel(config map[string]string) bool {
+	return strings.EqualFold(strings.TrimSpace(config["format"]), FormatCloudEvents)
+}
+
+// cloudEventEnvelope wraps data in a CloudEvents 1.0 envelope. Event
+// types follow reverse-DNS: com.sluicio.alert.fired / .resolved — the
+// vocabulary future event families extend (see
+// docs/outbound-events-design.md).
+func cloudEventEnvelope(id, state, subject, sentAt string, data map[string]any) map[string]any {
+	typ := "com.sluicio.alert.fired"
+	if state == "resolved" {
+		typ = "com.sluicio.alert.resolved"
+	}
+	source := Link("/")
+	if source == "" {
+		source = "urn:sluicio:cell"
+	}
+	ev := map[string]any{
+		"specversion":     "1.0",
+		"id":              id,
+		"source":          source,
+		"type":            typ,
+		"time":            sentAt,
+		"datacontenttype": "application/json",
+		"data":            data,
+	}
+	if subject != "" {
+		ev["subject"] = subject
+	}
+	return ev
 }
 
 // contextFromJob assembles the core AlertContext from the firing job (its
@@ -495,13 +555,25 @@ func (webhookNotifier) Send(ctx context.Context, client *http.Client, msg Messag
 			"source":  "sluicio",
 		}
 	}
+	contentType := ""
+	if isCloudEventsChannel(msg.Config) {
+		contentType = CloudEventsContentType
+		// Payload-less sends (the error notifier, one-off broadcasts)
+		// bypass messageFromJob's envelope — wrap here so a CE channel
+		// NEVER receives a bare payload. Alert-path payloads arrive
+		// already wrapped (stable instance-derived id); detect by the
+		// required specversion attribute.
+		if body["specversion"] == nil {
+			body = cloudEventEnvelope(uuid.NewString(), msg.State, "", time.Now().UTC().Format(time.RFC3339), body)
+		}
+	}
 	// Opt-in request signing (config.secret): HMAC-SHA256 over
 	// "<unix-ts>.<raw body>" so the receiver can verify BOTH that the
 	// payload is authentic/untampered and that it isn't a replay
 	// (reject stale timestamps). Deliberately custom headers, not
 	// Authorization — that slot belongs to the receiver's own auth and
 	// gets consumed by their middleware. See docs/webhook-signing.md.
-	return postJSON(ctx, client, msg.Config["url"], body, strings.TrimSpace(msg.Config["secret"]))
+	return postJSON(ctx, client, msg.Config["url"], body, strings.TrimSpace(msg.Config["secret"]), contentType)
 }
 
 // ── slack (incoming webhook) ─────────────────────────────────────────
@@ -525,7 +597,7 @@ func (slackNotifier) Send(ctx context.Context, client *http.Client, msg Message)
 		}
 	}
 	return postJSON(ctx, client, msg.Config["url"],
-		map[string]any{"text": fmt.Sprintf("%s *[%s]* %s", icon, prefix, msg.Body)}, "")
+		map[string]any{"text": fmt.Sprintf("%s *[%s]* %s", icon, prefix, msg.Body)}, "", "")
 }
 
 // ── pagerduty (Events API v2) ────────────────────────────────────────
@@ -575,7 +647,7 @@ func (pagerdutyNotifier) Send(ctx context.Context, client *http.Client, msg Mess
 			"source":    "sluicio",
 			"component": msg.Labels["metric"],
 		},
-	}, "")
+	}, "", "")
 }
 
 // ── shared HTTP POST ─────────────────────────────────────────────────
@@ -601,7 +673,9 @@ func signBody(secret string, ts string, body []byte) string {
 // postJSON POSTs a JSON body; when secret is non-empty the request is
 // signed (SignatureHeader + TimestampHeader). Slack/PagerDuty pass ""
 // — their platforms carry authenticity in the URL / routing key.
-func postJSON(ctx context.Context, client *http.Client, url string, body any, secret string) error {
+// contentType overrides the default application/json (CloudEvents
+// structured mode); signing covers the raw body either way.
+func postJSON(ctx context.Context, client *http.Client, url string, body any, secret, contentType string) error {
 	if url == "" {
 		return fmt.Errorf("channel has no destination URL")
 	}
@@ -613,7 +687,10 @@ func postJSON(ctx context.Context, client *http.Client, url string, body any, se
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", "application/json")
+	if contentType == "" {
+		contentType = "application/json"
+	}
+	req.Header.Set("Content-Type", contentType)
 	if secret != "" {
 		ts := fmt.Sprintf("%d", time.Now().Unix())
 		req.Header.Set(TimestampHeader, ts)

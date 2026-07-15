@@ -141,6 +141,83 @@ func TestWebhookSigning(t *testing.T) {
 	}
 }
 
+func TestWebhookCloudEventsFormat(t *testing.T) {
+	// config.format="cloudevents" wraps the payload in a CE 1.0
+	// structured-mode envelope — a contract with CE routers (Event
+	// Grid, EventBridge, Knative): pin the required attributes, the
+	// type vocabulary, and the content type.
+	var gotBody []byte
+	var gotCT string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotBody, _ = io.ReadAll(r.Body)
+		gotCT = r.Header.Get("Content-Type")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	// Payload-less path (error notifier / broadcasts): Send wraps.
+	msg := Message{
+		State:  "firing",
+		Body:   "errors detected on api",
+		Config: map[string]string{"url": srv.URL, "format": "cloudevents"},
+	}
+	if err := (webhookNotifier{}).Send(context.Background(), srv.Client(), msg); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	if gotCT != CloudEventsContentType {
+		t.Fatalf("content type = %q, want %q", gotCT, CloudEventsContentType)
+	}
+	var ev map[string]any
+	if err := json.Unmarshal(gotBody, &ev); err != nil {
+		t.Fatalf("bad envelope JSON: %v", err)
+	}
+	if ev["specversion"] != "1.0" || ev["type"] != "com.sluicio.alert.fired" || ev["datacontenttype"] != "application/json" {
+		t.Fatalf("envelope attributes wrong: %v", ev)
+	}
+	if ev["id"] == "" || ev["source"] == "" || ev["time"] == "" {
+		t.Fatalf("required CE attributes missing: %v", ev)
+	}
+	data, _ := ev["data"].(map[string]any)
+	if data["summary"] != "errors detected on api" {
+		t.Fatalf("data payload not preserved: %v", data)
+	}
+
+	// Pre-wrapped alert-path payloads (specversion present) pass through
+	// unchanged — no double envelope.
+	msg.Payload = cloudEventEnvelope("inst-1.firing", "firing", "rule-9", "2026-07-15T12:00:00Z", map[string]any{"summary": "s"})
+	if err := (webhookNotifier{}).Send(context.Background(), srv.Client(), msg); err != nil {
+		t.Fatalf("send wrapped: %v", err)
+	}
+	if err := json.Unmarshal(gotBody, &ev); err != nil {
+		t.Fatalf("bad wrapped JSON: %v", err)
+	}
+	if ev["id"] != "inst-1.firing" || ev["subject"] != "rule-9" {
+		t.Fatalf("pre-wrapped envelope mangled: %v", ev)
+	}
+	if _, nested := ev["data"].(map[string]any)["specversion"]; nested {
+		t.Fatalf("double-enveloped: %v", ev)
+	}
+
+	// Resolved state maps to the .resolved type.
+	if e := cloudEventEnvelope("x", "resolved", "", "t", nil); e["type"] != "com.sluicio.alert.resolved" {
+		t.Fatalf("resolved type = %v", e["type"])
+	}
+
+	// Default format channels are untouched: plain JSON, no envelope.
+	msg = Message{State: "firing", Body: "plain", Config: map[string]string{"url": srv.URL}}
+	if err := (webhookNotifier{}).Send(context.Background(), srv.Client(), msg); err != nil {
+		t.Fatalf("send plain: %v", err)
+	}
+	if gotCT != "application/json" {
+		t.Fatalf("default content type = %q", gotCT)
+	}
+	ev = nil // Unmarshal into a used map MERGES keys — start clean.
+	_ = json.Unmarshal(gotBody, &ev)
+	if _, hasSpec := ev["specversion"]; hasSpec {
+		t.Fatalf("default channel must not be enveloped: %v", ev)
+	}
+}
+
 func TestSlackNotifier(t *testing.T) {
 	srv, got := capture(t, http.StatusOK)
 	send := func(state string, sev Severity) string {

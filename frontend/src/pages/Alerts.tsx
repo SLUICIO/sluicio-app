@@ -547,6 +547,7 @@ function ChannelsCard({
   const [dest, setDest] = useState("");
   const [pdEventsUrl, setPdEventsUrl] = useState("");
   const [whSecret, setWhSecret] = useState("");
+  const [whFormat, setWhFormat] = useState("");
   const [email, setEmail] = useState({ smtp_host: "", smtp_port: "587", from: "", to: "", username: "", password: "" });
   const [useSystemEmail, setUseSystemEmail] = useState(true);
 
@@ -578,12 +579,14 @@ function ChannelsCard({
             [destKey]: dest.trim(),
             ...(kind === "pagerduty" && pdEventsUrl.trim() ? { events_url: pdEventsUrl.trim() } : {}),
             ...(kind === "webhook" && whSecret.trim() ? { secret: whSecret.trim() } : {}),
+            ...(kind === "webhook" && whFormat ? { format: whFormat } : {}),
           };
       await api.createChannel({ name: name.trim(), kind, config });
       setName("");
       setDest("");
       setPdEventsUrl("");
       setWhSecret("");
+      setWhFormat("");
       setEmail({ smtp_host: "", smtp_port: "587", from: "", to: "", username: "", password: "" });
       setUseSystemEmail(true);
       onChanged();
@@ -688,10 +691,19 @@ function ChannelsCard({
                     </label>
                   )}
                   {kind === "webhook" && (
-                    <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, flex: 1, minWidth: 220 }}>
-                      <span className="muted">Signing secret (optional — HMAC-SHA256, see docs/webhook-signing.md)</span>
-                      <input className="search__input mono" style={{ fontSize: 13 }} type="password" value={whSecret} onChange={(e) => setWhSecret(e.target.value)} placeholder="leave empty for unsigned requests" />
-                    </label>
+                    <>
+                      <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, flex: 1, minWidth: 220 }}>
+                        <span className="muted">Signing secret (optional — HMAC-SHA256, see docs/webhook-signing.md)</span>
+                        <input className="search__input mono" style={{ fontSize: 13 }} type="password" value={whSecret} onChange={(e) => setWhSecret(e.target.value)} placeholder="leave empty for unsigned requests" />
+                      </label>
+                      <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, minWidth: 170 }}>
+                        <span className="muted">Payload format</span>
+                        <select className="toolbar__select" value={whFormat} onChange={(e) => setWhFormat(e.target.value)} title="CloudEvents wraps the payload in a CNCF-standard envelope for Event Grid / EventBridge / Knative receivers">
+                          <option value="">Sluicio JSON (default)</option>
+                          <option value="cloudevents">CloudEvents 1.0</option>
+                        </select>
+                      </label>
+                    </>
                   )}
                 </>
               )}

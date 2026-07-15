@@ -83,6 +83,15 @@ function verify(req, secret, rawBody) {
 
 (With Express, capture the raw body via `express.json({ verify: (req, _res, buf) => { req.rawBody = buf; } })`.)
 
+## Payload formats
+
+Signing is independent of the payload format: the HMAC always covers
+the raw request body. Webhook channels default to Sluicio's canonical
+JSON; setting the channel's **Payload format** to CloudEvents 1.0
+(`config.format: "cloudevents"`) wraps the same payload in a
+CNCF-standard envelope for CE-aware receivers — see
+docs/outbound-events-design.md.
+
 ## Notes
 
 - Slack and PagerDuty channels are not signed — their platforms carry

@@ -33,11 +33,19 @@ test.describe("Announcements", () => {
     try {
       await logIn(page);
       await expect(page.getByText(msg)).toBeVisible();
+      // The dismissal POST is asynchronous — wait for it to land before
+      // reloading, or under parallel-suite load the reload can beat it
+      // and the banner "returns" (same race class as the metadata /
+      // column-preference saves).
+      const dismissed = page.waitForResponse(
+        (r) => r.url().includes("/dismiss") && r.request().method() === "POST" && r.ok(),
+      );
       await page
         .locator(".alert", { hasText: msg })
         .getByRole("button", { name: "Dismiss announcement" })
         .click();
       await expect(page.getByText(msg)).toHaveCount(0);
+      await dismissed;
       // Server-side dismissal: still gone after a full reload.
       await page.reload();
       await expect(page.getByText("Dashboard").first()).toBeVisible();

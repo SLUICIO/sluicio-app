@@ -120,6 +120,31 @@ test.describe("Notification channels — live delivery per kind", () => {
     expect(unsigned!.headers["x-sluicio-timestamp"]).toBeUndefined();
   });
 
+  test("webhook: CloudEvents format wraps the payload in a CE 1.0 envelope", async ({ page }) => {
+    await logIn(page);
+    const id = await makeChannel(page.request, "webhook", {
+      url: `http://${SINK_HOST}:${sinkPort}/ch-ce`,
+      format: "cloudevents",
+    });
+    created.push(id);
+    expect((await testChannel(page.request, id)).ok()).toBeTruthy();
+    const hit = hits.find((h) => h.path === "/ch-ce");
+    expect(hit).toBeTruthy();
+    expect(String(hit!.headers["content-type"])).toBe("application/cloudevents+json");
+    const ev = JSON.parse(hit!.body);
+    expect(ev.specversion).toBe("1.0");
+    expect(ev.type).toBe("com.sluicio.alert.fired");
+    expect(ev.id).toBeTruthy();
+    expect(ev.source).toBeTruthy();
+    expect(String(ev.data?.summary ?? ev.data?.body ?? JSON.stringify(ev.data))).toContain("Test notification");
+
+    // Unknown formats are rejected at create time.
+    const bad = await page.request.post("/api/v1/notification-channels", {
+      data: { name: `e2e-badfmt-${Date.now().toString(36)}`, kind: "webhook", config: { url: "http://x.local/", format: "xml" } },
+    });
+    expect(bad.status()).toBe(400);
+  });
+
   test("slack: incoming-webhook text with state prefix and severity icon", async ({ page }) => {
     await logIn(page);
     const id = await makeChannel(page.request, "slack", { url: `http://${SINK_HOST}:${sinkPort}/ch-slack` });

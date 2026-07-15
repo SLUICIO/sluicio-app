@@ -867,6 +867,16 @@ func validateChannel(req *channelRequest) error {
 	if req.Config == nil {
 		req.Config = map[string]string{}
 	}
+	// Payload format is a webhook-only knob: "" (canonical JSON, the
+	// default) or "cloudevents" (CE 1.0 structured mode).
+	if f := strings.ToLower(strings.TrimSpace(req.Config["format"])); f != "" {
+		if req.Kind != alerting.ChannelWebhook {
+			return errors.New("config.format is only supported on webhook channels")
+		}
+		if f != alerting.FormatCloudEvents {
+			return errors.New(`config.format must be empty or "cloudevents"`)
+		}
+	}
 	switch req.Kind {
 	case alerting.ChannelWebhook, alerting.ChannelSlack:
 		u := strings.TrimSpace(req.Config["url"])

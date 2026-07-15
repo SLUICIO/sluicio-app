@@ -47,7 +47,7 @@ catalog in docs/testing/protocols/).
 | `health-dashboards` | Health dashboards | Card-based dashboards with per-integration widgets (traffic sparkline, error count, …); org-wide and team-scoped |
 | `alert-rules` | Alert rules | Metric / log / trace signals; trace kinds: error, latency, volume (dead-man's switch), completion; thresholds + windows; attribute predicates |
 | `trace-completion` | Multi-stage trace completion | Start-gated chained SLA stages, delayed-in-success-rate |
-| `notification-channels` | Notification channels | Email (SMTP), webhook (optional HMAC-SHA256 request signing — docs/webhook-signing.md), Slack, PagerDuty (US/EU); per-rule channel binding; delivery ledger |
+| `notification-channels` | Notification channels | Email (SMTP), webhook (optional HMAC-SHA256 signing + optional CloudEvents 1.0 payload format), Slack, PagerDuty (US/EU); per-rule channel binding; delivery ledger |
 | `notification-profiles` | Notification profiles | Per-integration recipient routing, org default fallback |
 | `error-feed` | Errors feed & acknowledgements | Unacknowledged-error tracking per service with a periodic error notifier |
 | `maintenance-windows` | Maintenance windows | Scheduled alert suppression with an announcement strip |
@@ -104,3 +104,4 @@ advisory license field, not a hard gate; there are no seat caps.
 |---|---|---|
 | `telemetry-advisor` | Telemetry Advisor (usage-vs-ingest collector suggestions, alert-fatigue advisor) | Design in review — issue #1 |
 | `otelflow-integration` | OTelFlow embedded (saved, RBAC-scoped collector configs) | Design in review — issue #3 |
+| `event-subscriptions` | Outbound event subscriptions (CloudEvents domain events: integration.created, service.discovered, …) | Design in review — issue #4 |
