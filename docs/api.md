@@ -5,6 +5,19 @@ Status: **design agreed, in progress** (2026-06-25).
 How programmatic access to Sluicio's management API works, and what it needs to
 reach 1.0 grade. The model is already the right one — the work is finishing it.
 
+## Where to read / try the API
+
+- **Interactive reference** (renders the spec + built-in client — paste a
+  Bearer token and fire requests against the cell): `/api/docs`
+- **OpenAPI 3.1** (canonical machine format): `/api/v1/openapi.json`
+- **llms.txt** (compact markdown, one line per endpoint — the token-frugal
+  format for AI tools reading the spec): `/api/v1/llms.txt`
+- **AI agents**: prefer the MCP endpoint (`POST /api/v1/mcp`, same auth,
+  curated read-only tools) over spec-driven calls.
+
+All generated from the route table (`make openapi`, CI-guarded), embedded in
+the binary, no CDN — works air-gapped.
+
 ## Current state
 
 - **Surface:** a versioned REST API under `/api/v1` (cell-api). Telemetry comes

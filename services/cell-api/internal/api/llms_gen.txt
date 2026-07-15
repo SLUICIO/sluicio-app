@@ -1,0 +1,445 @@
+# Sluicio API (v1)
+
+> Self-hosted integration monitoring on OpenTelemetry. Every endpoint returns JSON and is RBAC-filtered to the caller's token.
+
+Auth: `Authorization: Bearer <token>` — a personal access token or a service-account token (Settings → Service accounts). Time windows: `?range=1h|24h|7d` or `from/to` ISO pair.
+
+Example: `curl -H "Authorization: Bearer $TOKEN" https://<cell>/api/v1/services?range=24h`
+
+Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefer MCP at POST /api/v1/mcp (same auth, curated read tools).
+
+## .well-known
+- GET /.well-known/oauth-protected-resource — List .well-known
+- GET /.well-known/oauth-protected-resource/api/v1/mcp — List .well-known
+- GET /.well-known/oauth-authorization-server — List .well-known
+- GET /.well-known/oauth-authorization-server/api/v1/mcp — List .well-known
+- GET /.well-known/openid-configuration — List .well-known
+
+## account
+- GET /api/v1/account/mfa — List account
+- POST /api/v1/account/mfa/setup — Create account
+- POST /api/v1/account/mfa/enable — Create account
+- POST /api/v1/account/mfa/disable — Create account
+
+## alert-deliveries
+- GET /api/v1/alert-deliveries — List alert-deliveries
+
+## alert-email-template
+- GET /api/v1/alert-email-template — List alert-email-template
+- PUT /api/v1/alert-email-template — Update alert-email-template
+- PUT /api/v1/alert-email-template — Update alert-email-template
+
+## alert-instances
+- GET /api/v1/alert-instances — List alert-instances
+- POST /api/v1/alert-instances/{id}/acknowledge — Create alert-instance
+- POST /api/v1/alert-instances/{id}/resolve — Create alert-instance
+
+## alert-rules
+- GET /api/v1/alert-rules — List alert-rules
+- POST /api/v1/alert-rules/preview — Create alert-rule
+- GET /api/v1/alert-rules/{id} — Get alert-rule
+- POST /api/v1/alert-rules — Create alert-rule
+- PUT /api/v1/alert-rules/{id} — Update alert-rule
+- DELETE /api/v1/alert-rules/{id} — Delete alert-rule
+- POST /api/v1/alert-rules — Create alert-rule
+- PUT /api/v1/alert-rules/{id} — Update alert-rule
+- DELETE /api/v1/alert-rules/{id} — Delete alert-rule
+
+## alert-templates
+- POST /api/v1/alert-templates/preview — Create alert-template
+
+## announcements
+- GET /api/v1/announcements — List announcements
+- POST /api/v1/announcements/{id}/dismiss — Create announcement
+
+## audit-log
+- GET /api/v1/audit-log — List audit-log
+- GET /api/v1/audit-log/verify — List audit-log
+
+## auth
+- POST /api/v1/auth/login — Create auth (no auth)
+- POST /api/v1/auth/logout — Create auth (no auth)
+- GET /api/v1/auth/install-state — List auth (no auth)
+- POST /api/v1/auth/bootstrap-admin — Create auth (no auth)
+- POST /api/v1/auth/forgot-password — Create auth (no auth)
+- POST /api/v1/auth/reset-password — Create auth (no auth)
+- POST /api/v1/auth/mfa-verify — Create auth (no auth)
+- GET /api/v1/auth/sso/providers — List auth (no auth)
+- GET /api/v1/auth/sso/{id}/start — List auth (no auth)
+- GET /api/v1/auth/sso/callback — List auth (no auth)
+
+## badges
+- GET /api/v1/badges/{kind}/{id} — Get badge
+
+## cell-settings
+- GET /api/v1/cell-settings/retention — List cell-settings
+- GET /api/v1/cell-settings/system — List cell-settings
+- PATCH /api/v1/cell-settings/retention — Update cell-setting
+- PATCH /api/v1/cell-settings/system — Update cell-setting
+- GET /api/v1/cell-settings/smtp — List cell-settings
+- PATCH /api/v1/cell-settings/smtp — Update cell-setting
+- POST /api/v1/cell-settings/smtp/test — Create cell-setting
+- GET /api/v1/cell-settings/security — List cell-settings
+- PATCH /api/v1/cell-settings/security — Update cell-setting
+
+## dashboards
+- GET /api/v1/dashboards — List dashboards
+- POST /api/v1/dashboards — Create dashboard
+- POST /api/v1/dashboards — Create dashboard
+- GET /api/v1/dashboards/{id} — Get dashboard
+- PUT /api/v1/dashboards/{id} — Update dashboard
+- DELETE /api/v1/dashboards/{id} — Delete dashboard
+
+## digest
+- GET /api/v1/digest — List digest
+- POST /api/v1/digest/seen — Create digest
+
+## docs
+- GET /api/docs — List docs (no auth)
+- GET /api/docs/scalar.js — List docs (no auth)
+
+## errors
+- GET /api/v1/errors — List errors
+
+## global-search
+- GET /api/v1/global-search — List global-search
+
+## healthz
+- GET /healthz — List healthz (no auth)
+
+## ingest-keys
+- GET /api/v1/ingest-keys — List ingest-keys
+- POST /api/v1/ingest-keys — Create ingest-key
+- DELETE /api/v1/ingest-keys/{id} — Delete ingest-key
+- POST /api/v1/ingest-keys — Create ingest-key
+- DELETE /api/v1/ingest-keys/{id} — Delete ingest-key
+
+## integrations
+- GET /api/v1/integrations/{id}/shares — List integrations
+- POST /api/v1/integrations/{id}/shares — Create integration
+- DELETE /api/v1/integrations/{id}/shares/{shareId} — Delete integration
+- GET /api/v1/integrations/{id}/groups — List integrations
+- PUT /api/v1/integrations/{id}/groups — Update integration
+- PUT /api/v1/integrations/{id}/badge — Update integration
+- GET /api/v1/integrations — List integrations
+- GET /api/v1/integrations/{id} — Get integration
+- GET /api/v1/integrations/{id}/span-names — List integrations
+- GET /api/v1/integrations/{id}/attribute-keys — List integrations
+- GET /api/v1/integrations/{id}/attribute-values — List integrations
+- GET /api/v1/integrations/{id}/flow — List integrations
+- POST /api/v1/integrations — Create integration
+- PUT /api/v1/integrations/{id} — Update integration
+- DELETE /api/v1/integrations/{id} — Delete integration
+- POST /api/v1/integrations/{id}/matchers — Create integration
+- DELETE /api/v1/integrations/{id}/matchers/{matcherId} — Delete integration
+- DELETE /api/v1/integrations/{id}/services/{name} — Delete integration
+- POST /api/v1/integrations — Create integration
+- PUT /api/v1/integrations/{id} — Update integration
+- DELETE /api/v1/integrations/{id} — Delete integration
+- POST /api/v1/integrations/{id}/matchers — Create integration
+- DELETE /api/v1/integrations/{id}/matchers/{matcherId} — Delete integration
+- DELETE /api/v1/integrations/{id}/services/{name} — Delete integration
+- GET /api/v1/integrations/{id}/notification-profile — List integrations
+- PUT /api/v1/integrations/{id}/notification-profile — Update integration
+- PUT /api/v1/integrations/{id}/notification-profile — Update integration
+- GET /api/v1/integrations/{id}/tags — List integrations
+- POST /api/v1/integrations/{id}/tags/{tagId} — Create integration
+- DELETE /api/v1/integrations/{id}/tags/{tagId} — Delete integration
+- GET /api/v1/integrations/{id}/completion-rules — List integrations
+- GET /api/v1/integrations/{id}/completion-counts — List integrations
+- GET /api/v1/integrations/{id}/completion-firings — List integrations
+- POST /api/v1/integrations/{id}/completion-rules — Create integration
+- PATCH /api/v1/integrations/{id}/completion-rules/{rid} — Update integration
+- DELETE /api/v1/integrations/{id}/completion-rules/{rid} — Delete integration
+- POST /api/v1/integrations/{id}/completion-firings/{iid}/handle — Create integration
+- PUT /api/v1/integrations/{id}/metadata — Update integration
+
+## license
+- GET /api/v1/license — List license
+
+## llms.txt
+- GET /api/v1/llms.txt — List llms.txt (no auth)
+
+## log-attributes
+- GET /api/v1/log-attributes/{key}/values — List log-attributes
+
+## log-fields
+- GET /api/v1/log-fields — List log-fields
+
+## log-services
+- GET /api/v1/log-services — List log-services
+
+## logs
+- GET /api/v1/logs — List logs
+- GET /api/v1/logs/volume — List logs
+- GET /api/v1/logs/groups — List logs
+- GET /api/v1/logs/{id} — Get log
+
+## maintenance-windows
+- GET /api/v1/maintenance-windows — List maintenance-windows
+- POST /api/v1/maintenance-windows — Create maintenance-window
+- PATCH /api/v1/maintenance-windows/{id} — Update maintenance-window
+- DELETE /api/v1/maintenance-windows/{id} — Delete maintenance-window
+
+## maps
+- GET /api/v1/maps — List maps
+- GET /api/v1/maps/{id} — Get map
+- POST /api/v1/maps/{id}/execute — Create map
+- POST /api/v1/maps — Create map
+- PATCH /api/v1/maps/{id} — Update map
+- DELETE /api/v1/maps/{id} — Delete map
+- POST /api/v1/maps — Create map
+- PATCH /api/v1/maps/{id} — Update map
+- DELETE /api/v1/maps/{id} — Delete map
+
+## mcp
+- POST /api/v1/mcp — Create mcp
+
+## me
+- GET /api/v1/me — List me
+- PATCH /api/v1/me — Update me
+- POST /api/v1/me/password — Create me
+- GET /api/v1/me/access — List me
+- GET /api/v1/me/preferences/{key} — Get me
+- PUT /api/v1/me/preferences/{key} — Update me
+
+## message-views
+- GET /api/v1/message-views — List message-views
+- POST /api/v1/message-views — Create message-view
+- GET /api/v1/message-views/{id} — Get message-view
+- PUT /api/v1/message-views/{id} — Update message-view
+- DELETE /api/v1/message-views/{id} — Delete message-view
+
+## messages
+- GET /api/v1/messages/fields — List messages
+- POST /api/v1/messages/search — Create message
+
+## metadata-fields
+- GET /api/v1/metadata-fields — List metadata-fields
+- POST /api/v1/metadata-fields — Create metadata-field
+- PATCH /api/v1/metadata-fields/{id} — Update metadata-field
+- DELETE /api/v1/metadata-fields/{id} — Delete metadata-field
+- POST /api/v1/metadata-fields — Create metadata-field
+- PATCH /api/v1/metadata-fields/{id} — Update metadata-field
+- DELETE /api/v1/metadata-fields/{id} — Delete metadata-field
+
+## metadata-graph
+- GET /api/v1/metadata-graph — List metadata-graph
+
+## metric-attributes
+- GET /api/v1/metric-attributes/{key}/values — List metric-attributes
+
+## metric-catalog
+- GET /api/v1/metric-catalog — List metric-catalog
+
+## metric-fields
+- GET /api/v1/metric-fields — List metric-fields
+
+## metric-groups
+- GET /api/v1/metric-groups — List metric-groups
+
+## metric-names
+- GET /api/v1/metric-names — List metric-names
+
+## metric-series
+- GET /api/v1/metric-series — List metric-series
+
+## monitoring-templates
+- GET /api/v1/monitoring-templates — List monitoring-templates
+- POST /api/v1/monitoring-templates — Create monitoring-template
+- PUT /api/v1/monitoring-templates/{id} — Update monitoring-template
+- DELETE /api/v1/monitoring-templates/{id} — Delete monitoring-template
+
+## notification-channels
+- GET /api/v1/notification-channels — List notification-channels
+- POST /api/v1/notification-channels — Create notification-channel
+- PUT /api/v1/notification-channels/{id} — Update notification-channel
+- DELETE /api/v1/notification-channels/{id} — Delete notification-channel
+- POST /api/v1/notification-channels/{id}/test — Create notification-channel
+- POST /api/v1/notification-channels — Create notification-channel
+- PUT /api/v1/notification-channels/{id} — Update notification-channel
+- DELETE /api/v1/notification-channels/{id} — Delete notification-channel
+- POST /api/v1/notification-channels/{id}/test — Create notification-channel
+
+## notification-profiles
+- GET /api/v1/notification-profiles — List notification-profiles
+- POST /api/v1/notification-profiles — Create notification-profile
+- PUT /api/v1/notification-profiles/{id} — Update notification-profile
+- DELETE /api/v1/notification-profiles/{id} — Delete notification-profile
+- PUT /api/v1/notification-profiles/{id}/channels — Update notification-profile
+- POST /api/v1/notification-profiles — Create notification-profile
+- PUT /api/v1/notification-profiles/{id} — Update notification-profile
+- DELETE /api/v1/notification-profiles/{id} — Delete notification-profile
+- PUT /api/v1/notification-profiles/{id}/channels — Update notification-profile
+
+## oauth
+- POST /api/v1/oauth/register — Create oauth
+- GET /api/v1/oauth/authorize — List oauth
+- POST /api/v1/oauth/authorize — Create oauth
+- POST /api/v1/oauth/token — Create oauth
+
+## openapi.json
+- GET /api/v1/openapi.json — List openapi.json (no auth)
+
+## operator
+- GET /api/v1/operator/orgs — List operator
+- POST /api/v1/operator/orgs — Create operator
+- PATCH /api/v1/operator/orgs/{id} — Update operator
+- DELETE /api/v1/operator/orgs/{id} — Delete operator
+- GET /api/v1/operator/orgs/{id}/members — List operator
+- POST /api/v1/operator/orgs/{id}/members — Create operator
+- PATCH /api/v1/operator/orgs/{id}/members/{user_id} — Update operator
+- DELETE /api/v1/operator/orgs/{id}/members/{user_id} — Delete operator
+- GET /api/v1/operator/users — List operator
+- PUT /api/v1/operator/users/{user_id}/operator — Update operator
+- PUT /api/v1/operator/users/{user_id}/demo — Update operator
+- GET /api/v1/operator/announcements — List operator
+- POST /api/v1/operator/announcements — Create operator
+- DELETE /api/v1/operator/announcements/{id} — Delete operator
+
+## orgs
+- GET /api/v1/orgs/{id} — Get org
+- PATCH /api/v1/orgs/{id} — Update org
+
+## schemas
+- GET /api/v1/schemas — List schemas
+- GET /api/v1/schemas/{id} — Get schema
+- POST /api/v1/schemas — Create schema
+- PATCH /api/v1/schemas/{id} — Update schema
+- DELETE /api/v1/schemas/{id} — Delete schema
+- POST /api/v1/schemas — Create schema
+- PATCH /api/v1/schemas/{id} — Update schema
+- DELETE /api/v1/schemas/{id} — Delete schema
+
+## search
+- GET /api/v1/search — List search
+
+## service-facets
+- GET /api/v1/service-facets — List service-facets
+- GET /api/v1/service-facets/{slug} — Get service-facet
+- POST /api/v1/service-facets — Create service-facet
+- PUT /api/v1/service-facets/{slug} — Update service-facet
+- DELETE /api/v1/service-facets/{slug} — Delete service-facet
+
+## services
+- GET /api/v1/services — List services
+- PUT /api/v1/services/{name}/badge — Update service
+- GET /api/v1/services/{name} — Get service
+- GET /api/v1/services/{name}/widgets — List services
+- GET /api/v1/services/{name}/traces — List services
+- GET /api/v1/services/{name}/neighbors — List services
+- GET /api/v1/services/{name}/logs — List services
+- GET /api/v1/services/{name}/metric-names — List services
+- GET /api/v1/services/{name}/metric-series — List services
+- GET /api/v1/services/{name}/facet-mappings — List services
+- POST /api/v1/services/{name}/facet-mappings — Create service
+- DELETE /api/v1/services/{name}/facet-mappings/{id} — Delete service
+- GET /api/v1/services/{name}/facet-overrides — List services
+- PUT /api/v1/services/{name}/facet-overrides — Update service
+- GET /api/v1/services/{name}/readings — List services
+- POST /api/v1/services/{name}/health-checks/{id}/value — Create service
+- POST /api/v1/services/{name}/clear-errors — Create service
+- DELETE /api/v1/services/{name}/clear-errors — Delete service
+- GET /api/v1/services/{name}/metadata — List services
+- PUT /api/v1/services/{name}/metadata — Update service
+- PUT /api/v1/services/{name}/metadata-extras — Update service
+- PUT /api/v1/services/{name}/system — Update service
+- POST /api/v1/services/{name}/system/apply-template — Create service
+- POST /api/v1/services/{name}/apply-template — Create service
+- POST /api/v1/services/{name}/remove-template — Create service
+- GET /api/v1/services/{name}/template-suggestions — List services
+- PUT /api/v1/services/{name}/schemas — Update service
+- GET /api/v1/services/{name}/groups — List services
+- PUT /api/v1/services/{name}/groups — Update service
+- GET /api/v1/services/{name}/tags — List services
+- POST /api/v1/services/{name}/tags/{tagId} — Create service
+- DELETE /api/v1/services/{name}/tags/{tagId} — Delete service
+
+## settings
+- GET /api/v1/settings/members — List settings
+- GET /api/v1/settings/members — List settings
+- GET /api/v1/settings/tokens — List settings
+- POST /api/v1/settings/tokens — Create setting
+- DELETE /api/v1/settings/tokens/{id} — Delete setting
+- POST /api/v1/settings/members — Create setting
+- PATCH /api/v1/settings/members/{user_id} — Update setting
+- DELETE /api/v1/settings/members/{user_id} — Delete setting
+- POST /api/v1/settings/members/{user_id}/password — Create setting
+- GET /api/v1/settings/service-accounts — List settings
+- POST /api/v1/settings/service-accounts — Create setting
+- PUT /api/v1/settings/service-accounts/{id} — Update setting
+- DELETE /api/v1/settings/service-accounts/{id} — Delete setting
+- GET /api/v1/settings/service-accounts/{id}/tokens — List settings
+- POST /api/v1/settings/service-accounts/{id}/tokens — Create setting
+- DELETE /api/v1/settings/service-accounts/{id}/tokens/{tid} — Delete setting
+- GET /api/v1/settings/announcements — List settings
+- POST /api/v1/settings/announcements — Create setting
+- DELETE /api/v1/settings/announcements/{id} — Delete setting
+- GET /api/v1/settings/config-export — List settings
+- POST /api/v1/settings/config-import — Create setting
+- GET /api/v1/settings/groups — List settings
+- GET /api/v1/settings/groups/{id} — Get setting
+- GET /api/v1/settings/groups/{id}/members — List settings
+- POST /api/v1/settings/groups — Create setting
+- PATCH /api/v1/settings/groups/{id} — Update setting
+- DELETE /api/v1/settings/groups/{id} — Delete setting
+- POST /api/v1/settings/groups/{id}/members — Create setting
+- PATCH /api/v1/settings/groups/{id}/members/{user_id} — Update setting
+- DELETE /api/v1/settings/groups/{id}/members/{user_id} — Delete setting
+- GET /api/v1/settings/groups/{id}/policies — List settings
+- POST /api/v1/settings/groups/{id}/policies — Create setting
+- DELETE /api/v1/settings/groups/{id}/policies/{policy_id} — Delete setting
+- GET /api/v1/settings/auth-providers — List settings
+- POST /api/v1/settings/auth-providers — Create setting
+- PUT /api/v1/settings/auth-providers/{id} — Update setting
+- DELETE /api/v1/settings/auth-providers/{id} — Delete setting
+- GET /api/v1/settings/auth-providers/{id}/mappings — List settings
+- POST /api/v1/settings/auth-providers/{id}/mappings — Create setting
+- DELETE /api/v1/settings/auth-providers/{id}/mappings/{mid} — Delete setting
+
+## system-types
+- GET /api/v1/system-types — List system-types
+- POST /api/v1/system-types — Create system-type
+- PUT /api/v1/system-types/{id} — Update system-type
+- DELETE /api/v1/system-types/{id} — Delete system-type
+
+## systems
+- GET /api/v1/systems — List systems
+- GET /api/v1/systems/{id} — Get system
+- POST /api/v1/systems — Create system
+- PUT /api/v1/systems/{id} — Update system
+- DELETE /api/v1/systems/{id} — Delete system
+- POST /api/v1/systems/{id}/services — Create system
+- DELETE /api/v1/systems/{id}/services/{name} — Delete system
+- GET /api/v1/systems/{id}/shares — List systems
+- POST /api/v1/systems/{id}/shares — Create system
+- DELETE /api/v1/systems/{id}/shares/{shareId} — Delete system
+- GET /api/v1/systems/{id}/groups — List systems
+- PUT /api/v1/systems/{id}/groups — Update system
+- GET /api/v1/systems/{id}/metadata — List systems
+- PUT /api/v1/systems/{id}/metadata — Update system
+- POST /api/v1/systems/{id}/apply-template — Create system
+- PUT /api/v1/systems/{id}/badge — Update system
+
+## tags
+- GET /api/v1/tags — List tags
+- GET /api/v1/tags/{id} — Get tag
+- POST /api/v1/tags — Create tag
+- PATCH /api/v1/tags/{id} — Update tag
+- DELETE /api/v1/tags/{id} — Delete tag
+- POST /api/v1/tags — Create tag
+- PATCH /api/v1/tags/{id} — Update tag
+- DELETE /api/v1/tags/{id} — Delete tag
+
+## topology
+- GET /api/v1/topology — List topology
+
+## traces
+- GET /api/v1/traces/{traceId} — Get trace
+- GET /api/v1/traces/{id}/completion-firings — List traces
+
+## unhealthy
+- GET /api/v1/unhealthy — List unhealthy
+
+## usage
+- GET /api/v1/usage/volume — List usage

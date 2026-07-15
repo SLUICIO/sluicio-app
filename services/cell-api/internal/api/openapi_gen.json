@@ -120,6 +120,21 @@
         ]
       }
     },
+    "/api/docs/scalar.js": {
+      "get": {
+        "operationId": "get_api_docs_scalar_js",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [],
+        "summary": "List docs",
+        "tags": [
+          "docs"
+        ]
+      }
+    },
     "/api/v1/account/mfa": {
       "get": {
         "operationId": "get_api_v1_account_mfa",
@@ -451,6 +466,50 @@
         ]
       }
     },
+    "/api/v1/announcements": {
+      "get": {
+        "operationId": "get_api_v1_announcements",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "List announcements",
+        "tags": [
+          "announcements"
+        ]
+      }
+    },
+    "/api/v1/announcements/{id}/dismiss": {
+      "post": {
+        "operationId": "post_api_v1_announcements_id_dismiss",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Create announcement",
+        "tags": [
+          "announcements"
+        ]
+      }
+    },
     "/api/v1/audit-log": {
       "get": {
         "operationId": "get_api_v1_audit_log",
@@ -465,6 +524,38 @@
         "summary": "List audit-log",
         "tags": [
           "audit-log"
+        ]
+      }
+    },
+    "/api/v1/audit-log/verify": {
+      "get": {
+        "operationId": "get_api_v1_audit_log_verify",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "List audit-log",
+        "tags": [
+          "audit-log"
+        ]
+      }
+    },
+    "/api/v1/auth/bootstrap-admin": {
+      "post": {
+        "operationId": "post_api_v1_auth_bootstrap_admin",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [],
+        "summary": "Create auth",
+        "tags": [
+          "auth"
         ]
       }
     },
@@ -1455,6 +1546,58 @@
         ]
       }
     },
+    "/api/v1/integrations/{id}/groups": {
+      "get": {
+        "operationId": "get_api_v1_integrations_id_groups",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "List integrations",
+        "tags": [
+          "integrations"
+        ]
+      },
+      "put": {
+        "operationId": "put_api_v1_integrations_id_groups",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Update integration",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
     "/api/v1/integrations/{id}/matchers": {
       "post": {
         "operationId": "post_api_v1_integrations_id_matchers",
@@ -1631,6 +1774,93 @@
         ]
       }
     },
+    "/api/v1/integrations/{id}/shares": {
+      "get": {
+        "operationId": "get_api_v1_integrations_id_shares",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "List integrations",
+        "tags": [
+          "integrations"
+        ]
+      },
+      "post": {
+        "operationId": "post_api_v1_integrations_id_shares",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Create integration",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
+    "/api/v1/integrations/{id}/shares/{shareId}": {
+      "delete": {
+        "operationId": "delete_api_v1_integrations_id_shares_shareId_",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "shareId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Delete integration",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
     "/api/v1/integrations/{id}/span-names": {
       "get": {
         "operationId": "get_api_v1_integrations_id_span_names",
@@ -1770,6 +2000,21 @@
         ]
       }
     },
+    "/api/v1/llms.txt": {
+      "get": {
+        "operationId": "get_api_v1_llms_txt",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [],
+        "summary": "List llms.txt",
+        "tags": [
+          "llms.txt"
+        ]
+      }
+    },
     "/api/v1/log-attributes/{key}/values": {
       "get": {
         "operationId": "get_api_v1_log_attributes_key_values",
@@ -1906,6 +2151,90 @@
         "summary": "Get log",
         "tags": [
           "logs"
+        ]
+      }
+    },
+    "/api/v1/maintenance-windows": {
+      "get": {
+        "operationId": "get_api_v1_maintenance_windows",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "List maintenance-windows",
+        "tags": [
+          "maintenance-windows"
+        ]
+      },
+      "post": {
+        "operationId": "post_api_v1_maintenance_windows",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Create maintenance-window",
+        "tags": [
+          "maintenance-windows"
+        ]
+      }
+    },
+    "/api/v1/maintenance-windows/{id}": {
+      "delete": {
+        "operationId": "delete_api_v1_maintenance_windows_id_",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Delete maintenance-window",
+        "tags": [
+          "maintenance-windows"
+        ]
+      },
+      "patch": {
+        "operationId": "patch_api_v1_maintenance_windows_id_",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Update maintenance-window",
+        "tags": [
+          "maintenance-windows"
         ]
       }
     },
@@ -2094,6 +2423,23 @@
         ]
       }
     },
+    "/api/v1/me/access": {
+      "get": {
+        "operationId": "get_api_v1_me_access",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "List me",
+        "tags": [
+          "me"
+        ]
+      }
+    },
     "/api/v1/me/password": {
       "post": {
         "operationId": "post_api_v1_me_password",
@@ -2106,6 +2452,58 @@
           }
         },
         "summary": "Create me",
+        "tags": [
+          "me"
+        ]
+      }
+    },
+    "/api/v1/me/preferences/{key}": {
+      "get": {
+        "operationId": "get_api_v1_me_preferences_key_",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Get me",
+        "tags": [
+          "me"
+        ]
+      },
+      "put": {
+        "operationId": "put_api_v1_me_preferences_key_",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Update me",
         "tags": [
           "me"
         ]
@@ -2854,6 +3252,65 @@
         ]
       }
     },
+    "/api/v1/operator/announcements": {
+      "get": {
+        "operationId": "get_api_v1_operator_announcements",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "List operator",
+        "tags": [
+          "operator"
+        ]
+      },
+      "post": {
+        "operationId": "post_api_v1_operator_announcements",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Create operator",
+        "tags": [
+          "operator"
+        ]
+      }
+    },
+    "/api/v1/operator/announcements/{id}": {
+      "delete": {
+        "operationId": "delete_api_v1_operator_announcements_id_",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Delete operator",
+        "tags": [
+          "operator"
+        ]
+      }
+    },
     "/api/v1/operator/orgs": {
       "get": {
         "operationId": "get_api_v1_operator_orgs",
@@ -3075,6 +3532,33 @@
         ]
       }
     },
+    "/api/v1/operator/users/{user_id}/demo": {
+      "put": {
+        "operationId": "put_api_v1_operator_users_user_id_demo",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Update operator",
+        "tags": [
+          "operator"
+        ]
+      }
+    },
     "/api/v1/operator/users/{user_id}/operator": {
       "put": {
         "operationId": "put_api_v1_operator_users_user_id_operator",
@@ -3103,31 +3587,6 @@
       }
     },
     "/api/v1/orgs/{id}": {
-      "delete": {
-        "operationId": "delete_api_v1_orgs_id_",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          },
-          "401": {
-            "description": "Unauthenticated"
-          }
-        },
-        "summary": "Delete org",
-        "tags": [
-          "orgs"
-        ]
-      },
       "get": {
         "operationId": "get_api_v1_orgs_id_",
         "parameters": [
@@ -4288,6 +4747,65 @@
         ]
       }
     },
+    "/api/v1/settings/announcements": {
+      "get": {
+        "operationId": "get_api_v1_settings_announcements",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "List settings",
+        "tags": [
+          "settings"
+        ]
+      },
+      "post": {
+        "operationId": "post_api_v1_settings_announcements",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Create setting",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
+    "/api/v1/settings/announcements/{id}": {
+      "delete": {
+        "operationId": "delete_api_v1_settings_announcements_id_",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Delete setting",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
     "/api/v1/settings/auth-providers": {
       "get": {
         "operationId": "get_api_v1_settings_auth_providers",
@@ -4454,6 +4972,40 @@
           }
         },
         "summary": "Delete setting",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
+    "/api/v1/settings/config-export": {
+      "get": {
+        "operationId": "get_api_v1_settings_config_export",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "List settings",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
+    "/api/v1/settings/config-import": {
+      "post": {
+        "operationId": "post_api_v1_settings_config_import",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Create setting",
         "tags": [
           "settings"
         ]
@@ -4854,6 +5406,33 @@
           }
         },
         "summary": "Update setting",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
+    "/api/v1/settings/members/{user_id}/password": {
+      "post": {
+        "operationId": "post_api_v1_settings_members_user_id_password",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Create setting",
         "tags": [
           "settings"
         ]
@@ -5336,6 +5915,58 @@
         ]
       }
     },
+    "/api/v1/systems/{id}/groups": {
+      "get": {
+        "operationId": "get_api_v1_systems_id_groups",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "List systems",
+        "tags": [
+          "systems"
+        ]
+      },
+      "put": {
+        "operationId": "put_api_v1_systems_id_groups",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Update system",
+        "tags": [
+          "systems"
+        ]
+      }
+    },
     "/api/v1/systems/{id}/metadata": {
       "get": {
         "operationId": "get_api_v1_systems_id_metadata",
@@ -5430,6 +6061,93 @@
           {
             "in": "path",
             "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Delete system",
+        "tags": [
+          "systems"
+        ]
+      }
+    },
+    "/api/v1/systems/{id}/shares": {
+      "get": {
+        "operationId": "get_api_v1_systems_id_shares",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "List systems",
+        "tags": [
+          "systems"
+        ]
+      },
+      "post": {
+        "operationId": "post_api_v1_systems_id_shares",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Create system",
+        "tags": [
+          "systems"
+        ]
+      }
+    },
+    "/api/v1/systems/{id}/shares/{shareId}": {
+      "delete": {
+        "operationId": "delete_api_v1_systems_id_shares_shareId_",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "shareId",
             "required": true,
             "schema": {
               "type": "string"
@@ -5716,6 +6434,9 @@
       "name": "alert-templates"
     },
     {
+      "name": "announcements"
+    },
+    {
       "name": "audit-log"
     },
     {
@@ -5755,6 +6476,9 @@
       "name": "license"
     },
     {
+      "name": "llms.txt"
+    },
+    {
       "name": "log-attributes"
     },
     {
@@ -5765,6 +6489,9 @@
     },
     {
       "name": "logs"
+    },
+    {
+      "name": "maintenance-windows"
     },
     {
       "name": "maps"

@@ -1299,7 +1299,9 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /healthz", h.healthz)
 	// API docs (public; see the auth skip-list in main.go).
 	mux.HandleFunc("GET /api/v1/openapi.json", h.openapiSpec)
+	mux.HandleFunc("GET /api/v1/llms.txt", h.llmsSpec)
 	mux.HandleFunc("GET /api/docs", h.apiDocs)
+	mux.HandleFunc("GET /api/docs/scalar.js", h.scalarAsset)
 }
 
 func (h *Handlers) healthz(w http.ResponseWriter, _ *http.Request) {

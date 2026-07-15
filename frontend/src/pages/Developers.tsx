@@ -122,8 +122,14 @@ export default function Developers() {
           <a className="btn primary" href="/api/docs" target="_blank" rel="noreferrer">
             Open the API reference ↗
           </a>
+          <a className="btn btn--primary" href="/api/docs" target="_blank" rel="noreferrer">
+            API reference — try it live ↗
+          </a>
           <a className="btn" href="/api/v1/openapi.json" target="_blank" rel="noreferrer">
             OpenAPI spec (JSON) ↗
+          </a>
+          <a className="btn" href="/api/v1/llms.txt" target="_blank" rel="noreferrer" title="Compact markdown spec — the token-frugal format for AI tools">
+            llms.txt ↗
           </a>
         </div>
         <p className="muted" style={{ fontSize: 12.5, marginTop: 10 }}>

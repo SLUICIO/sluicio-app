@@ -29,7 +29,8 @@ import (
 func main() {
 	src := flag.String("src", "services/cell-api/internal/api/handlers.go", "route-registration source file")
 	out := flag.String("out", "services/cell-api/internal/api/openapi_gen.json", "output OpenAPI json path")
-	check := flag.Bool("check", false, "exit non-zero if -out is out of date instead of writing")
+	llmsOut := flag.String("llms", "services/cell-api/internal/api/llms_gen.txt", "output llms.txt path")
+	check := flag.Bool("check", false, "exit non-zero if outputs are out of date instead of writing")
 	flag.Parse()
 
 	routes, err := extractRoutes(*src)
@@ -44,21 +45,61 @@ func main() {
 		os.Exit(1)
 	}
 	rendered = append(rendered, '\n')
+	llms := buildLLMs(routes)
 
 	if *check {
 		existing, _ := os.ReadFile(*out)
-		if !bytes.Equal(existing, rendered) {
-			fmt.Fprintf(os.Stderr, "openapi-gen: %s is out of date — run `make openapi`\n", *out)
+		existingLLMs, _ := os.ReadFile(*llmsOut)
+		if !bytes.Equal(existing, rendered) || !bytes.Equal(existingLLMs, llms) {
+			fmt.Fprintf(os.Stderr, "openapi-gen: %s / %s is out of date — run `make openapi`\n", *out, *llmsOut)
 			os.Exit(1)
 		}
-		fmt.Printf("openapi-gen: %s is up to date (%d routes)\n", *out, len(routes))
+		fmt.Printf("openapi-gen: %s + %s are up to date (%d routes)\n", *out, *llmsOut, len(routes))
 		return
 	}
 	if err := os.WriteFile(*out, rendered, 0o644); err != nil {
 		fmt.Fprintln(os.Stderr, "openapi-gen: write:", err)
 		os.Exit(1)
 	}
-	fmt.Printf("openapi-gen: wrote %s (%d routes)\n", *out, len(routes))
+	if err := os.WriteFile(*llmsOut, llms, 0o644); err != nil {
+		fmt.Fprintln(os.Stderr, "openapi-gen: write llms:", err)
+		os.Exit(1)
+	}
+	fmt.Printf("openapi-gen: wrote %s + %s (%d routes)\n", *out, *llmsOut, len(routes))
+}
+
+// buildLLMs renders the routes as llms.txt — compact markdown, one line per
+// endpoint, grouped by tag. The token-frugal spec for AIs that read docs
+// (agents should use MCP instead; the header says so).
+func buildLLMs(routes []route) []byte {
+	var b strings.Builder
+	b.WriteString("# Sluicio API (v1)\n\n")
+	b.WriteString("> Self-hosted integration monitoring on OpenTelemetry. Every endpoint returns JSON and is RBAC-filtered to the caller's token.\n\n")
+	b.WriteString("Auth: `Authorization: Bearer <token>` — a personal access token or a service-account token (Settings → Service accounts). Time windows: `?range=1h|24h|7d` or `from/to` ISO pair.\n\n")
+	b.WriteString("Example: `curl -H \"Authorization: Bearer $TOKEN\" https://<cell>/api/v1/services?range=24h`\n\n")
+	b.WriteString("Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefer MCP at POST /api/v1/mcp (same auth, curated read tools).\n")
+
+	byTag := map[string][]route{}
+	var tags []string
+	for _, r := range routes {
+		t := tagFor(r.Path)
+		if len(byTag[t]) == 0 {
+			tags = append(tags, t)
+		}
+		byTag[t] = append(byTag[t], r)
+	}
+	sort.Strings(tags)
+	for _, t := range tags {
+		b.WriteString("\n## " + t + "\n")
+		for _, r := range byTag[t] {
+			b.WriteString("- " + r.Method + " " + r.Path + " — " + summaryFor(r.Method, r.Path, t))
+			if publicPath(r.Path) {
+				b.WriteString(" (no auth)")
+			}
+			b.WriteString("\n")
+		}
+	}
+	return []byte(b.String())
 }
 
 type route struct {
@@ -106,7 +147,9 @@ func publicPath(p string) bool {
 	return strings.HasPrefix(p, "/api/v1/auth/") ||
 		p == "/healthz" ||
 		p == "/api/v1/openapi.json" ||
-		p == "/api/docs"
+		p == "/api/v1/llms.txt" ||
+		p == "/api/docs" ||
+		p == "/api/docs/scalar.js"
 }
 
 // tagFor groups a path under a resource tag (the first meaningful segment).

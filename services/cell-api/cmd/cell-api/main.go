@@ -477,7 +477,9 @@ func main() {
 		"/api/v1/auth/sso/",
 		// Public API docs — the spec + Redoc UI are readable without a session.
 		"/api/v1/openapi.json",
+		"/api/v1/llms.txt",
 		"/api/docs",
+		"/api/docs/scalar.js",
 		// Public status badges (opt-in per entity) — the SVG must be embeddable
 		// in a README with no session. Only opted-in entities render; the
 		// toggles that set that live under the authed entity paths.
