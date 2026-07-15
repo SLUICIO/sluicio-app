@@ -55,9 +55,23 @@ the file). Closing them surfaced — and fixed or filed — three findings:
 | Per-signal | EE | Metrics-only grant: metrics flow, logs and messages empty | rbac.spec `metrics-only grant…` |
 | Per-signal | EE | Messages-only grant: business lens works, logs and metrics empty | rbac.spec `messages-only grant…` |
 | Sharing | EE | Grantee must be an existing org member — unknown email rejected (**no pending shares by design**; the earlier "joins later" gap was a misreading) | rbac.spec `sharing to an unknown email…` |
-| Service accounts | — | Writes/admin role-gated (403); reads are **org-wide** — pinned current semantics, design decision open in issue #2 | rbac.spec `service-account token` |
-| MCP | — | MCP mirrors REST exactly for the same token (admin PAT and viewer-SA token) | rbac.spec `MCP surface` |
+| Service accounts | — | Scoped by default: group-less SA sees **nothing**; group membership grants exactly the group's scope; writes/admin stay role-gated | rbac.spec `scoped viewer SA…` |
+| Service accounts | — | `org_wide` is an explicit opt-in that reads the whole org | rbac.spec `org-wide SA is an explicit opt-in…` |
+| Service accounts | — | Forbid-org-wide cell setting: creation rejected, existing org-wide SAs resolve as scoped | rbac.spec `forbid-org-wide cell setting…` |
+| Service accounts | — | Same resolver for users and SAs at the store layer (membership, cascade, isolation between the kinds) | Go: service_accounts_integration_test.go |
+| MCP | — | MCP mirrors REST exactly for the same token (admin PAT sees all; group-less scoped viewer-SA sees zero) | rbac.spec `MCP surface` |
 | Attach-before-telemetry | CE | Group attached to a service-less integration grants nothing until telemetry arrives — pinned current semantics | rbac.spec `attach before telemetry` |
+
+### Dashboards + alerting, 2026-07-15
+
+| Model area | Edition | Verified behaviour | Test |
+|---|---|---|---|
+| Dashboards | — | Team dashboard invisible to non-members (list + direct GET → 404); org-wide visible to all but read-only for viewers (canManage=false, PUT/DELETE 403) | dashboards-rbac.spec `team dashboard is invisible…` |
+| Dashboards | EE | Team editor: full lifecycle on their team's boards; org-wide create and other teams' boards refused | dashboards-rbac.spec `team editor manages exactly…` |
+| Dashboards / widgets | — | Widget data cannot leak: an org-wide dashboard referencing an out-of-scope integration renders no widget for a scoped viewer — /integrations is filtered, direct fetch 404s, and the Health page shows only the granted card | dashboards-rbac.spec `widget data never leaks…` |
+| Dashboards × SAs | — | Scoped service accounts see team dashboards only via group membership (same rule as users) | dashboards-rbac.spec `scoped service account sees…` |
+| Alerting | — | Team-owned alert rules invisible to group-less viewers | alert-lifecycle.spec `recipient + trigger configuration…` |
+| Alerting (functional) | — | Error traces on an integration fire a threshold rule within one engine tick (~30s) and deliver ONLY to the rule's bound channels (proven by a live webhook sink); the error notifier pages the integration's notification-profile channels within its 60s cadence | alert-lifecycle.spec (needs `E2E_INGEST_URL`; skips without reachable ingest) |
 
 Findings from the closure:
 
@@ -66,8 +80,10 @@ Findings from the closure:
   grant excluded the metrics signal. Now gated through the metrics tier like
   every other metrics endpoint (the messages-only test pins it).
 - **Filed — service-account visibility** (issue #2): SA principals bypass
-  deny-by-default and read org-wide; role gates hold for writes. Tests pin
-  current behaviour until the design decision lands.
+  deny-by-default and read org-wide; role gates hold for writes.
+  **Resolved 2026-07-15** — SAs are now first-class group members, scoped
+  by default (docs/service-account-scoping-design.md); the pinned tests
+  above were flipped with the change.
 - **Corrected** — pending shares don't exist by design; the automated test
   asserts the rejection instead.
 

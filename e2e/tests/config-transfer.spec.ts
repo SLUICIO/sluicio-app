@@ -52,11 +52,17 @@ test.describe("Config export & import", () => {
         matchers: [{ operator: "equals", value: "e2e-ct-service" }],
       },
     });
-    // Fresh target org via the operator surface.
+    // Fresh target org via the operator surface. Delete a leftover
+    // first (a previous run's worker dying before afterAll leaves the
+    // org POPULATED, and a polluted target turns the strict dry-run
+    // into a 409 cascade).
+    const existing = await (await source.get("/api/v1/operator/orgs")).json();
+    const leftover = (existing.orgs ?? []).find((o: { slug: string }) => o.slug === TARGET_SLUG);
+    if (leftover) await source.delete(`/api/v1/operator/orgs/${leftover.id}`);
     const created = await source.post("/api/v1/operator/orgs", {
       data: { name: "E2E CT Target", slug: TARGET_SLUG },
     });
-    if (!created.ok() && created.status() !== 409) throw new Error(`create target org: ${created.status()}`);
+    if (!created.ok()) throw new Error(`create target org: ${created.status()}`);
     const orgs = await (await source.get("/api/v1/operator/orgs")).json();
     targetOrgID = (orgs.orgs ?? []).find((o: { slug: string }) => o.slug === TARGET_SLUG)?.id;
     // The admin must be a member of the target org to import into it.

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -544,6 +545,12 @@ func exportPolicies(ctx context.Context, tx pgx.Tx, org string, b *Bundle, group
 		return err
 	}
 	defer rows.Close()
+	// The store doesn't enforce policy uniqueness (an exact duplicate on
+	// a group is semantically harmless — the resolver unions), but a
+	// bundle carrying the same natural key twice would SELF-conflict on
+	// strict import. Dedupe on the importer's key so every legal org
+	// state exports to an importable bundle.
+	seen := map[string]struct{}{}
 	for rows.Next() {
 		var gid string
 		var integID, sysID *string
@@ -570,6 +577,13 @@ func exportPolicies(ctx context.Context, tx pgx.Tx, org string, b *Bundle, group
 		if conditions != "null" {
 			p.Conditions = json.RawMessage(conditions)
 		}
+		// Mirror of the importer's pseudo natural key (import.go).
+		key := strings.Join([]string{p.Group, p.Kind, deref(p.TargetServiceName), deref(p.TargetIntegration),
+			deref(p.TargetSystem), deref(p.TargetSystemKind), string(p.AttributeMatch), string(p.Conditions)}, "|")
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
 		b.Sections.AccessPolicies = append(b.Sections.AccessPolicies, p)
 	}
 	return rows.Err()

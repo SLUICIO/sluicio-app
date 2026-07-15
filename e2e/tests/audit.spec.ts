@@ -122,12 +122,18 @@ test.describe("Audit log (EE)", () => {
     const temp = `${original} (e2e)`;
     expect((await page.request.patch("/api/v1/me", { data: { name: temp } })).ok()).toBeTruthy();
     try {
+      // A second audited action WHILE renamed: its actor snapshot is
+      // guaranteed to carry the temp name. (The rename entry itself
+      // snapshots the pre-rename principal, so without this the test
+      // leaned on incidental audited reads landing inside the window —
+      // flaky on a busy cell.)
+      expect((await page.request.patch("/api/v1/me", { data: { name: `${temp}2` } })).ok()).toBeTruthy();
       const trail = await page.request.get(
-        "/api/v1/audit-log?action=user.profile_updated&limit=1",
+        "/api/v1/audit-log?action=user.profile_updated&limit=2",
       );
       const { entries } = await trail.json();
-      expect(entries[0].metadata?.old_name).toBe(original);
-      expect(entries[0].metadata?.new_name).toBe(temp);
+      expect(entries[1].metadata?.old_name).toBe(original);
+      expect(entries[1].metadata?.new_name).toBe(temp);
       // actor_id filter returns entries regardless of the name they were
       // written under (the id is stable across renames).
       const byId = await page.request.get(
