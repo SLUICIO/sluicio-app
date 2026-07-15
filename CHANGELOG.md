@@ -3,6 +3,11 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.25 — 2026-07-15
+
+- fix(ui): drop the stale Redoc caption on the API & MCP page (391145a)
+- release v0.11.24 — refresh internal changelog (3b5c56e)
+
 ## v0.11.24 — 2026-07-15
 
 - feat(api-docs): Scalar try-it reference + llms.txt, all embedded (0beaaed)
