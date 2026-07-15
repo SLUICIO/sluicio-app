@@ -8,11 +8,17 @@ package alerting
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 // capture spins an httptest server that records the last JSON body.
@@ -81,6 +87,57 @@ func TestWebhookNotifier(t *testing.T) {
 	msg.Config = map[string]string{}
 	if err := (webhookNotifier{}).Send(context.Background(), srv.Client(), msg); err == nil {
 		t.Fatal("expected error on empty url")
+	}
+}
+
+func TestWebhookSigning(t *testing.T) {
+	// The scheme is a public contract with receivers: HMAC-SHA256 over
+	// "<X-Sluicio-Timestamp>.<raw body>", sent as
+	// "X-Sluicio-Signature: sha256=<hex>". Changing ANY part of this
+	// breaks every receiver's verification — hence the exact pin.
+	var gotBody []byte
+	var gotSig, gotTS string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotBody, _ = io.ReadAll(r.Body)
+		gotSig = r.Header.Get(SignatureHeader)
+		gotTS = r.Header.Get(TimestampHeader)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	msg := Message{
+		State:  "firing",
+		Body:   "signed alert",
+		Config: map[string]string{"url": srv.URL, "secret": "s3cret"},
+	}
+	if err := (webhookNotifier{}).Send(context.Background(), srv.Client(), msg); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	if gotTS == "" || gotSig == "" {
+		t.Fatalf("signature headers missing: sig=%q ts=%q", gotSig, gotTS)
+	}
+	// Recompute exactly the way a receiver would.
+	mac := hmac.New(sha256.New, []byte("s3cret"))
+	mac.Write([]byte(gotTS + "."))
+	mac.Write(gotBody)
+	want := "sha256=" + hex.EncodeToString(mac.Sum(nil))
+	if gotSig != want {
+		t.Fatalf("signature mismatch:\n got %s\nwant %s", gotSig, want)
+	}
+	// Timestamp is unix seconds, recent.
+	ts, err := strconv.ParseInt(gotTS, 10, 64)
+	if err != nil || time.Since(time.Unix(ts, 0)) > time.Minute {
+		t.Fatalf("timestamp not recent unix seconds: %q (%v)", gotTS, err)
+	}
+
+	// No secret → no signature headers (today's behaviour untouched).
+	gotSig, gotTS = "", ""
+	msg.Config = map[string]string{"url": srv.URL}
+	if err := (webhookNotifier{}).Send(context.Background(), srv.Client(), msg); err != nil {
+		t.Fatalf("send unsigned: %v", err)
+	}
+	if gotSig != "" || gotTS != "" {
+		t.Fatalf("unsigned send must carry no signature headers, got sig=%q ts=%q", gotSig, gotTS)
 	}
 }
 

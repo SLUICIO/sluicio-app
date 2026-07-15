@@ -5,6 +5,9 @@ package alerting
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -481,17 +484,24 @@ func (webhookNotifier) Send(ctx context.Context, client *http.Client, msg Messag
 	// The canonical, content-toggled payload when one was assembled
 	// (messageFromJob for webhook channels); else the legacy fixed shape so
 	// untouched rules / one-off sends are unchanged.
-	if msg.Payload != nil {
-		return postJSON(ctx, client, msg.Config["url"], msg.Payload)
+	body := msg.Payload
+	if body == nil {
+		body = map[string]any{
+			"state":   msg.State,
+			"subject": msg.Subject,
+			"summary": msg.Body,
+			"labels":  msg.Labels,
+			"sent_at": time.Now().UTC().Format(time.RFC3339),
+			"source":  "sluicio",
+		}
 	}
-	return postJSON(ctx, client, msg.Config["url"], map[string]any{
-		"state":   msg.State,
-		"subject": msg.Subject,
-		"summary": msg.Body,
-		"labels":  msg.Labels,
-		"sent_at": time.Now().UTC().Format(time.RFC3339),
-		"source":  "sluicio",
-	})
+	// Opt-in request signing (config.secret): HMAC-SHA256 over
+	// "<unix-ts>.<raw body>" so the receiver can verify BOTH that the
+	// payload is authentic/untampered and that it isn't a replay
+	// (reject stale timestamps). Deliberately custom headers, not
+	// Authorization — that slot belongs to the receiver's own auth and
+	// gets consumed by their middleware. See docs/webhook-signing.md.
+	return postJSON(ctx, client, msg.Config["url"], body, strings.TrimSpace(msg.Config["secret"]))
 }
 
 // ── slack (incoming webhook) ─────────────────────────────────────────
@@ -515,7 +525,7 @@ func (slackNotifier) Send(ctx context.Context, client *http.Client, msg Message)
 		}
 	}
 	return postJSON(ctx, client, msg.Config["url"],
-		map[string]any{"text": fmt.Sprintf("%s *[%s]* %s", icon, prefix, msg.Body)})
+		map[string]any{"text": fmt.Sprintf("%s *[%s]* %s", icon, prefix, msg.Body)}, "")
 }
 
 // ── pagerduty (Events API v2) ────────────────────────────────────────
@@ -565,12 +575,33 @@ func (pagerdutyNotifier) Send(ctx context.Context, client *http.Client, msg Mess
 			"source":    "sluicio",
 			"component": msg.Labels["metric"],
 		},
-	})
+	}, "")
 }
 
 // ── shared HTTP POST ─────────────────────────────────────────────────
 
-func postJSON(ctx context.Context, client *http.Client, url string, body any) error {
+// Signature headers for opt-in webhook signing. The signature covers
+// "<timestamp>.<body>" — the timestamp binding is what gives receivers
+// replay protection on top of integrity/authenticity. The scheme is
+// pinned by tests: changing it breaks every receiver's verification.
+const (
+	SignatureHeader = "X-Sluicio-Signature"
+	TimestampHeader = "X-Sluicio-Timestamp"
+)
+
+// signBody computes the "sha256=<hex>" signature value for ts + "." + body.
+func signBody(secret string, ts string, body []byte) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(ts))
+	mac.Write([]byte("."))
+	mac.Write(body)
+	return "sha256=" + hex.EncodeToString(mac.Sum(nil))
+}
+
+// postJSON POSTs a JSON body; when secret is non-empty the request is
+// signed (SignatureHeader + TimestampHeader). Slack/PagerDuty pass ""
+// — their platforms carry authenticity in the URL / routing key.
+func postJSON(ctx context.Context, client *http.Client, url string, body any, secret string) error {
 	if url == "" {
 		return fmt.Errorf("channel has no destination URL")
 	}
@@ -583,6 +614,11 @@ func postJSON(ctx context.Context, client *http.Client, url string, body any) er
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if secret != "" {
+		ts := fmt.Sprintf("%d", time.Now().Unix())
+		req.Header.Set(TimestampHeader, ts)
+		req.Header.Set(SignatureHeader, signBody(secret, ts, buf))
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return err

@@ -14,6 +14,7 @@
 //   E2E_SMTP_PORT     SMTP catcher port (default 1025)
 //   E2E_MAILPIT_API   mailpit API base as THIS process sees it (e.g. http://localhost:8025)
 import http from "node:http";
+import crypto from "node:crypto";
 import { test, expect, type APIRequestContext } from "@playwright/test";
 import { logIn } from "./fixtures";
 
@@ -22,7 +23,7 @@ const SMTP_HOST = process.env.E2E_SMTP_HOST || "";
 const SMTP_PORT = process.env.E2E_SMTP_PORT || "1025";
 const MAILPIT_API = process.env.E2E_MAILPIT_API || "";
 
-type SinkHit = { path: string; body: string };
+type SinkHit = { path: string; body: string; headers: Record<string, string | string[] | undefined> };
 const hits: SinkHit[] = [];
 let sink: http.Server;
 let sinkPort = 0;
@@ -50,7 +51,7 @@ test.describe("Notification channels — live delivery per kind", () => {
       let body = "";
       req.on("data", (c) => (body += c));
       req.on("end", () => {
-        hits.push({ path: req.url ?? "", body });
+        hits.push({ path: req.url ?? "", body, headers: req.headers });
         res.writeHead(202, { "Content-Type": "application/json" });
         res.end('{"ok":true}');
       });
@@ -81,6 +82,42 @@ test.describe("Notification channels — live delivery per kind", () => {
     expect(body.state).toBe("firing");
     expect(String(body.summary)).toContain("Test notification");
     expect(body).toHaveProperty("sent_at");
+  });
+
+  test("webhook: opt-in HMAC signing verifies like a real receiver would", async ({ page }) => {
+    await logIn(page);
+    const secret = "e2e-signing-secret";
+    const id = await makeChannel(page.request, "webhook", {
+      url: `http://${SINK_HOST}:${sinkPort}/ch-signed`,
+      secret,
+    });
+    created.push(id);
+    expect((await testChannel(page.request, id)).ok()).toBeTruthy();
+    const hit = hits.find((h) => h.path === "/ch-signed");
+    expect(hit).toBeTruthy();
+
+    // Verify exactly as docs/webhook-signing.md tells receivers to.
+    const ts = String(hit!.headers["x-sluicio-timestamp"] ?? "");
+    const sig = String(hit!.headers["x-sluicio-signature"] ?? "");
+    expect(ts).toMatch(/^\d+$/);
+    expect(Math.abs(Date.now() / 1000 - Number(ts))).toBeLessThan(300);
+    const want =
+      "sha256=" +
+      crypto.createHmac("sha256", secret).update(`${ts}.`).update(hit!.body).digest("hex");
+    expect(sig).toBe(want);
+
+    // A secret-less channel must stay unsigned (opt-in contract). Same
+    // test on purpose — fullyParallel puts sibling tests in separate
+    // worker processes with separate sinks.
+    const plainID = await makeChannel(page.request, "webhook", {
+      url: `http://${SINK_HOST}:${sinkPort}/ch-unsigned`,
+    });
+    created.push(plainID);
+    expect((await testChannel(page.request, plainID)).ok()).toBeTruthy();
+    const unsigned = hits.find((h) => h.path === "/ch-unsigned");
+    expect(unsigned).toBeTruthy();
+    expect(unsigned!.headers["x-sluicio-signature"]).toBeUndefined();
+    expect(unsigned!.headers["x-sluicio-timestamp"]).toBeUndefined();
   });
 
   test("slack: incoming-webhook text with state prefix and severity icon", async ({ page }) => {

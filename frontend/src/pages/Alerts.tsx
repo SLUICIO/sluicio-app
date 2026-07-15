@@ -546,6 +546,7 @@ function ChannelsCard({
   const [saving, setSaving] = useState(false);
   const [dest, setDest] = useState("");
   const [pdEventsUrl, setPdEventsUrl] = useState("");
+  const [whSecret, setWhSecret] = useState("");
   const [email, setEmail] = useState({ smtp_host: "", smtp_port: "587", from: "", to: "", username: "", password: "" });
   const [useSystemEmail, setUseSystemEmail] = useState(true);
 
@@ -576,11 +577,13 @@ function ChannelsCard({
         : {
             [destKey]: dest.trim(),
             ...(kind === "pagerduty" && pdEventsUrl.trim() ? { events_url: pdEventsUrl.trim() } : {}),
+            ...(kind === "webhook" && whSecret.trim() ? { secret: whSecret.trim() } : {}),
           };
       await api.createChannel({ name: name.trim(), kind, config });
       setName("");
       setDest("");
       setPdEventsUrl("");
+      setWhSecret("");
       setEmail({ smtp_host: "", smtp_port: "587", from: "", to: "", username: "", password: "" });
       setUseSystemEmail(true);
       onChanged();
@@ -682,6 +685,12 @@ function ChannelsCard({
                     <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, flex: 1, minWidth: 220 }}>
                       <span className="muted">Events API URL (optional — EU accounts: https://events.eu.pagerduty.com/v2/enqueue)</span>
                       <input className="search__input mono" style={{ fontSize: 13 }} value={pdEventsUrl} onChange={(e) => setPdEventsUrl(e.target.value)} placeholder="default: US service region" />
+                    </label>
+                  )}
+                  {kind === "webhook" && (
+                    <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, flex: 1, minWidth: 220 }}>
+                      <span className="muted">Signing secret (optional — HMAC-SHA256, see docs/webhook-signing.md)</span>
+                      <input className="search__input mono" style={{ fontSize: 13 }} type="password" value={whSecret} onChange={(e) => setWhSecret(e.target.value)} placeholder="leave empty for unsigned requests" />
                     </label>
                   )}
                 </>
