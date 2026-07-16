@@ -1024,7 +1024,10 @@ test.describe("RBAC — service-account scoping", () => {
       // the Add-member picker labels service accounts distinctly.
       await page.goto("/settings?tab=groups");
       await page.getByRole("row", { name: new RegExp(groupName) }).click();
-      await expect(page.getByRole("cell", { name: saName })).toBeVisible();
+      // exact:true — the member cell's accessible name is the bare SA
+      // name; the badge variant ("… service account") must not create a
+      // strict-mode ambiguity (it did on CI).
+      await expect(page.getByRole("cell", { name: saName, exact: true }).first()).toBeVisible();
       await expect(page.getByText("service account", { exact: true }).first()).toBeVisible();
     } finally {
       await admin.delete(`/api/v1/settings/groups/${gid}`);

@@ -26,6 +26,18 @@ test("error-type list + integration↔service cross-narrowing on /search", async
     // ?s seeds a private DRAFT view — deterministic row set regardless
     // of the org's shared saved views (which other suite workers touch;
     // starting from the default shared view made pill indexing racy).
+    // The error-type picker renders its list only once the fields
+    // catalog carries observed error types — wait for the API to have
+    // them (seeded data can lag on a cold CI cell) BEFORE driving the UI.
+    await expect
+      .poll(
+        async () => {
+          const fields = (await (await page.request.get("/api/v1/messages/fields?range=24h")).json()).fields ?? [];
+          return (fields.find((f: { field: string }) => f.field === "errorType")?.enumValues ?? []).length;
+        },
+        { timeout: 45_000 },
+      )
+      .toBeGreaterThan(0);
     await page.goto("/search?s=any");
     await expect(page.getByRole("button", { name: "+ add a filter" })).toBeVisible();
     // Add a filter row → defaults to payload; switch it to error type.
