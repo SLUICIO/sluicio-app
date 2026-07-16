@@ -13,22 +13,47 @@ spec:
     metadata:
       labels: {{- include "cell.selectorLabels" $ctx | nindent 8 }}
     spec:
+      serviceAccountName: {{ include "cell.serviceAccountName" . }}
+      {{- include "cell.imagePullSecrets" . | nindent 6 }}
       securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
         - name: cell-ingest
-          image: "{{ .Values.cellIngest.image.repository }}:{{ .Values.cellIngest.image.tag }}"
+          image: {{ include "cell.image" (dict "root" . "image" .Values.cellIngest.image) | quote }}
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
           securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           ports:
             - name: otlp-http
               containerPort: 4318
-            - name: otlp-grpc
-              containerPort: 4317
           env:
+            - name: CELL_INGEST_ADDR
+              value: ":4318"
+            # cell-ingest reads Postgres too — it verifies ingest keys there.
             {{- include "cell.dbEnv" . | nindent 12 }}
-            - name: PROMETHEUS_REMOTE_WRITE_URL
-              value: {{ .Values.prometheus.remoteWriteURL | quote }}
+            {{- with .Values.cellIngest.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: otlp-http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: otlp-http
+            initialDelaySeconds: 15
+            periodSeconds: 20
           resources: {{- toYaml .Values.cellIngest.resources | nindent 12 }}
+      {{- with .Values.cellIngest.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.cellIngest.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.cellIngest.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}
 ---
 apiVersion: v1
 kind: Service
@@ -39,9 +64,6 @@ spec:
   type: {{ .Values.cellIngest.service.type }}
   ports:
     - name: otlp-http
-      port: {{ .Values.cellIngest.service.httpPort }}
+      port: {{ .Values.cellIngest.service.port }}
       targetPort: otlp-http
-    - name: otlp-grpc
-      port: {{ .Values.cellIngest.service.grpcPort }}
-      targetPort: otlp-grpc
   selector: {{- include "cell.selectorLabels" $ctx | nindent 4 }}

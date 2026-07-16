@@ -6,29 +6,89 @@ metadata:
   name: {{ include "cell.componentName" $ctx }}
   labels: {{- include "cell.labels" $ctx | nindent 4 }}
 spec:
+  # cell-api must stay single-replica: it runs in-process schedulers
+  # (alert evaluation, notification delivery, reconcilers) and applies DB
+  # migrations on startup. See values.yaml.
   replicas: {{ .Values.cellApi.replicaCount }}
+  strategy:
+    type: Recreate          # never two instances during a rollout
   selector:
     matchLabels: {{- include "cell.selectorLabels" $ctx | nindent 6 }}
   template:
     metadata:
       labels: {{- include "cell.selectorLabels" $ctx | nindent 8 }}
     spec:
+      serviceAccountName: {{ include "cell.serviceAccountName" . }}
+      {{- include "cell.imagePullSecrets" . | nindent 6 }}
       securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
         - name: cell-api
-          image: "{{ .Values.cellApi.image.repository }}:{{ .Values.cellApi.image.tag }}"
+          image: {{ include "cell.image" (dict "root" . "image" .Values.cellApi.image) | quote }}
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
           securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           ports:
             - name: http
               containerPort: 8081
           env:
+            - name: CELL_API_ADDR
+              value: ":8081"
             {{- include "cell.dbEnv" . | nindent 12 }}
-            - name: PROMETHEUS_REMOTE_WRITE_URL
-              value: {{ .Values.prometheus.remoteWriteURL | quote }}
-            - name: OIDC_ISSUER
-              value: {{ .Values.keycloak.issuer | quote }}
+            {{- with (include "cell.appUrl" .) }}
+            - name: SLUICIO_APP_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with (include "cell.ingestUrl" .) }}
+            - name: SLUICIO_INGEST_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- include "cell.secretEnv" (dict "root" . "name" "SLUICIO_LICENSE_KEY" "cfg" .Values.license "appKey" "license") | nindent 12 }}
+            {{- include "cell.secretEnv" (dict "root" . "name" "SLUICIO_MFA_KEY" "cfg" .Values.mfa "appKey" "mfa-key") | nindent 12 }}
+            {{- if .Values.smtp.host }}
+            - name: SLUICIO_SMTP_HOST
+              value: {{ .Values.smtp.host | quote }}
+            - name: SLUICIO_SMTP_PORT
+              value: {{ .Values.smtp.port | quote }}
+            {{- with .Values.smtp.username }}
+            - name: SLUICIO_SMTP_USERNAME
+              value: {{ . | quote }}
+            {{- end }}
+            {{- include "cell.secretEnv" (dict "root" . "name" "SLUICIO_SMTP_PASSWORD" "cfg" (dict "existingSecret" .Values.smtp.existingSecret "secretKey" .Values.smtp.secretKey "key" .Values.smtp.password) "appKey" "smtp-password") | nindent 12 }}
+            {{- with .Values.smtp.from }}
+            - name: SLUICIO_SMTP_FROM
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.smtp.fromName }}
+            - name: SLUICIO_SMTP_FROM_NAME
+              value: {{ . | quote }}
+            {{- end }}
+            {{- end }}
+            {{- with .Values.cellApi.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            # Startup applies DB migrations; give first boot some room.
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
           resources: {{- toYaml .Values.cellApi.resources | nindent 12 }}
+      {{- with .Values.cellApi.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.cellApi.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.cellApi.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}
 ---
 apiVersion: v1
 kind: Service

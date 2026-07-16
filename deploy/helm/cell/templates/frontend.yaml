@@ -1,0 +1,129 @@
+{{/* SPDX-License-Identifier: Apache-2.0 */}}
+{{- $ctx := dict "root" . "component" "frontend" -}}
+{{/*
+The frontend image bakes an nginx site config that listens on :80 and
+proxies /api to the compose hostname `cell-api` — neither works here (the
+Service is release-prefixed, and :80 needs root). The chart mounts its own
+site config instead: unprivileged port, this release's cell-api Service as
+the /api upstream, same SPA-fallback + asset-caching behavior. Together
+with the emptyDir mounts below the pod runs as any non-root UID, so it
+passes restricted-v2 and OpenShift's restricted SCC unchanged.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "cell.componentName" $ctx }}-nginx
+  labels: {{- include "cell.labels" $ctx | nindent 4 }}
+data:
+  default.conf: |
+    server {
+        listen {{ .Values.frontend.containerPort }};
+        server_name _;
+        root /usr/share/nginx/html;
+        index index.html;
+
+        location /api/ {
+            proxy_pass http://{{ include "cell.componentName" (dict "root" . "component" "cell-api") }}:{{ .Values.cellApi.service.port }};
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_read_timeout 60s;
+        }
+
+        location /assets/ {
+            expires 1y;
+            add_header Cache-Control "public, immutable";
+            try_files $uri =404;
+        }
+
+        location / {
+            try_files $uri $uri/ /index.html;
+        }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "cell.componentName" $ctx }}
+  labels: {{- include "cell.labels" $ctx | nindent 4 }}
+spec:
+  replicas: {{ .Values.frontend.replicaCount }}
+  selector:
+    matchLabels: {{- include "cell.selectorLabels" $ctx | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "cell.selectorLabels" $ctx | nindent 8 }}
+      annotations:
+        # Roll pods when the rendered nginx config would change.
+        checksum/nginx-config: {{ printf "%v|%v|%v" .Values.frontend.containerPort .Values.cellApi.service.port .Release.Name | sha256sum | trunc 32 }}
+    spec:
+      serviceAccountName: {{ include "cell.serviceAccountName" . }}
+      {{- include "cell.imagePullSecrets" . | nindent 6 }}
+      securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: frontend
+          image: {{ include "cell.image" (dict "root" . "image" .Values.frontend.image) | quote }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.frontend.containerPort }}
+          volumeMounts:
+            - name: nginx-site
+              mountPath: /etc/nginx/conf.d/default.conf
+              subPath: default.conf
+            # Writable dirs nginx needs under readOnlyRootFilesystem /
+            # arbitrary UIDs.
+            - name: nginx-cache
+              mountPath: /var/cache/nginx
+            - name: nginx-run
+              mountPath: /var/run
+            - name: tmp
+              mountPath: /tmp
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources: {{- toYaml .Values.frontend.resources | nindent 12 }}
+      volumes:
+        - name: nginx-site
+          configMap:
+            name: {{ include "cell.componentName" $ctx }}-nginx
+        - name: nginx-cache
+          emptyDir: {}
+        - name: nginx-run
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+      {{- with .Values.frontend.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.frontend.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.frontend.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "cell.componentName" $ctx }}
+  labels: {{- include "cell.labels" $ctx | nindent 4 }}
+spec:
+  type: {{ .Values.frontend.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.frontend.service.port }}
+      targetPort: http
+  selector: {{- include "cell.selectorLabels" $ctx | nindent 4 }}

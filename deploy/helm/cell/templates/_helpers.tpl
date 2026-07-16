@@ -21,7 +21,7 @@ app.kubernetes.io/name: {{ include "cell.name" .root }}
 app.kubernetes.io/instance: {{ .root.Release.Name }}
 app.kubernetes.io/version: {{ .root.Chart.AppVersion }}
 app.kubernetes.io/component: {{ .component }}
-app.kubernetes.io/part-of: integration-monitor
+app.kubernetes.io/part-of: sluicio
 app.kubernetes.io/managed-by: {{ .root.Release.Service }}
 {{- end -}}
 
@@ -29,6 +29,54 @@ app.kubernetes.io/managed-by: {{ .root.Release.Service }}
 app.kubernetes.io/name: {{ include "cell.name" .root }}
 app.kubernetes.io/instance: {{ .root.Release.Name }}
 app.kubernetes.io/component: {{ .component }}
+{{- end -}}
+
+{{/* Image reference: tag defaults to the chart's appVersion. */}}
+{{- define "cell.image" -}}
+{{- printf "%s:%s" .image.repository (default .root.Chart.AppVersion .image.tag) -}}
+{{- end -}}
+
+{{- define "cell.serviceAccountName" -}}
+{{- if .Values.serviceAccount.create -}}
+{{- default (include "cell.fullname" .) .Values.serviceAccount.name -}}
+{{- else -}}
+{{- default "default" .Values.serviceAccount.name -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "cell.imagePullSecrets" -}}
+{{- with .Values.global.imagePullSecrets }}
+imagePullSecrets:
+{{- range . }}
+  - name: {{ . }}
+{{- end }}
+{{- end }}
+{{- end -}}
+
+{{/*
+Public URL defaults: app.appUrl / app.ingestUrl win; otherwise derive from
+the ingress/route hosts so a plain `ingress.host: sluicio.acme.com` install
+gets working email deep links and SSO redirect bases without repeating the
+hostname.
+*/}}
+{{- define "cell.appUrl" -}}
+{{- if .Values.app.appUrl -}}
+{{- .Values.app.appUrl -}}
+{{- else if and .Values.ingress.enabled .Values.ingress.host -}}
+https://{{ .Values.ingress.host }}
+{{- else if and .Values.route.enabled .Values.route.host -}}
+https://{{ .Values.route.host }}
+{{- end -}}
+{{- end -}}
+
+{{- define "cell.ingestUrl" -}}
+{{- if .Values.app.ingestUrl -}}
+{{- .Values.app.ingestUrl -}}
+{{- else if and .Values.ingress.ingest.enabled .Values.ingress.ingest.host -}}
+https://{{ .Values.ingress.ingest.host }}
+{{- else if and .Values.route.enabled .Values.route.ingestHost -}}
+https://{{ .Values.route.ingestHost }}
+{{- end -}}
 {{- end -}}
 
 {{/*
@@ -41,7 +89,7 @@ cell-local instance this chart deploys; otherwise use the external values.
 {{- if .Values.postgres.enabled -}}
 postgres://{{ .Values.postgres.auth.username }}:{{ .Values.postgres.auth.password }}@{{ .Release.Name }}-postgres:5432/{{ .Values.postgres.auth.database }}?sslmode=disable
 {{- else -}}
-{{ .Values.postgres.dsn }}
+{{ required "set postgres.dsn (or postgres.enabled: true for the bundled instance)" .Values.postgres.dsn }}
 {{- end -}}
 {{- end -}}
 
@@ -49,7 +97,7 @@ postgres://{{ .Values.postgres.auth.username }}:{{ .Values.postgres.auth.passwor
 {{- if .Values.clickhouse.enabled -}}
 {{ .Release.Name }}-clickhouse:9000
 {{- else -}}
-{{ .Values.clickhouse.endpoint }}
+{{ required "set clickhouse.endpoint (or clickhouse.enabled: true for the bundled instance)" .Values.clickhouse.endpoint }}
 {{- end -}}
 {{- end -}}
 
@@ -66,7 +114,7 @@ postgres://{{ .Values.postgres.auth.username }}:{{ .Values.postgres.auth.passwor
 {{- if .Values.clickhouse.enabled -}}clickhouse-password{{- else -}}password{{- end -}}
 {{- end -}}
 
-{{/* Shared DB env block for cell-api / cell-ingest / cell-alerting. */}}
+{{/* Shared DB env block for cell-api / cell-ingest. */}}
 {{- define "cell.dbEnv" -}}
 - name: POSTGRES_DSN
   value: {{ include "cell.postgresDSN" . | quote }}
@@ -83,5 +131,27 @@ postgres://{{ .Values.postgres.auth.username }}:{{ .Values.postgres.auth.passwor
     secretKeyRef:
       name: {{ $sec }}
       key: {{ include "cell.clickhousePasswordKey" . }}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Secret-backed env var: emits `name` from an existing Secret when
+`existingSecret` is set, else from the chart's app Secret when an inline
+value is set, else nothing. Call with:
+  dict "root" $ "name" "SLUICIO_LICENSE_KEY" "cfg" .Values.license "appKey" "license"
+*/}}
+{{- define "cell.secretEnv" -}}
+{{- if .cfg.existingSecret }}
+- name: {{ .name }}
+  valueFrom:
+    secretKeyRef:
+      name: {{ .cfg.existingSecret }}
+      key: {{ .cfg.secretKey }}
+{{- else if .cfg.key }}
+- name: {{ .name }}
+  valueFrom:
+    secretKeyRef:
+      name: {{ .root.Release.Name }}-app
+      key: {{ .appKey }}
 {{- end -}}
 {{- end -}}

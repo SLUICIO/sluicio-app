@@ -1,0 +1,57 @@
+{{/* SPDX-License-Identifier: Apache-2.0 */}}
+{{/*
+OpenShift Routes — the Route API can't fan one host out by path in a single
+object, so the UI host gets two Routes (/ → frontend, /api → cell-api; the
+router picks the longest matching path) and ingest gets its own host.
+Same-host /api is mandatory: the session cookie is host-scoped.
+*/}}
+{{- if .Values.route.enabled }}
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ include "cell.fullname" . }}-ui
+  labels: {{- include "cell.labels" (dict "root" . "component" "route-ui") | nindent 4 }}
+spec:
+  {{- with .Values.route.host }}
+  host: {{ . | quote }}
+  {{- end }}
+  to:
+    kind: Service
+    name: {{ include "cell.componentName" (dict "root" . "component" "frontend") }}
+  port:
+    targetPort: http
+  tls: {{- toYaml .Values.route.tls | nindent 4 }}
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ include "cell.fullname" . }}-api
+  labels: {{- include "cell.labels" (dict "root" . "component" "route-api") | nindent 4 }}
+spec:
+  {{- with .Values.route.host }}
+  host: {{ . | quote }}
+  {{- end }}
+  path: /api
+  to:
+    kind: Service
+    name: {{ include "cell.componentName" (dict "root" . "component" "cell-api") }}
+  port:
+    targetPort: http
+  tls: {{- toYaml .Values.route.tls | nindent 4 }}
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ include "cell.fullname" . }}-ingest
+  labels: {{- include "cell.labels" (dict "root" . "component" "route-ingest") | nindent 4 }}
+spec:
+  {{- with .Values.route.ingestHost }}
+  host: {{ . | quote }}
+  {{- end }}
+  to:
+    kind: Service
+    name: {{ include "cell.componentName" (dict "root" . "component" "cell-ingest") }}
+  port:
+    targetPort: otlp-http
+  tls: {{- toYaml .Values.route.tls | nindent 4 }}
+{{- end }}

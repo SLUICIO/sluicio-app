@@ -1,80 +1,165 @@
 # SPDX-License-Identifier: Apache-2.0
-# Default values for an Integration Monitor cell. Skeleton — real defaults
-# will be added as the services are wired up.
+# Default values for a Sluicio cell — the complete self-hosted stack
+# (UI, API, OTLP ingest; optional bundled Postgres + ClickHouse).
+#
+# Quick starts:
+#   values-bundled.yaml      turnkey all-in-one (chart-managed databases)
+#   values-external-db.yaml  bring your own Postgres + ClickHouse (production)
+#   values-openshift.yaml    OpenShift (restricted SCC + Routes)
+#
+# Enterprise features are enabled at runtime by the license (see `license`
+# below) — same chart and images for Community and Enterprise.
 
 global:
-  # Mode: 'saas' (cell sits behind a control plane) or 'onprem'
-  # (standalone install with no control plane).
-  mode: saas
   imagePullPolicy: IfNotPresent
+  # The official images are PUBLIC on ghcr.io — pull secrets are only needed
+  # when you mirror them into a private registry.
+  imagePullSecrets: []
+
+nameOverride: ""
+
+app:
+  # Public origin users reach Sluicio at (e.g. https://sluicio.acme.com).
+  # Base for SSO OIDC redirect_uris and the deep links in alert / error /
+  # password-reset emails. Set it whenever the cell sits behind an
+  # ingress/route (i.e. always, in Kubernetes). When ingress.host or
+  # route.host is set this defaults to https://<that host>.
+  appUrl: ""
+  # Public OTLP/HTTP origin collectors send telemetry to
+  # (e.g. https://ingest.acme.com). Authoritative: while set, the in-app
+  # ingest-URL setting is read-only. Defaults to https://<ingest host> when
+  # ingress.ingest.host / route.ingestHost is set.
+  ingestUrl: ""
+
+# Enterprise license token — enables the EE entitlements (sso,
+# rbac_advanced, audit_log, retention_long, mfa_policy). Verified offline;
+# empty = Community features only (a fully supported state).
+# Prefer existingSecret so the token never lands in a values file:
+#   kubectl create secret generic sluicio-license --from-literal=license=<token>
+license:
+  key: ""                 # inline token (convenient, but ends up in the release Secret)
+  existingSecret: ""      # name of a Secret you created (wins over key)
+  secretKey: "license"    # key inside that Secret
+
+# AES-256 key (base64, 32 bytes) encrypting MFA TOTP secrets at rest.
+# Required for MFA enrollment; empty = MFA enrollment unavailable.
+#   openssl rand -base64 32
+mfa:
+  key: ""
+  existingSecret: ""
+  secretKey: "mfa-key"
+
+# Outbound email (invitations, password resets, alert emails). Optional —
+# without SMTP those flows are disabled. Password via existingSecret
+# preferred.
+smtp:
+  host: ""
+  port: 587
+  username: ""
+  password: ""
+  existingSecret: ""      # Secret holding the SMTP password (wins over password)
+  secretKey: "password"
+  from: ""                # e.g. sluicio@acme.com
+  fromName: "Sluicio"
 
 cellApi:
   image:
     repository: ghcr.io/sluicio/cell-api
-    tag: "0.1.0"
-  replicaCount: 2
+    tag: ""               # "" = this chart's appVersion
+  # MUST stay 1: cell-api runs in-process schedulers (alert evaluation,
+  # notification delivery, reconcilers) and applies DB migrations on
+  # startup — multiple replicas would double-fire and race migrations.
+  replicaCount: 1
   service:
     type: ClusterIP
     port: 8081
   resources:
     requests: { cpu: 200m, memory: 256Mi }
     limits:   { cpu: 1000m, memory: 1Gi }
-
-cellAlerting:
-  image:
-    repository: ghcr.io/sluicio/cell-alerting
-    tag: "0.1.0"
-  replicaCount: 1
-  resources:
-    requests: { cpu: 200m, memory: 256Mi }
-    limits:   { cpu: 1000m, memory: 1Gi }
+  # Extra environment variables (e.g. SLUICIO_AUDIT_SINK_URL,
+  # ERROR_NOTIFY_INTERVAL) — appended verbatim.
+  extraEnv: []
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
 
 cellIngest:
   image:
     repository: ghcr.io/sluicio/cell-ingest
-    tag: "0.1.0"
-  replicaCount: 2
+    tag: ""
+  # Stateless OTLP/HTTP receiver — safe to scale out.
+  replicaCount: 1
   service:
     type: ClusterIP
-    httpPort: 4318     # OTLP HTTP
-    grpcPort: 4317     # OTLP gRPC
+    port: 4318            # OTLP/HTTP
   resources:
     requests: { cpu: 500m, memory: 512Mi }
     limits:   { cpu: 2000m, memory: 2Gi }
+  extraEnv: []
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+frontend:
+  image:
+    repository: ghcr.io/sluicio/frontend
+    tag: ""
+  replicaCount: 1
+  service:
+    type: ClusterIP
+    port: 80
+  # The chart mounts its own nginx site config (see templates/frontend.yaml):
+  # listens on an unprivileged port and proxies /api to this release's
+  # cell-api Service, so the pod runs as any non-root UID (OpenShift
+  # restricted SCC included).
+  containerPort: 8080
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits:   { cpu: 200m, memory: 128Mi }
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# NOTE: cell-alerting is deliberately not deployed — cell-api owns the alert
+# evaluation and delivery loops today (same as deploy/server compose).
 
 postgres:
-  # Postgres for integration definitions, alert rules, dispatch queue and
-  # audit log.
-  #   enabled: false → bring your own; set `dsn` to your external Postgres.
-  #   enabled: true  → the chart deploys a cell-local Postgres (eval / small
-  #                    installs; production should prefer a managed DB).
+  # Postgres for org/config data (integrations, alert rules, identity,
+  # dispatch queue, audit log).
+  #   enabled: false → bring your own; set `dsn` (production default).
+  #   enabled: true  → chart-local single-replica Postgres (eval / small).
   enabled: false
-  dsn: ""
+  dsn: ""                 # e.g. postgres://user:pass@host:5432/controlplane?sslmode=require
   # Used only when enabled: true.
-  image: postgres:16-alpine
+  image: docker.io/library/postgres:16-alpine
   auth:
     username: sluicio
-    password: change-me-postgres     # inlined into POSTGRES_DSN
+    password: change-me-postgres
     database: controlplane
   storage:
     size: 10Gi
-    storageClass: ""                 # "" = cluster default StorageClass
+    storageClass: ""      # "" = cluster default StorageClass
   resources:
     requests: { cpu: 100m, memory: 256Mi }
     limits:   { cpu: 1000m, memory: 1Gi }
+  # fsGroup for the data volume (postgres uid/gid 70 in the alpine image).
+  # On OpenShift set `podSecurityContext: {}` (the SCC assigns one) — or
+  # better, use an external database there.
+  podSecurityContext:
+    fsGroup: 70
 
 clickhouse:
-  # ClickHouse for logs, traces and metric points.
-  #   enabled: false → bring your own; set endpoint/username/passwordSecret.
-  #                    (Use a managed ClickHouse or the Altinity operator.)
-  #   enabled: true  → the chart deploys a cell-local ClickHouse (eval / small).
+  # ClickHouse for telemetry (traces, logs, messages).
+  #   enabled: false → bring your own; set endpoint/username/passwordSecret
+  #                    (managed ClickHouse or the Altinity operator).
+  #   enabled: true  → chart-local single-replica ClickHouse (eval / small).
   enabled: false
-  endpoint: ""
+  endpoint: ""            # native protocol host:port (:9000, or :9440 TLS)
   database: "telemetry"
   username: ""
-  passwordSecret: ""                 # name of a Secret with key `password`
+  passwordSecret: ""      # name of a Secret with key `password`
   # Used only when enabled: true.
-  image: clickhouse/clickhouse-server:24.8
+  image: docker.io/clickhouse/clickhouse-server:24.8
   auth:
     username: sluicio
     password: change-me-clickhouse
@@ -84,16 +169,44 @@ clickhouse:
   resources:
     requests: { cpu: 250m, memory: 512Mi }
     limits:   { cpu: 2000m, memory: 4Gi }
+  # clickhouse uid/gid 101; same OpenShift note as postgres above.
+  podSecurityContext:
+    fsGroup: 101
 
-prometheus:
-  # Remote-write endpoint for metrics ingested via OTLP.
-  remoteWriteURL: ""
+# Standard Kubernetes Ingress. The UI and /api MUST share one hostname —
+# the cell-api session cookie is host-scoped. Telemetry producers get their
+# own hostname (or reuse the UI host if you prefer path routing on it).
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  host: ""                # e.g. sluicio.acme.com  (serves / → UI and /api → API)
+  tls: []
+  # - secretName: sluicio-tls
+  #   hosts: [sluicio.acme.com]
+  ingest:
+    enabled: false
+    host: ""              # e.g. ingest.acme.com  (OTLP/HTTP → cell-ingest)
+    annotations: {}
+    tls: []
 
-keycloak:
-  # When mode=onprem, set issuer to the customer's own OIDC issuer.
-  issuer: ""
-  audience: "integration-monitor-cell"
+# OpenShift Routes (alternative to ingress; edge TLS by default).
+route:
+  enabled: false
+  host: ""                # UI + /api host; "" lets OpenShift generate one
+  ingestHost: ""          # OTLP host for cell-ingest
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
 
+serviceAccount:
+  create: true
+  name: ""                # "" = generated from the release name
+  annotations: {}
+
+# Applied to cell-api / cell-ingest / frontend pods. The Go images are
+# distroless nonroot; the frontend runs nginx on an unprivileged port with
+# chart-provided writable dirs — all three pass restricted / restricted-v2.
 podSecurityContext:
   runAsNonRoot: true
   seccompProfile:

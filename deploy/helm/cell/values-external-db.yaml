@@ -23,6 +23,10 @@ clickhouse:
   #   kubectl create secret generic clickhouse-credentials --from-literal=password=CHANGE-ME
   passwordSecret: "clickhouse-credentials"
 
-prometheus:
-  # Optional: remote-write target for metrics ingested via OTLP.
-  remoteWriteURL: ""
+# Add your exposure + license on top, e.g.:
+# ingress:
+#   enabled: true
+#   host: sluicio.acme.com
+#   ingest: { enabled: true, host: ingest.acme.com }
+# license:
+#   existingSecret: sluicio-license

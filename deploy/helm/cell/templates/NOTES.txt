@@ -1,0 +1,47 @@
+Sluicio cell "{{ .Release.Name }}" deployed.
+
+{{- if .Values.ingress.enabled }}
+
+UI + API:   https://{{ .Values.ingress.host }}/
+{{- if .Values.ingress.ingest.enabled }}
+OTLP:       https://{{ .Values.ingress.ingest.host }}/v1/traces (+ /v1/logs)
+{{- end }}
+{{- else if .Values.route.enabled }}
+
+UI + API:   via the "{{ include "cell.fullname" . }}-ui" / "-api" Routes
+            (oc get route -l app.kubernetes.io/instance={{ .Release.Name }})
+OTLP:       via the "{{ include "cell.fullname" . }}-ingest" Route
+{{- else }}
+
+No ingress/route enabled — for a quick look, port-forward the frontend
+(it proxies /api to cell-api, so one port is enough):
+
+  kubectl port-forward svc/{{ include "cell.componentName" (dict "root" . "component" "frontend") }} 8080:{{ .Values.frontend.service.port }}
+  open http://localhost:8080
+
+IMPORTANT: when you do expose it, the UI and /api MUST share one hostname —
+the session cookie is host-scoped. See ingress/route in values.yaml.
+{{- end }}
+
+First run: opening the UI starts the setup flow (create the first admin +
+org). cell-api applies database migrations automatically on startup.
+
+License:
+{{- if or .Values.license.key .Values.license.existingSecret }}
+  a license was configured — verify entitlements with
+  GET https://<ui-host>/api/v1/license
+{{- else }}
+  running UNLICENSED (Community features). Enterprise features (SSO,
+  advanced RBAC, audit log, long retention, MFA policy) activate when you
+  provide a license — see `license` in values.yaml; no reinstall needed,
+  a `helm upgrade` with the license Secret is enough.
+{{- end }}
+{{- if not (or .Values.mfa.key .Values.mfa.existingSecret) }}
+
+Note: no MFA key configured (mfa.key / mfa.existingSecret) — MFA enrollment
+is unavailable until one is set (openssl rand -base64 32).
+{{- end }}
+{{- if not .Values.smtp.host }}
+Note: no SMTP configured (smtp.*) — invitation, password-reset and alert
+emails are disabled.
+{{- end }}

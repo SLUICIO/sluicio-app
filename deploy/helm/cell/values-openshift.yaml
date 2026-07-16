@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# OpenShift starting point: Routes instead of Ingress, restricted-SCC-clean
+# application pods, external databases (recommended there — the bundled
+# postgres/clickhouse images want fixed UIDs, which the restricted SCC
+# forbids; if you must bundle them, grant those pods anyuid and set
+# postgres.podSecurityContext: {} / clickhouse.podSecurityContext: {}).
+#
+#   helm install sluicio ./deploy/helm/cell -f values-openshift.yaml \
+#     --set route.host=sluicio.apps.cluster.acme.com \
+#     --set route.ingestHost=ingest.apps.cluster.acme.com
+#
+# The cell-api / cell-ingest / frontend pods pass restricted-v2 as-is:
+# distroless non-root Go images, and nginx on an unprivileged port with
+# chart-provided writable dirs — no SCC changes needed for them.
+
+route:
+  enabled: true
+  host: ""            # UI + /api hostname ("" lets OpenShift generate one)
+  ingestHost: ""      # OTLP hostname for collectors
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+
+# The restricted SCC assigns the UID/fsGroup from the namespace range —
+# don't pin runAsNonRoot conflicts here; the default podSecurityContext
+# (runAsNonRoot + seccomp RuntimeDefault) is compatible as-is.
+
+postgres:
+  enabled: false
+  dsn: "postgres://user:pass@your-pg:5432/controlplane?sslmode=require"
+
+clickhouse:
+  enabled: false
+  endpoint: "your-ch:9000"
+  database: "telemetry"
+  username: "sluicio"
+  passwordSecret: "clickhouse-credentials"   # Secret with key `password`
+
+# Enterprise license (recommended: a pre-created Secret):
+#   oc create secret generic sluicio-license --from-literal=license=<token>
+license:
+  existingSecret: ""   # e.g. sluicio-license

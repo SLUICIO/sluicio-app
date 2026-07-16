@@ -20,8 +20,12 @@ spec:
     metadata:
       labels: {{- include "cell.selectorLabels" $ctx | nindent 8 }}
     spec:
-      securityContext:
-        fsGroup: 70          # postgres runs as uid/gid 70 in the alpine image
+      {{- include "cell.imagePullSecrets" . | nindent 6 }}
+      {{- with .Values.postgres.podSecurityContext }}
+      # Default fsGroup 70 (postgres uid/gid in the alpine image). On
+      # OpenShift set postgres.podSecurityContext: {} — or use an external DB.
+      securityContext: {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: postgres
           image: {{ .Values.postgres.image | quote }}

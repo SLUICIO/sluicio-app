@@ -20,8 +20,12 @@ spec:
     metadata:
       labels: {{- include "cell.selectorLabels" $ctx | nindent 8 }}
     spec:
-      securityContext:
-        fsGroup: 101         # clickhouse runs as uid/gid 101 in the image
+      {{- include "cell.imagePullSecrets" . | nindent 6 }}
+      {{- with .Values.clickhouse.podSecurityContext }}
+      # Default fsGroup 101 (clickhouse uid/gid in the image). On OpenShift
+      # set clickhouse.podSecurityContext: {} — or use an external DB.
+      securityContext: {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: clickhouse
           image: {{ .Values.clickhouse.image | quote }}

@@ -1,0 +1,71 @@
+{{/* SPDX-License-Identifier: Apache-2.0 */}}
+{{/*
+UI + API share ONE hostname (the cell-api session cookie is host-scoped):
+  https://<host>/      → frontend
+  https://<host>/api/* → cell-api
+Telemetry producers use a separate hostname → cell-ingest.
+*/}}
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "cell.fullname" . }}
+  labels: {{- include "cell.labels" (dict "root" . "component" "ingress") | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations: {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- with .Values.ingress.tls }}
+  tls: {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    - host: {{ required "set ingress.host (the hostname serving the UI and /api)" .Values.ingress.host | quote }}
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "cell.componentName" (dict "root" . "component" "cell-api") }}
+                port:
+                  name: http
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "cell.componentName" (dict "root" . "component" "frontend") }}
+                port:
+                  name: http
+{{- end }}
+{{- if and .Values.ingress.enabled .Values.ingress.ingest.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "cell.fullname" . }}-ingest
+  labels: {{- include "cell.labels" (dict "root" . "component" "ingress-ingest") | nindent 4 }}
+  {{- with .Values.ingress.ingest.annotations }}
+  annotations: {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- with .Values.ingress.ingest.tls }}
+  tls: {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    - host: {{ required "set ingress.ingest.host (the OTLP hostname)" .Values.ingress.ingest.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "cell.componentName" (dict "root" . "component" "cell-ingest") }}
+                port:
+                  name: otlp-http
+{{- end }}
