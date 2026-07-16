@@ -58,9 +58,21 @@ test.describe("First-run admin setup", () => {
       return route.continue();
     });
     await page.goto("/");
-    await page.getByLabel("Email").fill("x@example.com");
-    await page.getByLabel("Password", { exact: true }).fill("password-one-1");
-    await page.getByLabel("Confirm password").fill("password-two-2");
+    // Fill-and-verify: on a slow CI runner a fill can land during
+    // hydration and be swallowed by the controlled input's first
+    // render, leaving the submit button disabled forever.
+    for (const [label, value] of [
+      ["Email", "x@example.com"],
+      ["Password", "password-one-1"],
+      ["Confirm password", "password-two-2"],
+    ] as const) {
+      const input = page.getByLabel(label, { exact: true });
+      await expect(async () => {
+        await input.fill(value);
+        await expect(input).toHaveValue(value);
+      }).toPass({ timeout: 10_000 });
+    }
+    await expect(page.getByRole("button", { name: "Create admin account" })).toBeEnabled();
     await page.getByRole("button", { name: "Create admin account" }).click();
     await expect(page.getByText("Passwords don't match.")).toBeVisible();
     expect(posted).toBe(false);

@@ -26,6 +26,24 @@ test("error-type list + integration↔service cross-narrowing on /search", async
     // ?s seeds a private DRAFT view — deterministic row set regardless
     // of the org's shared saved views (which other suite workers touch;
     // starting from the default shared view made pill indexing racy).
+    // Cross-narrowing needs Integration.services on the LIST response —
+    // persisted catalog membership that resolves ASYNC after creating a
+    // matcher. On a cold cell the list can report services: [] for a
+    // while, which disables narrowing and strands the assertions. Wait
+    // for both probes to carry their member before driving the UI.
+    await expect
+      .poll(
+        async () => {
+          const list = (await (await admin.get("/api/v1/integrations?range=30d")).json()).integrations ?? [];
+          const withMembers = list.filter(
+            (i: { id: string; services?: string[] }) => (i.id === a || i.id === b) && (i.services ?? []).length > 0,
+          );
+          return withMembers.length;
+        },
+        { timeout: 60_000 },
+      )
+      .toBe(2);
+
     // The error-type picker renders its list only once the fields
     // catalog carries observed error types — wait for the API to have
     // them (seeded data can lag on a cold CI cell) BEFORE driving the UI.
