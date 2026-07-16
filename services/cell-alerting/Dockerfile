@@ -35,6 +35,7 @@ FROM gcr.io/distroless/static-debian12:nonroot
 
 COPY --from=build /out/cell-alerting /cell-alerting
 
-USER nonroot:nonroot
+# Numeric so Kubernetes runAsNonRoot can verify the user without a chart-side runAsUser pin.
+USER 65532:65532
 
 ENTRYPOINT ["/cell-alerting"]

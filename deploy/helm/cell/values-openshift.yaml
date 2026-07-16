@@ -22,9 +22,20 @@ route:
     termination: edge
     insecureEdgeTerminationPolicy: Redirect
 
-# The restricted SCC assigns the UID/fsGroup from the namespace range —
-# don't pin runAsNonRoot conflicts here; the default podSecurityContext
-# (runAsNonRoot + seccomp RuntimeDefault) is compatible as-is.
+# The restricted SCC assigns UID/fsGroup from the namespace's range, and
+# REJECTS pods that pin a UID outside it — so drop the chart's default
+# runAsUser/runAsGroup/fsGroup pins (which exist for plain Kubernetes,
+# where nothing assigns a UID and runAsNonRoot needs a numeric one).
+# `null` deletes the inherited key (helm merges maps otherwise);
+# runAsNonRoot + seccompProfile are inherited from values.yaml and stay.
+podSecurityContext:
+  runAsUser: null
+  runAsGroup: null
+
+frontendPodSecurityContext:
+  runAsUser: null
+  runAsGroup: null
+  fsGroup: null
 
 postgres:
   enabled: false

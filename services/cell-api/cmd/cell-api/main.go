@@ -460,6 +460,9 @@ func main() {
 	// wrap below): password-reset first, then MFA enrollment.
 	inner := handlers.EnforcePasswordReset(handlers.EnforceMFAEnrollment(mux))
 	authed := handlers.AuthMW.Wrap([]string{
+		// Liveness/readiness for orchestrators (Kubernetes probes can't
+		// authenticate). Returns only {"status":"ok"}.
+		"/healthz",
 		"/api/v1/auth/login",
 		"/api/v1/auth/logout",
 		"/api/v1/auth/install-state",

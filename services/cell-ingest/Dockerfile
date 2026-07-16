@@ -38,6 +38,7 @@ COPY --from=build /out/cell-ingest /cell-ingest
 # expose). 4318 maps to the public ingest endpoint in deploy/server/.
 EXPOSE 4318
 
-USER nonroot:nonroot
+# Numeric so Kubernetes runAsNonRoot can verify the user without a chart-side runAsUser pin.
+USER 65532:65532
 
 ENTRYPOINT ["/cell-ingest"]

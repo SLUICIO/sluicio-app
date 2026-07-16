@@ -61,6 +61,7 @@ COPY --from=build /out/cell-api /cell-api
 EXPOSE 8081
 
 # nonroot user is uid 65532 in the distroless image.
-USER nonroot:nonroot
+# Numeric so Kubernetes runAsNonRoot can verify the user without a chart-side runAsUser pin.
+USER 65532:65532
 
 ENTRYPOINT ["/cell-api"]

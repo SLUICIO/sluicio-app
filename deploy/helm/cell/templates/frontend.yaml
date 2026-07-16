@@ -61,7 +61,7 @@ spec:
     spec:
       serviceAccountName: {{ include "cell.serviceAccountName" . }}
       {{- include "cell.imagePullSecrets" . | nindent 6 }}
-      securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      securityContext: {{- toYaml .Values.frontendPodSecurityContext | nindent 8 }}
       containers:
         - name: frontend
           image: {{ include "cell.image" (dict "root" . "image" .Values.frontend.image) | quote }}

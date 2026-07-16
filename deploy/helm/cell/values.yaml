@@ -204,11 +204,27 @@ serviceAccount:
   name: ""                # "" = generated from the release name
   annotations: {}
 
-# Applied to cell-api / cell-ingest / frontend pods. The Go images are
-# distroless nonroot; the frontend runs nginx on an unprivileged port with
-# chart-provided writable dirs — all three pass restricted / restricted-v2.
+# Applied to cell-api / cell-ingest pods. The Go images are distroless
+# nonroot, but declare their user NON-numerically (`USER nonroot`), so
+# runAsNonRoot needs an explicit numeric UID to be verifiable — 65532 is
+# the distroless nonroot user. On OpenShift drop the runAsUser/runAsGroup
+# pins (the SCC assigns an in-range UID; see values-openshift.yaml).
 podSecurityContext:
   runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+# Applied to the frontend pod: the nginx image defaults to root, so the
+# chart runs it as the image's nginx user (uid/gid 101) on an unprivileged
+# port; fsGroup makes the chart's emptyDir mounts writable. Same OpenShift
+# note as above — drop the pins there.
+frontendPodSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 101
+  runAsGroup: 101
+  fsGroup: 101
   seccompProfile:
     type: RuntimeDefault
 
