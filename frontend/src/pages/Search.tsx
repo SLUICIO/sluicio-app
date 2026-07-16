@@ -549,7 +549,7 @@ export default function Search() {
         <FilterEditor
           filters={draftFilters}
           onChange={setDraftFilters}
-          knownIntegrations={integrations.map((i) => ({ id: i.id, name: i.name }))}
+          knownIntegrations={integrations.map((i) => ({ id: i.id, name: i.name, services: i.services }))}
           recentValues={recentValues}
           fieldCatalog={fieldCatalog}
         />

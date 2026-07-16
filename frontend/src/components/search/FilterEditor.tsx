@@ -37,7 +37,10 @@ export interface Filter {
 interface Props {
   filters: Filter[];
   onChange: (filters: Filter[]) => void;
-  knownIntegrations?: { id: string; name: string }[];
+  // services: the integration's member service names (present on the
+  // integrations LIST response) — powers the integration↔service
+  // cross-narrowing in the value pickers.
+  knownIntegrations?: { id: string; name: string; services?: string[] }[];
   recentValues?: string[];
   // The /messages/fields catalog for the current window: drives the
   // by-name service picker and the list of live attributes that can be
@@ -101,6 +104,47 @@ export default function FilterEditor({
     () => fieldCatalog?.find((f) => f.field === "service")?.enumValues ?? [],
     [fieldCatalog],
   );
+  // Observed error identifiers in the window (exception.type /
+  // StatusMessage) — not a static vocabulary, so the picker offers these
+  // with a free-text fallback.
+  const knownErrorTypes = useMemo(
+    () => fieldCatalog?.find((f) => f.field === "errorType")?.enumValues ?? [],
+    [fieldCatalog],
+  );
+
+  // Cross-narrowing: once one side of integration/service is chosen, the
+  // other side's picker only offers compatible values. "any", muted
+  // (optional) rows, and comma lists don't narrow.
+  const singleValue = (field: Field): string => {
+    const f = filters.find(
+      (x) => x.field === field && !x.optional && x.value.trim() !== "" && !x.value.includes(",") && !/^any\b/i.test(x.value.trim()),
+    );
+    return f?.value.trim() ?? "";
+  };
+  const activeIntegrationName = singleValue("integration");
+  const activeServiceName = singleValue("service");
+
+  const narrowedServices = useMemo(() => {
+    if (!activeIntegrationName) return knownServices;
+    const integ = knownIntegrations?.find((i) => i.name === activeIntegrationName);
+    if (!integ?.services?.length) return knownServices;
+    const members = new Set(integ.services);
+    const narrowed = knownServices.filter((s) => members.has(s));
+    // The chosen integration's members may include services outside the
+    // window's catalog — offer the union so the narrowing never hides a
+    // legitimate member.
+    for (const s of integ.services) if (!narrowed.includes(s)) narrowed.push(s);
+    return narrowed;
+  }, [activeIntegrationName, knownIntegrations, knownServices]);
+
+  const narrowedIntegrations = useMemo(() => {
+    if (!knownIntegrations) return knownIntegrations;
+    if (!activeServiceName) return knownIntegrations;
+    const withMembers = knownIntegrations.filter((i) => i.services && i.services.length > 0);
+    // Only narrow when membership data is actually present.
+    if (withMembers.length === 0) return knownIntegrations;
+    return knownIntegrations.filter((i) => (i.services ?? []).includes(activeServiceName));
+  }, [activeServiceName, knownIntegrations]);
   // Explicit keys (integration-scoped) win over the catalog's org-wide list.
   const attributeKeys = useMemo(
     () => attributeKeysProp ?? fieldCatalog?.find((f) => f.field === "payload")?.attributeKeys ?? [],
@@ -163,8 +207,9 @@ export default function FilterEditor({
             onUpdate={(patch) => updateFilter(f.id, patch)}
             onRemove={() => removeFilter(f.id)}
             recentValues={recentValues}
-            knownIntegrations={knownIntegrations}
-            knownServices={knownServices}
+            knownIntegrations={narrowedIntegrations}
+            knownServices={narrowedServices}
+            knownErrorTypes={knownErrorTypes}
             attributeKeys={attributeKeys}
             pickerFields={fields}
             fetchAttrValues={fetchAttrValues}
@@ -192,8 +237,9 @@ interface RowProps {
   onUpdate: (patch: Partial<Filter>) => void;
   onRemove: () => void;
   recentValues: string[];
-  knownIntegrations?: { id: string; name: string }[];
+  knownIntegrations?: { id: string; name: string; services?: string[] }[];
   knownServices?: string[];
+  knownErrorTypes?: string[];
   attributeKeys?: MessageAttributeKey[];
   pickerFields: Field[];
   fetchAttrValues?: (key: string) => Promise<AttrValueSuggestion[]>;
@@ -207,6 +253,7 @@ function FilterRow({
   recentValues,
   knownIntegrations,
   knownServices,
+  knownErrorTypes,
   attributeKeys,
   pickerFields,
   fetchAttrValues,
@@ -294,6 +341,7 @@ function FilterRow({
             recentValues={recentValues}
             knownIntegrations={knownIntegrations}
             knownServices={knownServices}
+            knownErrorTypes={knownErrorTypes}
             fetchAttrValues={fetchAttrValues}
             onPick={(v) => {
               onUpdate({ value: v });
@@ -525,11 +573,15 @@ interface OpPickerProps {
 
 function OpPicker({ current, field, onPick }: OpPickerProps) {
   const ops: Operator[] =
-    field === "time" || field === "traceId" || field === "spanId"
+    field === "time"
       ? ["is"]
-      : field === "status" || field === "integration" || field === "service"
-        ? ["is", "in"]
-        : ["equals", "contains", "matches", "in"];
+      : field === "traceId" || field === "spanId"
+        ? // exact match, or a fragment (partial ids from log lines /
+          // truncated copy-pastes).
+          ["is", "contains"]
+        : field === "status" || field === "integration" || field === "service"
+          ? ["is", "in"]
+          : ["equals", "contains", "matches", "in"];
   return (
     <div className="space-y-1 text-sm">
       <div className="text-xs text-muted">Operator</div>
@@ -553,8 +605,9 @@ interface ValuePickerProps {
   field: Field;
   fieldPath?: string;
   recentValues: string[];
-  knownIntegrations?: { id: string; name: string }[];
+  knownIntegrations?: { id: string; name: string; services?: string[] }[];
   knownServices?: string[];
+  knownErrorTypes?: string[];
   fetchAttrValues?: (key: string) => Promise<AttrValueSuggestion[]>;
   onPick: (v: string) => void;
 }
@@ -566,6 +619,7 @@ function ValuePicker({
   recentValues,
   knownIntegrations,
   knownServices,
+  knownErrorTypes,
   fetchAttrValues,
   onPick,
 }: ValuePickerProps) {
@@ -692,6 +746,57 @@ function ValuePicker({
             <div className="px-2 py-1 text-xs text-muted">no matching service</div>
           )}
         </div>
+      </div>
+    );
+  }
+
+  // Error type: the observed identifiers in the window (exception.type /
+  // StatusMessage of error spans) with a typeahead — it's an open set,
+  // so free text stays available for values outside the window.
+  if (field === "errorType" && knownErrorTypes && knownErrorTypes.length > 0) {
+    const q = draft.trim().toLowerCase();
+    const matches = q ? knownErrorTypes.filter((e) => e.toLowerCase().includes(q)) : knownErrorTypes;
+    return (
+      <div className="space-y-2 text-sm">
+        <div className="text-xs text-muted">Error types seen in this window</div>
+        <input
+          ref={inputRef}
+          type="text"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && draft.trim()) onPick(draft.trim());
+          }}
+          placeholder="filter… (or type a custom value)"
+          className="w-full rounded border px-2 py-1 font-mono text-sm"
+          style={{ borderColor: "var(--primary)", background: "var(--primary-soft)", color: "var(--primary-ink)" }}
+        />
+        <div className="max-h-56 space-y-0.5 overflow-auto">
+          {matches.slice(0, 100).map((e) => (
+            <button
+              key={e}
+              type="button"
+              onClick={() => onPick(e)}
+              className="block w-full rounded px-2 py-1 text-left font-mono text-xs hover:bg-surface-elevated"
+              style={{ background: e === current ? "var(--surface-3)" : undefined }}
+            >
+              {e}
+            </button>
+          ))}
+          {matches.length === 0 && (
+            <div className="px-2 py-1 text-xs text-muted">no matching error type — type it exactly above</div>
+          )}
+        </div>
+        {draft.trim() && !knownErrorTypes.includes(draft.trim()) && (
+          <button
+            type="button"
+            onClick={() => onPick(draft.trim())}
+            className="rounded px-2 py-1 text-xs font-medium"
+            style={{ background: "var(--primary)", color: "var(--on-primary)" }}
+          >
+            use “{draft.trim()}”
+          </button>
+        )}
       </div>
     );
   }

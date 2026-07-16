@@ -669,7 +669,7 @@ export default function IntegrationMessagesPage() {
       <FilterEditor
         filters={composedFilters}
         onChange={onFiltersChange}
-        knownIntegrations={integrations.map((i) => ({ id: i.id, name: i.name }))}
+        knownIntegrations={integrations.map((i) => ({ id: i.id, name: i.name, services: i.services }))}
         fields={INTEGRATION_FILTER_FIELDS}
         attributeKeys={attrKeys}
         fetchAttrValues={fetchAttrValues}

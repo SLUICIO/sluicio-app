@@ -11,7 +11,6 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -89,9 +88,11 @@ func (f Filter) Validate() error {
 	default:
 		return fmt.Errorf("unknown operator %q", f.Op)
 	}
-	if f.Field == FieldPayload && strings.TrimSpace(f.FieldPath) == "" {
-		return errors.New("payload filter requires a fieldPath")
-	}
+	// A payload filter without a fieldPath is INCOMPLETE, not invalid:
+	// it's the FilterEditor's default freshly-added row, it round-trips
+	// through saved views, and the search engine treats it as a no-op
+	// (search.go). Rejecting it here 400'd the whole search the moment
+	// a user added a filter row before picking an attribute.
 	if len(f.Value) > 256 {
 		return errors.New("filter value too long")
 	}

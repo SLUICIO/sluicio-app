@@ -1002,6 +1002,44 @@ type AttributeKeysRow struct {
 	UseCount uint64
 }
 
+// DistinctErrorTypes returns the error identifiers observed on error
+// spans in the window — the conventional exception.type attribute when
+// present, else the span's StatusMessage — most frequent first. Backs
+// the message-search error-type picker: the set isn't static (it's
+// whatever the org's telemetry emits), so the UI offers the observed
+// values with a free-text fallback.
+func (s *Store) DistinctErrorTypes(ctx context.Context, from, to time.Time, limit int) ([]string, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	const q = `
+		SELECT etype, toUInt64(count()) AS uses FROM (
+		    SELECT if(SpanAttributes['exception.type'] != '', SpanAttributes['exception.type'], StatusMessage) AS etype
+		    FROM traces
+		    WHERE Timestamp >= ? AND Timestamp <= ? AND StatusCode = 'Error'
+		)
+		WHERE etype != ''
+		GROUP BY etype
+		ORDER BY uses DESC, etype ASC
+		LIMIT ?
+	`
+	rows, err := s.conn.Query(ctx, q, from, to, limit)
+	if err != nil {
+		return nil, fmt.Errorf("distinct error types: %w", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var etype string
+		var uses uint64
+		if err := rows.Scan(&etype, &uses); err != nil {
+			return nil, err
+		}
+		out = append(out, etype)
+	}
+	return out, rows.Err()
+}
+
 // DistinctAttributeKeys returns the attribute keys recently seen on
 // spans in the given window, deduplicated across the SpanAttributes
 // and ResourceAttributes maps. The query reads a bounded recent sample

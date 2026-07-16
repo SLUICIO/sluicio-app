@@ -364,7 +364,7 @@ export default function ServiceMessagesTab({ serviceName }: Props) {
       <FilterEditor
         filters={composedFilters}
         onChange={onFiltersChange}
-        knownIntegrations={integrations.map((i) => ({ id: i.id, name: i.name }))}
+        knownIntegrations={integrations.map((i) => ({ id: i.id, name: i.name, services: i.services }))}
         recentValues={recentValues}
       />
 

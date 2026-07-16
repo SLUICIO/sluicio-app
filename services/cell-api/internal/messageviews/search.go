@@ -86,18 +86,28 @@ func Build(filters []Filter) (SQL, error) {
 			}
 
 		case FieldTraceID:
-			// Exact match on the trace id (ids are hex; compare
-			// case-insensitively so a pasted upper/lower id still hits).
+			// Ids are hex; compare case-insensitively so a pasted
+			// upper/lower id still hits. `contains` matches a fragment —
+			// handy when only part of an id survived a log line or a
+			// truncated copy-paste.
 			if v := strings.ToLower(strings.TrimSpace(f.Value)); v != "" {
-				out.Clauses = append(out.Clauses, "lower(TraceId) = ?")
+				if f.Op == OpContains {
+					out.Clauses = append(out.Clauses, "positionCaseInsensitive(TraceId, ?) > 0")
+				} else {
+					out.Clauses = append(out.Clauses, "lower(TraceId) = ?")
+				}
 				out.Args = append(out.Args, v)
 			}
 
 		case FieldSpanID:
-			// Exact match on a span id — the message is grouped by trace,
-			// so this surfaces the trace that contains the span.
+			// Same semantics as trace id — the message is grouped by
+			// trace, so a span match surfaces its containing trace.
 			if v := strings.ToLower(strings.TrimSpace(f.Value)); v != "" {
-				out.Clauses = append(out.Clauses, "lower(SpanId) = ?")
+				if f.Op == OpContains {
+					out.Clauses = append(out.Clauses, "positionCaseInsensitive(SpanId, ?) > 0")
+				} else {
+					out.Clauses = append(out.Clauses, "lower(SpanId) = ?")
+				}
 				out.Args = append(out.Args, v)
 			}
 
@@ -114,6 +124,13 @@ func Build(filters []Filter) (SQL, error) {
 			}
 
 		case FieldPayload:
+			// An incomplete row — no attribute key picked yet. The
+			// FilterEditor's freshly added row is exactly this shape;
+			// treat it as a no-op (like Optional) instead of failing the
+			// whole search.
+			if strings.TrimSpace(f.FieldPath) == "" {
+				continue
+			}
 			if !SafeAttributeKey(f.FieldPath) {
 				return SQL{}, fmt.Errorf("invalid payload field path: %q", f.FieldPath)
 			}

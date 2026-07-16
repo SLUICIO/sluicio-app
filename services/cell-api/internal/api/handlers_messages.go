@@ -305,6 +305,12 @@ func (h *Handlers) fieldsCatalog(w http.ResponseWriter, r *http.Request) {
 		sort.Strings(serviceNames)
 	}
 
+	errorTypes, etErr := h.Store.DistinctErrorTypes(r.Context(), tr.From, tr.To, 50)
+	if etErr != nil {
+		h.Logger.Warn("distinct error types failed", "err", etErr)
+		errorTypes = nil
+	}
+
 	descriptors := []MessageFieldDescriptor{
 		{
 			Field:         "payload",
@@ -346,6 +352,11 @@ func (h *Handlers) fieldsCatalog(w http.ResponseWriter, r *http.Request) {
 			Label:       "error type",
 			Description: "Match the span's StatusMessage or exception.type attribute.",
 			Operators:   []string{"equals", "contains", "matches", "in"},
+			// Observed error identifiers in the window (not a static
+			// vocabulary — whatever the telemetry emits), so the picker
+			// offers real values instead of a blind text box. Free text
+			// stays available for values outside the window.
+			EnumValues: errorTypes,
 		},
 	}
 
