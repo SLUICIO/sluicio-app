@@ -3,8 +3,20 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.27 — 2026-07-16
+
+- fix(messages): search findings — id fragments, observed error types, incomplete-row no-op, picker cross-narrowing (696a1dd)
+- fix(rbac): reject byte-identical duplicate group policies with 409 (d79113d)
+- fix(auth): header-less requests default to oldest-joined org, not alphabetical (258d65f)
+- feat(alerting): opt-in CloudEvents 1.0 format for webhook channels; outbound-events design (c4d8ed1)
+- feat(alerting): opt-in HMAC request signing for webhook channels (7c06adc)
+- fix(alerting): notification-channel hardening + live delivery validation for all four kinds (7e70233)
+- docs: canonical feature matrix — Community vs Enterprise, stable slugs (1c8127b)
+- docs: OTelFlow-in-Sluicio integration design — saved, RBAC-scoped collector configs (f47466c)
+
 ## v0.11.26 — 2026-07-15
 
+- release v0.11.26 — refresh internal changelog (9e240db)
 - test(e2e): dashboards×RBAC + alert-lifecycle suites; fix latent licensed-cell flakes (1efc2d2)
 - feat(rbac): scoped service accounts — SAs join groups; org-wide is an explicit opt-in (ff9b6a3)
 - docs(rbac): service-account scoping design — SAs as first-class group members (8860971)
