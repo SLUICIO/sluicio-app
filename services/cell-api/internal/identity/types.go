@@ -143,6 +143,27 @@ type Membership struct {
 	JoinedAt time.Time `json:"joined_at,omitempty"`
 }
 
+// DefaultMembership picks the org a principal resolves to when the
+// request carries no X-Sluicio-Org header: the OLDEST-joined
+// membership. ListMemberships orders alphabetically by org name (for
+// the org-switcher UI), so "first element" is NOT a stable default —
+// being added to a second org whose name happens to sort earlier
+// would silently flip every header-less client the user owns (PATs,
+// MCP connectors, fresh browser sessions) to the new org. Join order
+// only changes when a membership is removed, which is exactly when a
+// default SHOULD move. Ties on joined_at (batch seeding) fall back to
+// slice order — alphabetical, still deterministic. Returns nil for an
+// empty slice.
+func DefaultMembership(ms []Membership) *Membership {
+	var def *Membership
+	for i := range ms {
+		if def == nil || ms[i].JoinedAt.Before(def.JoinedAt) {
+			def = &ms[i]
+		}
+	}
+	return def
+}
+
 // Session is one row in the sessions table — backs the HTTP-only
 // cookie the cell-api sets on login. ID is the opaque random string
 // that the browser carries; everything else is local state.

@@ -12,8 +12,8 @@
 //  1. A `Conduit-Session` HTTP-only cookie carrying an opaque
 //     session id. Validated against the sessions table; the user
 //     and per-org role are looked up via org_members + the
-//     X-Conduit-Org request header (defaults to the user's first
-//     membership).
+//     X-Conduit-Org request header (defaults to the user's
+//     oldest-joined membership).
 //  2. An `Authorization: Bearer con_...` API token. Looked up by
 //     its plaintext prefix (first 12 chars), verified by argon2id
 //     against the stored hash, then resolved to a Principal via
@@ -57,7 +57,8 @@ const SessionCookieLegacyName = "Conduit-Session"
 
 // HeaderActiveOrg lets the frontend (or API caller) tell us which
 // org-scoped role the principal should be evaluated against on this
-// request. Optional — omit and we default to the first membership.
+// request. Optional — omit and we default to the oldest-joined
+// membership (identity.DefaultMembership).
 //
 // Renamed from "X-Conduit-Org" with the Conduit → Sluicio rebrand.
 // Same grace pattern as the cookie: legacy name still read, new name
@@ -197,11 +198,13 @@ func (r *Resolver) Resolve(req *http.Request) (identity.Principal, bool, error) 
 	}(user.ID)
 
 	// Pick the active org. Prefer the X-Sluicio-Org header (slug or
-	// UUID); fall back to the user's first membership. If the user
-	// has no memberships at all, they're authenticated but have no
-	// scope — return a Principal with a zero OrgID + viewer role so
-	// the /me endpoint can still answer. Other handlers that
-	// require an org will check OrgID and 403.
+	// UUID); fall back to the user's oldest-joined membership
+	// (identity.DefaultMembership — NOT memberships[0], which is
+	// alphabetical and would flip when a better-sorting org is
+	// joined). If the user has no memberships at all, they're
+	// authenticated but have no scope — return a Principal with a
+	// zero OrgID + viewer role so the /me endpoint can still answer.
+	// Other handlers that require an org will check OrgID and 403.
 	memberships, err := r.Identity.ListMemberships(req.Context(), user.ID)
 	if err != nil {
 		return identity.Principal{}, false, err
@@ -214,8 +217,9 @@ func (r *Resolver) Resolve(req *http.Request) (identity.Principal, bool, error) 
 	case len(memberships) == 0:
 		// Authenticated but org-less. Caller decides what to do.
 	case active == "":
-		orgID = memberships[0].Org.ID
-		role = memberships[0].Role
+		def := identity.DefaultMembership(memberships)
+		orgID = def.Org.ID
+		role = def.Role
 	default:
 		// Match by slug first (the friendlier identifier), then by UUID.
 		matched := false
@@ -274,8 +278,9 @@ func (r *Resolver) principalFromToken(req *http.Request, lookup identity.TokenLo
 			// PAT for a user with no memberships → can authenticate
 			// to /me only. Most routes will 403.
 		case active == "":
-			orgID = memberships[0].Org.ID
-			role = memberships[0].Role
+			def := identity.DefaultMembership(memberships)
+			orgID = def.Org.ID
+			role = def.Role
 		default:
 			matched := false
 			for _, m := range memberships {

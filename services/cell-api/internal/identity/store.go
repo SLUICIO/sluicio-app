@@ -289,7 +289,10 @@ func (s *Store) DeleteExpiredSessions(ctx context.Context) (int64, error) {
 
 // ListMemberships returns every org the user belongs to, joined with
 // the org row + the user's role per org. Order is alphabetical by
-// org name so the org switcher renders deterministically.
+// org name so the org switcher renders deterministically. Do NOT use
+// slice position as a default org — alphabetical order changes when
+// the user joins a better-sorting org; use DefaultMembership
+// (oldest-joined) instead.
 func (s *Store) ListMemberships(ctx context.Context, userID uuid.UUID) ([]Membership, error) {
 	const q = `
 		SELECT o.id, o.slug, o.name, o.created_at,
