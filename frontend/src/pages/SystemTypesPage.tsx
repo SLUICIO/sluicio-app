@@ -7,7 +7,7 @@
 // can override a built-in by reusing its key. A new type can copy its starter
 // checks from a built-in (per-check editing happens on a service, as elsewhere).
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { SystemType } from "../api/types";
 import { usePageTitle } from "../lib/usePageTitle";
@@ -29,6 +29,44 @@ export default function SystemTypesPage() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [creating, setCreating] = useState(false);
   const [draft, setDraft] = useState(blankDraft);
+  const [imported, setImported] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Import a shared .systemtype.yaml / .json file. On a key conflict the
+  // server answers 409 — offer replace and retry.
+  const importFile = async (f: File) => {
+    setBusy(true);
+    setError(null);
+    setImported(null);
+    try {
+      const text = await f.text();
+      const isJSON = f.name.endsWith(".json") || text.trimStart().startsWith("{");
+      const post = (replace: boolean) =>
+        fetch(`/api/v1/system-types/import${replace ? "?replace=true" : ""}`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": isJSON ? "application/json" : "application/yaml" },
+          body: text,
+        });
+      let res = await post(false);
+      if (res.status === 409) {
+        const msg = (await res.json().catch(() => null))?.error?.message ?? "That system type already exists.";
+        if (!window.confirm(`${msg}\n\nReplace it with the imported file?`)) return;
+        res = await post(true);
+      }
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error?.message ?? `import failed (${res.status})`);
+      }
+      const dto = await res.json();
+      setImported(`${dto.label ?? dto.key} (${(dto.checks ?? []).length} checks)`);
+      reload();
+    } catch (e) {
+      setError(String((e as Error).message ?? e));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const reload = useCallback(() => {
     setLoading(true);
@@ -120,15 +158,41 @@ export default function SystemTypesPage() {
           <p className="page__subtitle">
             The catalog of system kinds. Each type owns the metric-name prefixes that auto-identify it and the
             starter health checks it applies. Built-ins are read-only — add your own, or override a built-in by
-            reusing its key.
+            reusing its key. Types export as shareable files — browse{" "}
+            <a href="https://github.com/SLUICIO/sluicio-system-types" target="_blank" rel="noreferrer">
+              community types ↗
+            </a>{" "}
+            or contribute yours.
           </p>
         </div>
         {canWrite && (
-          <button type="button" className="btn primary" disabled={busy} onClick={() => setCreating((c) => !c)}>
-            {creating ? "Cancel" : "New system type"}
-          </button>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button type="button" className="btn" disabled={busy} onClick={() => fileInputRef.current?.click()} title="Import a shared .systemtype.yaml / .json file">
+              Import…
+            </button>
+            <button type="button" className="btn primary" disabled={busy} onClick={() => setCreating((c) => !c)}>
+              {creating ? "Cancel" : "New system type"}
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".yaml,.yml,.json,.systemtype"
+              style={{ display: "none" }}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = ""; // allow re-picking the same file
+                if (f) importFile(f);
+              }}
+            />
+          </div>
         )}
       </div>
+
+      {imported && (
+        <div className="alert" style={{ marginBottom: 12 }}>
+          Imported <b>{imported}</b>. Its checks apply to newly matched systems — or apply the template from a system's page.
+        </div>
+      )}
 
       {error && <div className="alert alert--error">{error}</div>}
 
@@ -202,12 +266,24 @@ export default function SystemTypesPage() {
                     )}
                     {t.is_system && <span className="muted" style={{ fontSize: 11 }}>system</span>}
                     <span className="badge-brand">{t.checks.length} check{t.checks.length === 1 ? "" : "s"}</span>
-                    {canWrite && !t.built_in && (
-                      <span style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-                        <button type="button" className="btn btn--sm" disabled={busy} onClick={() => editIdentity(t)}>Edit</button>
-                        <button type="button" className="btn btn--sm btn--danger" disabled={busy} onClick={() => remove(t)}>Delete</button>
-                      </span>
-                    )}
+                    <span style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+                      {/* Export works for built-ins too — fork one, tweak it,
+                          share the file (docs/system-types-sharing.md). */}
+                      <a
+                        className="btn btn--sm"
+                        href={`/api/v1/system-types/${encodeURIComponent(t.key)}/export`}
+                        download
+                        title="Download as a shareable .systemtype.yaml"
+                      >
+                        Export
+                      </a>
+                      {canWrite && !t.built_in && (
+                        <>
+                          <button type="button" className="btn btn--sm" disabled={busy} onClick={() => editIdentity(t)}>Edit</button>
+                          <button type="button" className="btn btn--sm btn--danger" disabled={busy} onClick={() => remove(t)}>Delete</button>
+                        </>
+                      )}
+                    </span>
                   </div>
                   {expanded.has(k) && (
                     <div style={{ marginLeft: 22, marginTop: 6, display: "flex", flexDirection: "column", gap: 4 }}>

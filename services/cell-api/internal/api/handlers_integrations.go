@@ -642,6 +642,10 @@ func (h *Handlers) createIntegration(w http.ResponseWriter, r *http.Request) {
 			httpserver.WriteError(w, http.StatusBadRequest, err.Error())
 			return
 		}
+		if isUniqueViolation(err) {
+			httpserver.WriteError(w, http.StatusConflict, "an integration with that slug already exists")
+			return
+		}
 		h.Logger.Error("create integration failed", "err", err)
 		httpserver.WriteError(w, http.StatusInternalServerError, "create failed")
 		return

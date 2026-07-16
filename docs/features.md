@@ -35,6 +35,7 @@ catalog in docs/testing/protocols/).
 | `integrations` | Integrations | Matcher-based grouping of services into business integrations; health rollup, per-integration messages/logs/errors |
 | `systems` | Systems | Infrastructure entities (brokers, gateways) as first-class peers of integrations |
 | `system-types` | System types & auto health checks | Built-in kinds (RabbitMQ, ActiveMQ Artemis, KrakenD, Azure Service Bus, OTel Collector, .NET service) with templated health checks; org-level overrides |
+| `system-types-sharing` | Shareable system types | Export any system type (built-ins included) as a portable `.systemtype.yaml`/JSON, share it anywhere, import into another cell — docs/system-types-sharing.md |
 | `monitoring-templates` | Monitoring templates | Reusable check bundles applied per system |
 | `tags-metadata` | Tags & metadata fields | Org-defined tags, typed metadata fields, schemas; searchable (`meta:` filters) |
 | `service-facets` | Service facets | Facet classification with manual overrides |

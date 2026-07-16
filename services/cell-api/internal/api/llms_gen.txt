@@ -402,6 +402,8 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 
 ## system-types
 - GET /api/v1/system-types — List system-types
+- GET /api/v1/system-types/{key}/export — List system-types
+- POST /api/v1/system-types/import — Create system-type
 - POST /api/v1/system-types — Create system-type
 - PUT /api/v1/system-types/{id} — Update system-type
 - DELETE /api/v1/system-types/{id} — Delete system-type

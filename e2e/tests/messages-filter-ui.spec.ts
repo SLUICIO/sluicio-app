@@ -23,7 +23,11 @@ test("error-type list + integration↔service cross-narrowing on /search", async
   const b = (await mkB.json()).integration.id;
 
   try {
-    await page.goto("/search");
+    // ?s seeds a private DRAFT view — deterministic row set regardless
+    // of the org's shared saved views (which other suite workers touch;
+    // starting from the default shared view made pill indexing racy).
+    await page.goto("/search?s=any");
+    await expect(page.getByRole("button", { name: "+ add a filter" })).toBeVisible();
     // Add a filter row → defaults to payload; switch it to error type.
     await page.getByRole("button", { name: "+ add a filter" }).click();
     await page.getByRole("button", { name: /payload/ }).last().click();

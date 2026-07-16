@@ -885,6 +885,11 @@ test.describe("RBAC — share grantee must be an org member (EE)", () => {
 // from group memberships exactly like a user's; org_wide is the
 // explicit, audited opt-in to the old org-wide read.
 test.describe("RBAC — service-account scoping", () => {
+  // Serial on purpose: the forbid test flips a CELL-WIDE knob
+  // (rbac.forbid_org_wide_service_accounts) that would 403 the sibling
+  // org-wide test if they ran on parallel workers.
+  test.describe.configure({ mode: "serial" });
+
   test("scoped viewer SA: deny-by-default, group membership grants exactly its scope; writes refused", async ({ page, request }) => {
     await logIn(page);
     const admin = page.request;

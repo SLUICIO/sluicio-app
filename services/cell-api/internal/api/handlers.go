@@ -1039,6 +1039,11 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 
 	// System-types catalog (managed list of system kinds: detection + checks).
 	mux.HandleFunc("GET /api/v1/system-types", h.listSystemTypes)
+	// Shareable system types (docs/system-types-sharing.md): export any
+	// catalog entry (built-in or org) as a portable YAML/JSON doc;
+	// import creates/replaces an org type.
+	mux.HandleFunc("GET /api/v1/system-types/{key}/export", h.exportSystemType)
+	mux.HandleFunc("POST /api/v1/system-types/import", h.AuthMW.RequireRole(identity.Role.CanWrite, h.importSystemType))
 	mux.HandleFunc("POST /api/v1/system-types", h.AuthMW.RequireRole(identity.Role.CanWrite, h.createSystemType))
 	mux.HandleFunc("PUT /api/v1/system-types/{id}", h.AuthMW.RequireRole(identity.Role.CanWrite, h.updateSystemType))
 	mux.HandleFunc("DELETE /api/v1/system-types/{id}", h.AuthMW.RequireRole(identity.Role.CanWrite, h.deleteSystemType))

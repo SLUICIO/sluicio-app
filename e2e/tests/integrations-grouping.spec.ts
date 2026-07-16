@@ -10,23 +10,27 @@ const BASE_URL = process.env.E2E_BASE_URL || "http://localhost:5173";
 
 test.describe("Integrations grouped by metadata", () => {
   let admin: APIRequestContext;
-  const fieldIDs: string[] = [];
-  const integIDs: string[] = [];
 
+  // IMPORTANT: beforeAll/afterAll run PER WORKER, and fullyParallel can
+  // put this file's two tests on different workers. An afterAll that
+  // deletes the shared fields/integrations tears them out from under
+  // the sibling worker mid-test — and mid-run field deletion even broke
+  // OTHER specs (the metadata panel PUT carries a value for every
+  // visible field, so a concurrently deleted field failed the save).
+  // Fixtures are therefore fixed-slug, ensured idempotently, reused
+  // across runs, and never deleted here.
   test.beforeAll(async () => {
     admin = await pwRequest.newContext({ baseURL: BASE_URL });
     await admin.post("/api/v1/auth/login", { data: { email: ADMIN_EMAIL, password: ADMIN_PASSWORD } });
     for (const [key, label] of [["e2e-country", "E2E Country"], ["e2e-bu", "E2E Business Unit"]] as const) {
-      const f = await (
-        await admin.post("/api/v1/metadata-fields", {
-          data: {
-            key, label, type: "text", description: "",
-            applies_to_integration: true, applies_to_service: false, applies_to_system: false,
-            system_type_key: "", required: false,
-          },
-        })
-      ).json();
-      fieldIDs.push(f.id);
+      const res = await admin.post("/api/v1/metadata-fields", {
+        data: {
+          key, label, type: "text", description: "",
+          applies_to_integration: true, applies_to_service: false, applies_to_system: false,
+          system_type_key: "", required: false,
+        },
+      });
+      if (!res.ok() && res.status() !== 409) throw new Error(`field ${key}: ${res.status()}`);
     }
     const specs = [
       { slug: "e2e-grp-se-retail", country: "Sweden", bu: "Retail" },
@@ -34,13 +38,20 @@ test.describe("Integrations grouped by metadata", () => {
       { slug: "e2e-grp-de-retail", country: "Germany", bu: "Retail" },
     ];
     for (const sp of specs) {
-      const created = await (
-        await admin.post("/api/v1/integrations", {
-          data: { slug: sp.slug, name: sp.slug, matchers: [{ operator: "equals", value: sp.slug }] },
-        })
-      ).json();
-      const id = created.integration?.id ?? created.id;
-      integIDs.push(id);
+      const res = await admin.post("/api/v1/integrations", {
+        data: { slug: sp.slug, name: sp.slug, matchers: [{ operator: "equals", value: sp.slug }] },
+      });
+      let id: string | undefined;
+      if (res.ok()) {
+        const created = await res.json();
+        id = created.integration?.id ?? created.id;
+      } else if (res.status() === 409) {
+        const list = await (await admin.get("/api/v1/integrations?range=30d")).json();
+        id = (list.integrations ?? []).find((i: { slug: string }) => i.slug === sp.slug)?.id;
+      } else {
+        throw new Error(`integration ${sp.slug}: ${res.status()}`);
+      }
+      if (!id) throw new Error(`no id for ${sp.slug}`);
       await admin.put(`/api/v1/integrations/${id}/metadata`, {
         data: { "e2e-country": sp.country, "e2e-bu": sp.bu },
       });
@@ -48,8 +59,6 @@ test.describe("Integrations grouped by metadata", () => {
   });
 
   test.afterAll(async () => {
-    for (const id of integIDs) await admin.delete(`/api/v1/integrations/${id}`);
-    for (const id of fieldIDs) await admin.delete(`/api/v1/metadata-fields/${id}`);
     await admin.dispose();
   });
 
