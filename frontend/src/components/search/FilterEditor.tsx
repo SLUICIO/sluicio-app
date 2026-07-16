@@ -67,7 +67,10 @@ export interface AttrValueSuggestion {
 }
 
 const FIELD_LABELS: Record<Field, string> = {
-  payload: "payload",
+  // Wire value stays "payload" (saved views / share URLs); the human
+  // word is what it actually matches: a span/resource ATTRIBUTE. We
+  // store no payloads — deliberately.
+  payload: "attribute",
   time: "time",
   integration: "integration",
   status: "status",
@@ -260,7 +263,7 @@ function FilterRow({
 }: RowProps) {
   const fieldLabel =
     filter.field === "payload" && filter.fieldPath
-      ? `payload.${filter.fieldPath}`
+      ? `attribute.${filter.fieldPath}`
       : FIELD_LABELS[filter.field];
 
   const locked = !!filter.locked;
@@ -506,7 +509,7 @@ function FieldPicker({ current, fieldPath, attributeKeys, fields, onPick }: Fiel
       </div>
       {current === "payload" && (
         <div className="border-t pt-2" style={{ borderColor: "var(--border)" }}>
-          <div className="text-xs text-muted">attribute / payload field</div>
+          <div className="text-xs text-muted">span / resource attribute</div>
           <input
             type="text"
             value={attributeKeys && attributeKeys.length > 0 ? attrFilter : path}
@@ -991,7 +994,7 @@ function buildSummary(filters: Filter[]): React.ReactNode {
               {i === 0 ? null : <span className="text-muted">, </span>}
               <b>
                 {f.field === "payload" && f.fieldPath
-                  ? `payload.${f.fieldPath}`
+                  ? `attribute.${f.fieldPath}`
                   : FIELD_LABELS[f.field]}
               </b>{" "}
               <span className="text-muted">{OP_LABELS[f.op]}</span>{" "}

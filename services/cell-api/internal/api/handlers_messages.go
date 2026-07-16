@@ -313,9 +313,12 @@ func (h *Handlers) fieldsCatalog(w http.ResponseWriter, r *http.Request) {
 
 	descriptors := []MessageFieldDescriptor{
 		{
+			// Wire value stays "payload" (saved views + share URLs depend
+			// on it); the LABEL says what it actually matches. Sluicio
+			// stores no message payloads — deliberately.
 			Field:         "payload",
-			Label:         "payload",
-			Description:   "Match a value inside a specific span or resource attribute (e.g. orderId, http.route).",
+			Label:         "attribute",
+			Description:   "Match a value inside a specific span or resource attribute (e.g. orderId, http.route). Sluicio does not store message payloads.",
 			Operators:     []string{"equals", "contains", "matches", "in"},
 			AttributeKeys: flat,
 		},

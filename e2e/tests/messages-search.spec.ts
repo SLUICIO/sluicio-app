@@ -51,14 +51,22 @@ test.describe("Message search — filter contracts", () => {
     test.skip(!keyRes.ok(), "cannot mint ingest key");
     const key = (await keyRes.json()).key;
     const errType = `E2ETestException${Date.now().toString(36)}`;
-    const sent = await admin.post(`${INGEST_URL}/v1/traces`, {
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/x-protobuf" },
-      data: encodeTraceExport(`e2e-msgsearch-svc`, [
-        { name: "POST /fail", error: true, attrs: { "exception.type": errType } },
-      ]),
-      failOnStatusCode: false,
-    });
-    test.skip(!sent.ok(), `cell-ingest not reachable at ${INGEST_URL}`);
+    // A refused connection THROWS (it doesn't return !ok) — catch it so
+    // an unreachable ingest skips instead of failing.
+    let sentOK = false;
+    try {
+      const sent = await admin.post(`${INGEST_URL}/v1/traces`, {
+        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/x-protobuf" },
+        data: encodeTraceExport(`e2e-msgsearch-svc`, [
+          { name: "POST /fail", error: true, attrs: { "exception.type": errType } },
+        ]),
+        failOnStatusCode: false,
+      });
+      sentOK = sent.ok();
+    } catch {
+      sentOK = false;
+    }
+    test.skip(!sentOK, `cell-ingest not reachable at ${INGEST_URL}`);
 
     await expect
       .poll(

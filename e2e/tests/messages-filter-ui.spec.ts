@@ -30,7 +30,7 @@ test("error-type list + integration↔service cross-narrowing on /search", async
     await expect(page.getByRole("button", { name: "+ add a filter" })).toBeVisible();
     // Add a filter row → defaults to payload; switch it to error type.
     await page.getByRole("button", { name: "+ add a filter" }).click();
-    await page.getByRole("button", { name: /payload/ }).last().click();
+    await page.getByRole("button", { name: /attribute/ }).last().click();
     await page.getByRole("button", { name: "error type", exact: true }).click();
     // Open the value pill → the observed error-type list must render.
     await page.getByRole("button", { name: /—/ }).last().click();
@@ -45,7 +45,7 @@ test("error-type list + integration↔service cross-narrowing on /search", async
 
     // Add a service row: the picker must offer ONLY Probe A's member.
     await page.getByRole("button", { name: "+ add a filter" }).click();
-    await page.getByRole("button", { name: /payload/ }).last().click();
+    await page.getByRole("button", { name: /attribute/ }).last().click();
     await page.getByRole("button", { name: "service", exact: true }).click();
     await page.getByRole("button", { name: /—/ }).last().click();
     await expect(page.getByRole("button", { name: "order-api" })).toBeVisible();
