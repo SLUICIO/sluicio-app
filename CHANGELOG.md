@@ -3,8 +3,15 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.28 — 2026-07-16
+
+- fix(messages): the 'payload' filter is labelled what it is — attribute (483d515)
+- feat(helm): production-ready cell chart for self-hosted EE (K8s/OpenShift) (b9069c0)
+- feat(system-types): shareable system types — portable YAML/JSON export + import (84c19fe)
+
 ## v0.11.27 — 2026-07-16
 
+- release v0.11.27 — refresh internal changelog (cbb26cd)
 - fix(messages): search findings — id fragments, observed error types, incomplete-row no-op, picker cross-narrowing (696a1dd)
 - fix(rbac): reject byte-identical duplicate group policies with 409 (d79113d)
 - fix(auth): header-less requests default to oldest-joined org, not alphabetical (258d65f)
