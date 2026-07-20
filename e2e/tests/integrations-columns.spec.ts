@@ -11,6 +11,12 @@ const BASE_URL = process.env.E2E_BASE_URL || "http://localhost:5173";
 const PREF_KEY = "integrations.columns";
 
 test.describe("Integrations column layout", () => {
+  // Serial: both tests read/write the SAME server-side preference of the
+  // shared admin user, and beforeAll/afterAll null it as a clean slate.
+  // With fullyParallel the tests land in different workers, so worker B's
+  // beforeAll wipes the order worker A just saved mid-test. One worker,
+  // one beforeAll, no cross-talk.
+  test.describe.configure({ mode: "serial" });
   let admin: APIRequestContext;
   let integID: string;
 

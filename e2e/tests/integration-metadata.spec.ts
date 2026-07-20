@@ -55,7 +55,7 @@ async function createIntegration(page: Page, name: string): Promise<string> {
 
 test.describe("Integration + metadata lifecycle", () => {
   test("create, search by name + metadata, then delete", async ({ page, request }) => {
-    test.setTimeout(90_000);
+    test.setTimeout(120_000);
     await apiCleanup(request);
     page.on("dialog", (d) => d.accept()); // auto-confirm the delete prompts
     await logIn(page);
@@ -85,22 +85,27 @@ test.describe("Integration + metadata lifecycle", () => {
 
     // 6. Set the value on INT_A. The org may have its own *required* metadata
     // fields (the save is blocked until they're set), so fill every text field
-    // in the panel first, then set ours specifically.
-    await page.goto(`/integrations/${idA}/metadata`);
-    await page.getByRole("button", { name: /Edit/ }).click();
-    const panel = page.locator("section").filter({
-      has: page.getByRole("heading", { name: "Metadata", level: 2 }),
-    });
-    const boxes = panel.getByRole("textbox");
-    for (let i = 0, n = await boxes.count(); i < n; i++) {
-      await boxes.nth(i).fill("e2e");
-    }
-    await page.getByLabel(FIELD_LABEL).fill(META_VALUE);
-    await page.getByRole("button", { name: "Save" }).click();
-    // The panel flips back to view mode (the Edit button reappears) only
-    // AFTER the PUT resolves — wait for that before navigating, or a
-    // reload under parallel-suite load can beat the save and drop the value.
-    await expect(page.getByRole("button", { name: /Edit/ })).toBeVisible({ timeout: 15_000 });
+    // in the panel first, then set ours specifically. A sibling spec can even
+    // CREATE a required field while our form is open (integration-settings-
+    // metadata's e2e-contact) — the form then lacks its textbox and the PUT
+    // 400s — so on any failure redo the whole edit against a fresh render,
+    // which does include the newcomer.
+    await expect(async () => {
+      await page.goto(`/integrations/${idA}/metadata`);
+      await page.getByRole("button", { name: /Edit/ }).click();
+      const panel = page.locator("section").filter({
+        has: page.getByRole("heading", { name: "Metadata", level: 2 }),
+      });
+      const boxes = panel.getByRole("textbox");
+      for (let i = 0, n = await boxes.count(); i < n; i++) {
+        await boxes.nth(i).fill("e2e");
+      }
+      await page.getByLabel(FIELD_LABEL).fill(META_VALUE);
+      await page.getByRole("button", { name: "Save" }).click();
+      // The panel flips back to view mode (the Edit button reappears) only
+      // AFTER the PUT succeeds.
+      await expect(page.getByRole("button", { name: /Edit/ })).toBeVisible({ timeout: 10_000 });
+    }).toPass({ timeout: 60_000 });
     // Reload the tab (deterministic — the in-place refresh isn't awaited) and
     // confirm the value persisted in view mode.
     await page.goto(`/integrations/${idA}/metadata`);
