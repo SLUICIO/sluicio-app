@@ -3,219 +3,228 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.29 — 2026-07-20
+
+- feat(reports): cross-signal usage report with savings nudges; attribute-scoped trim; members Last active (8ffbf0a)
+- test(e2e): de-flake two cross-worker races (shared admin prefs, transient required field) (51d8703)
+- fix(helm,api): kind smoke-test findings — probe-able /healthz, verifiable non-root UIDs (2251af6)
+- test(e2e): harden the two remaining release-verification flakes (b791551)
+- test(e2e): fix the two release-verification failures on v0.11.28 (6b96882)
+
 ## v0.11.28 — 2026-07-16
 
-- fix(messages): the 'payload' filter is labelled what it is — attribute (483d515)
-- feat(helm): production-ready cell chart for self-hosted EE (K8s/OpenShift) (b9069c0)
-- feat(system-types): shareable system types — portable YAML/JSON export + import (84c19fe)
+- release v0.11.28 — refresh internal changelog (f99fad0)
+- fix(messages): the 'payload' filter is labelled what it is — attribute (d85a119)
+- feat(helm): production-ready cell chart for self-hosted EE (K8s/OpenShift) (ffff0f2)
+- feat(system-types): shareable system types — portable YAML/JSON export + import (db8919f)
 
 ## v0.11.27 — 2026-07-16
 
-- release v0.11.27 — refresh internal changelog (cbb26cd)
-- fix(messages): search findings — id fragments, observed error types, incomplete-row no-op, picker cross-narrowing (696a1dd)
-- fix(rbac): reject byte-identical duplicate group policies with 409 (d79113d)
-- fix(auth): header-less requests default to oldest-joined org, not alphabetical (258d65f)
-- feat(alerting): opt-in CloudEvents 1.0 format for webhook channels; outbound-events design (c4d8ed1)
-- feat(alerting): opt-in HMAC request signing for webhook channels (7c06adc)
-- fix(alerting): notification-channel hardening + live delivery validation for all four kinds (7e70233)
-- docs: canonical feature matrix — Community vs Enterprise, stable slugs (1c8127b)
-- docs: OTelFlow-in-Sluicio integration design — saved, RBAC-scoped collector configs (f47466c)
+- release v0.11.27 — refresh internal changelog (5394614)
+- fix(messages): search findings — id fragments, observed error types, incomplete-row no-op, picker cross-narrowing (b02291e)
+- fix(rbac): reject byte-identical duplicate group policies with 409 (b1c7313)
+- fix(auth): header-less requests default to oldest-joined org, not alphabetical (fd53b26)
+- feat(alerting): opt-in CloudEvents 1.0 format for webhook channels; outbound-events design (63d36dc)
+- feat(alerting): opt-in HMAC request signing for webhook channels (51c8d06)
+- fix(alerting): notification-channel hardening + live delivery validation for all four kinds (6f6e481)
+- docs: canonical feature matrix — Community vs Enterprise, stable slugs (ce5f760)
+- docs: OTelFlow-in-Sluicio integration design — saved, RBAC-scoped collector configs (e97e4f4)
 
 ## v0.11.26 — 2026-07-15
 
-- release v0.11.26 — refresh internal changelog (9e240db)
-- test(e2e): dashboards×RBAC + alert-lifecycle suites; fix latent licensed-cell flakes (1efc2d2)
-- feat(rbac): scoped service accounts — SAs join groups; org-wide is an explicit opt-in (ff9b6a3)
-- docs(rbac): service-account scoping design — SAs as first-class group members (8860971)
-- fix(rbac): metric-catalog honors the per-signal metrics tier; gap tests (0ce48ac)
-- docs(testing): RBAC coverage index — what runs on every tag, and the gaps (8d9e533)
-- test(e2e): manual test protocol executed verbatim — group-granted visibility (e9fb7f5)
-- release v0.11.25 — refresh internal changelog (2b06c55)
+- release v0.11.26 — refresh internal changelog (35b7cec)
+- test(e2e): dashboards×RBAC + alert-lifecycle suites; fix latent licensed-cell flakes (1dbc58c)
+- feat(rbac): scoped service accounts — SAs join groups; org-wide is an explicit opt-in (6ffdb0f)
+- docs(rbac): service-account scoping design — SAs as first-class group members (7300019)
+- fix(rbac): metric-catalog honors the per-signal metrics tier; gap tests (3e5d607)
+- docs(testing): RBAC coverage index — what runs on every tag, and the gaps (dc7077f)
+- test(e2e): manual test protocol executed verbatim — group-granted visibility (7730578)
+- release v0.11.25 — refresh internal changelog (071023a)
 
 ## v0.11.25 — 2026-07-15
 
-- fix(ui): drop the stale Redoc caption on the API & MCP page (391145a)
-- release v0.11.24 — refresh internal changelog (3b5c56e)
+- fix(ui): drop the stale Redoc caption on the API & MCP page (2078e9a)
+- release v0.11.24 — refresh internal changelog (65703f0)
 
 ## v0.11.24 — 2026-07-15
 
-- feat(api-docs): Scalar try-it reference + llms.txt, all embedded (0beaaed)
-- release v0.11.23 — refresh internal changelog (dd30bc4)
+- feat(api-docs): Scalar try-it reference + llms.txt, all embedded (3a56b1e)
+- release v0.11.23 — refresh internal changelog (1a70e5e)
 
 ## v0.11.23 — 2026-07-14
 
-- feat(mcp): logs search, metric series, integration detail, alert instances (eb54cef)
-- chore(github): issue forms — user-story-shaped bugs and feature requests (6f3fe31)
-- release v0.11.22 — refresh internal changelog (f6385c3)
+- feat(mcp): logs search, metric series, integration detail, alert instances (caefc6f)
+- chore(github): issue forms — user-story-shaped bugs and feature requests (e56ae08)
+- release v0.11.22 — refresh internal changelog (b1cfcf2)
 
 ## v0.11.22 — 2026-07-14
 
-- feat(ui): drop the redundant name filter from the Services toolbar (14f6edd)
-- feat(logs): integration-scoped alert dialog offers an explicit health-impact choice (cab9169)
-- fix(logs): integration-scoped alert dialog offers only the integration's services (e179bb9)
-- feat(logs): filters mirror into the URL — a filtered view is shareable (7dfdeee)
-- release v0.11.21 — refresh internal changelog (c0fc92f)
+- feat(ui): drop the redundant name filter from the Services toolbar (2cb4ac3)
+- feat(logs): integration-scoped alert dialog offers an explicit health-impact choice (a040096)
+- fix(logs): integration-scoped alert dialog offers only the integration's services (7349ed6)
+- feat(logs): filters mirror into the URL — a filtered view is shareable (dd6fecf)
+- release v0.11.21 — refresh internal changelog (288e207)
 
 ## v0.11.21 — 2026-07-14
 
-- test(e2e): ce-upsell clicks the group row, not the removed name button (259bc69)
-- release v0.11.20 — refresh internal changelog (c7ec4d4)
+- test(e2e): ce-upsell clicks the group row, not the removed name button (2419419)
+- release v0.11.20 — refresh internal changelog (3f438b9)
 
 ## v0.11.20 — 2026-07-14
 
-- feat(ui): group rows open the blade, matching the members pattern (805c7bf)
-- fix(ui): member blade explains absent admin actions on your own account (1361cf4)
-- feat(ui): member details blade; members table slimmed to what you scan for (7815662)
-- fix(ui): settings tables and buttons cope with the narrower content pane (50009a4)
-- fix(ui): settings nav no longer wanders between tabs (733e829)
-- feat(ui): settings page adopts the grouped left-nav design (72eb14d)
-- feat(ui): env label lives only in the top nav, loud when non-prod (58c2ebf)
-- feat(ui): ingest-URL nudge links to System settings (a8c7a3d)
-- fix(ui): alert bodies are prose, not flex items (2324a5d)
-- docs: telemetry advisor + alert fatigue advisor design (draft for review) (b07d2ee)
-- release v0.11.19 — refresh internal changelog (f5eb6a2)
+- feat(ui): group rows open the blade, matching the members pattern (68de404)
+- fix(ui): member blade explains absent admin actions on your own account (a2ed534)
+- feat(ui): member details blade; members table slimmed to what you scan for (9227173)
+- fix(ui): settings tables and buttons cope with the narrower content pane (e0074d2)
+- fix(ui): settings nav no longer wanders between tabs (cb10d04)
+- feat(ui): settings page adopts the grouped left-nav design (f9465f6)
+- feat(ui): env label lives only in the top nav, loud when non-prod (d6ea4a0)
+- feat(ui): ingest-URL nudge links to System settings (5a103b2)
+- fix(ui): alert bodies are prose, not flex items (dd526c3)
+- docs: telemetry advisor + alert fatigue advisor design (draft for review) (189615d)
+- release v0.11.19 — refresh internal changelog (da75ebc)
 
 ## v0.11.19 — 2026-07-13
 
-- feat(templates): Azure Service Bus system type; split-by in template checks (c2f0b1a)
-- release v0.11.18 — refresh internal changelog (183dcd6)
+- feat(templates): Azure Service Bus system type; split-by in template checks (9fe4af2)
+- release v0.11.18 — refresh internal changelog (0686f8f)
 
 ## v0.11.18 — 2026-07-13
 
-- fix(ui): system-types page renders trace checks; shared check formatter (b7a767b)
-- release v0.11.17 — refresh internal changelog (fba2f4f)
+- fix(ui): system-types page renders trace checks; shared check formatter (46702f0)
+- release v0.11.17 — refresh internal changelog (9205662)
 
 ## v0.11.17 — 2026-07-13
 
-- feat(templates): transport-failure checks in the KrakenD template (ff38560)
-- release v0.11.16 — refresh internal changelog (9e5bb71)
+- feat(templates): transport-failure checks in the KrakenD template (a3f57dd)
+- release v0.11.16 — refresh internal changelog (1e49200)
 
 ## v0.11.16 — 2026-07-13
 
-- feat(ui+e2e): render trace-signal template checks; KrakenD template spec (a4e277a)
-- feat(templates): trace-signal checks in monitoring templates (b8fc067)
-- release v0.11.15 — refresh internal changelog (670b62c)
+- feat(ui+e2e): render trace-signal template checks; KrakenD template spec (86ecbb3)
+- feat(templates): trace-signal checks in monitoring templates (db2c1b2)
+- release v0.11.15 — refresh internal changelog (7d77cc3)
 
 ## v0.11.15 — 2026-07-13
 
-- feat(ui): 5xx-as-errors toggle + attribute conditions on failed-trace alerts (4b58f0b)
-- feat(alerting): attribute predicates on failed-trace rules (125e2f9)
-- feat(ingest): opt-in 5xx→Error span-status normalization (f5d2db4)
-- test(ingest): pin both ingest-key auth headers (621598f)
-- release v0.11.14 — refresh internal changelog (5e85cf8)
+- feat(ui): 5xx-as-errors toggle + attribute conditions on failed-trace alerts (8dfea7e)
+- feat(alerting): attribute predicates on failed-trace rules (e03bc35)
+- feat(ingest): opt-in 5xx→Error span-status normalization (5030a94)
+- test(ingest): pin both ingest-key auth headers (d40aabc)
+- release v0.11.14 — refresh internal changelog (c6568fc)
 
 ## v0.11.14 — 2026-07-12
 
-- feat(ui): reorderable integration columns, layout persisted per user (0fa8633)
-- feat(api): per-user UI preferences (GET/PUT /api/v1/me/preferences/{key}) (be1fb7d)
-- release v0.11.13 — refresh internal changelog (db526ca)
+- feat(ui): reorderable integration columns, layout persisted per user (fc8eee6)
+- feat(api): per-user UI preferences (GET/PUT /api/v1/me/preferences/{key}) (d06891a)
+- release v0.11.13 — refresh internal changelog (e85bf04)
 
 ## v0.11.13 — 2026-07-12
 
-- feat(ui): trace page breadcrumb above the title; selected log mirrored into the URL (ea80442)
-- release v0.11.12 — refresh internal changelog (02f44ea)
+- feat(ui): trace page breadcrumb above the title; selected log mirrored into the URL (fd8dd04)
+- release v0.11.12 — refresh internal changelog (b9ea357)
 
 ## v0.11.12 — 2026-07-12
 
-- feat(ui): full trace view gets an origin-aware breadcrumb (01ef762)
-- fix(rbac): equals matchers vetted against managed scope, not just the catalog (49dd182)
-- fix(audit): canonicalize metadata before hashing — struct payloads broke verify (0466ae8)
-- release v0.11.11 — refresh internal changelog (f78c6c4)
+- feat(ui): full trace view gets an origin-aware breadcrumb (dc97bfc)
+- fix(rbac): equals matchers vetted against managed scope, not just the catalog (450dbd1)
+- fix(audit): canonicalize metadata before hashing — struct payloads broke verify (1ad5bc7)
+- release v0.11.11 — refresh internal changelog (b95b466)
 
 ## v0.11.11 — 2026-07-12
 
-- feat(logs): trace ids open the trace blade in place (a3214ff)
-- fix(demo): seeded logs carry trace context from real spans (a7a8459)
-- release v0.11.10 — refresh internal changelog (aba8092)
+- feat(logs): trace ids open the trace blade in place (c35849e)
+- fix(demo): seeded logs carry trace context from real spans (6bebd00)
+- release v0.11.10 — refresh internal changelog (2d006dd)
 
 ## v0.11.10 — 2026-07-12
 
-- feat(ui): multi-level grouping of integrations by metadata fields (90b3b91)
-- release v0.11.9 — refresh internal changelog (c896aae)
+- feat(ui): multi-level grouping of integrations by metadata fields (6a172aa)
+- release v0.11.9 — refresh internal changelog (3ab2ec3)
 
 ## v0.11.9 — 2026-07-12
 
-- fix(ui): typeahead focuses on open and stays inside the viewport (5c9ee28)
-- release v0.11.8 — refresh internal changelog (5231837)
+- fix(ui): typeahead focuses on open and stays inside the viewport (dff7d22)
+- release v0.11.8 — refresh internal changelog (5798154)
 
 ## v0.11.8 — 2026-07-12
 
-- feat(ui): metadata fields are part of integration creation (955b6d6)
-- release v0.11.7 — refresh internal changelog (c5ee703)
+- feat(ui): metadata fields are part of integration creation (748451a)
+- release v0.11.7 — refresh internal changelog (0e24166)
 
 ## v0.11.7 — 2026-07-12
 
-- feat(config): SLUICIO_INGEST_URL — deployment-managed ingest endpoint (e749917)
-- feat(ui): metadata editor on integration Settings; ingest-URL nudge (25a4885)
-- release v0.11.6 — refresh internal changelog (4ef1fc1)
+- feat(config): SLUICIO_INGEST_URL — deployment-managed ingest endpoint (182cadd)
+- feat(ui): metadata editor on integration Settings; ingest-URL nudge (1ffacba)
+- release v0.11.6 — refresh internal changelog (173a18b)
 
 ## v0.11.6 — 2026-07-10
 
-- feat(config): export & import org configuration between environments (3f86c42)
-- docs: config export/import design (draft for review) (fc148d7)
-- fix(demo): snapshot size guard is overridable (MIN_GOLDEN_BYTES) (974f417)
-- fix(demo): snapshot/reseed auto-detect podman; note cronie on Fedora (fd08169)
-- docs(deploy): fix stale pre-rename clone URL (ROMA-IT-AB/Sluicio → SLUICIO/sluicio-app) (53b3456)
-- docs(security): the whole audit log is Enterprise, not just verification (41064eb)
-- Change security contact email to support@sluicio.com (48e2d72)
-- chore: toolchain go1.25.12 — crypto/tls fix (GO-2026-5856) (c777989)
-- feat(alerting): notification links highlight the exact alert in the app (2ac719d)
-- docs: security principles — verifiable claims, code-linked (d9594aa)
-- chore: design guidelines move to the private brand repo (2f15d6a)
-- docs: Sluicio design guidelines — brand, tokens, idioms, voice (2c749d8)
-- docs: add service-facets user guide (62292f0)
-- release v0.11.5 — refresh internal changelog (56c8d66)
+- feat(config): export & import org configuration between environments (7f03b68)
+- docs: config export/import design (draft for review) (c9f82b3)
+- fix(demo): snapshot size guard is overridable (MIN_GOLDEN_BYTES) (8ac3876)
+- fix(demo): snapshot/reseed auto-detect podman; note cronie on Fedora (307405a)
+- docs(deploy): fix stale pre-rename clone URL (ROMA-IT-AB/Sluicio → SLUICIO/sluicio-app) (9c612ec)
+- docs(security): the whole audit log is Enterprise, not just verification (89c2357)
+- Change security contact email to support@sluicio.com (96641dc)
+- chore: toolchain go1.25.12 — crypto/tls fix (GO-2026-5856) (cfeeea3)
+- feat(alerting): notification links highlight the exact alert in the app (7562cea)
+- docs: security principles — verifiable claims, code-linked (5f8f58a)
+- chore: design guidelines move to the private brand repo (f0ef46d)
+- docs: Sluicio design guidelines — brand, tokens, idioms, voice (4280c67)
+- docs: add service-facets user guide (ea342e1)
+- release v0.11.5 — refresh internal changelog (d0b67ce)
 
 ## v0.11.5 — 2026-07-07
 
-- fix(ui): cell-wide announcements move to Settings → System settings (4c52c6e)
-- chore: remove marketing content from the product repo (6a4570c)
-- release v0.11.4 — refresh internal changelog (6ddd12c)
+- fix(ui): cell-wide announcements move to Settings → System settings (98aa940)
+- chore: remove marketing content from the product repo (9c38514)
+- release v0.11.4 — refresh internal changelog (3dc1306)
 
 ## v0.11.4 — 2026-07-07
 
-- feat(ui): template checks visible + editable in place; version links to GitHub (89840ff)
-- fix(e2e): settle install state in global setup; scope nav assertions (0bf7498)
-- feat(alerting): announcements + maintenance windows (5869c71)
-- docs: maintenance windows + announcements design (draft for review) (8ab7b90)
-- chore(ui): drop the top-bar theme toggle — Account → Theme owns it (cd87b4d)
-- fix(ui): setup skip link says what it means — the seeded admin account (8251af7)
-- feat(ui): sidebar can be hidden from the top bar (2892cc5)
-- feat(auth): first-run screen — create your admin account (687af3a)
-- docs+ui: quickstart is clone-free and the seeded admin is discoverable (18d8da6)
-- fix(e2e): EE feature suite skips itself on unlicensed cells (b0c3a18)
-- fix(e2e): group-policy upsell test creates its own group (bd9b555)
-- release v0.11.3 — refresh internal changelog (9d99303)
+- feat(ui): template checks visible + editable in place; version links to GitHub (7757259)
+- fix(e2e): settle install state in global setup; scope nav assertions (448fff9)
+- feat(alerting): announcements + maintenance windows (fef5adc)
+- docs: maintenance windows + announcements design (draft for review) (0b4bab4)
+- chore(ui): drop the top-bar theme toggle — Account → Theme owns it (fa539f7)
+- fix(ui): setup skip link says what it means — the seeded admin account (0522876)
+- feat(ui): sidebar can be hidden from the top bar (850f06c)
+- feat(auth): first-run screen — create your admin account (4913140)
+- docs+ui: quickstart is clone-free and the seeded admin is discoverable (24a9a1f)
+- fix(e2e): EE feature suite skips itself on unlicensed cells (778790a)
+- fix(e2e): group-policy upsell test creates its own group (c6c9599)
+- release v0.11.3 — refresh internal changelog (44d1a6e)
 
 ## v0.11.3 — 2026-07-07
 
-- feat(demo): pre-fill the login form with the demo credentials (4d3170d)
-- fix(ui): alert email template matches its sibling System-tab sections (2399bd6)
+- feat(demo): pre-fill the login form with the demo credentials (67daff5)
+- fix(ui): alert email template matches its sibling System-tab sections (566929d)
 
 ## v0.11.2 — 2026-07-06
 
-- fix(ui): drop unfinished controls from the message filter editor (8bbb4c3)
-- docs(ui): SSO has shipped — drop '(soon)' from the org settings subtitle (0652bbe)
-- fix(ui): resource-sharing card shows a CE upsell instead of vanishing (bb13104)
-- fix(ui): gate the group policy editor on rbac_advanced (upsell, not 402) (44048ce)
-- docs(readme): add the hosted demo (demo.sluicio.com) near the top (78f635e)
-- chore: remove marketing drafts from the product repo (fa8fa2f)
-- feat(auth): admins set a temporary password + force change on next login (540ea8d)
-- docs(license): Apache-2.0 appendix copyright is ROMA IT AB (8506c8f)
-- docs: finish the Integration Monitor → Sluicio rename; licensing doc knows all three tiers (ce61745)
-- docs(license): FSL Licensed Work is Sluicio, (c) ROMA IT AB (8864f0a)
-- fix(ci): lint clean + demo e2e tolerates unlicensed cells (e1a8dfe)
-- chore: gitleaks config — e2e fixture passwords are test data (2491378)
+- fix(ui): drop unfinished controls from the message filter editor (2af267a)
+- docs(ui): SSO has shipped — drop '(soon)' from the org settings subtitle (fc79493)
+- fix(ui): resource-sharing card shows a CE upsell instead of vanishing (cb61ecd)
+- fix(ui): gate the group policy editor on rbac_advanced (upsell, not 402) (c2916fe)
+- docs(readme): add the hosted demo (demo.sluicio.com) near the top (9c2173d)
+- chore: remove marketing drafts from the product repo (ab73fbf)
+- feat(auth): admins set a temporary password + force change on next login (bd81b1d)
+- docs(license): Apache-2.0 appendix copyright is ROMA IT AB (a8ab5f0)
+- docs: finish the Integration Monitor → Sluicio rename; licensing doc knows all three tiers (296d16d)
+- docs(license): FSL Licensed Work is Sluicio, (c) ROMA IT AB (a6564a1)
+- fix(ci): lint clean + demo e2e tolerates unlicensed cells (4903aa1)
+- chore: gitleaks config — e2e fixture passwords are test data (3427825)
 
 ## v0.11.1 — 2026-07-06
 
-- docs: DCO sign-off + explicit inbound Apache-2.0 for contributions (342cdd3)
-- docs(license): fix the CE licensing story for the real legal entity (2aee1b5)
-- docs(ee): add ROMA IT AB organisationsnummer to the SEL (5629e12)
-- docs(ee): SEL identifies ROMA IT AB as a Swedish aktiebolag + support contact (d94ab81)
-- docs(ee): finalize SEL v1.0 — proper CE grant, redistribution, Swedish law (850418c)
-- docs(ee): SEL v1.0 is final — drop the draft disclaimer (7f449ac)
-- Sluicio v0.11.1 — initial public release (5e07738)
+- docs: DCO sign-off + explicit inbound Apache-2.0 for contributions (c6ec190)
+- docs(license): fix the CE licensing story for the real legal entity (e1c717b)
+- docs(ee): add ROMA IT AB organisationsnummer to the SEL (42b8e2b)
+- docs(ee): SEL identifies ROMA IT AB as a Swedish aktiebolag + support contact (5a1b8c5)
+- docs(ee): finalize SEL v1.0 — proper CE grant, redistribution, Swedish law (cd08860)
+- docs(ee): SEL v1.0 is final — drop the draft disclaimer (83b090c)
+- Sluicio v0.11.1 — initial public release (fa2c4a6)
 
 ## v0.11.1 addendum — folded into the initial public commit
 
