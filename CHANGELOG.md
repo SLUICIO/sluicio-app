@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.30 — 2026-07-20
+
+- feat(reports): trim panel spans logs and traces — severity floors, drop/sample, integration guardrail (73df612)
+
 ## v0.11.29 — 2026-07-20
 
+- release v0.11.29 — refresh internal changelog (0450328)
 - feat(reports): cross-signal usage report with savings nudges; attribute-scoped trim; members Last active (8ffbf0a)
 - test(e2e): de-flake two cross-worker races (shared admin prefs, transient required field) (51d8703)
 - fix(helm,api): kind smoke-test findings — probe-able /healthz, verifiable non-root UIDs (2251af6)
