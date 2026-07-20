@@ -37,15 +37,18 @@ import type {
   ServiceAccountGroup,
   ApiToken,
   SystemSettings,
+  UsageReportResponse,
+  UsageSignalReport,
 } from "../api/types";
 import { EditDrawer } from "../components/primitives";
 import AlertEmailTemplateSettings from "../components/AlertEmailTemplateSettings";
 import TrimIngestionPanel from "../components/metrics/TrimIngestionPanel";
+import MetricAttributesInline from "../components/metrics/MetricAttributesInline";
 import AnnouncementsAdmin from "../components/AnnouncementsAdmin";
 import ConfigTransfer from "../components/ConfigTransfer";
 import { EnterpriseBadge, UpgradeNotice } from "../components/EnterpriseUpsell";
 import SsoSettings from "../components/SsoSettings";
-import { formatRelative } from "../lib/format";
+import { formatBytes, formatRelative } from "../lib/format";
 import { SYSTEM_KINDS } from "../lib/systemKinds";
 import { useCurrentUser } from "../lib/useCurrentUser";
 import { useLicense } from "../lib/useLicense";
@@ -444,7 +447,7 @@ function MembersTab() {
             <th>Sign-in</th>
             <th>Role</th>
             <th>Joined</th>
-            <th>Last login</th>
+            <th>Last active</th>
           </tr>
         </thead>
         <tbody>
@@ -475,15 +478,20 @@ function MembersTab() {
               </td>
               <td><span className="badge">{m.role}</span></td>
               <td>{m.joined_at ? new Date(m.joined_at).toLocaleDateString() : "—"}</td>
+              {/* Last ACTIVE (throttled request-time stamp), falling back
+                  to last login for members without an activity stamp yet —
+                  activity says who's actually using Sluicio; a login can
+                  be weeks behind a live session. Both exact times stay in
+                  the member blade. */}
               <td
                 title={
-                  m.user.last_login_at
-                    ? new Date(m.user.last_login_at).toLocaleString()
+                  m.user.last_active_at ?? m.user.last_login_at
+                    ? new Date((m.user.last_active_at ?? m.user.last_login_at)!).toLocaleString()
                     : undefined
                 }
               >
-                {m.user.last_login_at ? (
-                  formatRelative(m.user.last_login_at)
+                {m.user.last_active_at ?? m.user.last_login_at ? (
+                  formatRelative((m.user.last_active_at ?? m.user.last_login_at)!)
                 ) : (
                   <span className="muted">Never</span>
                 )}
@@ -2873,6 +2881,74 @@ const REPORT_RANGES = [
 // load in as the table is scrolled (the catalog can be thousands of metrics).
 const REPORTS_PAGE = 60;
 
+// One savings-suggestion card: "we found X <things> not used in any
+// alert — trimming could save ≈ Y/day (≈ Z/month)". Sizes come from the
+// usage report's compressed-bytes estimate, so they're approximations.
+function SavingsCard({ title, noun, rep }: { title: string; noun: string; rep: UsageSignalReport }) {
+  if (rep.total === 0) return null;
+  return (
+    <div className="card" style={{ padding: "12px 14px", flex: "1 1 220px", minWidth: 220 }}>
+      <div style={{ fontWeight: 600, marginBottom: 4 }}>{title}</div>
+      {rep.unused === 0 ? (
+        <div className="muted" style={{ fontSize: 13 }}>
+          All {rep.total.toLocaleString()} {noun} are covered by alert rules. 🟢
+        </div>
+      ) : (
+        <div style={{ fontSize: 13.5 }}>
+          We found <strong>{rep.unused.toLocaleString()}</strong> of {rep.total.toLocaleString()} {noun} that aren't
+          used in any alert. Trimming them could save{" "}
+          <strong>≈ {formatBytes(rep.est_bytes_per_day)}/day</strong>{" "}
+          <span className="muted">(≈ {formatBytes(rep.est_bytes_per_30d)}/month)</span>.
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Per-service breakdown for logs/traces: who produces the data, how big
+// it is, and whether any alert rule of that signal watches the service.
+function SignalServicesSection({ title, signal, rep }: { title: string; signal: string; rep: UsageSignalReport }) {
+  const services = rep.services ?? [];
+  if (services.length === 0) return null;
+  return (
+    <div style={{ marginTop: 22 }}>
+      <h2 style={{ marginBottom: 4 }}>{title}</h2>
+      <p className="muted" style={{ fontSize: 13.5, marginTop: 0 }}>
+        Services without a {signal} alert rule are listed first — their {signal}s are stored but never evaluated.
+        Sizes are estimated from the table's average compressed row size.
+      </p>
+      <div style={{ maxHeight: 320, overflow: "auto", border: "1px solid var(--border)", borderRadius: 6 }}>
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Service</th>
+              <th className="num">Rows</th>
+              <th className="num">Est. size</th>
+              <th>Watched by alerts</th>
+            </tr>
+          </thead>
+          <tbody>
+            {services.map((s) => (
+              <tr key={s.service_name}>
+                <td className="mono" style={{ fontSize: 12.5 }}>{s.service_name}</td>
+                <td className="num">{s.rows.toLocaleString()}</td>
+                <td className="num">{formatBytes(s.est_bytes)}</td>
+                <td>
+                  {s.covered ? (
+                    <span className="muted">✓ covered</span>
+                  ) : (
+                    <span className="badge sev-warning">not covered</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function ReportsTab() {
   const [range, setRange] = useState("24h");
   const [metrics, setMetrics] = useState<MetricCatalogEntry[]>([]);
@@ -2880,6 +2956,13 @@ function ReportsTab() {
   const [error, setError] = useState<string | null>(null);
   const [trimOpen, setTrimOpen] = useState(false);
   const [renderCount, setRenderCount] = useState(REPORTS_PAGE);
+  // Expanded metric rows showing the attribute breakdown (keys → top
+  // values with datapoint counts) — what feeds attribute-scoped trims.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  // Cross-signal usage report: what's watched by alert rules vs merely
+  // stored, with storage estimates — feeds the savings cards and the
+  // logs/traces sections.
+  const [report, setReport] = useState<UsageReportResponse | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -2890,6 +2973,11 @@ function ReportsTab() {
       .then((r) => setMetrics(r.metrics ?? []))
       .catch((e) => setError(String(e.message ?? e)))
       .finally(() => setLoading(false));
+    // Non-fatal: the metrics table still works if the report errors.
+    api
+      .usageReport(range)
+      .then(setReport)
+      .catch(() => setReport(null));
   }, [range]);
 
   const unused = useMemo(
@@ -2912,7 +3000,7 @@ function ReportsTab() {
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 8 }}>
-        <h2 style={{ margin: 0 }}>Metrics not used in health checks</h2>
+        <h2 style={{ margin: 0 }}>Usage report</h2>
         <div style={{ display: "flex", gap: 8 }}>
           <button type="button" className="btn" onClick={() => setTrimOpen(true)}>✂ Trim ingestion</button>
           <select className="toolbar__select" value={range} onChange={(e) => setRange(e.target.value)}>
@@ -2921,6 +3009,22 @@ function ReportsTab() {
         </div>
       </div>
       <p className="muted" style={{ fontSize: 13.5, marginTop: 0 }}>
+        What you ingest and store versus what your health checks and alert rules actually evaluate — the gap is
+        where storage money leaks. Sizes are estimates from compressed table averages.
+      </p>
+
+      {error && <div className="alert alert--error">{error}</div>}
+
+      {report && (
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", margin: "10px 0 18px" }}>
+          <SavingsCard title="Metrics" noun="metrics" rep={report.metrics} />
+          <SavingsCard title="Logs" noun="services shipping logs" rep={report.logs} />
+          <SavingsCard title="Traces" noun="services shipping traces" rep={report.traces} />
+        </div>
+      )}
+
+      <h2 style={{ marginBottom: 4 }}>Metrics not used in health checks</h2>
+      <p className="muted" style={{ fontSize: 13.5, marginTop: 0 }}>
         These metrics are being ingested and stored, but no health check or alert rule references them — the prime
         candidates to trim. Open{" "}
         <button type="button" className="btn btn--link" style={{ padding: 0 }} onClick={() => setTrimOpen(true)}>
@@ -2928,8 +3032,6 @@ function ReportsTab() {
         </button>{" "}
         to generate a collector config that drops the ones you don't need.
       </p>
-
-      {error && <div className="alert alert--error">{error}</div>}
 
       {loading ? (
         <div className="placeholder">Loading…</div>
@@ -2958,12 +3060,34 @@ function ReportsTab() {
               </thead>
               <tbody>
                 {shown.map((m) => (
-                  <tr key={m.name}>
-                    <td className="mono" style={{ fontSize: 12.5 }}>{m.name}</td>
-                    <td className="muted">{m.type}</td>
-                    <td className="num">{(m.series_count ?? 0).toLocaleString()}</td>
-                    <td className="num">{(m.point_count ?? 0).toLocaleString()}</td>
-                  </tr>
+                  <Fragment key={m.name}>
+                    <tr
+                      onClick={() =>
+                        setExpanded((prev) => {
+                          const n = new Set(prev);
+                          n.has(m.name) ? n.delete(m.name) : n.add(m.name);
+                          return n;
+                        })
+                      }
+                      style={{ cursor: "pointer" }}
+                      title="Show attribute breakdown"
+                    >
+                      <td className="mono" style={{ fontSize: 12.5 }}>
+                        <span className="muted" style={{ marginRight: 6 }}>{expanded.has(m.name) ? "▾" : "▸"}</span>
+                        {m.name}
+                      </td>
+                      <td className="muted">{m.type}</td>
+                      <td className="num">{(m.series_count ?? 0).toLocaleString()}</td>
+                      <td className="num">{(m.point_count ?? 0).toLocaleString()}</td>
+                    </tr>
+                    {expanded.has(m.name) && (
+                      <tr>
+                        <td colSpan={4} style={{ padding: "2px 12px 10px 34px", background: "var(--surface-3)" }}>
+                          <MetricAttributesInline metric={m.name} window={range} />
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 ))}
               </tbody>
             </table>
@@ -2974,6 +3098,9 @@ function ReportsTab() {
           </div>
         </>
       )}
+
+      {report && <SignalServicesSection title="Logs by service" signal="log" rep={report.logs} />}
+      {report && <SignalServicesSection title="Traces by service" signal="trace" rep={report.traces} />}
 
       {trimOpen && <TrimIngestionPanel window={range} onClose={() => setTrimOpen(false)} />}
     </div>

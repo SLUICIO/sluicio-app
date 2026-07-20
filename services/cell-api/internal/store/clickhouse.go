@@ -1002,6 +1002,64 @@ type AttributeKeysRow struct {
 	UseCount uint64
 }
 
+// SignalUsageRow is one service's row/byte footprint for a signal in a
+// window — the raw material of the usage report's "what could you trim"
+// nudges.
+type SignalUsageRow struct {
+	ServiceName string
+	Rows        uint64
+}
+
+// RowsByService counts rows per service in the window for one signal
+// table ("logs" or "traces"). Backs the usage report.
+func (s *Store) RowsByService(ctx context.Context, table string, from, to time.Time) ([]SignalUsageRow, error) {
+	if table != "logs" && table != "traces" {
+		return nil, fmt.Errorf("rows by service: unsupported table %q", table)
+	}
+	q := fmt.Sprintf(`
+		SELECT ServiceName, toUInt64(count()) AS rows
+		FROM %s
+		WHERE Timestamp >= ? AND Timestamp <= ?
+		GROUP BY ServiceName
+		ORDER BY rows DESC`, table)
+	rows, err := s.conn.Query(ctx, q, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("rows by service (%s): %w", table, err)
+	}
+	defer rows.Close()
+	var out []SignalUsageRow
+	for rows.Next() {
+		var r SignalUsageRow
+		if err := rows.Scan(&r.ServiceName, &r.Rows); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// TableAvgRowBytes returns the average COMPRESSED on-disk bytes per row
+// of one telemetry table (system.tables total_bytes / total_rows) — the
+// honest basis for "this data costs you ~X MB/day" estimates. Returns 0
+// when the table is empty.
+func (s *Store) TableAvgRowBytes(ctx context.Context, table string) (float64, error) {
+	if table != "logs" && table != "traces" && table != "metrics" {
+		return 0, fmt.Errorf("avg row bytes: unsupported table %q", table)
+	}
+	const q = `
+		SELECT toUInt64(coalesce(total_bytes, 0)), toUInt64(coalesce(total_rows, 0))
+		FROM system.tables
+		WHERE database = currentDatabase() AND name = ?`
+	var bytes, rows uint64
+	if err := s.conn.QueryRow(ctx, q, table).Scan(&bytes, &rows); err != nil {
+		return 0, fmt.Errorf("avg row bytes (%s): %w", table, err)
+	}
+	if rows == 0 {
+		return 0, nil
+	}
+	return float64(bytes) / float64(rows), nil
+}
+
 // DistinctErrorTypes returns the error identifiers observed on error
 // spans in the window — the conventional exception.type attribute when
 // present, else the span's StatusMessage — most frequent first. Backs

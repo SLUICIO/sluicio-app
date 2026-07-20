@@ -10,6 +10,17 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api/client";
 import type { MetricCatalogEntry } from "../../api/types";
+import MetricAttributesInline from "./MetricAttributesInline";
+
+// AttrRule drops only the DATAPOINTS of a metric where one attribute
+// carries one value — the scalpel next to the whole-metric axe. A
+// health-check route or one noisy tenant often dominates a metric the
+// rest of which you want to keep.
+export interface AttrRule {
+  metric: string;
+  key: string;
+  value: string;
+}
 
 // How many metric rows to render at first, and to add each time the user
 // scrolls near the bottom. The full catalog is fetched once (the filter +
@@ -67,24 +78,39 @@ function suggestPrefixes(names: string[], active: string[]): PrefixSuggestion[] 
 // IsMatch(name, "^prefix") condition per active prefix rule, plus an
 // exact name== condition for every selected metric not covered by a
 // prefix. Conditions that match are dropped before reaching Sluicio.
-function buildCollectorConfig(names: string[], prefixes: string[]): string {
+function buildCollectorConfig(names: string[], prefixes: string[], attrRules: AttrRule[]): string {
   const pfx = [...prefixes].sort();
   const covered = (nm: string) => pfx.some((p) => nm.startsWith(p));
   const exact = names.filter((nm) => !covered(nm)).sort();
-  if (pfx.length === 0 && exact.length === 0) {
+  const esc = (s: string) => s.replace(/"/g, '\\"');
+  // Attribute rules for a metric that's ALREADY dropped wholesale are
+  // redundant — skip them so the generated config says what it means.
+  const whole = new Set(names);
+  const dp = attrRules
+    .filter((r) => !whole.has(r.metric) && !covered(r.metric))
+    .sort((a, b) => a.metric.localeCompare(b.metric) || a.key.localeCompare(b.key) || a.value.localeCompare(b.value));
+  if (pfx.length === 0 && exact.length === 0 && dp.length === 0) {
     return "# Select metrics on the left to generate a collector config…";
   }
-  const lines: string[] = [];
-  for (const p of pfx) lines.push(`        - 'IsMatch(name, "^${escapeRe(p)}")'`);
-  for (const nm of exact) lines.push(`        - 'name == "${nm.replace(/"/g, '\\"')}"'`);
+  const metricLines: string[] = [];
+  for (const p of pfx) metricLines.push(`        - 'IsMatch(name, "^${escapeRe(p)}")'`);
+  for (const nm of exact) metricLines.push(`        - 'name == "${esc(nm)}"'`);
+  const dpLines = dp.map(
+    (r) => `        - 'metric.name == "${esc(r.metric)}" and attributes["${esc(r.key)}"] == "${esc(r.value)}"'`,
+  );
+  const sections: string[] = [];
+  if (metricLines.length > 0) sections.push(`      metric:\n${metricLines.join("\n")}`);
+  if (dpLines.length > 0)
+    sections.push(`      # datapoint conditions drop only the matching series — the rest
+      # of the metric keeps flowing
+      datapoint:\n${dpLines.join("\n")}`);
   return `# Drop these metrics at your OpenTelemetry Collector, before they
 # reach Sluicio. Conditions that match are dropped.
 processors:
   filter/sluicio-exclude:
     error_mode: ignore
     metrics:
-      metric:
-${lines.join("\n")}
+${sections.join("\n")}
 
 service:
   pipelines:
@@ -100,6 +126,9 @@ export default function TrimIngestionPanel({ window: win, onClose }: { window: s
   const [filter, setFilter] = useState("");
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
   const [prefixes, setPrefixes] = useState<Set<string>>(new Set());
+  const [attrRules, setAttrRules] = useState<AttrRule[]>([]);
+  // Which metric row's attribute picker is expanded (one at a time).
+  const [attrOpenFor, setAttrOpenFor] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   // Full screen + draggable split between the metric picker and the
   // generated config; leftPct is the picker's share of the width.
@@ -168,7 +197,10 @@ export default function TrimIngestionPanel({ window: win, onClose }: { window: s
     }
   };
 
-  const yaml = useMemo(() => buildCollectorConfig([...excluded].sort(), [...prefixes]), [excluded, prefixes]);
+  const yaml = useMemo(
+    () => buildCollectorConfig([...excluded].sort(), [...prefixes], attrRules),
+    [excluded, prefixes, attrRules],
+  );
   const suggestions = useMemo(() => suggestPrefixes([...excluded], [...prefixes]), [excluded, prefixes]);
   const prefixList = useMemo(() => [...prefixes].sort(), [prefixes]);
   const coveredByPrefix = (name: string) => prefixList.some((p) => name.startsWith(p));
@@ -190,7 +222,20 @@ export default function TrimIngestionPanel({ window: win, onClose }: { window: s
   const clearAll = () => {
     setExcluded(new Set());
     setPrefixes(new Set());
+    setAttrRules([]);
+    setAttrOpenFor(null);
   };
+
+  const addAttrRule = (metric: string, key: string, value: string) =>
+    setAttrRules((prev) =>
+      prev.some((r) => r.metric === metric && r.key === key && r.value === value)
+        ? prev
+        : [...prev, { metric, key, value }],
+    );
+  const removeAttrRule = (rule: AttrRule) =>
+    setAttrRules((prev) =>
+      prev.filter((r) => !(r.metric === rule.metric && r.key === rule.key && r.value === rule.value)),
+    );
 
   const copy = async () => {
     try {
@@ -278,6 +323,7 @@ export default function TrimIngestionPanel({ window: win, onClose }: { window: s
               </button>
               <span className="muted" style={{ marginLeft: "auto" }}>
                 {excluded.size} excluded{prefixes.size > 0 ? ` · ${prefixes.size} prefix rule${prefixes.size > 1 ? "s" : ""}` : ""}
+                {attrRules.length > 0 ? ` · ${attrRules.length} attribute rule${attrRules.length > 1 ? "s" : ""}` : ""}
               </span>
             </div>
 
@@ -299,6 +345,22 @@ export default function TrimIngestionPanel({ window: win, onClose }: { window: s
                 ))}
               </div>
             )}
+            {attrRules.length > 0 && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", margin: "0 0 8px", fontSize: 12 }}>
+                {attrRules.map((r) => (
+                  <span
+                    key={`${r.metric}|${r.key}|${r.value}`}
+                    className="m-rule-badge"
+                    style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 4px 2px 8px" }}
+                    title={`Drops only the datapoints of ${r.metric} where ${r.key} = ${r.value}`}
+                  >
+                    <span className="mono">{r.metric}{"{"}{r.key}={r.value}{"}"}</span>
+                    <button type="button" aria-label={`Remove attribute rule ${r.metric} ${r.key}=${r.value}`} onClick={() => removeAttrRule(r)}
+                      style={{ border: 0, background: "transparent", cursor: "pointer", color: "inherit", fontSize: 13, lineHeight: 1, padding: "0 2px" }}>×</button>
+                  </span>
+                ))}
+              </div>
+            )}
             <div onScroll={onListScroll} style={{ overflow: "auto", border: "1px solid var(--border)", borderRadius: 8, minHeight: 0, flex: 1 }}>
               {loading ? (
                 <div className="placeholder" style={{ margin: 10 }}>Loading metrics…</div>
@@ -306,35 +368,61 @@ export default function TrimIngestionPanel({ window: win, onClose }: { window: s
                 <div className="placeholder" style={{ margin: 10 }}>No metrics match.</div>
               ) : (
                 shown.map((m) => (
-                  <label
-                    key={m.name}
-                    style={{
-                      display: "flex",
-                      gap: 8,
-                      alignItems: "center",
-                      padding: "6px 10px",
-                      borderBottom: "1px solid var(--border)",
-                      cursor: "pointer",
-                    }}
-                  >
-                    <input type="checkbox" checked={excluded.has(m.name)} onChange={() => toggle(m.name)} />
-                    <span className="mono" style={{ fontSize: 12.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {m.name}
-                    </span>
-                    <span style={{ marginLeft: "auto", fontSize: 11, whiteSpace: "nowrap" }}>
-                      <span className="muted">{m.series_count} series</span>
-                      {coveredByPrefix(m.name) && (
-                        <span className="m-rule-badge" style={{ marginLeft: 6, padding: "1px 6px" }} title="Dropped by a prefix rule">
-                          prefix
-                        </span>
-                      )}
-                      {m.rule_count > 0 && (
-                        <span className="m-rule-badge" style={{ marginLeft: 6, padding: "1px 6px" }} title="Watched by an alert rule">
-                          🔔 {m.rule_count}
-                        </span>
-                      )}
-                    </span>
-                  </label>
+                  <div key={m.name} style={{ borderBottom: "1px solid var(--border)" }}>
+                    <label
+                      style={{
+                        display: "flex",
+                        gap: 8,
+                        alignItems: "center",
+                        padding: "6px 10px",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <input type="checkbox" checked={excluded.has(m.name)} onChange={() => toggle(m.name)} />
+                      <span className="mono" style={{ fontSize: 12.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {m.name}
+                      </span>
+                      <span style={{ marginLeft: "auto", fontSize: 11, whiteSpace: "nowrap", display: "inline-flex", alignItems: "center" }}>
+                        <span className="muted">{m.series_count} series</span>
+                        {coveredByPrefix(m.name) && (
+                          <span className="m-rule-badge" style={{ marginLeft: 6, padding: "1px 6px" }} title="Dropped by a prefix rule">
+                            prefix
+                          </span>
+                        )}
+                        {m.rule_count > 0 && (
+                          <span className="m-rule-badge" style={{ marginLeft: 6, padding: "1px 6px" }} title="Watched by an alert rule">
+                            🔔 {m.rule_count}
+                          </span>
+                        )}
+                        {attrRules.some((r) => r.metric === m.name) && (
+                          <span className="m-rule-badge" style={{ marginLeft: 6, padding: "1px 6px" }} title="Has attribute-scoped drop rules">
+                            {attrRules.filter((r) => r.metric === m.name).length} attr
+                          </span>
+                        )}
+                        <button
+                          type="button"
+                          className="btn btn--link"
+                          style={{ marginLeft: 6, padding: 0, fontSize: 11 }}
+                          title="Trim by attribute — drop only the datapoints carrying a specific attribute value"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            setAttrOpenFor((cur) => (cur === m.name ? null : m.name));
+                          }}
+                        >
+                          {attrOpenFor === m.name ? "attrs ▾" : "attrs ▸"}
+                        </button>
+                      </span>
+                    </label>
+                    {attrOpenFor === m.name && (
+                      <div style={{ padding: "0 10px 8px 30px" }}>
+                        <MetricAttributesInline
+                          metric={m.name}
+                          window={win}
+                          onPickValue={(key, value) => addAttrRule(m.name, key, value)}
+                        />
+                      </div>
+                    )}
+                  </div>
                 ))
               )}
               {!loading && shown.length < visible.length && (
@@ -367,7 +455,7 @@ export default function TrimIngestionPanel({ window: win, onClose }: { window: s
           <div style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
               <span className="m-field-label">OTel Collector config</span>
-              <button className="btn btn--sm btn--primary" type="button" onClick={copy} disabled={excluded.size === 0 && prefixes.size === 0}>
+              <button className="btn btn--sm btn--primary" type="button" onClick={copy} disabled={excluded.size === 0 && prefixes.size === 0 && attrRules.length === 0}>
                 {copied ? "Copied ✓" : "Copy"}
               </button>
             </div>
@@ -387,6 +475,8 @@ export default function TrimIngestionPanel({ window: win, onClose }: { window: s
         <div style={{ padding: "10px 16px", borderTop: "1px solid var(--border)", fontSize: 12, color: "var(--muted)" }}>
           Sluicio doesn't enforce this — paste the processor into your OpenTelemetry Collector's metrics pipeline to stop
           these series being sent. Metrics watched by an alert rule are flagged 🔔 so you don't drop one by accident.
+          Use <b>attrs</b> on a row to drop only the datapoints carrying a specific attribute value (a health-check
+          route, one noisy tenant) while the rest of the metric keeps flowing.
         </div>
       </div>
     </div>

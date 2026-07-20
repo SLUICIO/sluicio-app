@@ -139,6 +139,7 @@ import type {
   SystemMetadataResponse,
   DigestResponse,
   UsageVolumeResponse,
+  UsageReportResponse,
 } from "./types";
 import { getActiveOrgSlug } from "../lib/activeOrg";
 
@@ -679,6 +680,10 @@ export const api = {
     (opts.attrs ?? []).forEach((a) => params.append("attr", JSON.stringify(a)));
     return get<LogGroupsResponse>(`/logs/groups?${params.toString()}`);
   },
+
+  // Usage report: unused-by-alerts share per signal + storage estimates.
+  usageReport: (window: string = "24h") =>
+    get<UsageReportResponse>(`/reports/usage?range=${encodeURIComponent(window)}`),
 
   usageVolume: (window: string = "1h", windowed = false) =>
     get<UsageVolumeResponse>(

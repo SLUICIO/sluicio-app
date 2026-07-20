@@ -909,6 +909,10 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	// Metric explorer: rich catalog (sparkline table) + attribute picker.
 	// See handlers_metrics_explorer.go.
 	mux.HandleFunc("GET /api/v1/metric-catalog", h.metricCatalog)
+	// Usage report (Settings → Reports): what share of each signal is
+	// unwatched by any rule + what it costs — admin-only for now.
+	mux.HandleFunc("GET /api/v1/reports/usage",
+		h.AuthMW.RequireRole(identity.Role.CanAdmin, h.usageReport))
 	mux.HandleFunc("GET /api/v1/metric-fields", h.metricFields)
 	mux.HandleFunc("GET /api/v1/metric-attributes/{key}/values", h.metricAttributeValues)
 	mux.HandleFunc("GET /api/v1/metric-groups", h.metricGroups)

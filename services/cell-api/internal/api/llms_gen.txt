@@ -301,6 +301,9 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 - GET /api/v1/orgs/{id} — Get org
 - PATCH /api/v1/orgs/{id} — Update org
 
+## reports
+- GET /api/v1/reports/usage — List reports
+
 ## schemas
 - GET /api/v1/schemas — List schemas
 - GET /api/v1/schemas/{id} — Get schema

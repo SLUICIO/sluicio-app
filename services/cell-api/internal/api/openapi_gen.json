@@ -3638,6 +3638,23 @@
         ]
       }
     },
+    "/api/v1/reports/usage": {
+      "get": {
+        "operationId": "get_api_v1_reports_usage",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "List reports",
+        "tags": [
+          "reports"
+        ]
+      }
+    },
     "/api/v1/schemas": {
       "get": {
         "operationId": "get_api_v1_schemas",
@@ -6691,6 +6708,9 @@
     },
     {
       "name": "orgs"
+    },
+    {
+      "name": "reports"
     },
     {
       "name": "schemas"

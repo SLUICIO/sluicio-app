@@ -37,6 +37,29 @@ export interface UsageVolumeResponse {
   services: UsageVolumeService[];
 }
 
+// Usage report (Settings → Reports): how much ingested data is actually
+// watched by alert rules, and what the unused share costs in storage.
+export interface UsageServiceRow {
+  service_name: string;
+  rows: number;
+  est_bytes: number;
+  covered: boolean;
+}
+export interface UsageSignalReport {
+  total: number;
+  unused: number;
+  unused_rows: number;
+  est_bytes_per_day: number;
+  est_bytes_per_30d: number;
+  services?: UsageServiceRow[];
+}
+export interface UsageReportResponse {
+  window: Window;
+  metrics: UsageSignalReport;
+  logs: UsageSignalReport;
+  traces: UsageSignalReport;
+}
+
 export type ServiceStatus = "ok" | "errors" | "quiet" | "unhealthy";
 
 export interface IntegrationRef {
