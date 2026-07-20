@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: FSL-1.1-Apache-2.0
 //
-// "Trim ingestion" — an advisory helper for keeping only the metrics you
-// act on. Pick metrics to exclude and Sluicio generates an OpenTelemetry
-// Collector filter processor that drops them upstream, before they reach
-// Sluicio (saving egress + storage). Sluicio enforces nothing — you paste
-// the config into your own collector. Each metric shows its rule count so
-// you don't drop one you alert on by accident.
+// "Trim ingestion" — an advisory helper for keeping only the telemetry
+// you act on. Pick metrics, log services, or trace services to exclude
+// and Sluicio generates an OpenTelemetry Collector config that drops
+// them upstream, before they reach Sluicio (saving egress + storage).
+// Sluicio enforces nothing — you paste the config into your own
+// collector. Everything an alert rule watches is flagged so you don't
+// drop what you monitor by accident.
 
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api/client";
-import type { MetricCatalogEntry } from "../../api/types";
+import type { MetricCatalogEntry, UsageReportResponse, UsageServiceRow } from "../../api/types";
+import { formatBytes } from "../../lib/format";
 import MetricAttributesInline from "./MetricAttributesInline";
 
 // AttrRule drops only the DATAPOINTS of a metric where one attribute
@@ -20,6 +22,22 @@ export interface AttrRule {
   metric: string;
   key: string;
   value: string;
+}
+
+// LogTrimRule drops a service's log records — all of them, or only those
+// below a severity floor (the common real-world trim: shed debug/info
+// noise, keep warnings and errors so alerting stays possible).
+export interface LogTrimRule {
+  service: string;
+  floor: "all" | "warn" | "error";
+}
+
+// TraceTrimRule handles a service's spans: "drop" filters them out
+// entirely; "sample" keeps a share via tail sampling — the honest cost
+// lever when the service still feeds integration health.
+export interface TraceTrimRule {
+  service: string;
+  mode: "drop" | "sample";
 }
 
 // How many metric rows to render at first, and to add each time the user
@@ -74,11 +92,20 @@ function suggestPrefixes(names: string[], active: string[]): PrefixSuggestion[] 
   return cands.slice(0, 3);
 }
 
-// buildCollectorConfig renders the OTel filter processor: one
-// IsMatch(name, "^prefix") condition per active prefix rule, plus an
-// exact name== condition for every selected metric not covered by a
-// prefix. Conditions that match are dropped before reaching Sluicio.
-function buildCollectorConfig(names: string[], prefixes: string[], attrRules: AttrRule[]): string {
+// buildCollectorConfig renders the OTel Collector processors: a filter
+// processor with per-signal sections (metric name/prefix + datapoint
+// conditions, per-service log_record conditions with optional severity
+// floors, per-service span drops) and — when trace sampling is chosen —
+// a tail_sampling processor that keeps a share of the picked services'
+// traces while passing everything else through untouched.
+function buildCollectorConfig(
+  names: string[],
+  prefixes: string[],
+  attrRules: AttrRule[],
+  logRules: LogTrimRule[],
+  traceRules: TraceTrimRule[],
+  samplePct: number,
+): string {
   const pfx = [...prefixes].sort();
   const covered = (nm: string) => pfx.some((p) => nm.startsWith(p));
   const exact = names.filter((nm) => !covered(nm)).sort();
@@ -89,35 +116,173 @@ function buildCollectorConfig(names: string[], prefixes: string[], attrRules: At
   const dp = attrRules
     .filter((r) => !whole.has(r.metric) && !covered(r.metric))
     .sort((a, b) => a.metric.localeCompare(b.metric) || a.key.localeCompare(b.key) || a.value.localeCompare(b.value));
-  if (pfx.length === 0 && exact.length === 0 && dp.length === 0) {
-    return "# Select metrics on the left to generate a collector config…";
+  const logs = [...logRules].sort((a, b) => a.service.localeCompare(b.service));
+  const spanDrops = traceRules.filter((r) => r.mode === "drop").sort((a, b) => a.service.localeCompare(b.service));
+  const sampled = traceRules.filter((r) => r.mode === "sample").sort((a, b) => a.service.localeCompare(b.service));
+  if (pfx.length === 0 && exact.length === 0 && dp.length === 0 && logs.length === 0 && spanDrops.length === 0 && sampled.length === 0) {
+    return "# Select metrics, log services, or trace services on the left\n# to generate a collector config…";
   }
+
   const metricLines: string[] = [];
   for (const p of pfx) metricLines.push(`        - 'IsMatch(name, "^${escapeRe(p)}")'`);
   for (const nm of exact) metricLines.push(`        - 'name == "${esc(nm)}"'`);
   const dpLines = dp.map(
     (r) => `        - 'metric.name == "${esc(r.metric)}" and attributes["${esc(r.key)}"] == "${esc(r.value)}"'`,
   );
-  const sections: string[] = [];
-  if (metricLines.length > 0) sections.push(`      metric:\n${metricLines.join("\n")}`);
+  const metricSections: string[] = [];
+  if (metricLines.length > 0) metricSections.push(`      metric:\n${metricLines.join("\n")}`);
   if (dpLines.length > 0)
-    sections.push(`      # datapoint conditions drop only the matching series — the rest
+    metricSections.push(`      # datapoint conditions drop only the matching series — the rest
       # of the metric keeps flowing
       datapoint:\n${dpLines.join("\n")}`);
-  return `# Drop these metrics at your OpenTelemetry Collector, before they
-# reach Sluicio. Conditions that match are dropped.
-processors:
-  filter/sluicio-exclude:
+
+  // Per-signal filter sections.
+  const signalSections: string[] = [];
+  if (metricSections.length > 0) signalSections.push(`    metrics:\n${metricSections.join("\n")}`);
+  if (logs.length > 0) {
+    const lines = logs.map((r) => {
+      const svc = `resource.attributes["service.name"] == "${esc(r.service)}"`;
+      if (r.floor === "warn") return `        - '${svc} and severity_number < SEVERITY_NUMBER_WARN'`;
+      if (r.floor === "error") return `        - '${svc} and severity_number < SEVERITY_NUMBER_ERROR'`;
+      return `        - '${svc}'`;
+    });
+    signalSections.push(`    logs:
+      # severity floors keep warnings/errors flowing so you can still
+      # alert on them later — only the noise below is dropped
+      log_record:\n${lines.join("\n")}`);
+  }
+  if (spanDrops.length > 0) {
+    const lines = spanDrops.map((r) => `        - 'resource.attributes["service.name"] == "${esc(r.service)}"'`);
+    signalSections.push(`    traces:
+      # CAUTION: dropping a service's spans removes it from Sluicio's
+      # integration health entirely — prefer sampling if it's monitored
+      span:\n${lines.join("\n")}`);
+  }
+
+  const blocks: string[] = [];
+  if (signalSections.length > 0) {
+    blocks.push(`  filter/sluicio-exclude:
     error_mode: ignore
-    metrics:
-${sections.join("\n")}
+${signalSections.join("\n")}`);
+  }
+  if (sampled.length > 0) {
+    const values = sampled.map((r) => esc(r.service)).join(", ");
+    blocks.push(`  # Keep ${samplePct}% of these services' traces; every other
+  # service passes through untouched.
+  tail_sampling/sluicio-trim:
+    policies:
+      - name: sample-noisy-services
+        type: and
+        and:
+          and_sub_policy:
+            - name: the-services
+              type: string_attribute
+              string_attribute: {key: service.name, values: [${values}]}
+            - name: keep-a-share
+              type: probabilistic
+              probabilistic: {sampling_percentage: ${samplePct}}
+      - name: keep-everything-else
+        type: and
+        and:
+          and_sub_policy:
+            - name: all-other-services
+              type: string_attribute
+              string_attribute: {key: service.name, values: [${values}], invert_match: true}
+            - name: keep
+              type: always_sample`);
+  }
+
+  // Pipeline wiring: only the pipelines that gained a processor.
+  const pipelines: string[] = [];
+  if (metricSections.length > 0) pipelines.push(`    metrics:
+      processors: [filter/sluicio-exclude]`);
+  if (logs.length > 0) pipelines.push(`    logs:
+      processors: [filter/sluicio-exclude]`);
+  if (spanDrops.length > 0 || sampled.length > 0) {
+    const procs = [
+      ...(spanDrops.length > 0 ? ["filter/sluicio-exclude"] : []),
+      ...(sampled.length > 0 ? ["tail_sampling/sluicio-trim"] : []),
+    ];
+    pipelines.push(`    traces:
+      processors: [${procs.join(", ")}]`);
+  }
+
+  return `# Drop this telemetry at your OpenTelemetry Collector, before it
+# reaches Sluicio. Conditions that match are dropped.
+processors:
+${blocks.join("\n")}
 
 service:
   pipelines:
-    metrics:
-      # add the processor alongside your existing ones, before the
-      # exporter that sends to Sluicio
-      processors: [filter/sluicio-exclude]`;
+    # add each processor alongside your existing ones, before the
+    # exporter that sends to Sluicio
+${pipelines.join("\n")}`;
+}
+
+// ServiceTrimList: the logs/traces flavor of the picker — one row per
+// service from the usage report, uncovered-by-alerts first (that's the
+// report's sort), with size estimates and safety flags. `services` is
+// null while the usage report is unavailable (it's admin-only).
+function ServiceTrimList({
+  services,
+  noun,
+  isPicked,
+  onToggle,
+  renderControls,
+  integrationsFor,
+}: {
+  services: UsageServiceRow[] | null;
+  noun: string;
+  isPicked: (service: string) => boolean;
+  onToggle: (service: string) => void;
+  renderControls: (service: string) => React.ReactNode;
+  integrationsFor?: (service: string) => string[] | undefined;
+}) {
+  if (services === null) {
+    return (
+      <div className="placeholder" style={{ margin: 10 }}>
+        The usage report couldn't be loaded (it needs admin rights) — no {noun} services to pick from.
+      </div>
+    );
+  }
+  if (services.length === 0) {
+    return <div className="placeholder" style={{ margin: 10 }}>No services shipped {noun} in this window.</div>;
+  }
+  return (
+    <div style={{ overflow: "auto", border: "1px solid var(--border)", borderRadius: 8, minHeight: 0, flex: 1 }}>
+      {services.map((s) => {
+        const integs = integrationsFor?.(s.service_name) ?? [];
+        return (
+          <div key={s.service_name} style={{ borderBottom: "1px solid var(--border)" }}>
+            <label style={{ display: "flex", gap: 8, alignItems: "center", padding: "6px 10px", cursor: "pointer" }}>
+              <input type="checkbox" checked={isPicked(s.service_name)} onChange={() => onToggle(s.service_name)} />
+              <span className="mono" style={{ fontSize: 12.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {s.service_name}
+              </span>
+              <span style={{ marginLeft: "auto", fontSize: 11, whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                <span className="muted">{formatBytes(s.est_bytes)}</span>
+                {s.covered && (
+                  <span className="m-rule-badge" style={{ padding: "1px 6px" }} title={`An alert rule watches this service's ${noun} — trimming may starve it`}>
+                    🔔 alerted
+                  </span>
+                )}
+                {integs.length > 0 && (
+                  <span
+                    className="m-rule-badge"
+                    style={{ padding: "1px 6px" }}
+                    title={`Feeds integration${integs.length > 1 ? "s" : ""} ${integs.join(", ")} — dropping its traces blinds their health checks; prefer sampling`}
+                  >
+                    ⚠ feeds {integs[0]}{integs.length > 1 ? ` +${integs.length - 1}` : ""}
+                  </span>
+                )}
+                {renderControls(s.service_name)}
+              </span>
+            </label>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 export default function TrimIngestionPanel({ window: win, onClose }: { window: string; onClose: () => void }) {
@@ -129,6 +294,19 @@ export default function TrimIngestionPanel({ window: win, onClose }: { window: s
   const [attrRules, setAttrRules] = useState<AttrRule[]>([]);
   // Which metric row's attribute picker is expanded (one at a time).
   const [attrOpenFor, setAttrOpenFor] = useState<string | null>(null);
+  // Which signal the left pane is picking from.
+  const [tab, setTab] = useState<"metrics" | "logs" | "traces">("metrics");
+  // Usage report feeds the logs/traces service lists (rows + sizes +
+  // covered-by-alerts flags). Null when unavailable (non-admin) — the
+  // logs/traces tabs then show a hint instead of a list.
+  const [report, setReport] = useState<UsageReportResponse | null>(null);
+  const [logRules, setLogRules] = useState<LogTrimRule[]>([]);
+  const [traceRules, setTraceRules] = useState<TraceTrimRule[]>([]);
+  // One kept-share percentage for all sampled trace services.
+  const [samplePct, setSamplePct] = useState(10);
+  // service name → integration names it feeds; dropping such a service's
+  // traces blinds those integrations' health checks, so we warn.
+  const [svcIntegrations, setSvcIntegrations] = useState<Map<string, string[]>>(new Map());
   const [copied, setCopied] = useState(false);
   // Full screen + draggable split between the metric picker and the
   // generated config; leftPct is the picker's share of the width.
@@ -170,6 +348,22 @@ export default function TrimIngestionPanel({ window: win, onClose }: { window: s
       .then((r) => setAll(r.metrics ?? []))
       .catch(() => setAll([]))
       .finally(() => setLoading(false));
+    api
+      .usageReport(win)
+      .then(setReport)
+      .catch(() => setReport(null));
+    api
+      .listIntegrations(win)
+      .then((r) => {
+        const m = new Map<string, string[]>();
+        for (const integ of r.integrations ?? []) {
+          for (const svc of integ.services ?? []) {
+            m.set(svc, [...(m.get(svc) ?? []), integ.name]);
+          }
+        }
+        setSvcIntegrations(m);
+      })
+      .catch(() => setSvcIntegrations(new Map()));
   }, [win]);
 
   useEffect(() => {
@@ -198,8 +392,8 @@ export default function TrimIngestionPanel({ window: win, onClose }: { window: s
   };
 
   const yaml = useMemo(
-    () => buildCollectorConfig([...excluded].sort(), [...prefixes], attrRules),
-    [excluded, prefixes, attrRules],
+    () => buildCollectorConfig([...excluded].sort(), [...prefixes], attrRules, logRules, traceRules, samplePct),
+    [excluded, prefixes, attrRules, logRules, traceRules, samplePct],
   );
   const suggestions = useMemo(() => suggestPrefixes([...excluded], [...prefixes]), [excluded, prefixes]);
   const prefixList = useMemo(() => [...prefixes].sort(), [prefixes]);
@@ -224,7 +418,27 @@ export default function TrimIngestionPanel({ window: win, onClose }: { window: s
     setPrefixes(new Set());
     setAttrRules([]);
     setAttrOpenFor(null);
+    setLogRules([]);
+    setTraceRules([]);
   };
+
+  const toggleLogRule = (service: string) =>
+    setLogRules((prev) =>
+      prev.some((r) => r.service === service)
+        ? prev.filter((r) => r.service !== service)
+        : [...prev, { service, floor: "warn" }],
+    );
+  const setLogFloor = (service: string, floor: LogTrimRule["floor"]) =>
+    setLogRules((prev) => prev.map((r) => (r.service === service ? { ...r, floor } : r)));
+  const toggleTraceRule = (service: string) =>
+    setTraceRules((prev) => {
+      if (prev.some((r) => r.service === service)) return prev.filter((r) => r.service !== service);
+      // Services feeding an integration default to the safe lever.
+      const mode = svcIntegrations.has(service) ? "sample" : "drop";
+      return [...prev, { service, mode }];
+    });
+  const setTraceMode = (service: string, mode: TraceTrimRule["mode"]) =>
+    setTraceRules((prev) => prev.map((r) => (r.service === service ? { ...r, mode } : r)));
 
   const addAttrRule = (metric: string, key: string, value: string) =>
     setAttrRules((prev) =>
@@ -271,7 +485,7 @@ export default function TrimIngestionPanel({ window: win, onClose }: { window: s
         }
       >
         <div className="card__header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span>Trim ingestion · exclude metrics from Sluicio</span>
+          <span>Trim ingestion · exclude telemetry from Sluicio</span>
           <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
             <button
               className="drawer__close"
@@ -298,8 +512,29 @@ export default function TrimIngestionPanel({ window: win, onClose }: { window: s
             overflow: "hidden",
           }}
         >
-          {/* metric picker */}
+          {/* signal picker */}
           <div style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
+            <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+              {(["metrics", "logs", "traces"] as const).map((t) => {
+                const n = t === "metrics" ? excluded.size + prefixes.size + attrRules.length : t === "logs" ? logRules.length : traceRules.length;
+                return (
+                  <button
+                    key={t}
+                    type="button"
+                    className={`btn btn--sm${tab === t ? " btn--primary" : ""}`}
+                    onClick={() => setTab(t)}
+                  >
+                    {t[0].toUpperCase() + t.slice(1)}
+                    {n > 0 ? ` · ${n}` : ""}
+                  </button>
+                );
+              })}
+              <button className="btn btn--sm" type="button" onClick={clearAll} style={{ marginLeft: "auto" }}>
+                Clear
+              </button>
+            </div>
+            {tab === "metrics" && (
+            <>
             <input
               className="search__input"
               placeholder="Filter metrics…"
@@ -317,9 +552,6 @@ export default function TrimIngestionPanel({ window: win, onClose }: { window: s
                 onClick={() => setExcluded((p) => new Set([...p, ...visible.map((m) => m.name)]))}
               >
                 Exclude shown
-              </button>
-              <button className="btn btn--sm" type="button" onClick={clearAll}>
-                Clear
               </button>
               <span className="muted" style={{ marginLeft: "auto" }}>
                 {excluded.size} excluded{prefixes.size > 0 ? ` · ${prefixes.size} prefix rule${prefixes.size > 1 ? "s" : ""}` : ""}
@@ -431,6 +663,81 @@ export default function TrimIngestionPanel({ window: win, onClose }: { window: s
                 </div>
               )}
             </div>
+            </>
+            )}
+
+            {tab === "logs" && (
+              <ServiceTrimList
+                services={report?.logs.services ?? null}
+                noun="logs"
+                isPicked={(s) => logRules.some((r) => r.service === s)}
+                onToggle={toggleLogRule}
+                renderControls={(s) => {
+                  const rule = logRules.find((r) => r.service === s);
+                  if (!rule) return null;
+                  return (
+                    <select
+                      className="toolbar__select"
+                      value={rule.floor}
+                      onChange={(e) => setLogFloor(s, e.target.value as LogTrimRule["floor"])}
+                      onClick={(e) => e.stopPropagation()}
+                      aria-label={`Log trim mode for ${s}`}
+                      style={{ fontSize: 11, padding: "1px 4px" }}
+                    >
+                      <option value="warn">drop below WARN</option>
+                      <option value="error">drop below ERROR</option>
+                      <option value="all">drop everything</option>
+                    </select>
+                  );
+                }}
+              />
+            )}
+
+            {tab === "traces" && (
+              <>
+                {traceRules.some((r) => r.mode === "sample") && (
+                  <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 8, fontSize: 12 }}>
+                    <span className="muted">Sampled services keep</span>
+                    <select
+                      className="toolbar__select"
+                      value={samplePct}
+                      onChange={(e) => setSamplePct(Number(e.target.value))}
+                      aria-label="Kept share of sampled traces"
+                      style={{ fontSize: 12, padding: "1px 4px" }}
+                    >
+                      {[5, 10, 25, 50].map((p) => (
+                        <option key={p} value={p}>{p}%</option>
+                      ))}
+                    </select>
+                    <span className="muted">of their traces</span>
+                  </div>
+                )}
+                <ServiceTrimList
+                  services={report?.traces.services ?? null}
+                  noun="traces"
+                  isPicked={(s) => traceRules.some((r) => r.service === s)}
+                  onToggle={toggleTraceRule}
+                  integrationsFor={(s) => svcIntegrations.get(s)}
+                  renderControls={(s) => {
+                    const rule = traceRules.find((r) => r.service === s);
+                    if (!rule) return null;
+                    return (
+                      <select
+                        className="toolbar__select"
+                        value={rule.mode}
+                        onChange={(e) => setTraceMode(s, e.target.value as TraceTrimRule["mode"])}
+                        onClick={(e) => e.stopPropagation()}
+                        aria-label={`Trace trim mode for ${s}`}
+                        style={{ fontSize: 11, padding: "1px 4px" }}
+                      >
+                        <option value="sample">sample</option>
+                        <option value="drop">drop all</option>
+                      </select>
+                    );
+                  }}
+                />
+              </>
+            )}
           </div>
 
           {/* draggable column divider */}
@@ -455,7 +762,7 @@ export default function TrimIngestionPanel({ window: win, onClose }: { window: s
           <div style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
               <span className="m-field-label">OTel Collector config</span>
-              <button className="btn btn--sm btn--primary" type="button" onClick={copy} disabled={excluded.size === 0 && prefixes.size === 0 && attrRules.length === 0}>
+              <button className="btn btn--sm btn--primary" type="button" onClick={copy} disabled={excluded.size === 0 && prefixes.size === 0 && attrRules.length === 0 && logRules.length === 0 && traceRules.length === 0}>
                 {copied ? "Copied ✓" : "Copy"}
               </button>
             </div>
@@ -473,10 +780,11 @@ export default function TrimIngestionPanel({ window: win, onClose }: { window: s
         </div>
 
         <div style={{ padding: "10px 16px", borderTop: "1px solid var(--border)", fontSize: 12, color: "var(--muted)" }}>
-          Sluicio doesn't enforce this — paste the processor into your OpenTelemetry Collector's metrics pipeline to stop
-          these series being sent. Metrics watched by an alert rule are flagged 🔔 so you don't drop one by accident.
-          Use <b>attrs</b> on a row to drop only the datapoints carrying a specific attribute value (a health-check
-          route, one noisy tenant) while the rest of the metric keeps flowing.
+          Sluicio doesn't enforce this — paste the processors into your OpenTelemetry Collector's pipelines to stop
+          this telemetry being sent. Anything watched by an alert rule is flagged 🔔 so you don't drop what you
+          monitor by accident. Metrics: use <b>attrs</b> on a row to drop single series. Logs: severity floors keep
+          warnings/errors flowing. Traces: services feeding an integration are flagged ⚠ — prefer <b>sample</b> there,
+          since dropping their spans blinds the integration's health checks.
         </div>
       </div>
     </div>
