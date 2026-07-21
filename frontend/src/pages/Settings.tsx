@@ -75,7 +75,7 @@ const TABS: { key: TabKey; label: string; subtitle: string; enterprise?: boolean
   { key: "groups", label: "Groups", subtitle: "Group membership drives scoped access and team dashboards." },
   { key: "ingestion", label: "Ingestion", subtitle: "Ingest keys and ready-to-paste exporter configuration." },
   { key: "retention", label: "Retention", subtitle: "How long telemetry and audit history are kept, cell-wide." },
-  { key: "reports", label: "Reports", subtitle: "Scheduled summaries delivered by email." },
+  { key: "reports", label: "Reports", subtitle: "What you store vs what you alert on — with trim suggestions." },
   { key: "system", label: "System settings", subtitle: "Cell-wide knobs: environment label, ingest URL, email, security policy." },
   { key: "sso", label: "SSO", subtitle: "Single sign-on for this organization.", enterprise: true },
   { key: "audit", label: "Audit log", subtitle: "Who changed what, when — tamper-evident.", enterprise: true },
