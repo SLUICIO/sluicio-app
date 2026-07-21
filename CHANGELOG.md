@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.33 — 2026-07-21
+
+- feat(system-types): built-in Apache Kafka, Confluent Kafka, NATS, and Debezium types (76ae5e5)
+
 ## v0.11.32 — 2026-07-21
 
+- release v0.11.32 — refresh internal changelog (e7e13ad)
 - feat(mcp): sluicio_usage_report tool — the admin usage report over MCP (ff9b8b5)
 - refactor: align the Go module path and residual naming with the Sluicio brand (e69d54e)
 - ci(release): auto-draft a GitHub Release on every version tag, seeded from the changelog (a63ab0c)
