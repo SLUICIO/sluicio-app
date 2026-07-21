@@ -3,8 +3,14 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.34 — 2026-07-21
+
+- feat(system-types): built-in rows link to their docs reference page (6468079)
+- fix(system-types): whole row toggles the type detail, not just the tiny caret (e05651b)
+
 ## v0.11.33 — 2026-07-21
 
+- release v0.11.33 — refresh internal changelog (a704643)
 - feat(system-types): built-in Apache Kafka, Confluent Kafka, NATS, and Debezium types (76ae5e5)
 
 ## v0.11.32 — 2026-07-21
