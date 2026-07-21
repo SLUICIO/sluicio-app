@@ -104,6 +104,45 @@ jobs:
             APP_VERSION=${{ needs.prep.outputs.version }}
           provenance: false
 
+  # Draft GitHub Release on every version tag — notes seeded from the tag's
+  # CHANGELOG.md section, for a human to polish into the user-facing story
+  # and publish. Exists because the Releases page silently fell behind
+  # ghcr.io (v0.11.29–31 shipped images with no Release until noticed):
+  # image publishing is automated, Release creation was memory-dependent.
+  # Draft-only and skip-if-exists, so a hand-written release always wins.
+  draft-release:
+    name: Draft GitHub release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - name: Create draft release seeded from CHANGELOG.md
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "release $TAG already exists — leaving it untouched"
+            exit 0
+          fi
+          # Cut this tag's section out of CHANGELOG.md (its "## <tag> — date"
+          # heading up to the next "## "). The changelog-refresh commit is the
+          # tagged commit, so the section is present at this ref.
+          awk -v tag="$TAG" '
+            $0 ~ "^## "tag" " {on=1; next}
+            on && /^## / {exit}
+            on {print}
+          ' CHANGELOG.md > notes.md
+          if ! [ -s notes.md ]; then
+            echo "_See CHANGELOG.md for ${TAG}._" > notes.md
+          fi
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag \
+            --title "Sluicio $TAG" --notes-file notes.md
+          echo "draft release created for $TAG — polish the notes and publish"
+
   # Image vulnerability scan — report-only, and in its OWN job so a scanner
   # problem can never block publishing again. (A bad action pin inside the
   # build+push job previously failed job setup and took the whole publish down.)
