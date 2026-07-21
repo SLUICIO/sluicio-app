@@ -3,8 +3,14 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.31 — 2026-07-21
+
+- fix(dashboard): 'needs attention' surfaces unhealthy integrations before noisy-but-passing ones (88fbe23)
+- fix(settings): Reports tab subtitle describes the usage report, not unbuilt email summaries (f1b5f12)
+
 ## v0.11.30 — 2026-07-20
 
+- release v0.11.30 — refresh internal changelog (69f89d2)
 - feat(reports): trim panel spans logs and traces — severity floors, drop/sample, integration guardrail (73df612)
 
 ## v0.11.29 — 2026-07-20
