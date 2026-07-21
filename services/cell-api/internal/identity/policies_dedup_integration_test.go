@@ -16,7 +16,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/identity"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/identity"
 )
 
 func TestCreatePolicyRejectsExactDuplicate(t *testing.T) {

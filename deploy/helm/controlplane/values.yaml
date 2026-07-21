@@ -3,7 +3,7 @@
 # This is a skeleton; real defaults will be added as services are wired up.
 
 image:
-  repository: ghcr.io/integration-monitor/controlplane
+  repository: ghcr.io/sluicio/controlplane
   tag: "0.1.0"
   pullPolicy: IfNotPresent
 
@@ -36,13 +36,13 @@ postgres:
 keycloak:
   # External Keycloak URL. Keycloak itself is not deployed by this chart.
   url: ""
-  realm: "integration-monitor"
+  realm: "sluicio"
   clientId: "controlplane"
 
 cellController:
   enabled: true
   image:
-    repository: ghcr.io/integration-monitor/cell-controller
+    repository: ghcr.io/sluicio/cell-controller
     tag: "0.1.0"
 
 serviceAccount:

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: FSL-1.1-Apache-2.0
-import { KVTable } from "@integration-monitor/frontend";
+import { KVTable } from "@sluicio/frontend";
 
 const frame: React.CSSProperties = {
   padding: 24,

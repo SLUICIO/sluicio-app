@@ -17,8 +17,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/integration-monitor/integration-monitor/pkg/log"
-	"github.com/integration-monitor/integration-monitor/pkg/version"
+	"github.com/sluicio/sluicio-app/pkg/log"
+	"github.com/sluicio/sluicio-app/pkg/version"
 )
 
 const serviceName = "cell-alerting"

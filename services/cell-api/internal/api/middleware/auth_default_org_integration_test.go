@@ -23,8 +23,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/api/middleware"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/identity"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/api/middleware"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/identity"
 )
 
 func TestHeaderlessDefaultOrgIsStable(t *testing.T) {

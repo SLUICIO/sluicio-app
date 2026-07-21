@@ -9,9 +9,9 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"github.com/integration-monitor/integration-monitor/pkg/httpserver"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/api/middleware"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/schemas"
+	"github.com/sluicio/sluicio-app/pkg/httpserver"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/api/middleware"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/schemas"
 )
 
 // listSchemas: GET /api/v1/schemas

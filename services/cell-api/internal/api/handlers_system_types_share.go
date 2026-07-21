@@ -20,9 +20,9 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/integration-monitor/integration-monitor/pkg/httpserver"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/api/middleware"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/monitoringtemplates"
+	"github.com/sluicio/sluicio-app/pkg/httpserver"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/api/middleware"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/monitoringtemplates"
 )
 
 // SystemTypeDocFormat is the format marker every shared document

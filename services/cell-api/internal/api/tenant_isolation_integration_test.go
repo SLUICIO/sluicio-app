@@ -31,10 +31,10 @@ import (
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
 
-	impostgres "github.com/integration-monitor/integration-monitor/pkg/postgres"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/catalog"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/integrations"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/migrations"
+	impostgres "github.com/sluicio/sluicio-app/pkg/postgres"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/catalog"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/integrations"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/migrations"
 )
 
 // newIsolationDB brings up a throwaway Postgres, applies the cell-api

@@ -1,4 +1,4 @@
-module github.com/integration-monitor/integration-monitor
+module github.com/sluicio/sluicio-app
 
 go 1.25.0
 

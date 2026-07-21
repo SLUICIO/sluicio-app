@@ -37,8 +37,8 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 
-	"github.com/integration-monitor/integration-monitor/pkg/audit"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/settings"
+	"github.com/sluicio/sluicio-app/pkg/audit"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/settings"
 )
 
 // Enforcer is the periodic-loop owner.

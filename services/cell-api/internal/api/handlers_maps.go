@@ -8,11 +8,11 @@ import (
 	"net/http"
 
 	"github.com/google/uuid"
-	"github.com/integration-monitor/integration-monitor/pkg/httpserver"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/api/middleware"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/mapexec"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/maps"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/schemas"
+	"github.com/sluicio/sluicio-app/pkg/httpserver"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/api/middleware"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/mapexec"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/maps"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/schemas"
 )
 
 // listMaps: GET /api/v1/maps

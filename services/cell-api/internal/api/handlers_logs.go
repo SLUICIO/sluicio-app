@@ -5,15 +5,15 @@ package api
 import (
 	"encoding/json"
 	"errors"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/identity"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/identity"
 	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/integration-monitor/integration-monitor/pkg/httpserver"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/store"
+	"github.com/sluicio/sluicio-app/pkg/httpserver"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/store"
 )
 
 // listServiceLogs: GET /api/v1/services/{name}/logs

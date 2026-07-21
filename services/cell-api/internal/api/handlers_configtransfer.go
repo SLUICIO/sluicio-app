@@ -18,10 +18,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/integration-monitor/integration-monitor/pkg/httpserver"
-	"github.com/integration-monitor/integration-monitor/pkg/version"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/api/middleware"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/configtransfer"
+	"github.com/sluicio/sluicio-app/pkg/httpserver"
+	"github.com/sluicio/sluicio-app/pkg/version"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/api/middleware"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/configtransfer"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )

@@ -18,7 +18,7 @@ app.kubernetes.io/name: {{ include "controlplane.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/version: {{ .Chart.AppVersion }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
-app.kubernetes.io/part-of: integration-monitor
+app.kubernetes.io/part-of: sluicio
 {{- end -}}
 
 {{- define "controlplane.selectorLabels" -}}

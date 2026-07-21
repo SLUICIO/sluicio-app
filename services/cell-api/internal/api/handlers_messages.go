@@ -6,7 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/identity"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/identity"
 	"net/http"
 	"sort"
 	"strconv"
@@ -14,11 +14,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/integration-monitor/integration-monitor/pkg/httpserver"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/api/middleware"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/integrations"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/messageviews"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/store"
+	"github.com/sluicio/sluicio-app/pkg/httpserver"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/api/middleware"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/integrations"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/messageviews"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/store"
 )
 
 // MessageViewWire is the JSON shape returned to the frontend. It

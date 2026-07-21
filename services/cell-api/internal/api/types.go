@@ -7,9 +7,9 @@ package api
 import (
 	"time"
 
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/erroracks"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/integrations"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/tags"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/erroracks"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/integrations"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/tags"
 )
 
 // IntegrationRef is a compact reference to an integration, attached

@@ -29,7 +29,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/integration-monitor/integration-monitor/pkg/license"
+	"github.com/sluicio/sluicio-app/pkg/license"
 )
 
 func main() {

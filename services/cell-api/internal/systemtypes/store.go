@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/monitoringtemplates"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/monitoringtemplates"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )

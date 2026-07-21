@@ -1,3 +1,3 @@
-module github.com/integration-monitor/integration-monitor/plugins
+module github.com/sluicio/sluicio-app/plugins
 
 go 1.22

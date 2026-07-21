@@ -20,7 +20,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/identity"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/identity"
 )
 
 // exprFixture seeds a fixed service catalog with resource attributes and

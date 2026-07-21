@@ -5,8 +5,8 @@ package api
 import (
 	"testing"
 
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/facetoverrides"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/servicetypes"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/facetoverrides"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/servicetypes"
 )
 
 // resolveFacets is the heart of the manual-override feature: it folds a

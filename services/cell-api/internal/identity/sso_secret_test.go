@@ -6,7 +6,7 @@ import (
 	"crypto/rand"
 	"testing"
 
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/secretcrypto"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/secretcrypto"
 )
 
 // The store secret helpers gate encryption on the presence of a key and must

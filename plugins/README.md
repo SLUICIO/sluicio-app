@@ -2,7 +2,7 @@
 
 Plugin contracts for third-party extensions to Integration Monitor.
 
-This is a separate Go module (`github.com/integration-monitor/integration-monitor/plugins`)
+This is a separate Go module (`github.com/sluicio/sluicio-app/plugins`)
 under Apache 2.0 so external authors can depend on it without inheriting
 the Functional Source License that covers the rest of the product.
 

@@ -14,8 +14,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/integration-monitor/integration-monitor/pkg/httpserver"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/api/middleware"
+	"github.com/sluicio/sluicio-app/pkg/httpserver"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/api/middleware"
 )
 
 // integrationUsage reports how many monitored entities the org has versus the

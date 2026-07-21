@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/facetmappings"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/facetmappings"
 )
 
 // Store exposes the read queries cell-api needs.

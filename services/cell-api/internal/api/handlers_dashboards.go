@@ -14,11 +14,11 @@ import (
 	"net/http"
 
 	"github.com/google/uuid"
-	"github.com/integration-monitor/integration-monitor/pkg/httpserver"
-	"github.com/integration-monitor/integration-monitor/pkg/license"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/api/middleware"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/dashboards"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/identity"
+	"github.com/sluicio/sluicio-app/pkg/httpserver"
+	"github.com/sluicio/sluicio-app/pkg/license"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/api/middleware"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/dashboards"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/identity"
 )
 
 // callerGroupRoles returns the caller's group_id → role map. Users and

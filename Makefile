@@ -36,7 +36,7 @@ IMAGE_SERVICES := cell-api cell-ingest cell-alerting controlplane
 VERSION     ?= $(shell ./scripts/version.sh 2>/dev/null || echo 0.0.0-dev)
 COMMIT      ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 BUILD_DATE  ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
-VERSION_PKG := github.com/integration-monitor/integration-monitor/pkg/version
+VERSION_PKG := github.com/sluicio/sluicio-app/pkg/version
 GO_LDFLAGS  := -X $(VERSION_PKG).Version=$(VERSION) -X $(VERSION_PKG).Commit=$(COMMIT) -X $(VERSION_PKG).BuildDate=$(BUILD_DATE)
 VERSION_ARGS := --build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) --build-arg BUILD_DATE=$(BUILD_DATE)
 

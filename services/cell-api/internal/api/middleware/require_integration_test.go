@@ -31,10 +31,10 @@ import (
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
 
-	impostgres "github.com/integration-monitor/integration-monitor/pkg/postgres"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/api/middleware"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/identity"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/migrations"
+	impostgres "github.com/sluicio/sluicio-app/pkg/postgres"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/api/middleware"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/identity"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/migrations"
 )
 
 func newGateDB(t *testing.T) (*identity.Store, context.Context) {

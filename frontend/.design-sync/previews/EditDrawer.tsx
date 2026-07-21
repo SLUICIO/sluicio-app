@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: FSL-1.1-Apache-2.0
-import { EditDrawer } from "@integration-monitor/frontend";
+import { EditDrawer } from "@sluicio/frontend";
 
 const noop = () => {};
 const field: React.CSSProperties = { display: "flex", flexDirection: "column", gap: 6, marginBottom: 16 };

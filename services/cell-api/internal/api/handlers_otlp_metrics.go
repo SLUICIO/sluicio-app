@@ -3,14 +3,14 @@
 package api
 
 import (
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/identity"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/identity"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/integration-monitor/integration-monitor/pkg/httpserver"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/store"
+	"github.com/sluicio/sluicio-app/pkg/httpserver"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/store"
 )
 
 // These endpoints expose the OTLP metrics a service has pushed in via

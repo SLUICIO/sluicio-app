@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: FSL-1.1-Apache-2.0
 apiVersion: v2
-name: integration-monitor-controlplane
+name: sluicio-controlplane
 description: |
   Integration Monitor control plane: organizations, users, memberships,
   invitations, billing, and the directory of which tenants live in which

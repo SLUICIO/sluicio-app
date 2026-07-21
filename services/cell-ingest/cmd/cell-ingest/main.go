@@ -16,14 +16,14 @@ import (
 	"strings"
 	"syscall"
 
-	imclickhouse "github.com/integration-monitor/integration-monitor/pkg/clickhouse"
-	"github.com/integration-monitor/integration-monitor/pkg/env"
-	"github.com/integration-monitor/integration-monitor/pkg/httpserver"
-	"github.com/integration-monitor/integration-monitor/pkg/log"
-	impostgres "github.com/integration-monitor/integration-monitor/pkg/postgres"
-	"github.com/integration-monitor/integration-monitor/pkg/version"
-	"github.com/integration-monitor/integration-monitor/services/cell-ingest/internal/ingest"
-	"github.com/integration-monitor/integration-monitor/services/cell-ingest/internal/ingestauth"
+	imclickhouse "github.com/sluicio/sluicio-app/pkg/clickhouse"
+	"github.com/sluicio/sluicio-app/pkg/env"
+	"github.com/sluicio/sluicio-app/pkg/httpserver"
+	"github.com/sluicio/sluicio-app/pkg/log"
+	impostgres "github.com/sluicio/sluicio-app/pkg/postgres"
+	"github.com/sluicio/sluicio-app/pkg/version"
+	"github.com/sluicio/sluicio-app/services/cell-ingest/internal/ingest"
+	"github.com/sluicio/sluicio-app/services/cell-ingest/internal/ingestauth"
 )
 
 const serviceName = "cell-ingest"

@@ -23,11 +23,11 @@ import (
 	"net/http"
 
 	"github.com/google/uuid"
-	"github.com/integration-monitor/integration-monitor/pkg/httpserver"
-	"github.com/integration-monitor/integration-monitor/pkg/license"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/api/middleware"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/identity"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/integrations"
+	"github.com/sluicio/sluicio-app/pkg/httpserver"
+	"github.com/sluicio/sluicio-app/pkg/license"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/api/middleware"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/identity"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/integrations"
 )
 
 // managedServiceFilter resolves the caller's MANAGED set. Returns

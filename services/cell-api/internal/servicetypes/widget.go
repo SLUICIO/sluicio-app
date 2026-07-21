@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/facetmappings"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/facetmappings"
 )
 
 // AttrSource is where a widget should pull an attribute from when

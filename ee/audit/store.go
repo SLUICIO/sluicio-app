@@ -23,7 +23,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	coreaudit "github.com/integration-monitor/integration-monitor/pkg/audit"
+	coreaudit "github.com/sluicio/sluicio-app/pkg/audit"
 )
 
 // Store persists and queries audit entries.

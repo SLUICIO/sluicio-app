@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/integration-monitor/integration-monitor/pkg/httpserver"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/store"
+	"github.com/sluicio/sluicio-app/pkg/httpserver"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/store"
 )
 
 // serviceNeighbors: GET /api/v1/services/{name}/neighbors?range=1h

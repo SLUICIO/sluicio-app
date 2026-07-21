@@ -36,8 +36,8 @@ import (
 
 	"github.com/google/uuid"
 
-	imclickhouse "github.com/integration-monitor/integration-monitor/pkg/clickhouse"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/identity"
+	imclickhouse "github.com/sluicio/sluicio-app/pkg/clickhouse"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/identity"
 )
 
 // Cookie name that carries the session id. HTTP-only + SameSite=Lax

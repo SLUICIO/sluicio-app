@@ -1,5 +1,5 @@
 {
-  "pkg": "@integration-monitor/frontend",
+  "pkg": "@sluicio/frontend",
   "globalName": "Sluicio",
   "shape": "package",
   "srcDir": "src",

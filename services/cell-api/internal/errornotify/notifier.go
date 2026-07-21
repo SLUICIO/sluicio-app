@@ -19,11 +19,11 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/alerting"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/catalog"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/erroracks"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/notifyprofiles"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/store"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/alerting"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/catalog"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/erroracks"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/notifyprofiles"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/store"
 )
 
 // Notifier wires the per-service error scan to the routing + delivery.

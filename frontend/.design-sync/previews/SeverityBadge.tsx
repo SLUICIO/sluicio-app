@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: FSL-1.1-Apache-2.0
-import { SeverityBadge } from "@integration-monitor/frontend";
+import { SeverityBadge } from "@sluicio/frontend";
 
 const frame: React.CSSProperties = {
   padding: 24,

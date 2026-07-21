@@ -24,7 +24,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/integration-monitor/integration-monitor/pkg/mcp"
+	"github.com/sluicio/sluicio-app/pkg/mcp"
 )
 
 func main() {

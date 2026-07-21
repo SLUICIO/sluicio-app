@@ -12,14 +12,14 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/integration-monitor/integration-monitor/pkg/httpserver"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/api/middleware"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/erroracks"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/identity"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/integrations"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/store"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/tags"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/tracecompletion"
+	"github.com/sluicio/sluicio-app/pkg/httpserver"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/api/middleware"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/erroracks"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/identity"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/integrations"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/store"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/tags"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/tracecompletion"
 )
 
 // Request / response shapes

@@ -28,7 +28,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/secretcrypto"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/secretcrypto"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )

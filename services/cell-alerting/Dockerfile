@@ -26,9 +26,9 @@ ARG BUILD_DATE=unknown
 
 ENV CGO_ENABLED=0 GOFLAGS=-trimpath
 RUN go build -ldflags="-s -w \
-      -X github.com/integration-monitor/integration-monitor/pkg/version.Version=${VERSION} \
-      -X github.com/integration-monitor/integration-monitor/pkg/version.Commit=${COMMIT} \
-      -X github.com/integration-monitor/integration-monitor/pkg/version.BuildDate=${BUILD_DATE}" \
+      -X github.com/sluicio/sluicio-app/pkg/version.Version=${VERSION} \
+      -X github.com/sluicio/sluicio-app/pkg/version.Commit=${COMMIT} \
+      -X github.com/sluicio/sluicio-app/pkg/version.BuildDate=${BUILD_DATE}" \
       -o /out/cell-alerting ./services/cell-alerting/cmd/cell-alerting
 
 FROM gcr.io/distroless/static-debian12:nonroot

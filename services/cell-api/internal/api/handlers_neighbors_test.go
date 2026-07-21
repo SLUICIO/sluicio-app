@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/store"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/store"
 )
 
 // TestGroupNeighborRows checks the pure transformation from

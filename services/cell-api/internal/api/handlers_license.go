@@ -11,8 +11,8 @@ package api
 import (
 	"net/http"
 
-	"github.com/integration-monitor/integration-monitor/pkg/httpserver"
-	"github.com/integration-monitor/integration-monitor/pkg/license"
+	"github.com/sluicio/sluicio-app/pkg/httpserver"
+	"github.com/sluicio/sluicio-app/pkg/license"
 )
 
 // featureEntitled is the single nil-safe entitlement check. No license

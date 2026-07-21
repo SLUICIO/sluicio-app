@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/alerting"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/catalog"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/alerting"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/catalog"
 )
 
 // buildUnhealthyView is the grouping core: attribute failing checks + open

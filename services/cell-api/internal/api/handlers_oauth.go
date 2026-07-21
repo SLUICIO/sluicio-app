@@ -23,9 +23,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/integration-monitor/integration-monitor/pkg/httpserver"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/identity"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/oauth"
+	"github.com/sluicio/sluicio-app/pkg/httpserver"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/identity"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/oauth"
 )
 
 const oauthAccessTokenDays = 90

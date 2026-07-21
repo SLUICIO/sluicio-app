@@ -14,7 +14,7 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/integration-monitor/integration-monitor/pkg/mcp"
+	"github.com/sluicio/sluicio-app/pkg/mcp"
 )
 
 // mcpEndpoint: POST /api/v1/mcp — one JSON-RPC message in, one response out

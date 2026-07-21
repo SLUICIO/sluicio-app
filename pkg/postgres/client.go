@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/integration-monitor/integration-monitor/pkg/env"
+	"github.com/sluicio/sluicio-app/pkg/env"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 

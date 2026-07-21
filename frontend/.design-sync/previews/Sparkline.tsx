@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: FSL-1.1-Apache-2.0
-import { Sparkline } from "@integration-monitor/frontend";
+import { Sparkline } from "@sluicio/frontend";
 
 const frame: React.CSSProperties = {
   padding: 24,

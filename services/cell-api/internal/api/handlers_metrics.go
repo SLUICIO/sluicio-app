@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/integration-monitor/integration-monitor/pkg/httpserver"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/alerting"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/api/middleware"
+	"github.com/sluicio/sluicio-app/pkg/httpserver"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/alerting"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/api/middleware"
 )
 
 // clearServiceErrors: POST /api/v1/services/{name}/clear-errors

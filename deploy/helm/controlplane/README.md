@@ -1,4 +1,4 @@
-# integration-monitor-controlplane
+# sluicio-controlplane
 
 Helm chart for the Integration Monitor control plane.
 

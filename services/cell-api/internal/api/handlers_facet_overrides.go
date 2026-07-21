@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/integration-monitor/integration-monitor/pkg/httpserver"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/api/middleware"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/facetoverrides"
-	"github.com/integration-monitor/integration-monitor/services/cell-api/internal/servicetypes"
+	"github.com/sluicio/sluicio-app/pkg/httpserver"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/api/middleware"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/facetoverrides"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/servicetypes"
 )
 
 // facetOverrideRow is one facet in the editor's view of a service: the

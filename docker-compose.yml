@@ -5,7 +5,7 @@
 #   - Postgres (control plane data)
 #   - ClickHouse (cell-local logs and traces)
 #   - Prometheus (cell-local metrics)
-#   - Keycloak (OIDC, with a default `integration-monitor` realm to be added)
+#   - Keycloak (OIDC, with a default `sluicio` realm to be added)
 
 services:
   postgres:

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: FSL-1.1-Apache-2.0
-import { SortableTh } from "@integration-monitor/frontend";
+import { SortableTh } from "@sluicio/frontend";
 
 const noop = () => {};
 const frame: React.CSSProperties = {

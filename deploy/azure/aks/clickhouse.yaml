@@ -75,7 +75,7 @@ spec:
             matchExpressions:
               - key: app.kubernetes.io/part-of
                 operator: In
-                values: ["integration-monitor-cell"]
+                values: ["sluicio-cell"]
       ports:
         - { protocol: TCP, port: 9000 } # native
         - { protocol: TCP, port: 8123 } # http
