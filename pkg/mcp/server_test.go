@@ -62,6 +62,7 @@ func TestToolCatalogueCoversTheReadSurface(t *testing.T) {
 		"sluicio_error_report", "sluicio_alert_instances", "sluicio_digest",
 		"sluicio_metric_catalog", "sluicio_metric_series",
 		"sluicio_search_traces", "sluicio_get_trace", "sluicio_search_logs",
+		"sluicio_usage_report",
 	} {
 		if !names[want] {
 			t.Errorf("catalogue missing %s", want)
@@ -117,6 +118,21 @@ func TestGetIntegrationAndAlertInstances(t *testing.T) {
 	r = callTool(t, "sluicio_alert_instances", map[string]any{"limit": float64(25)})
 	if r.URL.Path != "/api/v1/alert-instances" || r.URL.Query().Get("limit") != "25" {
 		t.Fatalf("got %s?%s", r.URL.Path, r.URL.RawQuery)
+	}
+}
+
+func TestUsageReportRequestShape(t *testing.T) {
+	r := callTool(t, "sluicio_usage_report", map[string]any{"window": "7d"})
+	if r.URL.Path != "/api/v1/reports/usage" {
+		t.Fatalf("path = %s", r.URL.Path)
+	}
+	if got := r.URL.Query().Get("range"); got != "7d" {
+		t.Errorf("range = %q, want 7d", got)
+	}
+	// Default window when unspecified mirrors the admin UI (24h).
+	r = callTool(t, "sluicio_usage_report", nil)
+	if got := r.URL.Query().Get("range"); got != "24h" {
+		t.Errorf("default range = %q, want 24h", got)
 	}
 }
 

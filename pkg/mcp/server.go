@@ -27,7 +27,7 @@ import (
 const (
 	defaultProtocol = "2024-11-05"
 	serverName      = "sluicio-mcp"
-	serverVersion   = "0.2.0"
+	serverVersion   = "0.3.0"
 )
 
 // Server holds the connection config for one MCP session. BaseURL is the
@@ -431,6 +431,10 @@ func buildTools(s *Server) []tool {
 				}
 				return s.get("/api/v1/alert-instances", url.Values{"limit": {fmt.Sprintf("%d", limit)}})
 			}},
+		{Name: "sluicio_usage_report", Description: "The admin usage report (Settings → Reports): per signal — metrics, logs, traces — how much of what's ingested is NOT watched by any alert rule, with storage estimates (bytes per day / per 30 days) and a per-service breakdown for logs and traces (services without alert coverage first, each with row count and estimated compressed size). Answers 'what are we storing that nobody alerts on?' and 'what would trimming save?'. To see WHICH metrics are unused, combine with sluicio_metric_catalog and filter rule_count == 0. Requires an admin token — others get a permission error.", Schema: objSchema(map[string]any{
+			"window": strProp("Time window the report is computed over, e.g. 24h, 7d, 30d. Default 24h."),
+		}),
+			Call: func(a map[string]any) (string, error) { return s.get("/api/v1/reports/usage", rangeArg(a, "24h")) }},
 		{Name: "sluicio_get_trace", Description: "Fetch one trace by id — all its spans across services, with timings and errors. Use a trace_id from sluicio_search_traces or a sample_trace_id from sluicio_errors.", Schema: objSchema(map[string]any{"trace_id": strProp("The trace id (hex string).")}, "trace_id"),
 			Call: func(a map[string]any) (string, error) {
 				id := argStr(a, "trace_id")

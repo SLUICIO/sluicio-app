@@ -35,10 +35,17 @@ system's members", "what's spiking in the metrics?".
 | `sluicio_get_system` | one system + member services (arg: `id`) |
 | `sluicio_system_types` | the system-types catalog |
 | `sluicio_errors` | the "in trouble" feed (arg: `window`) |
+| `sluicio_health` | what's unhealthy and WHY — entities grouped with their failing checks (arg: `window`) |
+| `sluicio_error_report` | errors-since-a-time triage, grouped with the causing checks (arg: `since`) |
+| `sluicio_alert_instances` | recent alert-rule firings with state + severity (arg: `limit`) |
 | `sluicio_digest` | since-last-visit digest |
+| `sluicio_get_integration` | one integration + per-service health (args: `id`, `window`) |
 | `sluicio_metric_catalog` | metric catalog search (args: `window`, `query`, `service`) |
+| `sluicio_metric_series` | one metric's time series per service (args: `metric`, `service`, `window`) |
 | `sluicio_search_traces` | search traces by `service` / `errors_only` / `query` / `window` (up to `limit`; `next_cursor` ⇒ more) |
 | `sluicio_get_trace` | one trace by id — all its spans (arg: `trace_id`) |
+| `sluicio_search_logs` | search logs by `query` / `min_severity` / `service` / `integration` / `attrs` / `window` |
+| `sluicio_usage_report` | the admin usage report: per-signal unused-by-alerts share, storage estimates, per-service coverage (arg: `window`; needs an admin token) |
 
 ## Transport A — Remote (HTTP), recommended for deployed cells
 

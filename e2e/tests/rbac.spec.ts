@@ -1127,6 +1127,49 @@ test.describe("RBAC — MCP surface", () => {
 
     await admin.delete(`/api/v1/settings/service-accounts/${saID}`);
   });
+
+  test("usage report tool: admin token gets the report, viewer token is refused", async ({ page, request }) => {
+    await logIn(page);
+    const admin = page.request;
+    const callUsage = async (token: string) => {
+      const resp = await request.post("/api/v1/mcp", {
+        headers: { Authorization: `Bearer ${token}` },
+        data: {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: { name: "sluicio_usage_report", arguments: { window: "7d" } },
+        },
+      });
+      expect(resp.ok()).toBeTruthy();
+      return (await resp.json()).result;
+    };
+
+    const adminTok = (await (await admin.post("/api/v1/settings/tokens", { data: { name: `e2e-mcp-usage-${Date.now()}` } })).json()).plaintext;
+    const ok = await callUsage(adminTok);
+    expect(ok.isError).toBeFalsy();
+    const report = JSON.parse(ok.content[0].text);
+    for (const signal of ["metrics", "logs", "traces"]) {
+      expect(report[signal], signal).toBeTruthy();
+      expect(typeof report[signal].unused).toBe("number");
+    }
+
+    // The endpoint is admin-gated — a viewer service-account token gets a
+    // tool error (the REST 403 surfaces through MCP), never a report.
+    const sa = await (
+      await admin.post("/api/v1/settings/service-accounts", {
+        data: { name: `e2e-sa-usage-${Date.now()}`, description: "mcp usage rbac", role: "viewer" },
+      })
+    ).json();
+    const saID = sa.id ?? sa.account?.id;
+    const viewerTok = (
+      await (await admin.post(`/api/v1/settings/service-accounts/${saID}/tokens`, { data: { name: "t1" } })).json()
+    ).plaintext;
+    const denied = await callUsage(viewerTok);
+    expect(denied.isError).toBeTruthy();
+
+    await admin.delete(`/api/v1/settings/service-accounts/${saID}`);
+  });
 });
 
 // ── Attach-before-telemetry: pin the current semantics ──────────────────
