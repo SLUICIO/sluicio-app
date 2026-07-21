@@ -140,6 +140,58 @@ var monitoringTemplates = []monitoringTemplate{
 		},
 	},
 	{
+		// Grounded in the OTel Collector kafkametrics receiver's documented
+		// metrics (all gauges; attributes group/topic/partition). Lag and
+		// backlog thresholds are starting points — tune to your traffic.
+		Kind: "kafka", Label: "Apache Kafka", System: true,
+		DetectPrefixes: []string{"kafka."},
+		Checks: []systemCheck{
+			{Name: "Kafka consumer lag", Description: "A consumer group is falling behind the head of the log — messages are piling up faster than they're consumed.", Metric: "kafka.consumer_group.lag_sum", Agg: alerting.AggMax, Op: alerting.OpGT, Threshold: 1000, SplitBy: "group", Severity: alerting.SeverityWarning, Unit: "msgs", Display: true},
+			{Name: "Kafka consumer group empty", Description: "A known consumer group has no members attached — nothing is consuming.", Metric: "kafka.consumer_group.members", Agg: alerting.AggMin, Op: alerting.OpLT, Threshold: 1, SplitBy: "group", Severity: alerting.SeverityWarning, Unit: "consumers"},
+			{Name: "Kafka partition without in-sync replicas", Description: "A partition has zero in-sync replicas — it is unavailable for reliable writes.", Metric: "kafka.partition.replicas_in_sync", Agg: alerting.AggMin, Op: alerting.OpLT, Threshold: 1, Severity: alerting.SeverityCritical, Unit: "replicas"},
+			{Name: "Kafka brokers visible", Description: "Broker count as seen by the metrics receiver — raise the threshold to your cluster size so a lost broker fires.", Metric: "kafka.brokers", Agg: alerting.AggMin, Op: alerting.OpLT, Threshold: 1, Severity: alerting.SeverityWarning, Unit: "brokers", Display: true},
+		},
+	},
+	{
+		// Grounded in the Confluent Cloud Metrics API export endpoint
+		// (api.telemetry.confluent.cloud/v2/metrics/cloud/export) scraped by
+		// the collector's prometheus receiver — names arrive underscored
+		// (confluent_kafka_server_*). cluster_load_percent is a 0–1 ratio.
+		Kind: "confluent-kafka", Label: "Confluent Kafka", System: true,
+		DetectPrefixes: []string{"confluent_kafka_", "confluent.kafka."},
+		Checks: []systemCheck{
+			{Name: "Confluent consumer lag", Description: "A consumer group is falling behind — lag in offsets between group members and the latest offset.", Metric: "confluent_kafka_server_consumer_lag_offsets", Agg: alerting.AggMax, Op: alerting.OpGT, Threshold: 1000, SplitBy: "consumer_group_id", Severity: alerting.SeverityWarning, Unit: "offsets", Display: true},
+			{Name: "Confluent cluster load high", Description: "Cluster load is above 80% — throttling and latency follow. (Dedicated clusters report this; ratio 0–1.)", Metric: "confluent_kafka_server_cluster_load_percent", Agg: alerting.AggMax, Op: alerting.OpGT, Threshold: 0.8, Severity: alerting.SeverityWarning, Display: true},
+			{Name: "Confluent hot partition (ingress)", Description: "A partition is receiving disproportionate produce traffic — a hot key or skewed partitioner.", Metric: "confluent_kafka_server_hot_partition_ingress", Agg: alerting.AggMax, Op: alerting.OpGT, Threshold: 0, Severity: alerting.SeverityWarning},
+		},
+	},
+	{
+		// Best-effort against prometheus-nats-exporter's gnatsd_varz_* names
+		// (the most common NATS metrics path; nats-surveyor uses nats_core_*
+		// instead — adjust the metric names if you run surveyor).
+		// slow_consumers is a monotonic total, so the check uses the delta.
+		Kind: "nats", Label: "NATS", System: true,
+		DetectPrefixes: []string{"gnatsd_", "nats_"},
+		Checks: []systemCheck{
+			{Name: "NATS slow consumers", Description: "The server disconnected slow consumers — subscribers can't keep up and messages to them were dropped.", Metric: "gnatsd_varz_slow_consumers", Agg: alerting.AggIncrease, Op: alerting.OpGT, Threshold: 0, Severity: alerting.SeverityWarning, Unit: "consumers", Display: true},
+			{Name: "NATS no client connections", Description: "No clients are connected to the server.", Metric: "gnatsd_varz_connections", Agg: alerting.AggMin, Op: alerting.OpLT, Threshold: 1, Severity: alerting.SeverityWarning, Unit: "connections", Display: true},
+			{Name: "NATS memory high", Description: "Server resident memory is high (> 1 GiB) — tune to your deployment.", Metric: "gnatsd_varz_mem", Agg: alerting.AggMax, Op: alerting.OpGT, Threshold: 1073741824, Severity: alerting.SeverityWarning, Unit: "bytes"},
+		},
+	},
+	{
+		// Best-effort — Debezium exposes these via JMX (OTel jmx receiver or
+		// prometheus jmx_exporter with Debezium's documented config); exported
+		// names vary by setup, so verify against what your pipeline emits.
+		// Connected is 0/1 per connector; MilliSecondsBehindSource is CDC lag.
+		Kind: "debezium", Label: "Debezium", System: true,
+		DetectPrefixes: []string{"debezium"},
+		Checks: []systemCheck{
+			{Name: "Debezium disconnected", Description: "A connector lost its database connection — change capture has stopped.", Metric: "debezium_metrics_Connected", Agg: alerting.AggMin, Op: alerting.OpLT, Threshold: 1, Severity: alerting.SeverityCritical},
+			{Name: "Debezium replication lag", Description: "Change capture is running more than 60s behind the source database.", Metric: "debezium_metrics_MilliSecondsBehindSource", Agg: alerting.AggMax, Op: alerting.OpGT, Threshold: 60000, Severity: alerting.SeverityWarning, Unit: "ms", Display: true},
+			{Name: "Debezium queue nearly full", Description: "The connector's internal event queue is nearly out of capacity — events aren't reaching Kafka fast enough.", Metric: "debezium_metrics_QueueRemainingCapacity", Agg: alerting.AggMin, Op: alerting.OpLT, Threshold: 100, Severity: alerting.SeverityWarning, Unit: "events"},
+		},
+	},
+	{
 		// Best-effort — nothing was emitting otelcol_* yet. Tune thresholds
 		// after applying. Gauges use max (peak); dropped/failed spans use the
 		// counter delta (increase).

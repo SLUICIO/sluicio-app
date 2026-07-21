@@ -9,7 +9,10 @@ export const SYSTEM_KINDS: { value: string; label: string }[] = [
   { value: "rabbitmq", label: "RabbitMQ" },
   { value: "activemq", label: "ActiveMQ" },
   { value: "artemis", label: "ActiveMQ Artemis" },
-  { value: "kafka", label: "Kafka" },
+  { value: "kafka", label: "Apache Kafka" },
+  { value: "confluent-kafka", label: "Confluent Kafka" },
+  { value: "nats", label: "NATS" },
+  { value: "debezium", label: "Debezium" },
   { value: "redis", label: "Redis" },
   { value: "sqlserver", label: "SQL Server" },
   { value: "postgresql", label: "PostgreSQL" },
@@ -25,9 +28,20 @@ export function systemKindLabel(kind: string | undefined): string {
 }
 
 // Kinds that ship a built-in monitoring template (the apply-template endpoint
-// creates its checks on the flagged service). RabbitMQ is grounded in real
-// metrics; ActiveMQ Artemis is best-effort against the standard exporter names.
-export const TEMPLATE_KINDS = new Set(["rabbitmq", "artemis"]);
+// creates its checks on the flagged service). Mirror of the backend catalog's
+// System:true entries (system_templates.go). RabbitMQ/KrakenD are grounded in
+// real metrics; the rest are grounded in the receivers'/exporters' documented
+// names — tune after applying.
+export const TEMPLATE_KINDS = new Set([
+  "rabbitmq",
+  "artemis",
+  "azure-servicebus",
+  "krakend",
+  "kafka",
+  "confluent-kafka",
+  "nats",
+  "debezium",
+]);
 
 export function hasSystemTemplate(kind: string | undefined): boolean {
   return !!kind && TEMPLATE_KINDS.has(kind);
