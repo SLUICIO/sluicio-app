@@ -277,6 +277,21 @@ export default function SystemTypesPage() {
                     {t.is_system && <span className="muted" style={{ fontSize: 11 }}>system</span>}
                     <span className="badge-brand">{t.checks.length} check{t.checks.length === 1 ? "" : "s"}</span>
                     <span style={{ marginLeft: "auto", display: "flex", gap: 8 }} onClick={(e) => e.stopPropagation()}>
+                      {/* Built-ins have a reference page at a key-derived URL
+                          (docs-first convention — the page exists before the
+                          link ships). Custom types have no docs page, so no
+                          link renders for them. */}
+                      {t.built_in && (
+                        <a
+                          className="btn btn--sm"
+                          href={`https://docs.sluicio.com/system-types/${encodeURIComponent(t.key)}/`}
+                          target="_blank"
+                          rel="noreferrer"
+                          title="Open this type's reference in the Sluicio docs"
+                        >
+                          Docs ↗
+                        </a>
+                      )}
                       {/* Export works for built-ins too — fork one, tweak it,
                           share the file (docs/system-types-sharing.md). */}
                       <a

@@ -85,6 +85,11 @@ test("System types page renders krakend's trace checks readably", async ({ page 
   // Export (an <a download>, no navigation) the checks stay visible.
   await row.getByRole("link", { name: "Export" }).click();
   await expect(page.getByText(/p95 latency ≥ 2000 ms/)).toBeVisible();
+  // Built-ins carry a key-derived docs link (docs-first convention).
+  await expect(row.getByRole("link", { name: /Docs/ })).toHaveAttribute(
+    "href",
+    "https://docs.sluicio.com/system-types/krakend/",
+  );
 });
 
 test("krakend appears in the system-types catalog", async () => {
