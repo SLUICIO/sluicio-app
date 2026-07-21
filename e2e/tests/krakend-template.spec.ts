@@ -71,16 +71,20 @@ test("krakend template applies three trace-signal checks", async () => {
 test("System types page renders krakend's trace checks readably", async ({ page }) => {
   await logIn(page);
   await page.goto("/system-types");
-  // The innermost div holding the label is the row header; its ▸ button
-  // (aria-label "Expand") toggles the check list.
+  // The WHOLE row header toggles the detail (2026-07-21) — click the
+  // label itself, not the ▸ caret.
   const row = page.locator("div").filter({ hasText: "KrakenD API Gateway" }).last();
-  await row.getByRole("button", { name: "Expand" }).click();
+  await row.getByText("KrakenD API Gateway", { exact: true }).click();
   // Every check renders a real summary — the trace signals once fell
   // through to the metric formatter as "metric · undefined undefined …".
   await expect(page.getByText(/≥1 failed traces in window \[http\.response\.status_code gte 500\]/)).toBeVisible();
   await expect(page.getByText(/p95 latency ≥ 2000 ms/)).toBeVisible();
   await expect(page.getByText(/fewer than 1 traces in window/)).toBeVisible();
   await expect(page.getByText(/undefined/)).toHaveCount(0);
+  // The action buttons must NOT toggle the row: after hovering/clicking
+  // Export (an <a download>, no navigation) the checks stay visible.
+  await row.getByRole("link", { name: "Export" }).click();
+  await expect(page.getByText(/p95 latency ≥ 2000 ms/)).toBeVisible();
 });
 
 test("krakend appears in the system-types catalog", async () => {

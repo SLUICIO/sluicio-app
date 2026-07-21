@@ -248,10 +248,20 @@ export default function SystemTypesPage() {
               const k = rowKey(t);
               return (
                 <div key={k} style={{ borderTop: i === 0 ? undefined : "1px solid var(--border)", padding: "10px 0" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                  {/* The whole header row toggles the detail (prefixes +
+                      starter checks) — the caret alone was too easy to miss.
+                      Action buttons stop propagation so they don't toggle. */}
+                  <div
+                    style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", cursor: "pointer" }}
+                    onClick={() => toggle(k)}
+                    title={expanded.has(k) ? "Hide detection prefixes and starter checks" : "Show detection prefixes and starter checks"}
+                  >
                     <button
                       type="button"
-                      onClick={() => toggle(k)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggle(k);
+                      }}
                       style={{ border: 0, background: "transparent", cursor: "pointer", color: "var(--muted)", width: 12 }}
                       aria-label={expanded.has(k) ? "Collapse" : "Expand"}
                     >
@@ -266,7 +276,7 @@ export default function SystemTypesPage() {
                     )}
                     {t.is_system && <span className="muted" style={{ fontSize: 11 }}>system</span>}
                     <span className="badge-brand">{t.checks.length} check{t.checks.length === 1 ? "" : "s"}</span>
-                    <span style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+                    <span style={{ marginLeft: "auto", display: "flex", gap: 8 }} onClick={(e) => e.stopPropagation()}>
                       {/* Export works for built-ins too — fork one, tweak it,
                           share the file (docs/system-types-sharing.md). */}
                       <a
