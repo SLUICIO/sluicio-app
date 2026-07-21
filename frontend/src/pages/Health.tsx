@@ -49,6 +49,7 @@ import { systemKindLabel } from "../lib/systemKinds";
 import SearchableSelect from "../components/SearchableSelect";
 import OnboardingGuide from "../components/OnboardingGuide";
 import { formatNumber } from "../lib/format";
+import { pickNeedsAttention } from "../lib/needsAttention";
 import { usePageTitle } from "../lib/usePageTitle";
 import { useTimeWindow } from "../lib/useTimeWindow";
 
@@ -261,23 +262,7 @@ export default function Health() {
     return m;
   }, [dashboards, integrations]);
 
-  const needsAttention = useMemo(() => {
-    const top = (integrations ?? [])
-      .slice()
-      .sort(
-        (a, b) =>
-          (b.error_trace_count ?? 0) - (a.error_trace_count ?? 0) ||
-          (b.unhealthy_count ?? 0) - (a.unhealthy_count ?? 0),
-      )[0];
-    // Only call it "needs attention" if there's actually something to
-    // pay attention to in the current window. Otherwise the empty-state
-    // ("All clear" / "No incidents in the current window") takes over.
-    if (!top) return undefined;
-    if ((top.error_trace_count ?? 0) === 0 && (top.unhealthy_count ?? 0) === 0) {
-      return undefined;
-    }
-    return top;
-  }, [integrations]);
+  const needsAttention = useMemo(() => pickNeedsAttention(integrations ?? []), [integrations]);
 
   // ── edit handlers ───────────────────────────────────────────────
 
