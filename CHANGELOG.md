@@ -3,8 +3,15 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.32 — 2026-07-21
+
+- feat(mcp): sluicio_usage_report tool — the admin usage report over MCP (ff9b8b5)
+- refactor: align the Go module path and residual naming with the Sluicio brand (e69d54e)
+- ci(release): auto-draft a GitHub Release on every version tag, seeded from the changelog (a63ab0c)
+
 ## v0.11.31 — 2026-07-21
 
+- release v0.11.31 — refresh internal changelog (cb66c2d)
 - fix(dashboard): 'needs attention' surfaces unhealthy integrations before noisy-but-passing ones (88fbe23)
 - fix(settings): Reports tab subtitle describes the usage report, not unbuilt email summaries (f1b5f12)
 
