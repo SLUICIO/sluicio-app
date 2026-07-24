@@ -43,6 +43,14 @@ type AlertingStore interface {
 	// finally arrives, so the historical record captures "delivered with
 	// delay" rather than staying open.
 	ResolveInstance(ctx context.Context, id uuid.UUID, summary string) error
+	// SuppressingWindowForIntegration returns the id of an active
+	// maintenance window covering rules on the given integration, or nil.
+	SuppressingWindowForIntegration(ctx context.Context, orgID, integrationID uuid.UUID) (*uuid.UUID, error)
+	// MarkInstanceSuppressed stamps the window that muted an instance's
+	// firing notification, so no page goes out and its eventual resolve
+	// stays silent too. The engine's renotify loop sends the overdue
+	// first page if the instance is still firing when the window ends.
+	MarkInstanceSuppressed(ctx context.Context, instanceID, windowID uuid.UUID) error
 }
 
 // CatalogStore is the slice of the catalog.Store we need.
@@ -138,8 +146,22 @@ func (e *Evaluator) evaluateRule(ctx context.Context, rule Rule) error {
 		"rule_id", rule.ID,
 		"completed", counts.Completed, "pending", counts.Pending, "delayed", counts.Delayed)
 
+	// Resolve any covering maintenance window once per rule per tick.
+	// Lookup errors fail toward delivery (page rather than silently
+	// vanish), mirroring the engine's suppressedBy.
+	var suppress *uuid.UUID
+	if len(delayed) > 0 {
+		w, err := e.alerts.SuppressingWindowForIntegration(ctx, e.orgID, rule.IntegrationID)
+		if err != nil {
+			e.logger.Warn("tracecompletion: maintenance windows load failed; not suppressing",
+				"rule_id", rule.ID, "err", err)
+		} else {
+			suppress = w
+		}
+	}
+
 	for _, c := range delayed {
-		if err := e.fireDelayed(ctx, rule, c); err != nil {
+		if err := e.fireDelayed(ctx, rule, c, suppress); err != nil {
 			e.logger.Warn("tracecompletion: fire failed",
 				"rule_id", rule.ID, "trace_id", c.TraceID, "stage", c.DelayedStage, "err", err)
 		}
@@ -278,8 +300,10 @@ func (e *Evaluator) resolveStageFiring(ctx context.Context, rule Rule, fingerpri
 // fireDelayed handles one trace delayed at a specific stage. If we've
 // already opened an instance for this (trace, stage) we just touch it
 // (sticky). If it's new, we open the instance + enqueue notification
-// jobs for every configured channel.
-func (e *Evaluator) fireDelayed(ctx context.Context, rule Rule, c TraceClassification) error {
+// jobs for every configured channel — unless an active maintenance
+// window covers the integration (suppress non-nil), in which case the
+// instance is stamped suppressed at birth and no jobs are enqueued.
+func (e *Evaluator) fireDelayed(ctx context.Context, rule Rule, c TraceClassification, suppress *uuid.UUID) error {
 	// One instance per (trace, stage): a trace that breaches stage 1,
 	// advances, then stalls at stage 2 produces two distinct firings.
 	fp := stageFingerprint(c.TraceID, c.DelayedStage)
@@ -314,6 +338,19 @@ func (e *Evaluator) fireDelayed(ctx context.Context, rule Rule, c TraceClassific
 	inst, err := e.alerts.OpenInstance(ctx, rule.ID, fp, labels, summary)
 	if err != nil {
 		return fmt.Errorf("open instance: %w", err)
+	}
+	if suppress != nil {
+		// Muted at birth by a maintenance window: record why and send
+		// nothing. The firing still shows on the integration's delayed
+		// surfaces; if it's still open when the window ends, the engine's
+		// renotify loop sends the overdue first page.
+		if err := e.alerts.MarkInstanceSuppressed(ctx, inst.ID, *suppress); err != nil {
+			return fmt.Errorf("mark suppressed: %w", err)
+		}
+		e.logger.Info("tracecompletion: trace delayed (suppressed by maintenance)",
+			"rule_id", rule.ID, "trace_id", c.TraceID, "stage", c.DelayedStage,
+			"window", *suppress)
+		return nil
 	}
 	if len(rule.ChannelIDs) > 0 {
 		if err := e.alerts.EnqueueJobs(ctx, inst.ID, rule.ChannelIDs); err != nil {

@@ -364,6 +364,26 @@ func (s *Store) ActiveMaintenanceWindows(ctx context.Context, orgID uuid.UUID) (
 	return out, rows.Err()
 }
 
+// SuppressingWindowForIntegration returns the id of an active maintenance
+// window covering rules scoped to the given integration, or nil. Used by
+// the trace-completion evaluator, which fires outside the engine and so
+// can't go through Engine.suppressedBy; matching is delegated to Covers so
+// the two paths can't drift. Uncached — callers ask once per rule per tick.
+func (s *Store) SuppressingWindowForIntegration(ctx context.Context, orgID, integrationID uuid.UUID) (*uuid.UUID, error) {
+	wins, err := s.ActiveMaintenanceWindows(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	rule := AlertRule{IntegrationID: &integrationID}
+	for _, w := range wins {
+		if w.Covers(rule) {
+			id := w.ID
+			return &id, nil
+		}
+	}
+	return nil, nil
+}
+
 // MarkInstanceSuppressed stamps the window that muted an instance's
 // firing notification. First writer wins — the stamp is birth metadata.
 func (s *Store) MarkInstanceSuppressed(ctx context.Context, instanceID, windowID uuid.UUID) error {

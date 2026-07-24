@@ -790,3 +790,11 @@ func (a traceCompletionAlertAdapter) ActiveInstanceByFingerprint(ctx context.Con
 func (a traceCompletionAlertAdapter) ResolveInstance(ctx context.Context, id uuid.UUID, summary string) error {
 	return a.s.ResolveInstance(ctx, id, summary)
 }
+
+func (a traceCompletionAlertAdapter) SuppressingWindowForIntegration(ctx context.Context, orgID, integrationID uuid.UUID) (*uuid.UUID, error) {
+	return a.s.SuppressingWindowForIntegration(ctx, orgID, integrationID)
+}
+
+func (a traceCompletionAlertAdapter) MarkInstanceSuppressed(ctx context.Context, instanceID, windowID uuid.UUID) error {
+	return a.s.MarkInstanceSuppressed(ctx, instanceID, windowID)
+}
