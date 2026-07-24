@@ -37,6 +37,11 @@ type Announcement struct {
 	StartsAt    time.Time  `json:"starts_at"`
 	EndsAt      *time.Time `json:"ends_at,omitempty"`
 	Dismissible bool       `json:"dismissible"`
+	// ShowOnLogin surfaces the announcement on the unauthenticated login
+	// page. Only meaningful for cell-wide announcements (OrgID nil) — the
+	// API refuses it on org-scoped ones, since pre-auth there is no org
+	// context and org announcements may carry internal detail.
+	ShowOnLogin bool       `json:"show_on_login"`
 	CreatedBy   *uuid.UUID `json:"created_by,omitempty"`
 	CreatedAt   time.Time  `json:"created_at"`
 }
@@ -87,12 +92,12 @@ func NewStore(pool *pgxpool.Pool) *Store {
 
 // ── announcements ────────────────────────────────────────────────────
 
-const annCols = `id, org_id, message, severity, starts_at, ends_at, dismissible, created_by, created_at`
+const annCols = `id, org_id, message, severity, starts_at, ends_at, dismissible, show_on_login, created_by, created_at`
 
 func scanAnnouncement(row pgx.Row) (Announcement, error) {
 	var a Announcement
 	err := row.Scan(&a.ID, &a.OrgID, &a.Message, &a.Severity, &a.StartsAt,
-		&a.EndsAt, &a.Dismissible, &a.CreatedBy, &a.CreatedAt)
+		&a.EndsAt, &a.Dismissible, &a.ShowOnLogin, &a.CreatedBy, &a.CreatedAt)
 	return a, err
 }
 
@@ -114,6 +119,35 @@ func (s *Store) ActiveForUser(ctx context.Context, orgID, userID uuid.UUID) ([]A
 	rows, err := s.pool.Query(ctx, q, orgID, userID)
 	if err != nil {
 		return nil, fmt.Errorf("maintenance: active announcements: %w", err)
+	}
+	defer rows.Close()
+	out := []Announcement{}
+	for rows.Next() {
+		a, err := scanAnnouncement(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+// ActiveForLogin returns the announcements the unauthenticated login
+// page may show: cell-wide ones explicitly flagged show_on_login, in
+// their active period. No per-user dismissal filtering — there is no
+// user yet; the frontend keeps a per-browser dismissal instead.
+func (s *Store) ActiveForLogin(ctx context.Context) ([]Announcement, error) {
+	q := `
+		SELECT ` + annCols + `
+		FROM announcements a
+		WHERE a.org_id IS NULL
+		  AND a.show_on_login
+		  AND a.starts_at <= now()
+		  AND (a.ends_at IS NULL OR a.ends_at > now())
+		ORDER BY a.severity = 'critical' DESC, a.created_at DESC`
+	rows, err := s.pool.Query(ctx, q)
+	if err != nil {
+		return nil, fmt.Errorf("maintenance: login announcements: %w", err)
 	}
 	defer rows.Close()
 	out := []Announcement{}
@@ -179,10 +213,10 @@ func (s *Store) List(ctx context.Context, orgID *uuid.UUID) ([]Announcement, err
 
 func (s *Store) CreateAnnouncement(ctx context.Context, a Announcement) (Announcement, error) {
 	row := s.pool.QueryRow(ctx, `
-		INSERT INTO announcements (org_id, message, severity, starts_at, ends_at, dismissible, created_by)
-		VALUES ($1, $2, $3, COALESCE($4, now()), $5, $6, $7)
+		INSERT INTO announcements (org_id, message, severity, starts_at, ends_at, dismissible, show_on_login, created_by)
+		VALUES ($1, $2, $3, COALESCE($4, now()), $5, $6, $7, $8)
 		RETURNING `+annCols,
-		a.OrgID, a.Message, a.Severity, nilIfZero(a.StartsAt), a.EndsAt, a.Dismissible, a.CreatedBy)
+		a.OrgID, a.Message, a.Severity, nilIfZero(a.StartsAt), a.EndsAt, a.Dismissible, a.ShowOnLogin, a.CreatedBy)
 	created, err := scanAnnouncement(row)
 	if err != nil {
 		return Announcement{}, fmt.Errorf("maintenance: create announcement: %w", err)

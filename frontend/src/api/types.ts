@@ -1663,6 +1663,8 @@ export interface Announcement {
   starts_at: string;
   ends_at?: string;
   dismissible: boolean;
+  // Cell-wide only: also shown on the unauthenticated sign-in page.
+  show_on_login?: boolean;
   created_at: string;
 }
 
@@ -1671,6 +1673,8 @@ export interface AnnouncementInput {
   severity?: "info" | "warning" | "critical";
   ends_at?: string;
   dismissible?: boolean;
+  // Only honoured on cell-wide (operator) announcements.
+  show_on_login?: boolean;
 }
 
 // MaintenanceWindowScope says which alert rules a window silences:

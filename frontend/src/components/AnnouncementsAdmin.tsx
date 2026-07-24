@@ -24,6 +24,9 @@ export default function AnnouncementsAdmin({ scope }: Props) {
   const [severity, setSeverity] = useState<"info" | "warning" | "critical">("info");
   const [endsIn, setEndsIn] = useState(""); // hours, "" = until deleted
   const [dismissible, setDismissible] = useState(true);
+  // Cell-wide only: surface on the unauthenticated login page. The org
+  // form never offers it (the server refuses it there too).
+  const [showOnLogin, setShowOnLogin] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const listFn = scope === "org" ? api.listOrgAnnouncements : api.listCellAnnouncements;
@@ -41,6 +44,7 @@ export default function AnnouncementsAdmin({ scope }: Props) {
     setBusy(true);
     setError(null);
     const body: AnnouncementInput = { message: message.trim(), severity, dismissible };
+    if (scope === "cell" && showOnLogin) body.show_on_login = true;
     if (endsIn) body.ends_at = new Date(Date.now() + Number(endsIn) * 3600_000).toISOString();
     try {
       await createFn(body);
@@ -48,6 +52,7 @@ export default function AnnouncementsAdmin({ scope }: Props) {
       setEndsIn("");
       setSeverity("info");
       setDismissible(true);
+      setShowOnLogin(false);
       announcementsChanged();
       load();
     } catch (err) {
@@ -114,6 +119,13 @@ export default function AnnouncementsAdmin({ scope }: Props) {
             <input type="checkbox" checked={dismissible} onChange={(e) => setDismissible(e.target.checked)} />
             Users can dismiss it
           </label>
+          {scope === "cell" && (
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5, paddingBottom: 8 }}
+              title="Also show this banner on the sign-in page, before login — for maintenance notices users must see even when they can't get in.">
+              <input type="checkbox" checked={showOnLogin} onChange={(e) => setShowOnLogin(e.target.checked)} />
+              Show on login page
+            </label>
+          )}
           <button type="submit" className="btn btn--primary" disabled={busy || !message.trim()} style={{ marginBottom: 2 }}>
             {busy ? "Publishing…" : "Publish"}
           </button>
@@ -129,7 +141,12 @@ export default function AnnouncementsAdmin({ scope }: Props) {
             {items.map((a) => (
               <tr key={a.id}>
                 <td style={{ fontSize: 13, maxWidth: 380 }}>{a.message}</td>
-                <td><span className="mono" style={{ fontSize: 11 }}>{a.severity}</span></td>
+                <td>
+                  <span className="mono" style={{ fontSize: 11 }}>{a.severity}</span>
+                  {a.show_on_login && (
+                    <span className="badge-brand" style={{ marginLeft: 6 }} title="Also visible on the sign-in page, before login">login page</span>
+                  )}
+                </td>
                 <td className="muted" style={{ fontSize: 12.5 }}>
                   {active(a)
                     ? a.ends_at ? `active — expires ${formatRelative(a.ends_at)}` : "active"

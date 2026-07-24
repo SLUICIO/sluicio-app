@@ -12,6 +12,34 @@ import type { SsoProviderButton } from "../api/types";
 import { LogoMark } from "../components/brand/Logo";
 import { usePageTitle } from "../lib/usePageTitle";
 
+// A cell-wide announcement flagged for the sign-in page (public
+// endpoint, minimal payload). Dismissal is per-browser via localStorage
+// — there's no user identity before login.
+interface LoginAnnouncement {
+  id: string;
+  message: string;
+  severity: "info" | "warning" | "critical";
+  dismissible: boolean;
+}
+
+const LOGIN_DISMISSED_KEY = "sluicio.login.dismissedAnnouncements";
+
+function readDismissed(): string[] {
+  try {
+    const raw = window.localStorage.getItem(LOGIN_DISMISSED_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+
+const loginSeverityClass: Record<LoginAnnouncement["severity"], string> = {
+  info: "alert alert--info",
+  warning: "alert alert--warn",
+  critical: "alert alert--error",
+};
+
 interface Props {
   // Called after the cell-api accepts the credentials. UserProvider
   // wires this to its own refetch so /me runs again and the SPA
@@ -53,11 +81,22 @@ export default function Login({ onSuccess }: Props) {
   const [mfaCode, setMfaCode] = useState("");
   // SSO providers (enabled OIDC providers, EE). Empty when none/unlicensed.
   const [ssoProviders, setSsoProviders] = useState<SsoProviderButton[]>([]);
+  // Cell-wide announcements the operator flagged for the login page.
+  const [announcements, setAnnouncements] = useState<LoginAnnouncement[]>([]);
 
   // On mount, load any SSO buttons and surface an sso_error bounced back from
   // a failed OIDC callback (?sso_error=…).
   useEffect(() => {
     api.listSsoProviders().then((r) => setSsoProviders(r.providers ?? [])).catch(() => {});
+    // Plain fetch — this is the one page that runs pre-auth, and the
+    // endpoint is public. Failures just mean no banner.
+    fetch("/api/v1/announcements/login", { credentials: "omit" })
+      .then((r) => (r.ok ? r.json() : { announcements: [] }))
+      .then((d) => {
+        const dismissed = new Set(readDismissed());
+        setAnnouncements((d.announcements ?? []).filter((a: LoginAnnouncement) => !dismissed.has(a.id)));
+      })
+      .catch(() => {});
     const params = new URLSearchParams(window.location.search);
     const ssoErr = params.get("sso_error");
     if (ssoErr) {
@@ -180,6 +219,15 @@ export default function Login({ onSuccess }: Props) {
     }
   };
 
+  const dismissAnnouncement = (id: string) => {
+    setAnnouncements((cur) => cur.filter((a) => a.id !== id));
+    try {
+      window.localStorage.setItem(LOGIN_DISMISSED_KEY, JSON.stringify([...readDismissed(), id]));
+    } catch {
+      /* private mode — the banner just returns next visit */
+    }
+  };
+
   return (
     <div
       style={{
@@ -191,6 +239,29 @@ export default function Login({ onSuccess }: Props) {
         padding: "24px 16px",
       }}
     >
+      <div style={{ width: "100%", maxWidth: 380, display: "flex", flexDirection: "column", gap: 12 }}>
+      {announcements.map((a) => (
+        <div
+          key={a.id}
+          className={loginSeverityClass[a.severity] ?? "alert alert--info"}
+          role="status"
+          style={{ margin: 0, display: "flex", alignItems: "center", gap: 12 }}
+        >
+          <span style={{ fontSize: 13.5, lineHeight: 1.5 }}>{a.message}</span>
+          {a.dismissible && (
+            <button
+              type="button"
+              aria-label="Dismiss announcement"
+              title="Dismiss"
+              onClick={() => dismissAnnouncement(a.id)}
+              className="btn btn--link"
+              style={{ marginLeft: "auto", fontSize: 15, lineHeight: 1, padding: "0 4px" }}
+            >
+              ×
+            </button>
+          )}
+        </div>
+      ))}
       <div
         className="card"
         style={{
@@ -371,6 +442,7 @@ export default function Login({ onSuccess }: Props) {
             Once you’re in, change the password from the user menu.
           </p>
         )}
+      </div>
       </div>
     </div>
   );

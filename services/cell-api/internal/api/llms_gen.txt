@@ -50,6 +50,7 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 
 ## announcements
 - GET /api/v1/announcements — List announcements
+- GET /api/v1/announcements/login — List announcements
 - POST /api/v1/announcements/{id}/dismiss — Create announcement
 
 ## audit-log

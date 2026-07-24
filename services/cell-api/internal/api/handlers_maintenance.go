@@ -47,6 +47,35 @@ func (h *Handlers) listMyAnnouncements(w http.ResponseWriter, r *http.Request) {
 	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"announcements": list})
 }
 
+// loginAnnouncements: GET /api/v1/announcements/login  (public, NO auth)
+// The login page's banner source: cell-wide announcements explicitly
+// flagged show_on_login, active now. The payload is deliberately
+// minimal — id (for per-browser dismissal), message, severity,
+// dismissible — nothing about orgs, users, or authorship leaks pre-auth.
+func (h *Handlers) loginAnnouncements(w http.ResponseWriter, r *http.Request) {
+	if h.Maintenance == nil {
+		httpserver.WriteJSON(w, http.StatusOK, map[string]any{"announcements": []any{}})
+		return
+	}
+	list, err := h.Maintenance.ActiveForLogin(r.Context())
+	if err != nil {
+		h.Logger.Error("login announcements failed", "err", err)
+		httpserver.WriteError(w, http.StatusInternalServerError, "could not load announcements")
+		return
+	}
+	type publicAnnouncement struct {
+		ID          uuid.UUID `json:"id"`
+		Message     string    `json:"message"`
+		Severity    string    `json:"severity"`
+		Dismissible bool      `json:"dismissible"`
+	}
+	out := make([]publicAnnouncement, 0, len(list))
+	for _, a := range list {
+		out = append(out, publicAnnouncement{ID: a.ID, Message: a.Message, Severity: a.Severity, Dismissible: a.Dismissible})
+	}
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"announcements": out})
+}
+
 // dismissAnnouncement: POST /api/v1/announcements/{id}/dismiss
 func (h *Handlers) dismissAnnouncement(w http.ResponseWriter, r *http.Request) {
 	p := middleware.Principal(r)
@@ -79,6 +108,9 @@ type announcementBody struct {
 	Severity    string     `json:"severity"`
 	EndsAt      *time.Time `json:"ends_at"`
 	Dismissible *bool      `json:"dismissible"`
+	// ShowOnLogin is honoured only by the operator (cell-wide) create —
+	// the org create rejects it, because the login page is pre-auth.
+	ShowOnLogin bool `json:"show_on_login"`
 }
 
 func (b announcementBody) validate() (maintenance.Announcement, error) {
@@ -102,6 +134,7 @@ func (b announcementBody) validate() (maintenance.Announcement, error) {
 	}
 	return maintenance.Announcement{
 		Message: msg, Severity: sev, EndsAt: b.EndsAt, Dismissible: dismissible,
+		ShowOnLogin: b.ShowOnLogin,
 	}, nil
 }
 
@@ -127,6 +160,12 @@ func (h *Handlers) createOrgAnnouncement(w http.ResponseWriter, r *http.Request)
 	a, err := body.validate()
 	if err != nil {
 		httpserver.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if a.ShowOnLogin {
+		// The login page is unauthenticated — only cell-wide (operator)
+		// announcements may appear there.
+		httpserver.WriteError(w, http.StatusBadRequest, "show_on_login is only available on cell-wide announcements")
 		return
 	}
 	orgID := middleware.OrgID(r)

@@ -466,6 +466,9 @@ func main() {
 		"/api/v1/auth/login",
 		"/api/v1/auth/logout",
 		"/api/v1/auth/install-state",
+		// Login-page banners: cell-wide announcements explicitly flagged
+		// show_on_login; the handler returns a minimal public payload.
+		"/api/v1/announcements/login",
 		// First-run setup is necessarily pre-auth; the handler self-seals
 		// after the first-ever login (409 from then on).
 		"/api/v1/auth/bootstrap-admin",

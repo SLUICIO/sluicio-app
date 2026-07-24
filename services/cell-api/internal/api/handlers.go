@@ -1247,6 +1247,8 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 		// are operator-only. Windows: editors for scoped, admin for
 		// all_org (enforced in the handler).
 		mux.HandleFunc("GET /api/v1/announcements", h.listMyAnnouncements)
+		// Public (skip-listed in main's auth wrap): the login page's banner.
+		mux.HandleFunc("GET /api/v1/announcements/login", h.loginAnnouncements)
 		mux.HandleFunc("POST /api/v1/announcements/{id}/dismiss", h.dismissAnnouncement)
 		mux.HandleFunc("GET /api/v1/settings/announcements", admin(h.listOrgAnnouncements))
 		mux.HandleFunc("POST /api/v1/settings/announcements", admin(h.blockDemo(h.createOrgAnnouncement)))

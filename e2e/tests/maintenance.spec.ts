@@ -55,6 +55,61 @@ test.describe("Announcements", () => {
     }
   });
 
+  test("login page shows only cell-wide announcements flagged for it; browser dismissal sticks", async ({ browser }) => {
+    const admin = await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD);
+    const loginMsg = `e2e login banner ${Date.now()}`;
+    const plainMsg = `e2e plain cell banner ${Date.now()}`;
+    const onLogin = await (
+      await admin.post("/api/v1/operator/announcements", {
+        data: { message: loginMsg, severity: "warning", show_on_login: true },
+      })
+    ).json();
+    const plain = await (
+      await admin.post("/api/v1/operator/announcements", {
+        data: { message: plainMsg, severity: "info" },
+      })
+    ).json();
+    try {
+      // Org announcements must refuse the flag — the login page is pre-auth.
+      const refused = await admin.post("/api/v1/settings/announcements", {
+        data: { message: "should not exist", show_on_login: true },
+      });
+      expect(refused.status()).toBe(400);
+
+      // The public endpoint returns ONLY the flagged one, minimal payload.
+      const anon = await pwRequest.newContext({ baseURL: BASE_URL });
+      const pub = await (await anon.get("/api/v1/announcements/login")).json();
+      const mine = (pub.announcements ?? []).filter(
+        (a: { id: string }) => a.id === onLogin.id || a.id === plain.id,
+      );
+      expect(mine.map((a: { id: string }) => a.id)).toEqual([onLogin.id]);
+      expect(mine[0].created_by).toBeUndefined();
+      expect(mine[0].org_id).toBeUndefined();
+      await anon.dispose();
+
+      // A logged-out browser sees the banner on the sign-in page.
+      const ctx = await browser.newContext();
+      const anonPage = await ctx.newPage();
+      await anonPage.goto("/");
+      await expect(anonPage.getByText(loginMsg)).toBeVisible();
+      await expect(anonPage.getByText(plainMsg)).toHaveCount(0);
+      // Per-browser dismissal (localStorage) survives a reload.
+      await anonPage
+        .locator(".alert", { hasText: loginMsg })
+        .getByRole("button", { name: "Dismiss announcement" })
+        .click();
+      await expect(anonPage.getByText(loginMsg)).toHaveCount(0);
+      await anonPage.reload();
+      await expect(anonPage.getByText(/Sign in to Sluicio|Welcome to Sluicio/)).toBeVisible();
+      await expect(anonPage.getByText(loginMsg)).toHaveCount(0);
+      await ctx.close();
+    } finally {
+      await admin.delete(`/api/v1/operator/announcements/${onLogin.id}`);
+      await admin.delete(`/api/v1/operator/announcements/${plain.id}`);
+      await admin.dispose();
+    }
+  });
+
   test("cell-wide announcements live on Settings → System, not the Operator page", async ({ page }) => {
     await logIn(page); // suite admin is a cell operator
     await page.goto("/settings?tab=system");
