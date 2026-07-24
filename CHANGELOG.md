@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.37 — 2026-07-24
+
+- refactor(announcements): one surface — cell-wide on Settings → System; org section removed (eed2623)
+
 ## v0.11.36 — 2026-07-24
 
+- release v0.11.36 — refresh internal changelog (8640e59)
 - fix(deps): bump golang.org/x/text to v0.39.0 (GO-2026-5970) (a7a681b)
 
 ## v0.11.35 — 2026-07-24
