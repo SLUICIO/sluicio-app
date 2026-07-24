@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.39 — 2026-07-24
+
+- fix(alerting): maintenance windows also suppress trace-completion firings (04c722c)
+
 ## v0.11.38 — 2026-07-24
 
+- release v0.11.38 — refresh internal changelog (79c2c84)
 - feat(system-types): WSO2 API Manager built-in type (d0ac7dd)
 - feat(alerting): notification message templates — Slack + email, org→team override ladder (#5) (5625cb1)
 
