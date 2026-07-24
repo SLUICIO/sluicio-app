@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.36 — 2026-07-24
+
+- fix(deps): bump golang.org/x/text to v0.39.0 (GO-2026-5970) (a7a681b)
+
 ## v0.11.35 — 2026-07-24
 
+- release v0.11.35 — refresh internal changelog (72ebedc)
 - feat(announcements): opt-in login-page banners for cell-wide announcements (1309a1f)
 
 ## v0.11.34 — 2026-07-21
