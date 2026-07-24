@@ -217,7 +217,7 @@ export default function Settings() {
               {/* Cell-wide announcements sit with the other cell-wide
                   settings (the whole tab is operator-gated). Org-scoped
                   announcements live on the Organization tab. */}
-              <AnnouncementsAdmin scope="cell" />
+              <AnnouncementsAdmin />
             </>
           )}
           {tab === "sso" && <SsoTab />}
@@ -821,7 +821,6 @@ function OrganizationTab() {
         )}
       </form>
 
-      {isAdmin && <AnnouncementsAdmin scope="org" />}
 
       {isAdmin && <ConfigTransfer />}
 

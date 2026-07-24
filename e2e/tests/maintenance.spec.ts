@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // Announcements + maintenance windows (docs/maintenance-and-announcements-design.md):
-//   - an org announcement shows as a banner for users, dismissal is
+//   - a cell-wide announcement shows as a banner for users, dismissal is
 //     per-user and server-side (sticks across reloads)
-//   - admins publish/remove announcements from Settings → Organization
+//   - operators publish/remove announcements from Settings → System (the
+//     org-scoped section was removed 2026-07-24)
 //   - maintenance windows are scheduled from Alerts → Maintenance; an
 //     org-wide window announces itself and shows the active strip
 //   - API guardrails: bounded windows, editor vs admin scopes
@@ -25,8 +26,10 @@ test.describe("Announcements", () => {
   test("banner shows, dismissal sticks across reloads", async ({ page }) => {
     const admin = await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD);
     const msg = `e2e announcement ${Date.now()}`;
+    // Cell-wide is the single announcement surface (org-scoped management
+    // was removed 2026-07-24) — users still see it as an in-app banner.
     const created = await (
-      await admin.post("/api/v1/settings/announcements", {
+      await admin.post("/api/v1/operator/announcements", {
         data: { message: msg, severity: "warning" },
       })
     ).json();
@@ -51,7 +54,7 @@ test.describe("Announcements", () => {
       await expect(page.getByText("Dashboard").first()).toBeVisible();
       await expect(page.getByText(msg)).toHaveCount(0);
     } finally {
-      await admin.delete(`/api/v1/settings/announcements/${created.id}`);
+      await admin.delete(`/api/v1/operator/announcements/${created.id}`);
     }
   });
 
@@ -70,11 +73,12 @@ test.describe("Announcements", () => {
       })
     ).json();
     try {
-      // Org announcements must refuse the flag — the login page is pre-auth.
+      // Org-scoped announcement management is gone entirely — the old
+      // endpoint answers 404 (cell-wide is the single surface).
       const refused = await admin.post("/api/v1/settings/announcements", {
         data: { message: "should not exist", show_on_login: true },
       });
-      expect(refused.status()).toBe(400);
+      expect([404, 405]).toContain(refused.status());
 
       // The public endpoint returns ONLY the flagged one, minimal payload.
       const anon = await pwRequest.newContext({ baseURL: BASE_URL });
@@ -118,9 +122,9 @@ test.describe("Announcements", () => {
     await expect(page.getByRole("heading", { name: /announcements/i })).toHaveCount(0);
   });
 
-  test("admin publishes and removes from Settings → Organization", async ({ page }) => {
+  test("operator publishes and removes from Settings → System", async ({ page }) => {
     await logIn(page);
-    await page.goto("/settings?tab=organization");
+    await page.goto("/settings?tab=system");
     const msg = `e2e settings announcement ${Date.now()}`;
     await page.getByPlaceholder(/Planned maintenance tonight/).fill(msg);
     await page.getByRole("button", { name: "Publish" }).click();

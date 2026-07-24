@@ -745,9 +745,6 @@ export const api = {
   // the cell-wide rows.
   listMyAnnouncements: () => get<{ announcements: Announcement[] }>(`/announcements`),
   dismissAnnouncement: (id: string) => post<void>(`/announcements/${encodeURIComponent(id)}/dismiss`, {}),
-  listOrgAnnouncements: () => get<{ announcements: Announcement[] }>(`/settings/announcements`),
-  createOrgAnnouncement: (body: AnnouncementInput) => post<Announcement>(`/settings/announcements`, body),
-  deleteOrgAnnouncement: (id: string) => del(`/settings/announcements/${encodeURIComponent(id)}`),
   listCellAnnouncements: () => get<{ announcements: Announcement[] }>(`/operator/announcements`),
   createCellAnnouncement: (body: AnnouncementInput) => post<Announcement>(`/operator/announcements`, body),
   deleteCellAnnouncement: (id: string) => del(`/operator/announcements/${encodeURIComponent(id)}`),

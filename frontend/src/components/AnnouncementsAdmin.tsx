@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: FSL-1.1-Apache-2.0
 //
-// Announcement management — shared by Settings → Organization (org
-// announcements, admin) and the Operator page (cell-wide announcements).
-// Styled as a flat section to match its System-tab siblings: top-border
-// divider, h3 title, muted intro.
+// Announcement management — Settings → System, operator-only. One cell
+// serves one organization, so there is a single announcement surface:
+// cell-wide (the org-scoped section was removed 2026-07-24; maintenance
+// windows still auto-announce internally via the store). Styled as a
+// flat section to match its System-tab siblings.
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { api } from "../api/client";
@@ -11,27 +12,21 @@ import type { Announcement, AnnouncementInput } from "../api/types";
 import { formatRelative } from "../lib/format";
 import { announcementsChanged } from "./AnnouncementsBanner";
 
-interface Props {
-  // "org" manages the org's announcements; "cell" the operator's
-  // cell-wide ones (shown to every org on this install).
-  scope: "org" | "cell";
-}
-
-export default function AnnouncementsAdmin({ scope }: Props) {
+export default function AnnouncementsAdmin() {
   const [items, setItems] = useState<Announcement[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [severity, setSeverity] = useState<"info" | "warning" | "critical">("info");
   const [endsIn, setEndsIn] = useState(""); // hours, "" = until deleted
   const [dismissible, setDismissible] = useState(true);
-  // Cell-wide only: surface on the unauthenticated login page. The org
-  // form never offers it (the server refuses it there too).
+  // Surface on the unauthenticated login page (maintenance notices users
+  // must see even when they can't get in).
   const [showOnLogin, setShowOnLogin] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  const listFn = scope === "org" ? api.listOrgAnnouncements : api.listCellAnnouncements;
-  const createFn = scope === "org" ? api.createOrgAnnouncement : api.createCellAnnouncement;
-  const deleteFn = scope === "org" ? api.deleteOrgAnnouncement : api.deleteCellAnnouncement;
+  const listFn = api.listCellAnnouncements;
+  const createFn = api.createCellAnnouncement;
+  const deleteFn = api.deleteCellAnnouncement;
 
   const load = useCallback(() => {
     listFn().then((r) => setItems(r.announcements ?? [])).catch((e) => setError(String((e as Error).message ?? e)));
@@ -44,7 +39,7 @@ export default function AnnouncementsAdmin({ scope }: Props) {
     setBusy(true);
     setError(null);
     const body: AnnouncementInput = { message: message.trim(), severity, dismissible };
-    if (scope === "cell" && showOnLogin) body.show_on_login = true;
+    if (showOnLogin) body.show_on_login = true;
     if (endsIn) body.ends_at = new Date(Date.now() + Number(endsIn) * 3600_000).toISOString();
     try {
       await createFn(body);
@@ -79,12 +74,11 @@ export default function AnnouncementsAdmin({ scope }: Props) {
   return (
     <section style={{ marginTop: 28, borderTop: "1px solid var(--border)", paddingTop: 20 }}>
       <h3 style={{ fontSize: 14, fontWeight: 600, margin: "0 0 4px" }}>
-        {scope === "org" ? "Announcements" : "Cell-wide announcements"}
+        Cell-wide announcements
       </h3>
       <p className="muted" style={{ fontSize: 13, lineHeight: 1.55, margin: "0 0 14px" }}>
-        {scope === "org"
-          ? "A persistent banner every member of this organization sees until it expires or they dismiss it — maintenance notices, known issues, heads-ups."
-          : "A persistent banner every user on this cell sees, across all organizations. Use sparingly — cell-wide is loud by design."}
+        A persistent banner every user on this cell sees until it expires or they dismiss it — maintenance
+        notices, known issues, heads-ups.
       </p>
 
       {error && <div className="alert alert--error" style={{ marginBottom: 12 }}>{error}</div>}
@@ -119,13 +113,11 @@ export default function AnnouncementsAdmin({ scope }: Props) {
             <input type="checkbox" checked={dismissible} onChange={(e) => setDismissible(e.target.checked)} />
             Users can dismiss it
           </label>
-          {scope === "cell" && (
-            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5, paddingBottom: 8 }}
-              title="Also show this banner on the sign-in page, before login — for maintenance notices users must see even when they can't get in.">
-              <input type="checkbox" checked={showOnLogin} onChange={(e) => setShowOnLogin(e.target.checked)} />
-              Show on login page
-            </label>
-          )}
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5, paddingBottom: 8 }}
+            title="Also show this banner on the sign-in page, before login — for maintenance notices users must see even when they can't get in.">
+            <input type="checkbox" checked={showOnLogin} onChange={(e) => setShowOnLogin(e.target.checked)} />
+            Show on login page
+          </label>
           <button type="submit" className="btn btn--primary" disabled={busy || !message.trim()} style={{ marginBottom: 2 }}>
             {busy ? "Publishing…" : "Publish"}
           </button>

@@ -377,9 +377,6 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 - GET /api/v1/settings/service-accounts/{id}/tokens — List settings
 - POST /api/v1/settings/service-accounts/{id}/tokens — Create setting
 - DELETE /api/v1/settings/service-accounts/{id}/tokens/{tid} — Delete setting
-- GET /api/v1/settings/announcements — List settings
-- POST /api/v1/settings/announcements — Create setting
-- DELETE /api/v1/settings/announcements/{id} — Delete setting
 - GET /api/v1/settings/config-export — List settings
 - POST /api/v1/settings/config-import — Create setting
 - GET /api/v1/settings/groups — List settings

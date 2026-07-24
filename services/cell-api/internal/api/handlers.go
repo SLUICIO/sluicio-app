@@ -1250,9 +1250,9 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 		// Public (skip-listed in main's auth wrap): the login page's banner.
 		mux.HandleFunc("GET /api/v1/announcements/login", h.loginAnnouncements)
 		mux.HandleFunc("POST /api/v1/announcements/{id}/dismiss", h.dismissAnnouncement)
-		mux.HandleFunc("GET /api/v1/settings/announcements", admin(h.listOrgAnnouncements))
-		mux.HandleFunc("POST /api/v1/settings/announcements", admin(h.blockDemo(h.createOrgAnnouncement)))
-		mux.HandleFunc("DELETE /api/v1/settings/announcements/{id}", admin(h.blockDemo(h.deleteOrgAnnouncement)))
+		// Org-scoped announcement management was removed 2026-07-24 — one
+		// cell serves one org, so cell-wide (operator) is the single
+		// surface. Maintenance windows still auto-announce via the store.
 		mux.HandleFunc("GET /api/v1/operator/announcements", h.AuthMW.RequireOperator(h.listCellAnnouncements))
 		mux.HandleFunc("POST /api/v1/operator/announcements", h.AuthMW.RequireOperator(h.createCellAnnouncement))
 		mux.HandleFunc("DELETE /api/v1/operator/announcements/{id}", h.AuthMW.RequireOperator(h.deleteCellAnnouncement))
