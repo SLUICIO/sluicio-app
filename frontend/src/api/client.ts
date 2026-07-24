@@ -140,6 +140,8 @@ import type {
   DigestResponse,
   UsageVolumeResponse,
   UsageReportResponse,
+  NotificationTemplateSet,
+  TemplateVariable,
 } from "./types";
 import { getActiveOrgSlug } from "../lib/activeOrg";
 
@@ -718,6 +720,18 @@ export const api = {
     post<AlertPreview>(`/alert-rules/preview`, { spec, service_name: serviceName }),
   // Render a notification (email HTML / webhook JSON) against a sample firing
   // context for the given content config — preview, no send.
+  // Notification message templates (org→team ladder, issue #5).
+  getOrgNotificationTemplates: () => get<NotificationTemplateSet>(`/settings/notification-templates`),
+  putOrgNotificationTemplates: (body: Partial<NotificationTemplateSet>) =>
+    put<NotificationTemplateSet>(`/settings/notification-templates`, body),
+  getGroupNotificationTemplate: (groupId: string) =>
+    get<{ template: NotificationTemplateSet; org_default: NotificationTemplateSet; can_edit: boolean }>(
+      `/settings/groups/${encodeURIComponent(groupId)}/notification-template`,
+    ),
+  putGroupNotificationTemplate: (groupId: string, body: Partial<NotificationTemplateSet>) =>
+    put<NotificationTemplateSet>(`/settings/groups/${encodeURIComponent(groupId)}/notification-template`, body),
+  templateContextSchema: () => get<{ variables: TemplateVariable[] }>(`/alerting/template-context-schema`),
+
   previewAlertTemplate: (kind: string, content: NotificationContent) =>
     post<{ subject: string; body: string }>(`/alert-templates/preview`, { kind, content }),
   getAlertEmailTemplate: () =>

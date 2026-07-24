@@ -28,10 +28,11 @@ export default function AlertNotificationContent({
   value: NotificationContent;
   onChange: (v: NotificationContent) => void;
 }) {
-  const [kind, setKind] = useState<"email" | "webhook">("email");
+  const [kind, setKind] = useState<"email" | "slack" | "webhook">("email");
   const [preview, setPreview] = useState<{ subject: string; body: string } | null>(null);
   const [loading, setLoading] = useState(false);
   const [custom, setCustom] = useState(!!(value.email_subject || value.email_body));
+  const [customSlack, setCustomSlack] = useState(!!(value.slack_title || value.slack_body));
 
   const set = (patch: Partial<NotificationContent>) => onChange({ ...value, ...patch });
 
@@ -109,13 +110,39 @@ export default function AlertNotificationContent({
         </div>
       </details>
 
+      <details
+        open={customSlack}
+        style={{ border: "1px solid var(--border)", borderRadius: 6, padding: "8px 10px" }}
+      >
+        <summary style={{ cursor: "pointer", fontSize: 13 }} onClick={(e) => { e.preventDefault(); setCustomSlack((c) => !c); }}>
+          Customize Slack message (Liquid, optional)
+        </summary>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
+          <input
+            className="search__input"
+            style={{ fontSize: 13 }}
+            placeholder="Title (Liquid) — blank uses the team/org template, then the built-in line"
+            value={value.slack_title ?? ""}
+            onChange={(e) => set({ slack_title: e.target.value })}
+          />
+          <textarea
+            className="svc-textarea"
+            style={{ fontSize: 12.5, minHeight: 72, fontFamily: "var(--font-mono, monospace)" }}
+            placeholder="mrkdwn body (Liquid) — e.g. {{ alert.state_emoji }} {{ alert.summary }}"
+            value={value.slack_body ?? ""}
+            onChange={(e) => set({ slack_body: e.target.value })}
+          />
+        </div>
+      </details>
+
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <select
           className="toolbar__select"
           value={kind}
-          onChange={(e) => { setKind(e.target.value as "email" | "webhook"); setPreview(null); }}
+          onChange={(e) => { setKind(e.target.value as "email" | "slack" | "webhook"); setPreview(null); }}
         >
           <option value="email">Email</option>
+          <option value="slack">Slack</option>
           <option value="webhook">Webhook</option>
         </select>
         <button type="button" className="btn" onClick={runPreview} disabled={loading}>
@@ -130,6 +157,11 @@ export default function AlertNotificationContent({
           style={{ width: "100%", height: 360, border: "1px solid var(--border)", borderRadius: 6, background: "#fff" }}
           srcDoc={preview.body}
         />
+      )}
+      {preview && kind === "slack" && (
+        <pre style={{ border: "1px solid var(--border)", borderRadius: 6, padding: 10, fontSize: 12.5, whiteSpace: "pre-wrap", background: "var(--surface-2)" }}>
+          {preview.body}
+        </pre>
       )}
       {preview && kind === "webhook" && (
         <pre style={{ maxHeight: 360, overflow: "auto", border: "1px solid var(--border)", borderRadius: 6, padding: 10, fontSize: 12, background: "var(--surface-2)" }}>

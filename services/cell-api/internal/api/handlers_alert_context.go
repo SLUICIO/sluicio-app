@@ -84,6 +84,14 @@ func (h *Handlers) previewAlertTemplate(w http.ResponseWriter, r *http.Request) 
 		httpserver.WriteError(w, http.StatusBadRequest, "invalid email body: "+err.Error())
 		return
 	}
+	if err := alerting.ValidateLiquid(req.Content.SlackTitle); err != nil {
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid slack title: "+err.Error())
+		return
+	}
+	if err := alerting.ValidateLiquid(req.Content.SlackBody); err != nil {
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid slack body: "+err.Error())
+		return
+	}
 	kind := strings.TrimSpace(req.Kind)
 	if kind == "" {
 		kind = alerting.ChannelEmail

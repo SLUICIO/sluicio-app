@@ -48,6 +48,9 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 ## alert-templates
 - POST /api/v1/alert-templates/preview — Create alert-template
 
+## alerting
+- GET /api/v1/alerting/template-context-schema — List alerting
+
 ## announcements
 - GET /api/v1/announcements — List announcements
 - GET /api/v1/announcements/login — List announcements
@@ -377,6 +380,10 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 - GET /api/v1/settings/service-accounts/{id}/tokens — List settings
 - POST /api/v1/settings/service-accounts/{id}/tokens — Create setting
 - DELETE /api/v1/settings/service-accounts/{id}/tokens/{tid} — Delete setting
+- GET /api/v1/settings/notification-templates — List settings
+- PUT /api/v1/settings/notification-templates — Update setting
+- GET /api/v1/settings/groups/{id}/notification-template — List settings
+- PUT /api/v1/settings/groups/{id}/notification-template — Update setting
 - GET /api/v1/settings/config-export — List settings
 - POST /api/v1/settings/config-import — Create setting
 - GET /api/v1/settings/groups — List settings

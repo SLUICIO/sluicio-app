@@ -171,12 +171,31 @@ func messageFromJob(ctx context.Context, job DeliveryJob, env, company string) M
 		// back to the plaintext body via renderLiquid's ok=false.
 		if !legacyTmpl {
 			b := actx.bindings(content)
-			subTmpl, bodyTmpl := effectiveEmailTemplate(ctx, content)
+			subTmpl, bodyTmpl := effectiveEmailTemplate(ctx, job, content)
 			if s, ok := renderLiquid(subTmpl, b); ok {
 				msg.Subject = s
 			}
 			if h, ok := renderLiquid(bodyTmpl, b); ok {
 				msg.BodyHTML = h
+			}
+		}
+	case ChannelSlack:
+		// Ladder-resolved Slack template (rule inline → team → org). No
+		// template anywhere = leave SlackText empty — the notifier's
+		// built-in line (icon + state prefix + summary) reproduces
+		// today's output exactly. A failed render also falls through.
+		if !legacyTmpl {
+			if title, bodyT := effectiveSlackTemplate(ctx, job, content); bodyT != "" {
+				b := actx.bindings(content)
+				if rendered, ok := renderLiquid(bodyT, b); ok {
+					text := rendered
+					if title != "" {
+						if t, ok := renderLiquid(title, b); ok && strings.TrimSpace(t) != "" {
+							text = "*" + strings.TrimSpace(t) + "*\n" + text
+						}
+					}
+					msg.SlackText = text
+				}
 			}
 		}
 	case ChannelWebhook:
@@ -253,11 +272,12 @@ func cloudEventEnvelope(id, state, subject, sentAt string, data map[string]any) 
 func contextFromJob(job DeliveryJob, env, company, link string) *AlertContext {
 	c := &AlertContext{
 		Alert: AlertFacts{
-			State:     job.State,
-			Severity:  job.Labels["severity"],
-			Summary:   job.Summary,
-			StartedAt: job.Labels["started_at"],
-			Link:      link,
+			State:      job.State,
+			Severity:   job.Labels["severity"],
+			Summary:    job.Summary,
+			StartedAt:  job.Labels["started_at"],
+			Link:       link,
+			StateEmoji: stateEmoji(job.State, Severity(job.Labels["severity"])),
 		},
 		Rule: RuleFacts{
 			Name:   job.Labels["rule_name"],
@@ -583,21 +603,35 @@ type slackNotifier struct{}
 func (slackNotifier) Kind() string { return ChannelSlack }
 
 func (slackNotifier) Send(ctx context.Context, client *http.Client, msg Message) error {
-	icon := ":large_green_circle:"
+	// A ladder-resolved template owns the whole line; the built-in
+	// default below reproduces the pre-template output exactly.
+	if msg.SlackText != "" {
+		return postJSON(ctx, client, msg.Config["url"],
+			map[string]any{"text": msg.SlackText}, "", "")
+	}
+	icon := stateEmoji(msg.State, msg.Severity)
 	prefix := "RESOLVED"
 	if msg.State == "firing" {
 		prefix = "FIRING"
-		switch msg.Severity {
-		case SeverityCritical:
-			icon = ":red_circle:"
-		case SeverityWarning:
-			icon = ":large_yellow_circle:"
-		default:
-			icon = ":large_blue_circle:"
-		}
 	}
 	return postJSON(ctx, client, msg.Config["url"],
 		map[string]any{"text": fmt.Sprintf("%s *[%s]* %s", icon, prefix, msg.Body)}, "", "")
+}
+
+// stateEmoji maps state+severity to the Slack colon code — shared by the
+// built-in Slack line and the alert.state_emoji template variable.
+func stateEmoji(state string, sev Severity) string {
+	if state != "firing" {
+		return ":large_green_circle:"
+	}
+	switch sev {
+	case SeverityCritical:
+		return ":red_circle:"
+	case SeverityWarning:
+		return ":large_yellow_circle:"
+	default:
+		return ":large_blue_circle:"
+	}
 }
 
 // ── pagerduty (Events API v2) ────────────────────────────────────────

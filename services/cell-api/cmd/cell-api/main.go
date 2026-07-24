@@ -72,6 +72,7 @@ import (
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/migrations"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/monitoringtemplates"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/notifyprofiles"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/notifytemplates"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/oauth"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/retention"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/schemas"
@@ -219,6 +220,7 @@ func main() {
 		Tags:                tagStore,
 		Alerts:              alertStore,
 		Maintenance:         maintenance.NewStore(pg),
+		NotifyTemplates:     notifytemplates.NewStore(pg),
 		PGPool:              pg,
 		ServiceMeta:         serviceMetaStore,
 		Metadata:            metadataStore,
@@ -413,6 +415,7 @@ func main() {
 	// email template — both implemented in the api layer where the stores live.
 	alerting.SetAlertContextResolver(handlers.ResolveAlertContext)
 	alerting.SetDefaultEmailTemplateResolver(handlers.DefaultEmailTemplate)
+	alerting.SetMessageTemplateResolver(handlers.MessageTemplateLadder)
 
 	retentionEnforcer := retention.New(settingsStore, chConn, logger, time.Hour)
 	retentionEnforcer.Audit = auditRecorder

@@ -42,6 +42,7 @@ import type {
 } from "../api/types";
 import { EditDrawer } from "../components/primitives";
 import AlertEmailTemplateSettings from "../components/AlertEmailTemplateSettings";
+import NotificationTemplateEditor from "../components/alerts/NotificationTemplateEditor";
 import TrimIngestionPanel from "../components/metrics/TrimIngestionPanel";
 import MetricAttributesInline from "../components/metrics/MetricAttributesInline";
 import AnnouncementsAdmin from "../components/AnnouncementsAdmin";
@@ -214,6 +215,7 @@ export default function Settings() {
             <>
               <SystemSettingsTab />
               <AlertEmailTemplateSettings />
+              <NotificationTemplateEditor scope="org" />
               {/* Cell-wide announcements sit with the other cell-wide
                   settings (the whole tab is operator-gated). Org-scoped
                   announcements live on the Organization tab. */}
@@ -1652,6 +1654,10 @@ function GroupsTab() {
               refresh();
             }}
           />
+          {/* Team message-template override (issue #5): how alerts on
+              rules this team owns look — falls through to the org
+              default per field. */}
+          <NotificationTemplateEditor scope="group" groupId={selected.id} />
           {isAdmin && (
             <div style={{ marginTop: 20 }}>
               <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>

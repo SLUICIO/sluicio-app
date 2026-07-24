@@ -1515,6 +1515,28 @@ export interface NotificationContent {
   check?: boolean;
   email_subject?: string;
   email_body?: string;
+  slack_title?: string;
+  slack_body?: string;
+}
+
+// One scope's stored message-template set (org default or a team's
+// override). Empty string = inherit down the ladder.
+export interface NotificationTemplateSet {
+  id?: string;
+  group_id?: string;
+  email_subject: string;
+  email_body: string;
+  slack_title: string;
+  slack_body: string;
+  updated_at?: string;
+}
+
+// One entry of the backend-reflected template variable palette.
+export interface TemplateVariable {
+  path: string;
+  type: string;
+  description: string;
+  available: string;
 }
 
 export interface AlertRule {

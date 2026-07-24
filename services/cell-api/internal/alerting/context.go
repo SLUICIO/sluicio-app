@@ -6,6 +6,8 @@ import (
 	"context"
 	"encoding/json"
 	"sort"
+
+	"github.com/google/uuid"
 )
 
 // NotificationContent controls which enrichment blocks a rule's
@@ -20,10 +22,13 @@ type NotificationContent struct {
 	ServiceMetadata     bool `json:"service_metadata"`
 	IntegrationMetadata bool `json:"integration_metadata"`
 	Check               bool `json:"check"`
-	// Optional inline Liquid email override. Empty → org default email
-	// template (SetDefaultEmailTemplateResolver / the built-in default).
+	// Optional inline Liquid overrides. Empty → the template ladder
+	// (team set → org set → cell email setting → built-ins). The Slack
+	// pair mirrors the email one (issue #5).
 	EmailSubject string `json:"email_subject,omitempty"`
 	EmailBody    string `json:"email_body,omitempty"`
+	SlackTitle   string `json:"slack_title,omitempty"`
+	SlackBody    string `json:"slack_body,omitempty"`
 }
 
 // AlertContext is the documented data object exposed to notification
@@ -48,6 +53,10 @@ type AlertFacts struct {
 	Summary   string `json:"summary"`  // built-in human summary
 	StartedAt string `json:"started_at,omitempty"`
 	Link      string `json:"link,omitempty"` // deep link into Sluicio
+	// StateEmoji is the Slack-style state icon (🔴/🟡/🔵 firing by
+	// severity, 🟢 resolved) as a colon code — a convenience so templates
+	// own the whole line instead of getting an icon force-prepended.
+	StateEmoji string `json:"state_emoji,omitempty"`
 }
 
 type RuleFacts struct {
@@ -125,11 +134,43 @@ func SetDefaultEmailTemplateResolver(f func(ctx context.Context) (subject, body 
 	defaultEmailTemplateResolver = f
 }
 
-// effectiveEmailTemplate resolves the email subject + body to render for a
-// job: the rule's inline override wins; else the org default; else the
-// built-in. Always returns non-empty templates.
-func effectiveEmailTemplate(ctx context.Context, content NotificationContent) (subject, body string) {
-	subject, body = content.EmailSubject, content.EmailBody
+// MessageTemplates is the per-field result of the stored template ladder
+// (team set merged over org set — issue #5). Empty fields mean "keep
+// falling through" to the cell email setting / built-ins.
+type MessageTemplates struct {
+	EmailSubject string
+	EmailBody    string
+	SlackTitle   string
+	SlackBody    string
+}
+
+// messageTemplateResolver, when wired, resolves the stored template
+// ladder for a rule's owning group. Injected (like the email resolver)
+// so this package stays free of the notifytemplates store.
+var messageTemplateResolver func(ctx context.Context, orgID uuid.UUID, groupID *uuid.UUID) MessageTemplates
+
+// SetMessageTemplateResolver wires the org→team template-set provider.
+func SetMessageTemplateResolver(f func(ctx context.Context, orgID uuid.UUID, groupID *uuid.UUID) MessageTemplates) {
+	messageTemplateResolver = f
+}
+
+// ladderTemplates runs the stored-set resolver for a job's scope; the
+// zero value when unwired (tests, minimal setups).
+func ladderTemplates(ctx context.Context, job DeliveryJob) MessageTemplates {
+	if messageTemplateResolver == nil {
+		return MessageTemplates{}
+	}
+	return messageTemplateResolver(ctx, job.Channel.OrganizationID, job.RuleGroupID)
+}
+
+// effectiveEmailTemplate resolves the email subject + body to render for
+// a job, per FIELD down the ladder: rule inline → team set → org set →
+// cell-wide email setting → built-in constants. Always returns non-empty
+// templates.
+func effectiveEmailTemplate(ctx context.Context, job DeliveryJob, content NotificationContent) (subject, body string) {
+	ladder := ladderTemplates(ctx, job)
+	subject = firstNonEmpty(content.EmailSubject, ladder.EmailSubject)
+	body = firstNonEmpty(content.EmailBody, ladder.EmailBody)
 	if subject == "" || body == "" {
 		var dSub, dBody string
 		if defaultEmailTemplateResolver != nil {
@@ -143,6 +184,16 @@ func effectiveEmailTemplate(ctx context.Context, content NotificationContent) (s
 		}
 	}
 	return subject, body
+}
+
+// effectiveSlackTemplate resolves the Slack title + body per field: rule
+// inline → team set → org set. BOTH empty = no template configured
+// anywhere — the notifier's built-in line (icon + state prefix +
+// summary) applies, so unconfigured orgs see exactly today's output.
+func effectiveSlackTemplate(ctx context.Context, job DeliveryJob, content NotificationContent) (title, body string) {
+	ladder := ladderTemplates(ctx, job)
+	return firstNonEmpty(content.SlackTitle, ladder.SlackTitle),
+		firstNonEmpty(content.SlackBody, ladder.SlackBody)
 }
 
 func firstNonEmpty(vals ...string) string {

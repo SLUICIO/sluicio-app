@@ -14,6 +14,7 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/sluicio/sluicio-app/pkg/audit"
 	"github.com/sluicio/sluicio-app/pkg/httpserver"
 	"github.com/sluicio/sluicio-app/pkg/license"
@@ -34,6 +35,7 @@ import (
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/metadata"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/monitoringtemplates"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/notifyprofiles"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/notifytemplates"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/oauth"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/retention"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/schemas"
@@ -45,7 +47,6 @@ import (
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/systemtypes"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/tags"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/tracecompletion"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // Handlers groups the cell-api HTTP handlers and their dependencies.
@@ -71,6 +72,9 @@ type Handlers struct {
 	// Maintenance backs announcements + maintenance windows (see
 	// handlers_maintenance.go).
 	Maintenance *maintenance.Store
+	// NotifyTemplates backs the org→team notification message-template
+	// ladder (issue #5, handlers_notification_templates.go).
+	NotifyTemplates *notifytemplates.Store
 	// PGPool is the raw Postgres pool for the few handlers that need
 	// transaction ownership across many domains (config export/import —
 	// the whole-bundle atomicity contract lives on one tx).
@@ -1250,6 +1254,14 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 		// Public (skip-listed in main's auth wrap): the login page's banner.
 		mux.HandleFunc("GET /api/v1/announcements/login", h.loginAnnouncements)
 		mux.HandleFunc("POST /api/v1/announcements/{id}/dismiss", h.dismissAnnouncement)
+		// Notification message templates (issue #5): org default set +
+		// per-team overrides + the reflected variable palette.
+		mux.HandleFunc("GET /api/v1/settings/notification-templates", admin(h.getOrgNotificationTemplates))
+		mux.HandleFunc("PUT /api/v1/settings/notification-templates", admin(h.blockDemo(h.putOrgNotificationTemplates)))
+		mux.HandleFunc("GET /api/v1/settings/groups/{id}/notification-template", h.getGroupNotificationTemplates)
+		mux.HandleFunc("PUT /api/v1/settings/groups/{id}/notification-template", h.blockDemo(h.putGroupNotificationTemplates))
+		mux.HandleFunc("GET /api/v1/alerting/template-context-schema", h.templateContextSchema)
+
 		// Org-scoped announcement management was removed 2026-07-24 — one
 		// cell serves one org, so cell-wide (operator) is the single
 		// surface. Maintenance windows still auto-announce via the store.

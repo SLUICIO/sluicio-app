@@ -394,6 +394,10 @@ type DeliveryJob struct {
 	RuleSignal    string     // "metric" | "log" | "trace"
 	RuleKind      string     // rule_spec->>'kind' for trace rules ("trace_error"|"trace_latency")
 	IntegrationID *uuid.UUID // rule's integration scope, if any
+	// RuleGroupID is the owning rule's team (nil = org-wide) — read at
+	// claim time so the delivery worker resolves the message-template
+	// ladder without re-fetching the rule (same pattern as Content).
+	RuleGroupID *uuid.UUID
 	// Content is the owning rule's notification config (which enrichment
 	// blocks to include + optional inline email template). Read at claim time
 	// so the worker renders without re-fetching the rule.
@@ -417,7 +421,7 @@ func (s *Store) ClaimDueJobs(ctx context.Context, limit int) ([]DeliveryJob, err
 		       i.state, COALESCE(i.summary, ''), i.labels,
 		       COALESCE(r.title_template, ''), COALESCE(r.body_template, ''),
 		       COALESCE(r.signal::text, ''), COALESCE(r.rule_spec->>'kind', ''), r.integration_id,
-		       COALESCE(r.notification_config, '{}'::jsonb)
+		       r.group_id, COALESCE(r.notification_config, '{}'::jsonb)
 		FROM notification_jobs j
 		JOIN notification_channels c ON c.id = j.channel_id
 		JOIN alert_instances i ON i.id = j.alert_instance_id
@@ -444,7 +448,7 @@ func (s *Store) ClaimDueJobs(ctx context.Context, limit int) ([]DeliveryJob, err
 			&j.Channel.ID, &j.Channel.OrganizationID, &j.Channel.Name, &j.Channel.Kind, &cfg, &j.Channel.CreatedAt, &j.Channel.UpdatedAt,
 			&j.State, &j.Summary, &lbl,
 			&j.TitleTemplate, &j.BodyTemplate,
-			&j.RuleSignal, &j.RuleKind, &j.IntegrationID, &nc,
+			&j.RuleSignal, &j.RuleKind, &j.IntegrationID, &j.RuleGroupID, &nc,
 		); err != nil {
 			rows.Close()
 			return nil, err

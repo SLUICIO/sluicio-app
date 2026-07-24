@@ -16,14 +16,15 @@ import (
 // channel-specific envelope (SMTP headers, Slack JSON, a webhook
 // payload, …); it never re-derives the wording.
 type Message struct {
-	State    string            // "firing" | "resolved"
-	Severity Severity          // promoted from Labels["severity"] for convenience
-	Subject  string            // one-line title (used as the email subject, etc.)
-	Body     string            // main notification text (plaintext)
-	BodyHTML string            // optional HTML body (email sends multipart when set)
-	Payload  map[string]any    // optional structured payload (webhook sends this when set)
-	Labels   map[string]string // denormalised rule context (rule_id, metric, …)
-	Config   map[string]string // the channel's config (smtp_host, url, …)
+	State     string            // "firing" | "resolved"
+	Severity  Severity          // promoted from Labels["severity"] for convenience
+	Subject   string            // one-line title (used as the email subject, etc.)
+	Body      string            // main notification text (plaintext)
+	BodyHTML  string            // optional HTML body (email sends multipart when set)
+	SlackText string            // optional pre-rendered Slack mrkdwn (slack posts it verbatim when set)
+	Payload   map[string]any    // optional structured payload (webhook sends this when set)
+	Labels    map[string]string // denormalised rule context (rule_id, metric, …)
+	Config    map[string]string // the channel's config (smtp_host, url, …)
 }
 
 // Notifier delivers a Message to one channel kind. Adding a new
