@@ -3,8 +3,14 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.38 — 2026-07-24
+
+- feat(system-types): WSO2 API Manager built-in type (d0ac7dd)
+- feat(alerting): notification message templates — Slack + email, org→team override ladder (#5) (5625cb1)
+
 ## v0.11.37 — 2026-07-24
 
+- release v0.11.37 — refresh internal changelog (18de250)
 - refactor(announcements): one surface — cell-wide on Settings → System; org section removed (eed2623)
 
 ## v0.11.36 — 2026-07-24
