@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.35 — 2026-07-24
+
+- feat(announcements): opt-in login-page banners for cell-wide announcements (1309a1f)
+
 ## v0.11.34 — 2026-07-21
 
+- release v0.11.34 — refresh internal changelog (5715a59)
 - feat(system-types): built-in rows link to their docs reference page (6468079)
 - fix(system-types): whole row toggles the type detail, not just the tiny caret (e05651b)
 
