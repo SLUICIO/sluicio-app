@@ -140,6 +140,26 @@ var monitoringTemplates = []monitoringTemplate{
 		},
 	},
 	{
+		// Best-effort — WSO2 API-M's native OTel support is TRACING only
+		// ([apim.open_telemetry] in deployment.toml, OTLP remote tracer), so
+		// the core checks are trace signals like KrakenD's. Whether gateway
+		// faults set span status ERROR varies by version/handler — if 5xx
+		// only shows as a status-code attribute, enable "Treat HTTP 5xx as
+		// errors" (Settings → System). The JVM heap check needs JVM metrics
+		// (OTel Java agent's stable-semconv jvm.memory.used); detection
+		// prefixes cover the jmx_exporter path (org_wso2_* / wso2_*) since
+		// jvm.* is too generic to claim.
+		Kind: "wso2-apim", Label: "WSO2 API Manager", System: true,
+		DetectPrefixes: []string{"wso2", "org_wso2"},
+		Checks: []systemCheck{
+			{Name: "WSO2 API-M failed API invocations", Description: "API invocations through the gateway are failing. If faults surface only as a 5xx status-code attribute (not span status), enable the 'Treat HTTP 5xx as errors' system setting.", Signal: "trace_error", TraceThreshold: 1, WindowSeconds: 300, Severity: alerting.SeverityWarning},
+			{Name: "WSO2 API-M response time", Description: "p95 gateway latency is high — tune the threshold to your traffic.", Signal: "trace_latency", ThresholdMs: 2000, WindowSeconds: 300, Severity: alerting.SeverityWarning, Unit: "ms"},
+			{Name: "WSO2 API-M gateway silent", Description: "No traces at all in 15 minutes — the gateway (or its telemetry pipeline) is down. Disable if this gateway legitimately idles.", Signal: "trace_volume", TraceThreshold: 1, WindowSeconds: 900, Severity: alerting.SeverityWarning},
+			{Name: "WSO2 API-M error logs spiking", Description: "Error-level entries in wso2carbon.log are spiking — tune the threshold to your baseline.", Signal: alerting.SignalLog, MinSeverity: 17, LogThreshold: 10, Severity: alerting.SeverityWarning},
+			{Name: "WSO2 API-M JVM heap high", Description: "JVM heap usage is high (> 1.5 GiB, assumes a 2 GiB max heap) — tune to your -Xmx. Needs JVM metrics (e.g. the OTel Java agent).", Metric: "jvm.memory.used", Agg: alerting.AggMax, Op: alerting.OpGT, Threshold: 1610612736, Attrs: []alerting.AttrFilter{{Key: "jvm.memory.type", Op: "eq", Value: "heap"}}, Severity: alerting.SeverityWarning, Unit: "bytes", Display: true},
+		},
+	},
+	{
 		// Grounded in the OTel Collector kafkametrics receiver's documented
 		// metrics (all gauges; attributes group/topic/partition). Lag and
 		// backlog thresholds are starting points — tune to your traffic.

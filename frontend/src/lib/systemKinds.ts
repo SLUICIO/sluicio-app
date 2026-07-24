@@ -9,10 +9,13 @@ export const SYSTEM_KINDS: { value: string; label: string }[] = [
   { value: "rabbitmq", label: "RabbitMQ" },
   { value: "activemq", label: "ActiveMQ" },
   { value: "artemis", label: "ActiveMQ Artemis" },
+  { value: "azure-servicebus", label: "Azure Service Bus" },
   { value: "kafka", label: "Apache Kafka" },
   { value: "confluent-kafka", label: "Confluent Kafka" },
   { value: "nats", label: "NATS" },
   { value: "debezium", label: "Debezium" },
+  { value: "krakend", label: "KrakenD API Gateway" },
+  { value: "wso2-apim", label: "WSO2 API Manager" },
   { value: "redis", label: "Redis" },
   { value: "sqlserver", label: "SQL Server" },
   { value: "postgresql", label: "PostgreSQL" },
@@ -41,6 +44,7 @@ export const TEMPLATE_KINDS = new Set([
   "confluent-kafka",
   "nats",
   "debezium",
+  "wso2-apim",
 ]);
 
 export function hasSystemTemplate(kind: string | undefined): boolean {
