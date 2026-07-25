@@ -142,6 +142,8 @@ import type {
   UsageReportResponse,
   NotificationTemplateSet,
   TemplateVariable,
+  EventSubscription,
+  EventTypeEntry,
 } from "./types";
 import { getActiveOrgSlug } from "../lib/activeOrg";
 
@@ -799,6 +801,15 @@ export const api = {
   revokeIngestKey: (id: string) => del(`/ingest-keys/${encodeURIComponent(id)}`),
 
   listChannels: () => get<{ channels: NotificationChannel[] }>(`/notification-channels`),
+
+  // Outbound event subscriptions (issue #4).
+  listEventTypes: () => get<{ event_types: EventTypeEntry[] }>(`/event-types`),
+  listEventSubscriptions: () => get<{ subscriptions: EventSubscription[] }>(`/event-subscriptions`),
+  createEventSubscription: (body: { name: string; group_id?: string; enabled?: boolean; event_filters: string[]; channel_id: string }) =>
+    post<EventSubscription>(`/event-subscriptions`, body),
+  updateEventSubscription: (id: string, body: { name: string; enabled?: boolean; event_filters: string[]; channel_id: string }) =>
+    put<EventSubscription>(`/event-subscriptions/${encodeURIComponent(id)}`, body),
+  deleteEventSubscription: (id: string) => del(`/event-subscriptions/${encodeURIComponent(id)}`),
 
   // Notification profiles: per-team (or org-wide) bundles of behaviour +
   // channels. An alert/error resolves to one profile, most-specific-first:

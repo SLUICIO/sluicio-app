@@ -639,6 +639,23 @@ func (s *Store) ResolveEffectiveAccessMember(ctx context.Context, ref MemberRef,
 	return s.composeAccess(ctx, orgID, all, expand, expandSystem)
 }
 
+// ResolveGroupVisibleServices composes ONE group's own policies into the
+// service set that group grants (wildcard when an all-org policy is
+// attached). Backs event-subscription audience filtering (issue #4):
+// a team-scoped subscription only receives events on entities the team
+// can see.
+func (s *Store) ResolveGroupVisibleServices(ctx context.Context, orgID, groupID uuid.UUID, expand integrationExpander, expandSystem systemExpander) (map[string]struct{}, bool, error) {
+	policies, err := s.ListPoliciesForGroup(ctx, groupID)
+	if err != nil {
+		return nil, false, err
+	}
+	acc, err := s.composeAccess(ctx, orgID, policies, expand, expandSystem)
+	if err != nil {
+		return nil, false, err
+	}
+	return acc.Services, acc.AllOrg, nil
+}
+
 // composeAccess folds a policy list into EffectiveAccess (the shared
 // composition path for both the Visible and Managed resolutions).
 func (s *Store) composeAccess(ctx context.Context, orgID uuid.UUID, policies []AccessPolicy, expand integrationExpander, expandSystem systemExpander) (EffectiveAccess, error) {

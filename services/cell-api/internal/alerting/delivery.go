@@ -245,6 +245,13 @@ func cloudEventEnvelope(id, state, subject, sentAt string, data map[string]any) 
 	if state == "resolved" {
 		typ = "com.sluicio.alert.resolved"
 	}
+	return CloudEventEnvelope(id, typ, subject, sentAt, data)
+}
+
+// CloudEventEnvelope wraps data in a CloudEvents 1.0 structured-mode
+// envelope for any com.sluicio.* event type. Exported for the event-
+// subscriptions worker (eventsubs), which shares this vocabulary.
+func CloudEventEnvelope(id, ceType, subject, occurredAt string, data map[string]any) map[string]any {
 	source := Link("/")
 	if source == "" {
 		source = "urn:sluicio:cell"
@@ -253,8 +260,8 @@ func cloudEventEnvelope(id, state, subject, sentAt string, data map[string]any) 
 		"specversion":     "1.0",
 		"id":              id,
 		"source":          source,
-		"type":            typ,
-		"time":            sentAt,
+		"type":            ceType,
+		"time":            occurredAt,
 		"datacontenttype": "application/json",
 		"data":            data,
 	}
@@ -262,6 +269,14 @@ func cloudEventEnvelope(id, state, subject, sentAt string, data map[string]any) 
 		ev["subject"] = subject
 	}
 	return ev
+}
+
+// PostJSONSigned posts a JSON body to a webhook destination with the
+// optional HMAC signing headers (docs/webhook-signing.md). Exported for
+// the event-subscriptions worker so events reuse the exact webhook
+// delivery contract alerts have.
+func PostJSONSigned(ctx context.Context, client *http.Client, url string, body any, secret, contentType string) error {
+	return postJSON(ctx, client, url, body, secret, contentType)
 }
 
 // contextFromJob assembles the core AlertContext from the firing job (its

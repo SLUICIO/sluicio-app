@@ -240,7 +240,29 @@ func (e *Engine) channelsFor(ctx context.Context, rule AlertRule) []uuid.UUID {
 // per channel for the instance. Used for resolve notifications, which are
 // always per-instance.
 func (e *Engine) enqueue(ctx context.Context, instanceID uuid.UUID, rule AlertRule) error {
-	return e.store.EnqueueJobs(ctx, instanceID, e.channelsFor(ctx, rule))
+	if err := e.store.EnqueueJobs(ctx, instanceID, e.channelsFor(ctx, rule)); err != nil {
+		return err
+	}
+	emitDomainEvent(ctx, e.org, alertDomainEvent("com.sluicio.alert.resolved", instanceID, rule))
+	return nil
+}
+
+// alertDomainEvent builds the outbound event for one instance transition.
+func alertDomainEvent(ceType string, instanceID uuid.UUID, rule AlertRule) DomainEvent {
+	return DomainEvent{
+		Type:          ceType,
+		Subject:       rule.ID.String(),
+		ServiceName:   rule.ServiceName,
+		IntegrationID: rule.IntegrationID,
+		Data: map[string]any{
+			"rule_id":     rule.ID.String(),
+			"rule_name":   rule.Name,
+			"severity":    string(rule.Severity),
+			"signal":      string(rule.Signal),
+			"service":     rule.ServiceName,
+			"instance_id": instanceID.String(),
+		},
+	}
 }
 
 // resolveOrHold drives the "condition cleared while an instance is open"
@@ -302,6 +324,9 @@ func (e *Engine) enqueueFiring(ctx context.Context, instanceID uuid.UUID, rule A
 	if err := e.store.EnqueueJobs(ctx, instanceID, e.channelsFor(ctx, rule)); err != nil {
 		return err
 	}
+	// The firing became a real notification (not suppressed, not folded)
+	// — that's the moment it is also a domain event.
+	emitDomainEvent(ctx, e.org, alertDomainEvent("com.sluicio.alert.fired", instanceID, rule))
 	return e.store.MarkInstanceNotified(ctx, instanceID)
 }
 

@@ -9,6 +9,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { usePageTitle } from "../lib/usePageTitle";
+import EventSubscriptions from "../components/developers/EventSubscriptions";
 import { useCurrentUser } from "../lib/useCurrentUser";
 
 function CopyBlock({ text }: { text: string }) {
@@ -160,6 +161,10 @@ export default function Developers() {
           Tools exposed: integrations, services, systems (+ members), system types, the “in trouble” errors feed,
           the since-last-visit digest, and the metric catalog.
         </p>
+      </Section>
+
+      <Section n={4} title="Event subscriptions">
+        <EventSubscriptions />
       </Section>
     </div>
   );

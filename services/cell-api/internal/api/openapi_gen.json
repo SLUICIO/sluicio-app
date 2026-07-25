@@ -1078,6 +1078,107 @@
         ]
       }
     },
+    "/api/v1/event-subscriptions": {
+      "get": {
+        "operationId": "get_api_v1_event_subscriptions",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "List event-subscriptions",
+        "tags": [
+          "event-subscriptions"
+        ]
+      },
+      "post": {
+        "operationId": "post_api_v1_event_subscriptions",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Create event-subscription",
+        "tags": [
+          "event-subscriptions"
+        ]
+      }
+    },
+    "/api/v1/event-subscriptions/{id}": {
+      "delete": {
+        "operationId": "delete_api_v1_event_subscriptions_id_",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Delete event-subscription",
+        "tags": [
+          "event-subscriptions"
+        ]
+      },
+      "put": {
+        "operationId": "put_api_v1_event_subscriptions_id_",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Update event-subscription",
+        "tags": [
+          "event-subscriptions"
+        ]
+      }
+    },
+    "/api/v1/event-types": {
+      "get": {
+        "operationId": "get_api_v1_event_types",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "List event-types",
+        "tags": [
+          "event-types"
+        ]
+      }
+    },
     "/api/v1/global-search": {
       "get": {
         "operationId": "get_api_v1_global_search",
@@ -6677,6 +6778,12 @@
     },
     {
       "name": "errors"
+    },
+    {
+      "name": "event-subscriptions"
+    },
+    {
+      "name": "event-types"
     },
     {
       "name": "global-search"

@@ -1623,6 +1623,27 @@ export interface AlertRuleInput {
   resolve_mode?: "auto" | "manual";
 }
 
+// One outbound event subscription (issue #4): type-filter globs fanned
+// out to a webhook channel; group_id scopes it to a team (absent =
+// org-wide, admin-only).
+export interface EventSubscription {
+  id: string;
+  group_id?: string;
+  name: string;
+  enabled: boolean;
+  event_filters: string[];
+  channel_id: string;
+  created_at: string;
+  updated_at: string;
+  can_manage?: boolean;
+}
+
+export interface EventTypeEntry {
+  type: string;
+  description: string;
+  kind: "operational" | "config";
+}
+
 export interface NotificationChannel {
   id: string;
   organization_id: string;

@@ -38,6 +38,10 @@ type Notifier struct {
 	interval time.Duration
 	lookback time.Duration
 	client   *http.Client
+	// EmitEvent, when set, publishes com.sluicio.errors.opened for each
+	// page this notifier sends — the event-subscriptions hook (issue #4).
+	// Optional; fire-and-forget.
+	EmitEvent func(ctx context.Context, serviceName string, errorTraces uint64, integrationID *uuid.UUID)
 }
 
 func New(ch *store.Store, acks *erroracks.Store, routes *notifyprofiles.Store, channels *alerting.Store, cat *catalog.Store, org uuid.UUID, log *slog.Logger, interval time.Duration) *Notifier {
@@ -153,6 +157,9 @@ func (n *Notifier) once(ctx context.Context) {
 		}
 		if link := alerting.Link(linkPath); link != "" {
 			body += "\n\nView in Sluicio: " + link
+		}
+		if n.EmitEvent != nil {
+			n.EmitEvent(ctx, st.ServiceName, st.ErrorTraces, integ)
 		}
 		if sendErr := alerting.SendMessageToChannels(ctx, n.client, targets, "critical", subject, body); sendErr != nil {
 			// Don't watermark on failure — retry next tick.

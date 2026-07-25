@@ -134,6 +134,33 @@ func SetDefaultEmailTemplateResolver(f func(ctx context.Context) (subject, body 
 	defaultEmailTemplateResolver = f
 }
 
+// DomainEvent is one outbound domain event (issue #4) the engine hands
+// to the event-subscriptions emitter: alert.fired / alert.resolved with
+// enough entity hints for team-visibility filtering.
+type DomainEvent struct {
+	Type          string // com.sluicio.alert.fired | .resolved
+	Subject       string // rule id
+	ServiceName   string
+	IntegrationID *uuid.UUID
+	Data          map[string]any
+}
+
+// domainEventEmitter, when wired, fans engine-side domain events out to
+// event subscriptions. Nil = no subscriptions configured/wired; emission
+// is always fire-and-forget.
+var domainEventEmitter func(ctx context.Context, orgID uuid.UUID, ev DomainEvent)
+
+// SetDomainEventEmitter wires the event-subscriptions emitter.
+func SetDomainEventEmitter(f func(ctx context.Context, orgID uuid.UUID, ev DomainEvent)) {
+	domainEventEmitter = f
+}
+
+func emitDomainEvent(ctx context.Context, orgID uuid.UUID, ev DomainEvent) {
+	if domainEventEmitter != nil {
+		domainEventEmitter(ctx, orgID, ev)
+	}
+}
+
 // MessageTemplates is the per-field result of the stored template ladder
 // (team set merged over org set — issue #5). Empty fields mean "keep
 // falling through" to the cell email setting / built-ins.

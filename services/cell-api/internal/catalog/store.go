@@ -67,31 +67,40 @@ func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 // backwards if the discovery's first_seen is earlier — useful when the
 // reconciler's window grows). New rows are inserted with the discovery's
 // timestamps. Runs in a single transaction.
-func (s *Store) UpsertServices(ctx context.Context, orgID uuid.UUID, items []Discovery) error {
+// It returns the names that were NEWLY inserted (first discovery) so
+// the reconciler can announce them (com.sluicio.service.discovered).
+func (s *Store) UpsertServices(ctx context.Context, orgID uuid.UUID, items []Discovery) ([]string, error) {
 	if len(items) == 0 {
-		return nil
+		return nil, nil
 	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("begin: %w", err)
+		return nil, fmt.Errorf("begin: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
+	// xmax = 0 distinguishes a fresh insert from a conflict-update.
 	const q = `
 		INSERT INTO services (organization_id, service_name, service_namespace, first_seen_at, last_seen_at)
 		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (organization_id, service_name) DO UPDATE
 		SET service_namespace = COALESCE(NULLIF(EXCLUDED.service_namespace, ''), services.service_namespace),
 		    first_seen_at = LEAST(services.first_seen_at, EXCLUDED.first_seen_at),
-		    last_seen_at  = GREATEST(services.last_seen_at, EXCLUDED.last_seen_at)`
+		    last_seen_at  = GREATEST(services.last_seen_at, EXCLUDED.last_seen_at)
+		RETURNING (xmax = 0)`
+	var created []string
 	for _, it := range items {
-		if _, err := tx.Exec(ctx, q,
+		var inserted bool
+		if err := tx.QueryRow(ctx, q,
 			orgID, it.ServiceName, it.ServiceNamespace, it.FirstSeen, it.LastSeen,
-		); err != nil {
-			return fmt.Errorf("upsert %q: %w", it.ServiceName, err)
+		).Scan(&inserted); err != nil {
+			return nil, fmt.Errorf("upsert %q: %w", it.ServiceName, err)
+		}
+		if inserted {
+			created = append(created, it.ServiceName)
 		}
 	}
-	return tx.Commit(ctx)
+	return created, tx.Commit(ctx)
 }
 
 // AllServices returns every service in the catalog for the org, sorted

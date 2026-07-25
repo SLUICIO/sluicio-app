@@ -2,7 +2,7 @@
 
 # Outbound events (design)
 
-Status: **part 1 shipped 2026-07-15; part 2 draft for review.**
+Status: **part 1 shipped 2026-07-15; part 2 shipped 2026-07-25 (issue #4 closed — see the issue for the decided answers to the open questions below).**
 Companion issue: #4.
 
 Two related pieces:

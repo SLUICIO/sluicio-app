@@ -27,6 +27,11 @@ import (
 // audit. Best-effort: a write failure is logged, never surfaced to the
 // caller, and never blocks the action being audited.
 func (h *Handlers) recordAudit(r *http.Request, action, targetType, targetID string, metadata map[string]any) {
+	// Domain events piggyback on the SAME recording points (issue #4):
+	// the audit action vocabulary IS the event taxonomy. Emission runs
+	// regardless of edition — events are notifications, not the EE
+	// compliance record — and is fire-and-forget.
+	h.emitConfigEvent(r.Context(), middleware.Principal(r).OrgID, action, targetType, targetID, metadata)
 	if h.Audit == nil || !h.featureEntitled(license.FeatureAuditLog) {
 		return
 	}
@@ -49,6 +54,7 @@ func (h *Handlers) recordAudit(r *http.Request, action, targetType, targetID str
 // recordAuditInOrg is recordAudit with an explicit org: the entry lands in
 // orgID's log instead of the caller's active org. Used for cross-org writes.
 func (h *Handlers) recordAuditInOrg(r *http.Request, orgID uuid.UUID, action, targetType, targetID string, metadata map[string]any) {
+	h.emitConfigEvent(r.Context(), orgID, action, targetType, targetID, metadata)
 	if h.Audit == nil || !h.featureEntitled(license.FeatureAuditLog) {
 		return
 	}

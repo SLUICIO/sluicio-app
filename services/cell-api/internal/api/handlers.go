@@ -35,6 +35,7 @@ import (
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/metadata"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/monitoringtemplates"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/notifyprofiles"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/eventsubs"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/notifytemplates"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/oauth"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/retention"
@@ -75,6 +76,11 @@ type Handlers struct {
 	// NotifyTemplates backs the org→team notification message-template
 	// ladder (issue #5, handlers_notification_templates.go).
 	NotifyTemplates *notifytemplates.Store
+	// Events fans domain events out to event subscriptions (issue #4,
+	// handlers_events.go). Nil = feature dormant, emission no-ops.
+	Events *eventsubs.Emitter
+	// EventSubs is the subscriptions store behind the CRUD endpoints.
+	EventSubs *eventsubs.Store
 	// PGPool is the raw Postgres pool for the few handlers that need
 	// transaction ownership across many domains (config export/import —
 	// the whole-bundle atomicity contract lives on one tx).
@@ -1254,6 +1260,14 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 		// Public (skip-listed in main's auth wrap): the login page's banner.
 		mux.HandleFunc("GET /api/v1/announcements/login", h.loginAnnouncements)
 		mux.HandleFunc("POST /api/v1/announcements/{id}/dismiss", h.dismissAnnouncement)
+		// Outbound event subscriptions (issue #4): CRUD is scope-tiered
+		// inside the handlers; the type catalog is read-only.
+		mux.HandleFunc("GET /api/v1/event-types", h.listEventTypes)
+		mux.HandleFunc("GET /api/v1/event-subscriptions", h.listEventSubscriptions)
+		mux.HandleFunc("POST /api/v1/event-subscriptions", h.blockDemo(h.createEventSubscription))
+		mux.HandleFunc("PUT /api/v1/event-subscriptions/{id}", h.blockDemo(h.updateEventSubscription))
+		mux.HandleFunc("DELETE /api/v1/event-subscriptions/{id}", h.blockDemo(h.deleteEventSubscription))
+
 		// Notification message templates (issue #5): org default set +
 		// per-team overrides + the reflected variable palette.
 		mux.HandleFunc("GET /api/v1/settings/notification-templates", admin(h.getOrgNotificationTemplates))

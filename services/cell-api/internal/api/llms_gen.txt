@@ -105,6 +105,15 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 ## errors
 - GET /api/v1/errors — List errors
 
+## event-subscriptions
+- GET /api/v1/event-subscriptions — List event-subscriptions
+- POST /api/v1/event-subscriptions — Create event-subscription
+- PUT /api/v1/event-subscriptions/{id} — Update event-subscription
+- DELETE /api/v1/event-subscriptions/{id} — Delete event-subscription
+
+## event-types
+- GET /api/v1/event-types — List event-types
+
 ## global-search
 - GET /api/v1/global-search — List global-search
 

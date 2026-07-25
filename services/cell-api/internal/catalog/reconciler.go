@@ -64,6 +64,11 @@ type Reconciler struct {
 	logger       *slog.Logger
 	interval     time.Duration
 	window       time.Duration
+	// OnServiceDiscovered, when set, is called once per NEWLY discovered
+	// service (first time it enters the catalog) — the hook behind
+	// com.sluicio.service.discovered event subscriptions. Optional;
+	// fire-and-forget.
+	OnServiceDiscovered func(ctx context.Context, serviceName string)
 }
 
 // NewReconciler builds a reconciler. interval is the tick cadence;
@@ -139,8 +144,14 @@ func (r *Reconciler) RunOnce(ctx context.Context) error {
 			LastSeen:         row.LastSeen,
 		})
 	}
-	if err := r.catalog.UpsertServices(ctx, r.orgID, discoveries); err != nil {
+	created, err := r.catalog.UpsertServices(ctx, r.orgID, discoveries)
+	if err != nil {
 		return err
+	}
+	if r.OnServiceDiscovered != nil {
+		for _, name := range created {
+			r.OnServiceDiscovered(ctx, name)
+		}
 	}
 
 	// 2) Project matchers across the canonical services list and rewrite

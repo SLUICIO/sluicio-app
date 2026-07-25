@@ -59,6 +59,7 @@ import (
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/catalog"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/dashboards"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/erroracks"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/eventsubs"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/errornotify"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/facetmappings"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/facetoverrides"
@@ -140,6 +141,7 @@ func main() {
 	erroracksStore := erroracks.NewStore(pg)
 	profilesStore := notifyprofiles.NewStore(pg)
 	monitoringTemplateStore := monitoringtemplates.NewStore(pg)
+	eventSubsStore := eventsubs.NewStore(pg)
 	systemTypeStore := systemtypes.NewStore(pg)
 	// Ensure an org-wide default notification profile exists so resolution
 	// always has a final fallback.
@@ -221,6 +223,7 @@ func main() {
 		Alerts:              alertStore,
 		Maintenance:         maintenance.NewStore(pg),
 		NotifyTemplates:     notifytemplates.NewStore(pg),
+		EventSubs:           eventSubsStore,
 		PGPool:              pg,
 		ServiceMeta:         serviceMetaStore,
 		Metadata:            metadataStore,
@@ -256,6 +259,14 @@ func main() {
 		logger, 30*time.Second, 90*24*time.Hour,
 	)
 	handlers.CatalogReconciler = catalogReconciler
+	// Announce first-time service discoveries to event subscriptions.
+	// handlers.Events is assigned a few lines below, well before the
+	// reconciler's first 30s tick; the closure reads it per call.
+	catalogReconciler.OnServiceDiscovered = func(ctx context.Context, serviceName string) {
+		handlers.Events.Emit(ctx, integrations.DefaultOrgID, "com.sluicio.service.discovered", serviceName,
+			eventsubs.Audience{ServiceNames: []string{serviceName}},
+			map[string]any{"service": serviceName})
+	}
 	go catalogReconciler.Run(bgCtx)
 	logger.Info("catalog reconciler started")
 
@@ -285,6 +296,38 @@ func main() {
 	errorNotifier := errornotify.New(chStore, erroracksStore, profilesStore, alertStore, catalogStore, integrations.DefaultOrgID, logger, notifyInterval)
 	go errorNotifier.Run(bgCtx)
 	logger.Info("alert engine started")
+
+	// Outbound event subscriptions (issue #4): the emitter fans domain
+	// events (audit-derived config events + alert.fired/resolved) out to
+	// matching subscriptions; the worker drains the queue to webhook
+	// destinations with the same signing/CE contract as alert webhooks.
+	handlers.Events = &eventsubs.Emitter{
+		Store:       eventSubsStore,
+		CanGroupSee: handlers.CanGroupSeeAudience,
+		Log:         logger,
+	}
+	eventWorker := &eventsubs.Worker{
+		Store: eventSubsStore,
+		ResolveChannel: func(ctx context.Context, subID uuid.UUID) (string, string, string, error) {
+			orgID, chID, err := eventSubsStore.ChannelRef(ctx, subID)
+			if err != nil {
+				return "", "", "", err
+			}
+			ch, err := alertStore.GetChannel(ctx, orgID, chID)
+			if err != nil {
+				return "", "", "", err
+			}
+			return ch.Config["url"], strings.TrimSpace(ch.Config["secret"]), ch.Config["format"], nil
+		},
+		Log: logger,
+	}
+	go eventWorker.Run(bgCtx)
+	logger.Info("event subscriptions worker started")
+	errorNotifier.EmitEvent = func(ctx context.Context, serviceName string, errorTraces uint64, integrationID *uuid.UUID) {
+		handlers.Events.Emit(ctx, integrations.DefaultOrgID, "com.sluicio.errors.opened", serviceName,
+			eventsubs.Audience{ServiceNames: []string{serviceName}, IntegrationID: integrationID},
+			map[string]any{"service": serviceName, "error_traces": errorTraces})
+	}
 
 	// Cell-wide settings + retention enforcer. The settings store is the
 	// canonical source for telemetry.retention.*; the enforcer pushes
@@ -416,6 +459,7 @@ func main() {
 	alerting.SetAlertContextResolver(handlers.ResolveAlertContext)
 	alerting.SetDefaultEmailTemplateResolver(handlers.DefaultEmailTemplate)
 	alerting.SetMessageTemplateResolver(handlers.MessageTemplateLadder)
+	alerting.SetDomainEventEmitter(handlers.EmitAlertDomainEvent)
 
 	retentionEnforcer := retention.New(settingsStore, chConn, logger, time.Hour)
 	retentionEnforcer.Audit = auditRecorder
