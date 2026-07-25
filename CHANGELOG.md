@@ -3,8 +3,19 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.40 — 2026-07-25
+
+- feat(settings): organize System settings into General, Email, Security, Notification templates, and Announcements tabs (f0fee32)
+- refactor(alerting): consolidate the cell email template into the org notification-templates set (74f8d23)
+- perf(events): index the delivery ledger; state its 50-row/72h semantics in the UI (73c3074)
+- feat(events): per-subscription delivery ledger — state, attempts, last error (2075833)
+- fix(events): explain custom filter globs; link the drawer to channel management (e8c8371)
+- test(e2e): widen usage-report heading waits under full-suite load (9d4ad38)
+- feat(events): outbound event subscriptions — domain events to webhook destinations (#4) (a59c398)
+
 ## v0.11.39 — 2026-07-24
 
+- release v0.11.39 — refresh internal changelog (9ce4864)
 - fix(alerting): maintenance windows also suppress trace-completion firings (04c722c)
 
 ## v0.11.38 — 2026-07-24
