@@ -48,7 +48,7 @@ func TestServiceBadgeAuthz(t *testing.T) {
 		t.Fatalf("create org: %v", err)
 	}
 	now := time.Unix(1_700_000_000, 0).UTC()
-	if err := cat.UpsertServices(ctx, org.ID, []catalog.Discovery{
+	if _, err := cat.UpsertServices(ctx, org.ID, []catalog.Discovery{
 		{ServiceName: "svc-a", FirstSeen: now, LastSeen: now},
 		{ServiceName: "svc-b", FirstSeen: now, LastSeen: now},
 	}); err != nil {

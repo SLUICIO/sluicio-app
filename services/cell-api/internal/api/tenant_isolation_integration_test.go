@@ -214,14 +214,14 @@ func TestTenantIsolation(t *testing.T) {
 		now := time.Unix(1_700_000_000, 0).UTC()
 		// Same service name in BOTH orgs — they must be distinct rows.
 		shared := []catalog.Discovery{{ServiceName: "checkout", FirstSeen: now, LastSeen: now}}
-		if err := cat.UpsertServices(ctx, orgA, shared); err != nil {
+		if _, err := cat.UpsertServices(ctx, orgA, shared); err != nil {
 			t.Fatalf("upsert orgA: %v", err)
 		}
-		if err := cat.UpsertServices(ctx, orgB, shared); err != nil {
+		if _, err := cat.UpsertServices(ctx, orgB, shared); err != nil {
 			t.Fatalf("upsert orgB: %v", err)
 		}
 		// A service that exists ONLY in org B.
-		if err := cat.UpsertServices(ctx, orgB, []catalog.Discovery{{ServiceName: "b-only", FirstSeen: now, LastSeen: now}}); err != nil {
+		if _, err := cat.UpsertServices(ctx, orgB, []catalog.Discovery{{ServiceName: "b-only", FirstSeen: now, LastSeen: now}}); err != nil {
 			t.Fatalf("upsert b-only: %v", err)
 		}
 
