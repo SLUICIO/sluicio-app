@@ -116,7 +116,7 @@ test.describe("Announcements", () => {
 
   test("cell-wide announcements live on Settings → System, not the Operator page", async ({ page }) => {
     await logIn(page); // suite admin is a cell operator
-    await page.goto("/settings?tab=system");
+    await page.goto("/settings?tab=system&sub=announcements");
     await expect(page.getByRole("heading", { name: "Cell-wide announcements" })).toBeVisible();
     await page.goto("/operator");
     await expect(page.getByRole("heading", { name: /announcements/i })).toHaveCount(0);
@@ -124,7 +124,7 @@ test.describe("Announcements", () => {
 
   test("operator publishes and removes from Settings → System", async ({ page }) => {
     await logIn(page);
-    await page.goto("/settings?tab=system");
+    await page.goto("/settings?tab=system&sub=announcements");
     const msg = `e2e settings announcement ${Date.now()}`;
     await page.getByPlaceholder(/Planned maintenance tonight/).fill(msg);
     await page.getByRole("button", { name: "Publish" }).click();

@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: FSL-1.1-Apache-2.0
 //
-// Announcement management — Settings → System, operator-only. One cell
-// serves one organization, so there is a single announcement surface:
-// cell-wide (the org-scoped section was removed 2026-07-24; maintenance
-// windows still auto-announce internally via the store). Styled as a
-// flat section to match its System-tab siblings.
+// Announcement management — Settings → System → Announcements,
+// operator-only. One cell serves one organization, so there is a single
+// announcement surface: cell-wide (the org-scoped section was removed
+// 2026-07-24; maintenance windows still auto-announce internally via the
+// store).
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { api } from "../api/client";
@@ -72,7 +72,7 @@ export default function AnnouncementsAdmin() {
     new Date(a.starts_at) <= new Date() && (!a.ends_at || new Date(a.ends_at) > new Date());
 
   return (
-    <section style={{ marginTop: 28, borderTop: "1px solid var(--border)", paddingTop: 20 }}>
+    <section>
       <h3 style={{ fontSize: 14, fontWeight: 600, margin: "0 0 4px" }}>
         Cell-wide announcements
       </h3>

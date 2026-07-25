@@ -490,7 +490,7 @@ function CellSettingsCard() {
       </p>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         <a className="btn btn--sm" href="/settings?tab=system">
-          Email (SMTP), security &amp; announcements
+          System settings (email, security, announcements)
         </a>
         <a className="btn btn--sm" href="/settings?tab=retention">
           Telemetry retention

@@ -718,7 +718,7 @@ function ChannelsCard({
               </button>
             </div>
             <span className="muted" style={{ fontSize: 11.5 }}>
-              Slack/webhook take a URL, PagerDuty an Events API routing key. Email sends over SMTP — by default it reuses the org SMTP server from <Link to="/settings?tab=system">Settings → System email</Link>, so you only enter recipients; untick &ldquo;Use system email server&rdquo; to point a channel at its own server.
+              Slack/webhook take a URL, PagerDuty an Events API routing key. Email sends over SMTP — by default it reuses the org SMTP server from <Link to="/settings?tab=system&sub=email">Settings → System → Email</Link>, so you only enter recipients; untick &ldquo;Use system email server&rdquo; to point a channel at its own server.
             </span>
           </>
         ) : (

@@ -76,7 +76,7 @@ const TABS: { key: TabKey; label: string; subtitle: string; enterprise?: boolean
   { key: "ingestion", label: "Ingestion", subtitle: "Ingest keys and ready-to-paste exporter configuration." },
   { key: "retention", label: "Retention", subtitle: "How long telemetry and audit history are kept, cell-wide." },
   { key: "reports", label: "Reports", subtitle: "What you store vs what you alert on — with trim suggestions." },
-  { key: "system", label: "System settings", subtitle: "Cell-wide knobs: environment label, ingest URL, email, security policy." },
+  { key: "system", label: "System settings", subtitle: "Cell-wide platform settings — general knobs, email transport, security policy, notification templates, and announcements." },
   { key: "sso", label: "SSO", subtitle: "Single sign-on for this organization.", enterprise: true },
   { key: "audit", label: "Audit log", subtitle: "Who changed what, when — tamper-evident.", enterprise: true },
   { key: "license", label: "License", subtitle: "License status and Enterprise entitlements." },
@@ -121,6 +121,19 @@ function TabIcon({ k }: { k: TabKey }) {
   }
 }
 
+// System-settings sub-tabs. The system tab grew past one scrollable page
+// (general knobs + SMTP + MFA + templates + announcements), so each area
+// gets its own panel. `?sub=` addresses them like `?tab=` does the page,
+// so other pages can deep-link (e.g. the email-channel hint on Alerts).
+type SystemSubKey = "general" | "email" | "security" | "templates" | "announcements";
+const SYSTEM_SUBTABS: { key: SystemSubKey; label: string }[] = [
+  { key: "general", label: "General" },
+  { key: "email", label: "Email" },
+  { key: "security", label: "Security" },
+  { key: "templates", label: "Notification templates" },
+  { key: "announcements", label: "Announcements" },
+];
+
 // Cell-wide tabs — retention, system (SMTP + security), and license apply
 // to every org on the cell, so only operators may see/change them. In
 // single-org self-hosted the admin is the operator, so nothing hides there.
@@ -139,6 +152,9 @@ export default function Settings() {
     setSearchParams(
       (prev) => {
         prev.set("tab", key);
+        // ?sub= only means something on the system tab — don't let a
+        // stale value leak into the next visit there.
+        prev.delete("sub");
         return prev;
       },
       { replace: true },
@@ -210,19 +226,7 @@ export default function Settings() {
           {tab === "ingestion" && <IngestKeysTab />}
           {tab === "retention" && <RetentionTab />}
           {tab === "reports" && <ReportsTab />}
-          {tab === "system" && (
-            <>
-              <SystemSettingsTab />
-              {/* The cell-wide "Alert email template" card was consolidated
-                  into the org Notification templates set (2026-07-25) —
-                  the stored cell setting remains a silent fallback rung. */}
-              <NotificationTemplateEditor scope="org" />
-              {/* Cell-wide announcements sit with the other cell-wide
-                  settings (the whole tab is operator-gated). Org-scoped
-                  announcements live on the Organization tab. */}
-              <AnnouncementsAdmin />
-            </>
-          )}
+          {tab === "system" && <SystemSettingsSection />}
           {tab === "sso" && <SsoTab />}
           {tab === "audit" && <AuditLogTab />}
           {tab === "license" && <LicenseTab />}
@@ -2865,10 +2869,58 @@ function RetentionTab() {
   );
 }
 
-// SystemSettingsTab — cell-wide system knobs. Today: the environment
-// label shown in the top nav. Read is open; saving is admin-only (server
-// enforces too). One Sluicio instance serves one org/environment, so the
-// org admin owns this (issue #27).
+// SystemSettingsSection — the System settings page, split into sub-tabs:
+// General (environment, ingest URL, 5xx mapping, service-account policy),
+// Email (SMTP), Security (MFA policy), Notification templates (the org
+// default set — the cell-wide "Alert email template" card was consolidated
+// into it 2026-07-25; the stored cell setting remains a silent fallback
+// rung), and Announcements (cell-wide; the whole tab is operator-gated).
+// Sub-tab lives in ?sub= for the same deep-link reasons as ?tab=.
+function SystemSettingsSection() {
+  const { can } = useCurrentUser();
+  const isAdmin = can("org.manage");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const subParam = searchParams.get("sub");
+  const sub: SystemSubKey = SYSTEM_SUBTABS.some((s) => s.key === subParam) ? (subParam as SystemSubKey) : "general";
+  const setSub = (key: SystemSubKey) => {
+    setSearchParams(
+      (prev) => {
+        prev.set("sub", key);
+        return prev;
+      },
+      { replace: true },
+    );
+    document.querySelector("main")?.scrollTo({ top: 0 });
+  };
+
+  return (
+    <div>
+      <div className="svc-tabs">
+        {SYSTEM_SUBTABS.map((s) => (
+          <button
+            key={s.key}
+            type="button"
+            className={`svc-tab ${sub === s.key ? "on" : ""}`}
+            onClick={() => setSub(s.key)}
+          >
+            {s.label}
+          </button>
+        ))}
+      </div>
+      {sub === "general" && <SystemSettingsTab />}
+      {sub === "email" && <SmtpSettings isAdmin={isAdmin} />}
+      {sub === "security" && <SecurityPolicy isAdmin={isAdmin} />}
+      {sub === "templates" && <NotificationTemplateEditor scope="org" />}
+      {sub === "announcements" && <AnnouncementsAdmin />}
+    </div>
+  );
+}
+
+// SystemSettingsTab — the General sub-tab: cell-wide system knobs (the
+// environment label shown in the top nav, the ingest URL, ingest-time 5xx
+// mapping, and the service-account policy). Read is open; saving is
+// admin-only (server enforces too). One Sluicio instance serves one
+// org/environment, so the org admin owns this (issue #27).
 // ── Reports tab ────────────────────────────────────────────────────────
 //
 // "Unused metrics" report: every metric Sluicio is ingesting + storing
@@ -3281,9 +3333,6 @@ function SystemSettingsTab() {
           </p>
         )}
       </form>
-
-      <SmtpSettings isAdmin={isAdmin} />
-      <SecurityPolicy isAdmin={isAdmin} />
     </div>
   );
 }
@@ -3320,7 +3369,7 @@ function SecurityPolicy({ isAdmin }: { isAdmin: boolean }) {
   };
 
   return (
-    <div style={{ marginTop: 28, borderTop: "1px solid var(--border)", paddingTop: 20 }}>
+    <div>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
         <h3 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>Security policy</h3>
         <EnterpriseBadge />
@@ -3413,7 +3462,7 @@ function SmtpSettings({ isAdmin }: { isAdmin: boolean }) {
   };
 
   return (
-    <div style={{ marginTop: 28, borderTop: "1px solid var(--border)", paddingTop: 20 }}>
+    <div>
       <h3 style={{ fontSize: 14, fontWeight: 600, margin: "0 0 4px" }}>Email (SMTP)</h3>
       <p className="muted" style={{ fontSize: 13, lineHeight: 1.55, margin: "0 0 14px" }}>
         The transport used for transactional email — password-reset links and

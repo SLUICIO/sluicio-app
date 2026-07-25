@@ -113,7 +113,10 @@ export default function NotificationTemplateEditor({
   };
 
   return (
-    <section style={{ marginTop: 24, borderTop: "1px solid var(--border)", paddingTop: 18 }}>
+    // Divider styling only in the group drawer, where the editor sits
+    // below the group's other sections; at org scope it fills its own
+    // System sub-tab.
+    <section style={scope === "group" ? { marginTop: 24, borderTop: "1px solid var(--border)", paddingTop: 18 } : undefined}>
       <h3 style={{ fontSize: 14, fontWeight: 600, margin: "0 0 4px" }}>Notification templates</h3>
       <p className="muted" style={{ fontSize: 13, lineHeight: 1.55, margin: "0 0 12px" }}>
         {scope === "org"

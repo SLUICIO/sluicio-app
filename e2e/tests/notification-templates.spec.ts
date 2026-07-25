@@ -181,7 +181,7 @@ test.describe("Notification message templates", () => {
 
   test("UI: org card on Settings → System; team card in the group drawer", async ({ page }) => {
     await logIn(page);
-    await page.goto("/settings?tab=system");
+    await page.goto("/settings?tab=system&sub=templates");
     await expect(page.getByRole("heading", { name: "Notification templates" })).toBeVisible();
     await expect(page.getByText("Slack body (mrkdwn)").first()).toBeVisible();
 

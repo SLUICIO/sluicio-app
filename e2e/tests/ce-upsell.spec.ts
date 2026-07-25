@@ -66,7 +66,7 @@ test.describe("Enterprise features upsell in the Community edition", () => {
 
   test("MFA enforcement policy", async ({ page }) => {
     const ee = await entitled(page, "mfa_policy");
-    await page.goto("/settings?tab=system");
+    await page.goto("/settings?tab=system&sub=security");
     // The security section is present either way; the toggle only when entitled.
     await expect(page.getByText(/two-factor/i).first()).toBeVisible();
     if (!ee) {
