@@ -3,8 +3,14 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.41 — 2026-07-25
+
+- feat(helm): chart v0.3.0 — CI validation, optional NetworkPolicy/PDB, OCI publishing, appVersion v0.11.40 (#6) (4a91d93)
+- test(integration): adapt UpsertServices call sites to the two-value signature (ee2964f)
+
 ## v0.11.40 — 2026-07-25
 
+- release v0.11.40 — refresh internal changelog (fb5c714)
 - feat(settings): organize System settings into General, Email, Security, Notification templates, and Announcements tabs (f0fee32)
 - refactor(alerting): consolidate the cell email template into the org notification-templates set (74f8d23)
 - perf(events): index the delivery ledger; state its 50-row/72h semantics in the UI (73c3074)
