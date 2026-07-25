@@ -8,7 +8,7 @@ description: |
   cells — Enterprise features are enabled at runtime by the license key, not
   by different software. The separate `controlplane` chart is SaaS-only.
 type: application
-version: 0.2.0
-appVersion: "v0.11.27"
+version: 0.3.0
+appVersion: "v0.11.40"
 maintainers:
   - name: Sluicio

@@ -233,3 +233,18 @@ containerSecurityContext:
   readOnlyRootFilesystem: true
   capabilities:
     drop: ["ALL"]
+
+# ── network policy + disruption budgets (optional hardening) ─────────
+# NetworkPolicy: default-deny ingress to the data stores (only in-release
+# pods may reach Postgres/ClickHouse) and scoped ingress for the app pods.
+# Requires a CNI that enforces NetworkPolicy; off by default so the chart
+# behaves identically on clusters without one.
+networkPolicy:
+  enabled: false
+
+# PodDisruptionBudgets: meaningful once a component runs >1 replica —
+# cell-api is pinned to 1 (in-process schedulers), so this mainly guards
+# the frontend/ingest if you scale them. Off by default.
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

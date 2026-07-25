@@ -104,6 +104,31 @@ jobs:
             APP_VERSION=${{ needs.prep.outputs.version }}
           provenance: false
 
+  # Publish the cell Helm chart to ghcr.io as an OCI artifact on every
+  # version tag, with appVersion stamped from the tag so `helm install
+  # oci://ghcr.io/<owner>/charts/sluicio-cell` always deploys the images
+  # published by this same run.
+  publish-chart:
+    name: Publish Helm chart (OCI)
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [prep, images]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v4
+      - name: Package + push
+        env:
+          TAG: ${{ github.ref_name }}
+          NS: ${{ needs.prep.outputs.ns }}
+        run: |
+          helm registry login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
+          # Chart version: strip the v (SemVer requirement); appVersion = the tag.
+          helm package deploy/helm/cell --version "${TAG#v}" --app-version "$TAG" -d /tmp/chart
+          helm push /tmp/chart/*.tgz "oci://ghcr.io/${NS}/charts"
+
   # Draft GitHub Release on every version tag — notes seeded from the tag's
   # CHANGELOG.md section, for a human to polish into the user-facing story
   # and publish. Exists because the Releases page silently fell behind

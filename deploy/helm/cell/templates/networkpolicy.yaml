@@ -1,0 +1,41 @@
+{{- /* SPDX-License-Identifier: FSL-1.1-Apache-2.0 */ -}}
+{{- if .Values.networkPolicy.enabled }}
+# Data stores accept traffic only from this release's pods; the app pods
+# accept ingress only on their serving ports. Egress is left open (the
+# cell calls out: SMTP, webhooks, OTLP sources vary per install).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "cell.fullname" . }}-datastores
+  labels: {{- include "cell.labels" (dict "root" . "component" "network-policy") | nindent 4 }}
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: In
+        values: ["postgres", "clickhouse"]
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: {{ .Release.Name }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "cell.fullname" . }}-app
+  labels: {{- include "cell.labels" (dict "root" . "component" "network-policy") | nindent 4 }}
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: In
+        values: ["cell-api", "cell-ingest", "frontend"]
+  policyTypes: ["Ingress"]
+  ingress:
+    - ports:
+        - port: 8080
+        - port: 8081
+        - port: 4318
+{{- end }}
