@@ -288,6 +288,46 @@ func (s *Store) MarkResult(ctx context.Context, jobID uuid.UUID, attempt int, se
 	return err
 }
 
+// DeliveryRecord is one queue row for the observability endpoint.
+type DeliveryRecord struct {
+	ID          uuid.UUID `json:"id"`
+	EventType   string    `json:"event_type"`
+	Subject     string    `json:"subject,omitempty"`
+	OccurredAt  time.Time `json:"occurred_at"`
+	State       string    `json:"state"`
+	Attempts    int       `json:"attempts"`
+	LastError   string    `json:"last_error,omitempty"`
+	NextAttempt time.Time `json:"next_attempt_at"`
+}
+
+// RecentDeliveries returns a subscription's latest queue rows, newest
+// first — the "did my events actually arrive?" answer.
+func (s *Store) RecentDeliveries(ctx context.Context, orgID, subscriptionID uuid.UUID, limit int) ([]DeliveryRecord, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT j.id, j.event_type, j.subject, j.occurred_at, j.state, j.attempts, j.last_error, j.next_attempt_at
+		FROM event_jobs j
+		JOIN event_subscriptions sub ON sub.id = j.subscription_id
+		WHERE j.subscription_id = $2 AND sub.org_id = $1
+		ORDER BY j.occurred_at DESC
+		LIMIT $3`, orgID, subscriptionID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("eventsubs: recent deliveries: %w", err)
+	}
+	defer rows.Close()
+	out := []DeliveryRecord{}
+	for rows.Next() {
+		var d DeliveryRecord
+		if err := rows.Scan(&d.ID, &d.EventType, &d.Subject, &d.OccurredAt, &d.State, &d.Attempts, &d.LastError, &d.NextAttempt); err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
 // PruneFinished deletes done/failed jobs older than the retention
 // window — events are notifications, not records; the queue must not
 // grow forever. Called opportunistically from the worker.

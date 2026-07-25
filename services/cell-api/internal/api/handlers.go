@@ -1267,6 +1267,7 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 		mux.HandleFunc("POST /api/v1/event-subscriptions", h.blockDemo(h.createEventSubscription))
 		mux.HandleFunc("PUT /api/v1/event-subscriptions/{id}", h.blockDemo(h.updateEventSubscription))
 		mux.HandleFunc("DELETE /api/v1/event-subscriptions/{id}", h.blockDemo(h.deleteEventSubscription))
+		mux.HandleFunc("GET /api/v1/event-subscriptions/{id}/deliveries", h.listEventDeliveries)
 
 		// Notification message templates (issue #5): org default set +
 		// per-team overrides + the reflected variable palette.

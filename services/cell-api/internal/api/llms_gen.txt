@@ -110,6 +110,7 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 - POST /api/v1/event-subscriptions — Create event-subscription
 - PUT /api/v1/event-subscriptions/{id} — Update event-subscription
 - DELETE /api/v1/event-subscriptions/{id} — Delete event-subscription
+- GET /api/v1/event-subscriptions/{id}/deliveries — List event-subscriptions
 
 ## event-types
 - GET /api/v1/event-types — List event-types

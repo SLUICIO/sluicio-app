@@ -144,6 +144,7 @@ import type {
   TemplateVariable,
   EventSubscription,
   EventTypeEntry,
+  EventDelivery,
 } from "./types";
 import { getActiveOrgSlug } from "../lib/activeOrg";
 
@@ -810,6 +811,8 @@ export const api = {
   updateEventSubscription: (id: string, body: { name: string; enabled?: boolean; event_filters: string[]; channel_id: string }) =>
     put<EventSubscription>(`/event-subscriptions/${encodeURIComponent(id)}`, body),
   deleteEventSubscription: (id: string) => del(`/event-subscriptions/${encodeURIComponent(id)}`),
+  listEventDeliveries: (id: string) =>
+    get<{ deliveries: EventDelivery[] }>(`/event-subscriptions/${encodeURIComponent(id)}/deliveries`),
 
   // Notification profiles: per-team (or org-wide) bundles of behaviour +
   // channels. An alert/error resolves to one profile, most-specific-first:

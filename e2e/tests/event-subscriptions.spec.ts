@@ -122,6 +122,13 @@ test.describe("Event subscriptions", () => {
     // Same emission → same event id across subscriptions (consumer dedup).
     expect(ceBody.id).toBe(pBody.id);
 
+    // The delivery ledger reports the sent job as done.
+    const ledger = await (await admin.get(`/api/v1/event-subscriptions/${cleanup.subs[0]}/deliveries`)).json();
+    const done = (ledger.deliveries ?? []).find(
+      (d: { event_type: string; state: string }) => d.event_type === "com.sluicio.integration.created" && d.state === "done",
+    );
+    expect(done, "ledger should show the delivered integration.created job").toBeTruthy();
+
     // Filter exclusion: a GROUP mutation must reach the * subscription
     // but never the integration.* one. (No hit-COUNT assertions here —
     // parallel suite workers create integrations of their own, which

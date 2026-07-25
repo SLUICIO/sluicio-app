@@ -230,6 +230,25 @@ func (h *Handlers) updateEventSubscription(w http.ResponseWriter, r *http.Reques
 	httpserver.WriteJSON(w, http.StatusOK, sub)
 }
 
+// listEventDeliveries: GET /api/v1/event-subscriptions/{id}/deliveries
+// The per-subscription delivery ledger — state, attempts, last error —
+// so "my webhook is silent" is diagnosable from the UI instead of the
+// database. Readable by anyone who can see the subscription list.
+func (h *Handlers) listEventDeliveries(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid subscription id")
+		return
+	}
+	deliveries, err := h.EventSubs.RecentDeliveries(r.Context(), middleware.OrgID(r), id, 50)
+	if err != nil {
+		h.Logger.Error("list event deliveries failed", "err", err)
+		httpserver.WriteError(w, http.StatusInternalServerError, "query failed")
+		return
+	}
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"deliveries": deliveries})
+}
+
 // deleteEventSubscription: DELETE /api/v1/event-subscriptions/{id}
 func (h *Handlers) deleteEventSubscription(w http.ResponseWriter, r *http.Request) {
 	id, err := uuid.Parse(r.PathValue("id"))

@@ -6,10 +6,11 @@
 // format decides CloudEvents vs canonical JSON). Team-scoped is the
 // primary model; org-wide is admin-only.
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../api/client";
-import type { EventSubscription, EventTypeEntry, Group, NotificationChannel } from "../../api/types";
+import type { EventDelivery, EventSubscription, EventTypeEntry, Group, NotificationChannel } from "../../api/types";
+import { formatRelative } from "../../lib/format";
 import { EditDrawer } from "../primitives";
 
 export default function EventSubscriptions() {
@@ -19,6 +20,9 @@ export default function EventSubscriptions() {
   const [channels, setChannels] = useState<NotificationChannel[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<EventSubscription | "new" | null>(null);
+  // Which subscription's delivery ledger is expanded, and its rows.
+  const [deliveriesFor, setDeliveriesFor] = useState<string | null>(null);
+  const [deliveries, setDeliveries] = useState<EventDelivery[]>([]);
 
   const load = useCallback(() => {
     api.listEventSubscriptions().then((r) => setSubs(r.subscriptions ?? [])).catch((e) => setError(String((e as Error).message ?? e)));
@@ -32,6 +36,21 @@ export default function EventSubscriptions() {
 
   const groupName = (id?: string) => (id ? groups.find((g) => g.id === id)?.name ?? "team" : "Org-wide");
   const channelName = (id: string) => channels.find((c) => c.id === id)?.name ?? "—";
+
+  const toggleDeliveries = async (id: string) => {
+    if (deliveriesFor === id) {
+      setDeliveriesFor(null);
+      return;
+    }
+    setDeliveriesFor(id);
+    setDeliveries([]);
+    try {
+      const r = await api.listEventDeliveries(id);
+      setDeliveries(r.deliveries ?? []);
+    } catch (e) {
+      setError(String((e as Error).message ?? e));
+    }
+  };
 
   const remove = async (s: EventSubscription) => {
     if (!window.confirm(`Delete subscription "${s.name}"? Its destination stops receiving events immediately.`)) return;
@@ -60,7 +79,8 @@ export default function EventSubscriptions() {
           </thead>
           <tbody>
             {subs.map((s) => (
-              <tr key={s.id}>
+              <Fragment key={s.id}>
+              <tr>
                 <td style={{ fontSize: 13.5, fontWeight: 600 }}>{s.name}</td>
                 <td className="muted" style={{ fontSize: 12.5 }}>{groupName(s.group_id)}</td>
                 <td>
@@ -71,6 +91,9 @@ export default function EventSubscriptions() {
                 <td className="muted" style={{ fontSize: 12.5 }}>{channelName(s.channel_id)}</td>
                 <td className="muted" style={{ fontSize: 12.5 }}>{s.enabled ? "enabled" : "disabled"}</td>
                 <td className="num" style={{ whiteSpace: "nowrap" }}>
+                  <button type="button" className="btn btn--link" onClick={() => toggleDeliveries(s.id)}>
+                    {deliveriesFor === s.id ? "Deliveries ▾" : "Deliveries ▸"}
+                  </button>
                   {s.can_manage && (
                     <>
                       <button type="button" className="btn btn--link" onClick={() => setEditing(s)}>Edit</button>
@@ -79,6 +102,45 @@ export default function EventSubscriptions() {
                   )}
                 </td>
               </tr>
+              {deliveriesFor === s.id && (
+                <tr>
+                  <td colSpan={6} style={{ padding: "4px 12px 12px", background: "var(--surface-3)" }}>
+                    {deliveries.length === 0 ? (
+                      <span className="muted" style={{ fontSize: 12.5 }}>
+                        No deliveries yet — trigger a matching event (e.g. edit an integration) and refresh.
+                      </span>
+                    ) : (
+                      <table className="table" style={{ fontSize: 12.5 }}>
+                        <thead>
+                          <tr><th>Event</th><th>When</th><th>State</th><th className="num">Attempts</th><th>Last error</th></tr>
+                        </thead>
+                        <tbody>
+                          {deliveries.map((d) => (
+                            <tr key={d.id}>
+                              <td className="mono" style={{ fontSize: 11.5 }}>{d.event_type}</td>
+                              <td className="muted" title={d.occurred_at}>{formatRelative(d.occurred_at)}</td>
+                              <td>
+                                {d.state === "failed" ? (
+                                  <span className="badge sev-err">failed</span>
+                                ) : d.state === "done" ? (
+                                  <span className="muted">delivered</span>
+                                ) : (
+                                  <span className="badge sev-warn">{d.state}</span>
+                                )}
+                              </td>
+                              <td className="num">{d.attempts}</td>
+                              <td className="muted mono" style={{ fontSize: 11, maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={d.last_error}>
+                                {d.last_error || "—"}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </td>
+                </tr>
+              )}
+              </Fragment>
             ))}
           </tbody>
         </table>

@@ -1638,6 +1638,18 @@ export interface EventSubscription {
   can_manage?: boolean;
 }
 
+// One row of a subscription's delivery ledger.
+export interface EventDelivery {
+  id: string;
+  event_type: string;
+  subject?: string;
+  occurred_at: string;
+  state: "pending" | "running" | "done" | "failed";
+  attempts: number;
+  last_error?: string;
+  next_attempt_at: string;
+}
+
 export interface EventTypeEntry {
   type: string;
   description: string;
