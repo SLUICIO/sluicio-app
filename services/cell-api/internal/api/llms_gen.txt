@@ -24,11 +24,6 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 ## alert-deliveries
 - GET /api/v1/alert-deliveries — List alert-deliveries
 
-## alert-email-template
-- GET /api/v1/alert-email-template — List alert-email-template
-- PUT /api/v1/alert-email-template — Update alert-email-template
-- PUT /api/v1/alert-email-template — Update alert-email-template
-
 ## alert-instances
 - GET /api/v1/alert-instances — List alert-instances
 - POST /api/v1/alert-instances/{id}/acknowledge — Create alert-instance

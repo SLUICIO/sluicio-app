@@ -41,7 +41,6 @@ import type {
   UsageSignalReport,
 } from "../api/types";
 import { EditDrawer } from "../components/primitives";
-import AlertEmailTemplateSettings from "../components/AlertEmailTemplateSettings";
 import NotificationTemplateEditor from "../components/alerts/NotificationTemplateEditor";
 import TrimIngestionPanel from "../components/metrics/TrimIngestionPanel";
 import MetricAttributesInline from "../components/metrics/MetricAttributesInline";
@@ -214,7 +213,9 @@ export default function Settings() {
           {tab === "system" && (
             <>
               <SystemSettingsTab />
-              <AlertEmailTemplateSettings />
+              {/* The cell-wide "Alert email template" card was consolidated
+                  into the org Notification templates set (2026-07-25) —
+                  the stored cell setting remains a silent fallback rung. */}
               <NotificationTemplateEditor scope="org" />
               {/* Cell-wide announcements sit with the other cell-wide
                   settings (the whole tab is operator-gated). Org-scoped

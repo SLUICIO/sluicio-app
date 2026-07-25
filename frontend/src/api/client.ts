@@ -737,10 +737,6 @@ export const api = {
 
   previewAlertTemplate: (kind: string, content: NotificationContent) =>
     post<{ subject: string; body: string }>(`/alert-templates/preview`, { kind, content }),
-  getAlertEmailTemplate: () =>
-    get<{ subject: string; body: string; default_subject: string; default_body: string }>(`/alert-email-template`),
-  putAlertEmailTemplate: (subject: string, body: string) =>
-    put<void>(`/alert-email-template`, { subject, body }),
   listAlertInstances: (limit = 100) => get<{ instances: AlertInstance[] }>(`/alert-instances?limit=${limit}`),
 
   // Config export & import (docs/config-transfer-design.md). Export

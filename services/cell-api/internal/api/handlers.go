@@ -946,7 +946,6 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	// Alert template preview (renders a sample notification) + org-default
 	// email template — preview is read-only; the default-template GET too.
 	mux.HandleFunc("POST /api/v1/alert-templates/preview", h.previewAlertTemplate)
-	mux.HandleFunc("GET /api/v1/alert-email-template", h.getAlertEmailTemplate)
 	// Notification profiles (per-team / org-wide behaviour + channels).
 	mux.HandleFunc("GET /api/v1/notification-profiles", h.listNotificationProfiles)
 	mux.HandleFunc("GET /api/v1/integrations/{id}/notification-profile", h.getIntegrationProfile)
@@ -965,7 +964,6 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 		mux.HandleFunc("PUT /api/v1/notification-channels/{id}", h.AuthMW.RequireRole(identity.Role.CanWrite, h.updateChannel))
 		mux.HandleFunc("DELETE /api/v1/notification-channels/{id}", h.AuthMW.RequireRole(identity.Role.CanWrite, h.deleteChannel))
 		mux.HandleFunc("POST /api/v1/notification-channels/{id}/test", h.AuthMW.RequireRole(identity.Role.CanWrite, h.testChannel))
-		mux.HandleFunc("PUT /api/v1/alert-email-template", h.AuthMW.RequireRole(identity.Role.CanWrite, h.putAlertEmailTemplate))
 	} else {
 		mux.HandleFunc("POST /api/v1/notification-profiles", h.createNotificationProfile)
 		mux.HandleFunc("PUT /api/v1/notification-profiles/{id}", h.updateNotificationProfile)
@@ -979,7 +977,6 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 		mux.HandleFunc("PUT /api/v1/notification-channels/{id}", h.updateChannel)
 		mux.HandleFunc("DELETE /api/v1/notification-channels/{id}", h.deleteChannel)
 		mux.HandleFunc("POST /api/v1/notification-channels/{id}/test", h.testChannel)
-		mux.HandleFunc("PUT /api/v1/alert-email-template", h.putAlertEmailTemplate)
 	}
 
 	// Per-org OTLP ingest keys. Listing is open to any authed org member;

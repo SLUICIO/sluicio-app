@@ -458,6 +458,23 @@ func main() {
 	// email template — both implemented in the api layer where the stores live.
 	alerting.SetAlertContextResolver(handlers.ResolveAlertContext)
 	alerting.SetDefaultEmailTemplateResolver(handlers.DefaultEmailTemplate)
+	// One-time consolidation (2026-07-25): the cell-wide alert email
+	// template's editing surface moved into the org Notification
+	// templates card. Seed the org set from the cell setting the first
+	// time a cell boots without an org row, so existing values become
+	// visible where they're now edited. The cell setting itself stays
+	// honored as a silent fallback rung (DefaultEmailTemplate above).
+	if sub, body, err := settingsStore.GetAlertEmailTemplate(ctx); err == nil && (sub != "" || body != "") {
+		if cur, gerr := handlers.NotifyTemplates.Get(ctx, integrations.DefaultOrgID, nil); gerr == nil && cur.ID == uuid.Nil {
+			if _, uerr := handlers.NotifyTemplates.Upsert(ctx, integrations.DefaultOrgID, nil, notifytemplates.TemplateSet{
+				EmailSubject: sub, EmailBody: body,
+			}); uerr != nil {
+				logger.Warn("email template consolidation seed failed", "err", uerr)
+			} else {
+				logger.Info("seeded org notification templates from the cell email setting")
+			}
+		}
+	}
 	alerting.SetMessageTemplateResolver(handlers.MessageTemplateLadder)
 	alerting.SetDomainEventEmitter(handlers.EmitAlertDomainEvent)
 
