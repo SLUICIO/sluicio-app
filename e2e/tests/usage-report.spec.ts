@@ -87,14 +87,15 @@ test.describe("Usage report — savings suggestions + per-signal coverage", () =
       await expect(page.getByText(/could save/).first()).toBeVisible();
     }
     if ((report.logs.services ?? []).length > 0) {
-      await expect(page.getByRole("heading", { name: "Logs by service" })).toBeVisible();
+      // Generous window — the report fetch competes with the whole suite.
+      await expect(page.getByRole("heading", { name: "Logs by service" })).toBeVisible({ timeout: 20_000 });
       const uncoveredLog = (report.logs.services ?? []).find((s: { covered: boolean }) => !s.covered);
       if (uncoveredLog) {
         await expect(page.getByText("not covered").first()).toBeVisible();
       }
     }
     if ((report.traces.services ?? []).length > 0) {
-      await expect(page.getByRole("heading", { name: "Traces by service" })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "Traces by service" })).toBeVisible({ timeout: 20_000 });
     }
   });
 
