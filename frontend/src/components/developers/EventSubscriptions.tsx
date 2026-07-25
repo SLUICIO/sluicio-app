@@ -7,6 +7,7 @@
 // primary model; org-wide is admin-only.
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../../api/client";
 import type { EventSubscription, EventTypeEntry, Group, NotificationChannel } from "../../api/types";
 import { EditDrawer } from "../primitives";
@@ -197,7 +198,8 @@ function SubscriptionDrawer({
               ))}
             </select>
             <span className="form__hint">
-              The channel's payload format + HMAC settings apply to events too.
+              The channel's payload format + HMAC settings apply to events too.{" "}
+              <Link to="/alerts?tab=channels" target="_blank">Manage webhook channels ↗</Link>
             </span>
           </label>
         </div>
@@ -231,6 +233,11 @@ function SubscriptionDrawer({
             >
               Add
             </button>
+            <span className="form__hint" style={{ width: "100%" }}>
+              Every audited change emits <code>com.sluicio.&lt;entity&gt;.&lt;verb&gt;</code> — more entities than
+              this list shows. A pattern ending in <code>*</code> matches everything with that prefix
+              (<code>com.sluicio.ingest_key.*</code> = created, revoked, …); an exact type matches only itself.
+            </span>
             {customChips.map((f) => (
               <span key={f} className="mono" style={{ fontSize: 11.5, border: "1px solid var(--border)", borderRadius: 4, padding: "2px 6px" }}>
                 {f}

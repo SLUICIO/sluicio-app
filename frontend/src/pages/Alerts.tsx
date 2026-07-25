@@ -54,7 +54,13 @@ export default function Alerts() {
   // Sent-notifications: server-side filtered by the window + facets.
   const [deliveries, setDeliveries] = useState<AlertDelivery[]>([]);
   const [dFilter, setDFilter] = useState({ service: "", integration: "", system: "", name: "" });
-  const [tab, setTab] = useState<"checks" | "channels" | "sent" | "maintenance">("checks");
+  // Initial tab honours ?tab= so other pages can deep-link (e.g. the
+  // event-subscriptions drawer links to ?tab=channels).
+  const initialTab = ((): "checks" | "channels" | "sent" | "maintenance" => {
+    const t = new URLSearchParams(window.location.search).get("tab");
+    return t === "channels" || t === "sent" || t === "maintenance" ? t : "checks";
+  })();
+  const [tab, setTab] = useState<"checks" | "channels" | "sent" | "maintenance">(initialTab);
   const [mWindows, setMWindows] = useState<MaintenanceWindow[]>([]);
 
   const load = useCallback(() => {
