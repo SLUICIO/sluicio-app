@@ -105,6 +105,9 @@ export default function EventSubscriptions() {
               {deliveriesFor === s.id && (
                 <tr>
                   <td colSpan={6} style={{ padding: "4px 12px 12px", background: "var(--surface-3)" }}>
+                    <div className="muted" style={{ fontSize: 11.5, margin: "4px 0 6px" }}>
+                      Newest 50 deliveries; finished ones are kept for 3 days. The audit log remains the permanent record.
+                    </div>
                     {deliveries.length === 0 ? (
                       <span className="muted" style={{ fontSize: 12.5 }}>
                         No deliveries yet — trigger a matching event (e.g. edit an integration) and refresh.
