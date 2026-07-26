@@ -30,12 +30,13 @@ are green. Tick the area once every case in it passes. Full catalog:
 - [ ] **[Account, password & MFA](protocols/auth-account-mfa.md)** — profile, change/reset password, MFA enroll/login/disable.
 - [ ] **[Orgs, access & tenancy](protocols/orgs-access-tenancy.md)** — members, roles, tokens, groups/policies, ingest keys, **tenant isolation**.
 - [ ] **[Telemetry ingest](protocols/telemetry-ingest.md)** — OTLP traces/logs/metrics in; key auth.
-- [ ] **[Health & services](protocols/health-services.md)** — health status, service detail, clear-errors, facets/overrides/mappings, tags, metadata.
+- [ ] **[Health & services](protocols/health-services.md)** — health status, service detail, clear-errors, facets/overrides/mappings, tags, metadata, **system types (export/import, detection)**.
 - [ ] **[Traces, logs, metrics, search, topology](protocols/traces-logs-metrics.md)** — waterfall, completion/SLA, log & metric filters, search, flow graph.
 - [ ] **[Integrations & messages](protocols/integrations-messages.md)** — integration CRUD, matcher routing, messages/views/CSV, errors/acks, schemas, maps.
-- [ ] **[Alerts & notifications](protocols/alerts-notifications.md)** — metric/log/trace/pushed rules, preview, ack/resolve, channels & profiles.
-- [ ] **[Platform settings](protocols/platform-settings.md)** — tags, metadata fields, dashboards, retention/SMTP/system/security, license, audit.
+- [ ] **[Alerts & notifications](protocols/alerts-notifications.md)** — metric/log/trace/pushed rules, preview, ack/resolve, channels & profiles, **message templates**, **maintenance windows**.
+- [ ] **[Platform settings](protocols/platform-settings.md)** — tags, metadata fields, dashboards, retention/SMTP/system/security, license, audit, **usage report + trim ingestion**, **announcements**.
 - [ ] **[Cell operator](protocols/operator.md)** — operator gating, org lifecycle, cross-org member assignment, operator promote/demote guard, cell-wide-settings gating.
+- [ ] **[Developer surface](protocols/developers-events.md)** — tokens, MCP server, **event subscriptions** + delivery ledger.
 
 ## 3. Cross-cutting must-walk (every release, even if automated)
 
@@ -71,6 +72,13 @@ since that's what ships to `ghcr.io/sluicio/*`.
 - [ ] **Images build + push** — `release-images.yml` pushes
       `cell-api / cell-ingest / controlplane / frontend` to GHCR; Trivy
       scan job reviewed (report-only).
+- [ ] **Helm chart published** — the same workflow's `publish-chart` job
+      pushed `oci://ghcr.io/sluicio/charts/sluicio-cell` at this version
+      with `appVersion` = the tag. Verify anonymously (no `helm registry
+      login`): `helm show chart oci://ghcr.io/sluicio/charts/sluicio-cell
+      --version X.Y.Z`. A kind or real-cluster install of that published
+      chart is the deeper check — see docs at
+      /deploy/self-hosted-kubernetes/.
 - [ ] **Pull-and-run the pushed images** (not a local `go build`):
       `podman compose` (or the release compose) against the **published**
       tags. Then:

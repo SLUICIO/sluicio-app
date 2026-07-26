@@ -7,7 +7,7 @@
 | **Area** | Health dashboard, services list/detail, facets, tags, service metadata |
 | **Automation status** | Partial (smoke-rendered in [smoke spec](../../../e2e/tests/smoke.spec.ts); data-dependent cases manual until seeded e2e lands) |
 | **Automated by** | `e2e/tests/smoke.spec.ts` (render), release-verification seeds data |
-| **Last reviewed** | 2026-06-20 |
+| **Last reviewed** | 2026-07-25 |
 
 ## Preconditions
 - Stack up; **seed telemetry** (`make seed-traces`) for any case that asserts counts/status.
@@ -79,6 +79,26 @@
 - **Steps:** Edit description/owner/on-call/team/repo/runbook; set custom field values.
 - **Expected:** Values persist and render on detail; runbook URL validated as http(s); in/out schemas shown.
 - **Code:** `handlers_service_metadata.go:15,65` · **Automation:** yes.
+
+## System types (shareable, v0.11.28+)
+
+### Case 12 — Browse the catalog and read a type
+- **Surface:** System types page. **Endpoint:** `GET /api/v1/system-types`
+- **Steps:** Click anywhere on a type's row.
+- **Expected:** The row expands to show its detection prefixes and every starter check with a readable condition summary (no "undefined"). Clicking Export/Edit/Delete does NOT collapse the row. Built-ins are marked read-only and carry a **"Docs ↗"** button that opens `docs.sluicio.com/system-types/<key>/` — check a couple resolve (all 11 built-ins have pages).
+- **Automation:** yes — `e2e/tests/krakend-template.spec.ts`, `systems.spec.ts`.
+
+### Case 13 — Export / import a system type
+- **Endpoints:** `GET /api/v1/system-types/{key}/export`, `POST /api/v1/system-types/import[?replace=true]`
+- **Steps:** Export any type (built-ins included) → edit the `key` in the file → import it → import it a second time unchanged.
+- **Expected:** Download is `<key>.systemtype.yaml` (`format: sluicio/system-type/v1`). Import validates strictly and creates a custom type; a repeat import of the same key returns **409** unless replace is used. Importing with a BUILT-IN's key creates your org's override of it (removing the override restores the built-in).
+- **Automation:** yes — `e2e/tests/system-types-share.spec.ts`.
+
+### Case 14 — Auto-detection and applying starter checks
+- **Steps:** Send telemetry whose metric names match a type's prefixes (e.g. `kafka.`, `wso2`/`org_wso2`, `gnatsd_`, `debezium`) → open the service → apply the suggested template → remove it again.
+- **Expected:** The type is suggested from the metric names alone; applying creates its checks as ordinary, tunable alert rules on that service (apply reports the created count); remove deletes exactly those checks. Applying twice is a no-op rather than a duplicate.
+- **Note:** 11 built-ins today — RabbitMQ, ActiveMQ Artemis, Azure Service Bus, KrakenD, **Apache Kafka, Confluent Kafka, NATS, Debezium, WSO2 API Manager**, OTel Collector, .NET service.
+- **Automation:** Partial — apply/remove automated (`wso2-apim-template.spec.ts`, `azure-servicebus-template.spec.ts`, `krakend-template.spec.ts`); detection from live telemetry is manual.
 
 ## Notes
 - Tag/metadata definitions themselves live in [platform-settings.md](platform-settings.md).

@@ -7,7 +7,7 @@
 | **Area** | Tags, metadata fields, dashboards, cell settings, license, audit |
 | **Automation status** | Partial (most are admin CRUD; EE/SMTP cases manual) |
 | **Automated by** | — |
-| **Last reviewed** | 2026-06-20 |
+| **Last reviewed** | 2026-07-25 |
 
 ## Preconditions
 - Stack up; signed in as **admin** (most mutations are admin-only). EE cases need an `SLUICIO_LICENSE_KEY`; SMTP cases need a reachable mail server.
@@ -82,6 +82,35 @@
 - **Retention:** `audit_days` on the retention settings (default **14**, EE `audit_log` entitlement unlocks up to 3650). The hourly enforcer prunes Postgres rows chain-safely (the last pruned hash is kept as the verification anchor). Non-EE raising past 14 → 402.
 - **Off-box sink:** deploy-time only — `SLUICIO_AUDIT_SINK_URL` (+ optional `SLUICIO_AUDIT_SINK_SECRET` for HMAC-signed requests) on cell-api. Off by default; never configurable via the API. See docs/audit-log.md.
 - **Automation:** chain verify + retention round-trip in `e2e/tests/audit.spec.ts`; sink in `pkg/audit/sink_test.go`; tamper drill manual (requires DB access).
+
+## Usage report & trim ingestion (v0.11.39+)
+
+### Case 13 — The usage report reads across all three signals
+- **Surface:** Settings → Reports. **Endpoint:** `GET /api/v1/reports/usage?range=` (admin-only)
+- **Steps:** Open the tab with seeded telemetry; switch the range selector (1h / 24h / 7d / 30d).
+- **Expected:** Three savings cards ("We found X of Y metrics that aren't used in any alert. Trimming them could save ≈ Z/day (≈ W/month)") for metrics, logs and traces; below them the unused-metric table, then "Logs by service" and "Traces by service" with uncovered services first, each showing rows + estimated size + a covered/not-covered flag. Sizes are estimates from compressed table averages. A viewer gets **403** on the endpoint.
+- **Automation:** yes — `e2e/tests/usage-report.spec.ts`.
+
+### Case 14 — Metric attribute breakdown
+- **Steps:** In the unused-metrics table, click a metric row.
+- **Expected:** It expands to that metric's datapoint attributes — keys with use-count and cardinality; expanding a key lists its top values with counts. (Uses the existing metric-fields endpoints; no new data required beyond metrics with attributes.)
+- **Automation:** yes — `e2e/tests/metrics-trim-attrs.spec.ts`.
+
+### Case 15 — Trim ingestion generates a collector config
+- **Surface:** Settings → Reports → "✂ Trim ingestion".
+- **Steps:** **Metrics tab** — tick metrics, accept a prefix suggestion, then use "attrs ▸" on a row and pick a value with the ✂ button. **Logs tab** — tick a service and choose a severity floor. **Traces tab** — tick a service; observe the mode (sample vs drop) and the ⚠ flag.
+- **Expected:** The YAML pane updates live: `metric:` name/IsMatch conditions, a `datapoint:` section for attribute rules, a `logs:` section whose conditions carry `severity_number < SEVERITY_NUMBER_WARN` for a floor, a `traces:` span section for drops, and a `tail_sampling/sluicio-trim` processor when sampling. Services feeding an integration are flagged ⚠ and default to **sample** (dropping their spans would blind that integration's health checks). Only the pipelines that gained a processor appear under `service.pipelines`. Copy puts the config on the clipboard.
+- **Expected (important):** Sluicio enforces none of this — it's advisory config for your own collector.
+- **Automation:** Partial — `e2e/tests/usage-report.spec.ts` + `metrics-trim-attrs.spec.ts` cover generation; pasting into a real collector is manual.
+
+## Announcements (v0.11.35+, consolidated v0.11.37)
+
+### Case 16 — Cell-wide announcement + login-page banner
+- **Surface:** Settings → System → Cell-wide announcements. **Endpoints:** `GET/POST/DELETE /api/v1/operator/announcements`, public `GET /api/v1/announcements/login`
+- **Steps:** Publish an announcement with severity + expiry; tick **"Show on login page"** → sign out.
+- **Expected:** In-app banner for every user (dismissal is per-user and sticks across reloads); the flagged one ALSO renders on the sign-in page before login, where dismissal is per-browser (localStorage). Unflagged announcements never appear pre-login. The public endpoint exposes only message/severity/dismissible — no org, author or timing metadata.
+- **Note:** There is exactly ONE announcement surface since v0.11.37 (the Settings → Organization section was removed; `/api/v1/settings/announcements` now 404s).
+- **Automation:** yes — `e2e/tests/maintenance.spec.ts`.
 
 ## Notes
 - EE gates: notification profiles, long retention (>14d), MFA-required policy, audit log. Verify Community builds hide/deny these and EE builds expose them.

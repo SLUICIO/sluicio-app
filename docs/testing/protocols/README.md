@@ -42,6 +42,7 @@ that drives a release sign-off.
 | 8 | [alerts-notifications.md](alerts-notifications.md) | Alert rules + preview, instance ack/resolve, deliveries, notification channels/profiles, SMTP test |
 | 9 | [platform-settings.md](platform-settings.md) | Cell settings (retention/security/SMTP/system), dashboards, license, audit log (EE) |
 | 10 | [operator.md](operator.md) | Cell operator (super-admin): org lifecycle, cross-org member assignment, operator promote/demote, cell-wide-settings gating |
+| 11 | [developers-events.md](developers-events.md) | API & MCP page: tokens, MCP server, outbound event subscriptions + delivery ledger |
 
 ## Roles (used in "Actor" throughout)
 

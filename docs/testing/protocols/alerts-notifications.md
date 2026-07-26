@@ -7,7 +7,7 @@
 | **Area** | Alert rules, instances, deliveries, notification channels & profiles |
 | **Automation status** | Partial (rule rendering unit-tested; firing/delivery cases manual) |
 | **Automated by** | [alertRule.test.ts](../../../frontend/src/lib/alertRule.test.ts) (condition rendering); `alerting/types_test.go` (window math) |
-| **Last reviewed** | 2026-06-20 |
+| **Last reviewed** | 2026-07-25 |
 
 ## Preconditions
 - Stack up; at least one notification channel; seed telemetry for metric/trace rules. Admin (or rule-owning team member) for mutations.
@@ -70,6 +70,40 @@
 - **Steps:** Create a profile (grouping per-check/per-integration, renotify_minutes, is_default) → set channels → assign to an integration (or inherit default).
 - **Expected:** Drives grouping + re-notify cadence. **EE-only** — list returns empty when unlicensed.
 - **Code:** `handlers_notification_profiles.go:30,44,142,194` · **Automation:** Partial (needs EE license).
+
+## Notification message templates (v0.11.38+)
+
+### Case 11 — Org default template set
+- **Surface:** Settings → System → Notification templates. **Endpoints:** `GET/PUT /api/v1/settings/notification-templates`
+- **Steps:** Fill any of the four Liquid fields (email subject, email body HTML, Slack title, Slack body mrkdwn) → "Variables…" to insert a path into the focused field → "Preview Slack" / "Preview email" → Save.
+- **Expected:** Preview renders against a sample firing (Slack shows `*title*` + body; email renders HTML in the iframe). Save succeeds; malformed Liquid is rejected with a **400 naming the field**. Empty fields inherit the built-in defaults.
+- **Note:** This card replaced the old cell-wide "Alert email template" (v0.11.40). On a cell upgraded from ≤v0.11.39, the previous email values should already be visible here (auto-carried on first boot) — worth confirming on an upgraded cell.
+- **Automation:** yes — `e2e/tests/notification-templates.spec.ts` · **Manual add:** the visual preview quality.
+
+### Case 12 — Team override + per-field inheritance
+- **Surface:** Settings → Groups → open a group → Notification templates. **Endpoints:** `GET/PUT /api/v1/settings/groups/{id}/notification-template`
+- **Steps:** Set ONLY the team's Slack body; leave the email fields empty → save → fire an alert on a rule owned by that team.
+- **Expected:** The alert's Slack message uses the team body; its email still uses the org set (resolution is per FIELD). Empty team fields show the org value as a greyed placeholder. A viewer gets **403** on PUT; an org editor succeeds; a group-editor succeeds only with the EE `rbac_advanced` entitlement.
+- **Automation:** Partial — API contract + 403 automated; the fired-alert render automated for the org rung, team rung manual.
+
+### Case 13 — Variable palette is complete and honest
+- **Endpoint:** `GET /api/v1/alerting/template-context-schema`
+- **Expected:** Every variable carries a description and an availability note (e.g. `check.*` = metric-check rules only; `service.metadata.<key>` needs the metadata block). The list is reflected from the alert context — a new context field without documentation fails a unit test by design.
+- **Automation:** yes (unit + e2e).
+
+### Case 14 — A bad template never blocks an alert
+- **Steps:** Save a valid template, then corrupt the stored value so it fails at render time (or use a template referencing a nil sub-object) → fire an alert.
+- **Expected:** The alert is still delivered, falling through to the next ladder rung (team → org → built-in). No delivery is dropped, no error surfaces to the recipient.
+- **Automation:** yes (unit: render-failure fallthrough) · **Manual:** confirm on a real channel.
+
+## Maintenance windows
+
+### Case 15 — Schedule a window and confirm suppression
+- **Surface:** Alerts → Maintenance → "Schedule maintenance". **Endpoints:** `GET/POST/PATCH/DELETE /api/v1/maintenance-windows`
+- **Steps:** Schedule an org-wide window (name, reason, bounded ≤7 days) → cause an alert to fire inside it → end the window early.
+- **Expected:** No notification is sent while the window is active; the alert instance is stamped with the muting window (visible after the fact); an org-wide window auto-publishes an announcement for its duration and shows the active-maintenance strip; ending early removes both. Scoped windows (team / explicit entities) suppress only their scope. Org-wide requires an admin; editors may schedule scoped ones.
+- **Note:** Since v0.11.39 flow-completion (stuck-message) firings are covered by windows too — worth one explicit check.
+- **Automation:** Partial — `e2e/tests/maintenance.spec.ts` (UI + guardrails), engine suppression in Go tests; the end-to-end "no page arrived" is manual.
 
 ## Notes
 - Service-scoped alerts are hidden from users without visibility of that service (hard boundary).
