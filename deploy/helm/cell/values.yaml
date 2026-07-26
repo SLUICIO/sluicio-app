@@ -143,8 +143,9 @@ postgres:
     requests: { cpu: 100m, memory: 256Mi }
     limits:   { cpu: 1000m, memory: 1Gi }
   # fsGroup for the data volume (postgres uid/gid 70 in the alpine image).
-  # On OpenShift set `podSecurityContext: {}` (the SCC assigns one) — or
-  # better, use an external database there.
+  # On OpenShift set `podSecurityContext: null` — the restricted SCC
+  # allocates fsGroup from the namespace range and rejects this pin.
+  # values-openshift.yaml already does it; no anyuid needed.
   podSecurityContext:
     fsGroup: 70
 
@@ -169,7 +170,8 @@ clickhouse:
   resources:
     requests: { cpu: 250m, memory: 512Mi }
     limits:   { cpu: 2000m, memory: 4Gi }
-  # clickhouse uid/gid 101; same OpenShift note as postgres above.
+  # clickhouse uid/gid 101; same OpenShift note as postgres above
+  # (values-openshift.yaml nulls this too).
   podSecurityContext:
     fsGroup: 101
 

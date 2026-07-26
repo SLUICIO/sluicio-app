@@ -1,14 +1,19 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # OpenShift starting point: Routes instead of Ingress, restricted-SCC-clean
-# application pods, external databases (recommended there — the bundled
-# postgres/clickhouse images want fixed UIDs, which the restricted SCC
-# forbids; if you must bundle them, grant those pods anyuid and set
-# postgres.podSecurityContext: {} / clickhouse.podSecurityContext: {}).
+# application pods, external databases by default (still the production
+# recommendation — single-replica bundled databases aren't HA).
 #
 #   helm install sluicio ./deploy/helm/cell -f values-openshift.yaml \
 #     --set route.host=sluicio.apps.cluster.acme.com \
 #     --set route.ingestHost=ingest.apps.cluster.acme.com
+#
+# The bundled databases DO run here for evaluation — flip postgres.enabled
+# and clickhouse.enabled on and nothing else is needed. `anyuid` is not
+# required: the only restricted-SCC conflict was the chart's fsGroup pins
+# (70/101, outside the namespace's allocated range), and this file drops
+# them below so OpenShift assigns its own. Verified on a trial cluster
+# under restricted-v2 with the stock postgres/clickhouse images.
 #
 # The cell-api / cell-ingest / frontend pods pass restricted-v2 as-is:
 # distroless non-root Go images, and nginx on an unprivileged port with
@@ -37,9 +42,16 @@ frontendPodSecurityContext:
   runAsGroup: null
   fsGroup: null
 
+# The bundled databases pin an fsGroup for plain Kubernetes (70/101, the
+# postgres/clickhouse uids in those images). The restricted SCC allocates
+# fsGroup from the namespace's range and rejects anything outside it, so
+# drop the pins — OpenShift then assigns one, the PVC is group-owned, and
+# the stock images are happy with a group-writable data dir. These apply
+# only when you set enabled: true.
 postgres:
   enabled: false
   dsn: "postgres://user:pass@your-pg:5432/controlplane?sslmode=require"
+  podSecurityContext: null
 
 clickhouse:
   enabled: false
@@ -47,6 +59,7 @@ clickhouse:
   database: "telemetry"
   username: "sluicio"
   passwordSecret: "clickhouse-credentials"   # Secret with key `password`
+  podSecurityContext: null
 
 # Enterprise license (recommended: a pre-created Secret):
 #   oc create secret generic sluicio-license --from-literal=license=<token>

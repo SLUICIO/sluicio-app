@@ -120,8 +120,9 @@ kubectl apply -f https://raw.githubusercontent.com/Altinity/clickhouse-operator/
 ### Bundled (eval / small installs)
 
 `values-bundled.yaml` deploys single-replica Postgres + ClickHouse with a PVC
-each — not HA, and on OpenShift prefer external databases (the stock images
-want fixed UIDs; see below).
+each — not HA, so external databases stay the production recommendation. They
+run on OpenShift too (see below); `values-openshift.yaml` handles the one
+setting that needs to differ.
 
 ## OpenShift
 
@@ -133,10 +134,16 @@ want fixed UIDs; see below).
   **restricted / restricted-v2 SCC unchanged**: the Go images are distroless
   non-root, and the chart runs the frontend's nginx on an unprivileged port
   with chart-provided writable dirs — any assigned UID works.
-- The **bundled databases are the exception**: the stock postgres/clickhouse
-  images assume fixed UIDs. Use external databases on OpenShift (recommended),
-  or grant those pods `anyuid` and set
-  `postgres.podSecurityContext: {}` / `clickhouse.podSecurityContext: {}`.
+- The **bundled databases also run under restricted-v2** — `values-openshift.yaml`
+  nulls their `podSecurityContext`, and that's the whole trick. The chart pins
+  `fsGroup` 70/101 for plain Kubernetes; the restricted SCC allocates fsGroup
+  from the namespace's range and rejects a pin outside it. Drop the pin and
+  OpenShift assigns one, the PVC is group-owned, and the stock images run
+  fine. **`anyuid` is not required.** Flip `postgres.enabled` /
+  `clickhouse.enabled` on and nothing else is needed.
+- External databases remain the **production** recommendation on OpenShift as
+  everywhere else — not for SCC reasons, but because the bundled ones are
+  single-replica with a PVC each.
 
 ## Troubleshooting
 

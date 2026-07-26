@@ -23,7 +23,8 @@ spec:
       {{- include "cell.imagePullSecrets" . | nindent 6 }}
       {{- with .Values.postgres.podSecurityContext }}
       # Default fsGroup 70 (postgres uid/gid in the alpine image). On
-      # OpenShift set postgres.podSecurityContext: {} — or use an external DB.
+      # OpenShift this must be dropped (values-openshift.yaml nulls it) —
+      # the restricted SCC assigns fsGroup from the namespace's range.
       securityContext: {{- toYaml . | nindent 8 }}
       {{- end }}
       containers:

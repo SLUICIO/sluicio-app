@@ -23,7 +23,8 @@ spec:
       {{- include "cell.imagePullSecrets" . | nindent 6 }}
       {{- with .Values.clickhouse.podSecurityContext }}
       # Default fsGroup 101 (clickhouse uid/gid in the image). On OpenShift
-      # set clickhouse.podSecurityContext: {} — or use an external DB.
+      # this must be dropped (values-openshift.yaml nulls it) — the
+      # restricted SCC assigns fsGroup from the namespace's range.
       securityContext: {{- toYaml . | nindent 8 }}
       {{- end }}
       containers:
