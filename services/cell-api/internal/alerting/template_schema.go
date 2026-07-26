@@ -69,6 +69,46 @@ var templateVariableDocs = map[string]varDoc{
 	"org.environment": {"the cell's environment label", "when configured"},
 
 	"sent_at": {"when this notification was sent (RFC 3339)", "always"},
+
+	// The rule's content toggles, exposed to templates as `include.*`
+	// (the built-in email body branches on them). Not AlertContext
+	// fields, so they're appended explicitly below rather than reflected.
+	"include.check":                {"true when the rule includes the failing-check block", "always"},
+	"include.service":              {"true when the rule includes the service block", "always"},
+	"include.integration":          {"true when the rule includes the integration block", "always"},
+	"include.service_metadata":     {"true when the rule includes service metadata", "always"},
+	"include.integration_metadata": {"true when the rule includes integration metadata", "always"},
+}
+
+// includePaths are the non-reflected `include.*` bindings (see above).
+var includePaths = []string{
+	"include.check",
+	"include.integration",
+	"include.integration_metadata",
+	"include.service",
+	"include.service_metadata",
+}
+
+// StarterSlackTitle / StarterSlackBody are what the editor offers as a
+// starting point for Slack — they reproduce the notifier's built-in line
+// so "start from the default" yields today's output, editable. They are
+// NOT the runtime default: an empty Slack template still means "use the
+// built-in line" (see effectiveSlackTemplate).
+const StarterSlackTitle = ``
+
+const StarterSlackBody = `{{ alert.state_emoji }} *[{{ alert.state | upcase }}]* {{ alert.summary }}{% if alert.link %}
+
+<{{ alert.link }}|View in Sluicio>{% endif %}`
+
+// StarterTemplates is what the editors load when someone asks to start
+// from the built-in template.
+func StarterTemplates() map[string]string {
+	return map[string]string{
+		"email_subject": DefaultEmailSubject,
+		"email_body":    DefaultEmailBody,
+		"slack_title":   StarterSlackTitle,
+		"slack_body":    StarterSlackBody,
+	}
 }
 
 // TemplateContextSchema walks AlertContext's JSON shape and returns the
@@ -77,6 +117,9 @@ var templateVariableDocs = map[string]varDoc{
 func TemplateContextSchema() []TemplateVariable {
 	paths := map[string]string{} // path -> JSON type
 	walkStruct(reflect.TypeOf(AlertContext{}), "", paths)
+	for _, p := range includePaths {
+		paths[p] = "boolean"
+	}
 	// Sample values come from the same context the preview renders, so
 	// the palette shows exactly what a template would produce.
 	samples := SampleAlertContext().bindings(NotificationContent{

@@ -12,6 +12,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { api } from "../../api/client";
 import type { NotificationTemplateSet, TemplateVariable } from "../../api/types";
+import { unknownVariables } from "../../lib/liquidVars";
 
 // CodeMirror is a heavy chunk — pay for it only when this card renders.
 // Deliberately a CODE editor, not a WYSIWYG: these fields are Liquid
@@ -42,6 +43,9 @@ export default function NotificationTemplateEditor({
   const [inherited, setInherited] = useState<Record<Field, string>>({ ...EMPTY });
   const [canEdit, setCanEdit] = useState(scope === "org");
   const [variables, setVariables] = useState<TemplateVariable[]>([]);
+  // The built-in templates, so an empty field can be seeded instead of
+  // written from scratch.
+  const [defaults, setDefaults] = useState<Record<string, string>>({});
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [focused, setFocused] = useState<Field>("slack_body");
   const [preview, setPreview] = useState<{ kind: "email" | "slack"; body: string } | null>(null);
@@ -75,7 +79,13 @@ export default function NotificationTemplateEditor({
         })
         .catch((e) => setError(String((e as Error).message ?? e)));
     }
-    api.templateContextSchema().then((r) => setVariables(r.variables ?? [])).catch(() => {});
+    api
+      .templateContextSchema()
+      .then((r) => {
+        setVariables(r.variables ?? []);
+        setDefaults(r.defaults ?? {});
+      })
+      .catch(() => {});
   }, [scope, groupId]);
 
   // Completion entries: the path, its sample rendering as the inline
@@ -86,7 +96,31 @@ export default function NotificationTemplateEditor({
     info: v.available && v.available !== "always" ? `${v.description} · ${v.available}` : v.description,
   }));
 
-  const save = async () => {
+  // Unknown variable references per field, checked against the schema.
+  // Warnings only: Liquid renders an unknown path as empty, and the
+  // delivery ladder falls through on a render error — so this catches
+  // typos without ever standing between someone and their save.
+  const knownPaths = variables.map((v) => v.path);
+  const issuesByField = Object.fromEntries(
+    FIELDS.map((f) => [f.key, unknownVariables(values[f.key], knownPaths)]),
+  ) as Record<Field, ReturnType<typeof unknownVariables>>;
+  const issues = FIELDS.map((f) => ({ field: f, found: issuesByField[f.key] })).filter((i) => i.found.length > 0);
+
+  const save = async (force = false) => {
+    if (!force && issues.length > 0) {
+      const detail = issues
+        .flatMap((i) => i.found.map((u) => `• ${i.field.label} line ${u.line}: {{ ${u.path} }}${u.suggestion ? ` — did you mean ${u.suggestion}?` : ""}`))
+        .join("\n");
+      const ok = window.confirm(
+        `These variables aren't in the schema and will render as empty:\n\n${detail}\n\n` +
+          `That's fine if they come from a {% for %} or {% assign %} this check can't see.\n\nSave anyway?`,
+      );
+      if (!ok) return;
+    }
+    await doSave();
+  };
+
+  const doSave = async () => {
     setBusy(true);
     setError(null);
     try {
@@ -172,17 +206,34 @@ export default function NotificationTemplateEditor({
 
       {error && <div className="alert alert--error" style={{ marginBottom: 10 }}>{error}</div>}
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 8, maxWidth: 680 }}>
+      <div className={preview ? "tmpl-split" : undefined}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, maxWidth: preview ? undefined : 680, minWidth: 0 }}>
         {FIELDS.map((f) =>
           f.multiline ? (
             <div key={f.key} className="form__label" onFocus={() => setFocused(f.key)}>
               {f.label}
-              <div className="muted" style={{ fontSize: 11.5, margin: "2px 0 4px" }}>
-                {values[f.key]
-                  ? " "
-                  : inherited[f.key]
-                    ? `Empty — inherits the org default: ${inherited[f.key].slice(0, 80)}…`
-                    : "Empty — inherits the built-in default."}
+              <div className="muted" style={{ fontSize: 11.5, margin: "2px 0 4px", display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
+                <span>
+                  {values[f.key]
+                    ? " "
+                    : inherited[f.key]
+                      ? `Empty — inherits the org default: ${inherited[f.key].slice(0, 80)}…`
+                      : "Empty — inherits the built-in default."}
+                </span>
+                {canEdit && defaults[f.key] !== undefined && (
+                  <button
+                    type="button"
+                    className="btn btn--link"
+                    style={{ padding: 0, fontSize: 11.5 }}
+                    title="Load the built-in template into this field as a starting point"
+                    onClick={() => {
+                      if (values[f.key] && !window.confirm("Replace what's in this field with the built-in template?")) return;
+                      setValues((v) => ({ ...v, [f.key]: defaults[f.key] }));
+                    }}
+                  >
+                    Start from the built-in template
+                  </button>
+                )}
               </div>
               <Suspense
                 fallback={
@@ -207,6 +258,30 @@ export default function NotificationTemplateEditor({
                   }}
                 />
               </Suspense>
+              {(issuesByField[f.key] ?? []).length > 0 && (
+                <div className="alert alert--warn" style={{ marginTop: 4, fontSize: 12, padding: "6px 8px" }}>
+                  {(issuesByField[f.key] ?? []).map((u) => (
+                    <div key={`${u.path}-${u.line}`}>
+                      Line {u.line}: <code>{`{{ ${u.path} }}`}</code> isn't a known variable — renders empty
+                      {u.suggestion ? (
+                        <>
+                          {" · "}
+                          <button
+                            type="button"
+                            className="btn btn--link"
+                            style={{ padding: 0, fontSize: 12 }}
+                            onClick={() =>
+                              setValues((v) => ({ ...v, [f.key]: v[f.key].split(u.path).join(u.suggestion!) }))
+                            }
+                          >
+                            use {u.suggestion}
+                          </button>
+                        </>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           ) : (
             <label key={f.key} className="form__label">
@@ -226,7 +301,7 @@ export default function NotificationTemplateEditor({
 
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           {canEdit && (
-            <button type="button" className="btn btn--primary" onClick={save} disabled={busy}>
+            <button type="button" className="btn btn--primary" onClick={() => save()} disabled={busy}>
               {busy ? "Saving…" : "Save templates"}
             </button>
           )}
@@ -264,14 +339,39 @@ export default function NotificationTemplateEditor({
           </div>
         )}
 
-        {preview?.kind === "email" && (
-          <iframe title="email preview" sandbox="" style={{ width: "100%", height: 320, border: "1px solid var(--border)", borderRadius: 6, background: "#fff" }} srcDoc={preview.body} />
-        )}
-        {preview?.kind === "slack" && (
-          <pre style={{ border: "1px solid var(--border)", borderRadius: 6, padding: 10, fontSize: 12.5, whiteSpace: "pre-wrap", background: "var(--surface-2)" }}>
-            {preview.body}
-          </pre>
-        )}
+      </div>
+
+      {preview && (
+        <div className="tmpl-split__preview">
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+            <span className="m-field-label">
+              {preview.kind === "email" ? "Email preview" : "Slack preview"}
+              <span className="muted" style={{ fontWeight: 400, marginLeft: 6, fontSize: 11.5 }}>
+                sample firing · live
+              </span>
+            </span>
+            <button type="button" className="btn btn--link" style={{ padding: 0, fontSize: 12 }} onClick={() => setPreview(null)}>
+              Close
+            </button>
+          </div>
+          {preview.kind === "email" ? (
+            <iframe
+              title="email preview"
+              sandbox=""
+              className="tmpl-preview-body"
+              style={{ width: "100%", minHeight: 320, border: "1px solid var(--border)", borderRadius: 6, background: "#fff" }}
+              srcDoc={preview.body}
+            />
+          ) : (
+            <pre
+              className="tmpl-preview-body"
+              style={{ border: "1px solid var(--border)", borderRadius: 6, padding: 10, fontSize: 12.5, whiteSpace: "pre-wrap", background: "var(--surface-2)", margin: 0 }}
+            >
+              {preview.body}
+            </pre>
+          )}
+        </div>
+      )}
       </div>
     </section>
   );

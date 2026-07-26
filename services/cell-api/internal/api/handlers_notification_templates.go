@@ -252,5 +252,8 @@ func (h *Handlers) putGroupNotificationTemplates(w http.ResponseWriter, r *http.
 func (h *Handlers) templateContextSchema(w http.ResponseWriter, r *http.Request) {
 	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
 		"variables": alerting.TemplateContextSchema(),
+		// The built-in templates, so the editor can offer "start from
+		// the default" instead of an empty field.
+		"defaults": alerting.StarterTemplates(),
 	})
 }

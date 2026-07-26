@@ -2199,3 +2199,37 @@ code, .mono {
   from { opacity: 0; }
   to   { opacity: 1; }
 }
+
+/* ── Notification-template editor: side-by-side edit + preview ────────
+   With a preview open the card splits in two so a 14" laptop shows the
+   template and its rendering at once (the preview used to sit below the
+   fold). Collapses back to a single column on narrow viewports. */
+.tmpl-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.tmpl-split__preview {
+  position: sticky;
+  top: 12px;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  /* Fill the viewport below the card header rather than growing the page. */
+  max-height: calc(100vh - 160px);
+}
+.tmpl-split__preview > .tmpl-preview-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+@media (max-width: 1100px) {
+  .tmpl-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .tmpl-split__preview {
+    position: static;
+    max-height: none;
+  }
+}

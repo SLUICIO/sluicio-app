@@ -733,7 +733,8 @@ export const api = {
     ),
   putGroupNotificationTemplate: (groupId: string, body: Partial<NotificationTemplateSet>) =>
     put<NotificationTemplateSet>(`/settings/groups/${encodeURIComponent(groupId)}/notification-template`, body),
-  templateContextSchema: () => get<{ variables: TemplateVariable[] }>(`/alerting/template-context-schema`),
+  templateContextSchema: () =>
+    get<{ variables: TemplateVariable[]; defaults?: Record<string, string> }>(`/alerting/template-context-schema`),
 
   previewAlertTemplate: (kind: string, content: NotificationContent) =>
     post<{ subject: string; body: string }>(`/alert-templates/preview`, { kind, content }),
