@@ -1537,6 +1537,8 @@ export interface TemplateVariable {
   type: string;
   description: string;
   available: string;
+  // What this path renders as against the preview's sample firing.
+  sample?: string;
 }
 
 export interface AlertRule {

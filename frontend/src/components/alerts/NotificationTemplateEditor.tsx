@@ -49,6 +49,9 @@ export default function NotificationTemplateEditor({
   const [savedAt, setSavedAt] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const loadedFor = useRef<string>("");
+  // Live editor handles, so the palette inserts at the CURSOR rather
+  // than appending to the end of the document.
+  const views = useRef<Partial<Record<Field, { dispatch: (t: unknown) => void; state: { selection: { main: { from: number; to: number } } }; focus: () => void }>>>({});
 
   useEffect(() => {
     const key = scope + (groupId ?? "");
@@ -75,6 +78,14 @@ export default function NotificationTemplateEditor({
     api.templateContextSchema().then((r) => setVariables(r.variables ?? [])).catch(() => {});
   }, [scope, groupId]);
 
+  // Completion entries: the path, its sample rendering as the inline
+  // detail, and the description + availability in the info panel.
+  const completions = variables.map((v) => ({
+    label: v.path.replace(".<key>", ".yourKey"),
+    detail: v.sample ? `→ ${v.sample}` : v.type,
+    info: v.available && v.available !== "always" ? `${v.description} · ${v.available}` : v.description,
+  }));
+
   const save = async () => {
     setBusy(true);
     setError(null);
@@ -92,8 +103,8 @@ export default function NotificationTemplateEditor({
     }
   };
 
-  const runPreview = async (kind: "email" | "slack") => {
-    setBusy(true);
+  const runPreview = async (kind: "email" | "slack", quiet = false) => {
+    if (!quiet) setBusy(true);
     try {
       const r = await api.previewAlertTemplate(kind, {
         service: true,
@@ -108,14 +119,42 @@ export default function NotificationTemplateEditor({
       });
       setPreview({ kind, body: r.body });
     } catch (e) {
-      setPreview({ kind, body: String((e as Error).message ?? e) });
+      // A mid-edit template is often invalid — during a quiet refresh
+      // keep the last good preview rather than flashing the error.
+      if (!quiet) setPreview({ kind, body: String((e as Error).message ?? e) });
     } finally {
-      setBusy(false);
+      if (!quiet) setBusy(false);
     }
   };
 
+  // A preview that follows you: once opened, it re-renders ~600ms after
+  // typing stops. Closing it (Hide preview) stops the refresh.
+  useEffect(() => {
+    if (!preview) return;
+    const kind = preview.kind;
+    const t = window.setTimeout(() => {
+      void runPreview(kind, true);
+    }, 600);
+    return () => window.clearTimeout(t);
+    // Deliberately keyed on the template text, not the preview object —
+    // the refresh itself must not retrigger the effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [values.email_subject, values.email_body, values.slack_title, values.slack_body]);
+
   const insertVar = (path: string) => {
     const token = `{{ ${path.replace(".<key>", ".yourKey")} }}`;
+    const view = views.current[focused];
+    if (view) {
+      // Replace the selection (or insert at the caret) and put the caret
+      // after the token — the editor keeps focus so typing continues.
+      const { from, to } = view.state.selection.main;
+      view.dispatch({
+        changes: { from, to, insert: token },
+        selection: { anchor: from + token.length },
+      });
+      view.focus();
+      return;
+    }
     setValues((v) => ({ ...v, [focused]: v[focused] + token }));
   };
 
@@ -162,6 +201,10 @@ export default function NotificationTemplateEditor({
                   height={f.height ?? 160}
                   readOnly={!canEdit}
                   showToolbar={false}
+                  liquidCompletions={completions}
+                  onReady={(view) => {
+                    views.current[f.key] = view as unknown as (typeof views.current)[Field];
+                  }}
                 />
               </Suspense>
             </div>
@@ -187,12 +230,13 @@ export default function NotificationTemplateEditor({
               {busy ? "Saving…" : "Save templates"}
             </button>
           )}
-          <button type="button" className="btn" onClick={() => runPreview("slack")} disabled={busy}>
-            Preview Slack
+          <button type="button" className="btn" onClick={() => (preview?.kind === "slack" ? setPreview(null) : runPreview("slack"))} disabled={busy}>
+            {preview?.kind === "slack" ? "Hide preview" : "Preview Slack"}
           </button>
-          <button type="button" className="btn" onClick={() => runPreview("email")} disabled={busy}>
-            Preview email
+          <button type="button" className="btn" onClick={() => (preview?.kind === "email" ? setPreview(null) : runPreview("email"))} disabled={busy}>
+            {preview?.kind === "email" ? "Hide preview" : "Preview email"}
           </button>
+          {preview && <span className="muted" style={{ fontSize: 11.5 }}>live — updates as you type</span>}
           <button type="button" className="btn btn--link" onClick={() => setPaletteOpen((o) => !o)}>
             {paletteOpen ? "Hide variables" : "Variables…"}
           </button>
@@ -210,6 +254,8 @@ export default function NotificationTemplateEditor({
                   {v.path}
                 </button>
                 <span className="muted" style={{ fontSize: 11.5 }}>
+                  {v.sample && <span className="mono" style={{ color: "var(--ink-2)" }}>→ {v.sample}</span>}
+                  {v.sample ? " · " : ""}
                   {v.description}
                   {v.available !== "always" ? ` · ${v.available}` : ""}
                 </span>

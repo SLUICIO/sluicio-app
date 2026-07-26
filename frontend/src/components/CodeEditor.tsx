@@ -7,6 +7,8 @@
 
 import { useState } from "react";
 import CodeMirror, { type ReactCodeMirrorProps } from "@uiw/react-codemirror";
+import { autocompletion, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
+import type { EditorView as EditorViewType } from "@codemirror/view";
 import { json } from "@codemirror/lang-json";
 import { yaml } from "@codemirror/lang-yaml";
 import { xml } from "@codemirror/lang-xml";
@@ -25,6 +27,13 @@ interface Props {
   // meaningful canonical formatter — the doctype alone fails the XML
   // parser — so the button would only ever error.
   showToolbar?: boolean;
+  // Optional completion entries offered inside a Liquid {{ … }} — the
+  // template editors pass the backend-served variable schema, so typing
+  // "{{ " proposes real paths with their sample values.
+  liquidCompletions?: { label: string; detail?: string; info?: string }[];
+  // Handed the editor once mounted, so a parent can insert at the
+  // cursor (rather than appending to the end).
+  onReady?: (view: EditorViewType) => void;
 }
 
 // ── format-document helpers ─────────────────────────────────────────────
@@ -242,6 +251,8 @@ export default function CodeEditor({
   height = 380,
   readOnly = false,
   showToolbar = true,
+  liquidCompletions,
+  onReady,
 }: Props) {
   const [formatError, setFormatError] = useState<string | null>(null);
   const formattable = canFormat(format);
@@ -249,6 +260,34 @@ export default function CodeEditor({
   // becomes a flex column so the CodeMirror pane stretches + scrolls.
   const fill = typeof height === "string";
   const cmHeight = typeof height === "number" ? `${height}px` : height;
+
+  // Completion inside "{{ … }}": match the partial path after the
+  // braces and propose the schema. Explicit=false keeps it out of the
+  // way while writing prose/HTML — it only fires in a Liquid opening.
+  const completionExtension =
+    liquidCompletions && liquidCompletions.length > 0
+      ? [
+          autocompletion({
+            override: [
+              (ctx: CompletionContext): CompletionResult | null => {
+                const before = ctx.matchBefore(/\{\{\s*[\w.]*/);
+                if (!before || (before.from === before.to && !ctx.explicit)) return null;
+                const typed = before.text.replace(/^\{\{\s*/, "");
+                return {
+                  from: before.to - typed.length,
+                  options: liquidCompletions.map((c) => ({
+                    label: c.label,
+                    detail: c.detail,
+                    info: c.info,
+                    type: "variable",
+                  })),
+                  validFor: /^[\w.]*$/,
+                };
+              },
+            ],
+          }),
+        ]
+      : [];
 
   const onFormat = () => {
     if (!formattable) return;
@@ -309,7 +348,8 @@ export default function CodeEditor({
       <CodeMirror
         value={value}
         height={fill ? "100%" : cmHeight}
-        extensions={[...(extensionsFor(format) ?? []), EditorView.lineWrapping]}
+        extensions={[...(extensionsFor(format) ?? []), ...completionExtension, EditorView.lineWrapping]}
+        onCreateEditor={(view) => onReady?.(view)}
         onChange={onChange}
         readOnly={readOnly}
         basicSetup={{
