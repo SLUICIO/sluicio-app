@@ -9,17 +9,24 @@
 // {{ path }} to the focused field. Preview renders the CANDIDATE text
 // against a sample firing via the existing preview endpoint.
 
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { api } from "../../api/client";
 import type { NotificationTemplateSet, TemplateVariable } from "../../api/types";
 
+// CodeMirror is a heavy chunk — pay for it only when this card renders.
+// Deliberately a CODE editor, not a WYSIWYG: these fields are Liquid
+// over email-safe HTML (table layout, inline styles) and Slack mrkdwn,
+// all of which a rich-text editor would rewrite or escape. The "what
+// will it look like" half is the live preview below.
+const CodeEditor = lazy(() => import("../CodeEditor"));
+
 type Field = "email_subject" | "email_body" | "slack_title" | "slack_body";
 
-const FIELDS: { key: Field; label: string; multiline: boolean }[] = [
+const FIELDS: { key: Field; label: string; multiline: boolean; lang?: string; height?: number }[] = [
   { key: "email_subject", label: "Email subject", multiline: false },
-  { key: "email_body", label: "Email body (HTML)", multiline: true },
+  { key: "email_body", label: "Email body (HTML)", multiline: true, lang: "html", height: 260 },
   { key: "slack_title", label: "Slack title", multiline: false },
-  { key: "slack_body", label: "Slack body (mrkdwn)", multiline: true },
+  { key: "slack_body", label: "Slack body (mrkdwn)", multiline: true, lang: "text", height: 140 },
 ];
 
 const EMPTY: Record<Field, string> = { email_subject: "", email_body: "", slack_title: "", slack_body: "" };
@@ -129,18 +136,35 @@ export default function NotificationTemplateEditor({
       <div style={{ display: "flex", flexDirection: "column", gap: 8, maxWidth: 680 }}>
         {FIELDS.map((f) =>
           f.multiline ? (
-            <label key={f.key} className="form__label">
+            <div key={f.key} className="form__label" onFocus={() => setFocused(f.key)}>
               {f.label}
-              <textarea
-                className="svc-textarea"
-                style={{ fontSize: 12.5, minHeight: f.key === "email_body" ? 100 : 72, fontFamily: "var(--font-mono, monospace)" }}
-                placeholder={inherited[f.key] ? `Inherited: ${inherited[f.key].slice(0, 120)}…` : "Inherits the default"}
-                value={values[f.key]}
-                disabled={!canEdit}
-                onFocus={() => setFocused(f.key)}
-                onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
-              />
-            </label>
+              <div className="muted" style={{ fontSize: 11.5, margin: "2px 0 4px" }}>
+                {values[f.key]
+                  ? " "
+                  : inherited[f.key]
+                    ? `Empty — inherits the org default: ${inherited[f.key].slice(0, 80)}…`
+                    : "Empty — inherits the built-in default."}
+              </div>
+              <Suspense
+                fallback={
+                  <textarea
+                    className="svc-textarea"
+                    style={{ fontSize: 12.5, minHeight: f.height, fontFamily: "var(--font-mono, monospace)" }}
+                    value={values[f.key]}
+                    readOnly
+                  />
+                }
+              >
+                <CodeEditor
+                  value={values[f.key]}
+                  onChange={(v) => setValues((prev) => ({ ...prev, [f.key]: v }))}
+                  format={f.lang ?? "text"}
+                  height={f.height ?? 160}
+                  readOnly={!canEdit}
+                  showToolbar={false}
+                />
+              </Suspense>
+            </div>
           ) : (
             <label key={f.key} className="form__label">
               {f.label}

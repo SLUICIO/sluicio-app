@@ -21,6 +21,10 @@ interface Props {
   // a flex/grid parent (the editor stretches and scrolls internally).
   height?: number | string;
   readOnly?: boolean;
+  // Hides the format toolbar. Templates (Liquid + email HTML) have no
+  // meaningful canonical formatter — the doctype alone fails the XML
+  // parser — so the button would only ever error.
+  showToolbar?: boolean;
 }
 
 // ── format-document helpers ─────────────────────────────────────────────
@@ -237,6 +241,7 @@ export default function CodeEditor({
   format,
   height = 380,
   readOnly = false,
+  showToolbar = true,
 }: Props) {
   const [formatError, setFormatError] = useState<string | null>(null);
   const formattable = canFormat(format);
@@ -263,7 +268,7 @@ export default function CodeEditor({
 
   return (
     <div style={fill ? { height: "100%", display: "flex", flexDirection: "column", minHeight: 0 } : undefined}>
-      {!readOnly && (
+      {!readOnly && showToolbar && (
         <div
           className="flex items-center justify-between gap-2"
           style={{
@@ -322,8 +327,8 @@ export default function CodeEditor({
           border: "1px solid var(--border)",
           // Round only the bottom corners when the toolbar is rendered
           // above; the editor reads as one panel.
-          borderTopLeftRadius: readOnly ? 6 : 0,
-          borderTopRightRadius: readOnly ? 6 : 0,
+          borderTopLeftRadius: readOnly || !showToolbar ? 6 : 0,
+          borderTopRightRadius: readOnly || !showToolbar ? 6 : 0,
           borderBottomLeftRadius: 6,
           borderBottomRightRadius: 6,
           fontSize: 12.5,
