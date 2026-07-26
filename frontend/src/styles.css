@@ -2210,7 +2210,7 @@ code, .mono {
   gap: 16px;
   align-items: start;
 }
-.tmpl-split__preview {
+.tmpl-split__side {
   position: sticky;
   top: 12px;
   display: flex;
@@ -2219,7 +2219,7 @@ code, .mono {
   /* Fill the viewport below the card header rather than growing the page. */
   max-height: calc(100vh - 160px);
 }
-.tmpl-split__preview > .tmpl-preview-body {
+.tmpl-split__side > .tmpl-preview-body {
   flex: 1;
   min-height: 0;
   overflow: auto;
@@ -2228,7 +2228,7 @@ code, .mono {
   .tmpl-split {
     grid-template-columns: minmax(0, 1fr);
   }
-  .tmpl-split__preview {
+  .tmpl-split__side {
     position: static;
     max-height: none;
   }

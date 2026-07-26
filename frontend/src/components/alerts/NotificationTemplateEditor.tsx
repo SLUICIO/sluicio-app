@@ -5,9 +5,19 @@
 // card (group drawer). Four Liquid fields (email subject/body, Slack
 // title/body); empty = inherit down the ladder, and the inherited value
 // shows as the placeholder. The variable palette is served by the
-// backend (reflected from AlertContext) — inserting appends
-// {{ path }} to the focused field. Preview renders the CANDIDATE text
-// against a sample firing via the existing preview endpoint.
+// backend (reflected from AlertContext) — inserting writes {{ path }}
+// at the cursor. Preview renders the CANDIDATE text against a sample
+// firing via the existing preview endpoint.
+//
+// LAYOUT: one channel at a time (Email / Slack tabs), with preview and
+// the variable palette sharing a sticky SIDE pane. Stacking all four
+// fields put the palette a full email body below the subject line — on a
+// 14" screen you edited one thing and scrolled to consult another. Two
+// fields plus a side pane fits without scrolling.
+//
+// Save still writes all four fields, so the hidden channel must not go
+// unnoticed: its tab carries a warning marker when it has unknown
+// variables, and the pre-save confirm lists issues from BOTH channels.
 
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { api } from "../../api/client";
@@ -22,12 +32,18 @@ import { unknownVariables } from "../../lib/liquidVars";
 const CodeEditor = lazy(() => import("../CodeEditor"));
 
 type Field = "email_subject" | "email_body" | "slack_title" | "slack_body";
+type Channel = "email" | "slack";
 
-const FIELDS: { key: Field; label: string; multiline: boolean; lang?: string; height?: number }[] = [
-  { key: "email_subject", label: "Email subject", multiline: false },
-  { key: "email_body", label: "Email body (HTML)", multiline: true, lang: "html", height: 260 },
-  { key: "slack_title", label: "Slack title", multiline: false },
-  { key: "slack_body", label: "Slack body (mrkdwn)", multiline: true, lang: "text", height: 140 },
+const FIELDS: { key: Field; channel: Channel; label: string; multiline: boolean; lang?: string; height?: number }[] = [
+  { key: "email_subject", channel: "email", label: "Email subject", multiline: false },
+  { key: "email_body", channel: "email", label: "Email body (HTML)", multiline: true, lang: "html", height: 320 },
+  { key: "slack_title", channel: "slack", label: "Slack title", multiline: false },
+  { key: "slack_body", channel: "slack", label: "Slack body (mrkdwn)", multiline: true, lang: "text", height: 220 },
+];
+
+const CHANNELS: { key: Channel; label: string; body: Field }[] = [
+  { key: "email", label: "Email template", body: "email_body" },
+  { key: "slack", label: "Slack template", body: "slack_body" },
 ];
 
 const EMPTY: Record<Field, string> = { email_subject: "", email_body: "", slack_title: "", slack_body: "" };
@@ -46,9 +62,18 @@ export default function NotificationTemplateEditor({
   // The built-in templates, so an empty field can be seeded instead of
   // written from scratch.
   const [defaults, setDefaults] = useState<Record<string, string>>({});
-  const [paletteOpen, setPaletteOpen] = useState(false);
-  const [focused, setFocused] = useState<Field>("slack_body");
-  const [preview, setPreview] = useState<{ kind: "email" | "slack"; body: string } | null>(null);
+  const [channel, setChannel] = useState<Channel>("email");
+  // The side pane shows one helper at a time; null closes it and the
+  // fields take the full width. Preview is the DEFAULT — a template
+  // editor whose output you have to ask to see is just a text box, and
+  // the refresh effect below self-starts from this state. Variables
+  // borrows the pane; closing it entirely stays available for anyone who
+  // wants the full width to edit in.
+  const [pane, setPane] = useState<"preview" | "variables" | null>("preview");
+  const [focused, setFocused] = useState<Field>("email_body");
+  // Preview body only — its kind always follows the active channel, so
+  // switching tabs re-renders rather than showing the other channel.
+  const [previewBody, setPreviewBody] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [savedAt, setSavedAt] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -105,6 +130,10 @@ export default function NotificationTemplateEditor({
     FIELDS.map((f) => [f.key, unknownVariables(values[f.key], knownPaths)]),
   ) as Record<Field, ReturnType<typeof unknownVariables>>;
   const issues = FIELDS.map((f) => ({ field: f, found: issuesByField[f.key] })).filter((i) => i.found.length > 0);
+  // Per-channel issue counts drive the tab markers — the point is that a
+  // typo on the tab you're NOT looking at still gets saved.
+  const issuesByChannel = (c: Channel) =>
+    FIELDS.filter((f) => f.channel === c).reduce((n, f) => n + (issuesByField[f.key] ?? []).length, 0);
 
   const save = async (force = false) => {
     if (!force && issues.length > 0) {
@@ -137,7 +166,7 @@ export default function NotificationTemplateEditor({
     }
   };
 
-  const runPreview = async (kind: "email" | "slack", quiet = false) => {
+  const runPreview = async (kind: Channel, quiet = false) => {
     if (!quiet) setBusy(true);
     try {
       const r = await api.previewAlertTemplate(kind, {
@@ -151,29 +180,29 @@ export default function NotificationTemplateEditor({
         slack_title: values.slack_title || inherited.slack_title || undefined,
         slack_body: values.slack_body || inherited.slack_body || undefined,
       });
-      setPreview({ kind, body: r.body });
+      setPreviewBody(r.body);
     } catch (e) {
       // A mid-edit template is often invalid — during a quiet refresh
       // keep the last good preview rather than flashing the error.
-      if (!quiet) setPreview({ kind, body: String((e as Error).message ?? e) });
+      if (!quiet) setPreviewBody(String((e as Error).message ?? e));
     } finally {
       if (!quiet) setBusy(false);
     }
   };
 
   // A preview that follows you: once opened, it re-renders ~600ms after
-  // typing stops. Closing it (Hide preview) stops the refresh.
+  // typing stops, and immediately when you switch channel tabs. Closing
+  // the pane stops the refresh.
   useEffect(() => {
-    if (!preview) return;
-    const kind = preview.kind;
+    if (pane !== "preview") return;
     const t = window.setTimeout(() => {
-      void runPreview(kind, true);
+      void runPreview(channel, true);
     }, 600);
     return () => window.clearTimeout(t);
-    // Deliberately keyed on the template text, not the preview object —
-    // the refresh itself must not retrigger the effect.
+    // Deliberately keyed on the template text + channel, not on the
+    // preview body — the refresh itself must not retrigger the effect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [values.email_subject, values.email_body, values.slack_title, values.slack_body]);
+  }, [values.email_subject, values.email_body, values.slack_title, values.slack_body, channel, pane]);
 
   const insertVar = (path: string) => {
     const token = `{{ ${path.replace(".<key>", ".yourKey")} }}`;
@@ -206,9 +235,42 @@ export default function NotificationTemplateEditor({
 
       {error && <div className="alert alert--error" style={{ marginBottom: 10 }}>{error}</div>}
 
-      <div className={preview ? "tmpl-split" : undefined}>
-      <div style={{ display: "flex", flexDirection: "column", gap: 8, maxWidth: preview ? undefined : 680, minWidth: 0 }}>
-        {FIELDS.map((f) =>
+      <div className="svc-tabs" style={{ marginBottom: 12 }}>
+        {CHANNELS.map((c) => {
+          const n = issuesByChannel(c.key);
+          return (
+            <button
+              key={c.key}
+              type="button"
+              className={`svc-tab ${channel === c.key ? "on" : ""}`}
+              onClick={() => {
+                setChannel(c.key);
+                // Insertions target this channel's body from the moment
+                // you land, before anything has been focused.
+                setFocused(c.body);
+                // Drop the other channel's render rather than showing it
+                // for the ~600ms until the refresh lands (an email body
+                // in the Slack <pre> is a confusing flash).
+                setPreviewBody(null);
+              }}
+            >
+              {c.label}
+              {n > 0 && (
+                <span
+                  title={`${n} unknown variable${n === 1 ? "" : "s"} in this template`}
+                  style={{ marginLeft: 6, color: "var(--warn, #b26a00)" }}
+                >
+                  ⚠
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className={pane ? "tmpl-split" : undefined}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, maxWidth: pane ? undefined : 680, minWidth: 0 }}>
+        {FIELDS.filter((f) => f.channel === channel).map((f) =>
           f.multiline ? (
             <div key={f.key} className="form__label" onFocus={() => setFocused(f.key)}>
               {f.label}
@@ -305,69 +367,87 @@ export default function NotificationTemplateEditor({
               {busy ? "Saving…" : "Save templates"}
             </button>
           )}
-          <button type="button" className="btn" onClick={() => (preview?.kind === "slack" ? setPreview(null) : runPreview("slack"))} disabled={busy}>
-            {preview?.kind === "slack" ? "Hide preview" : "Preview Slack"}
+          <button
+            type="button"
+            className="btn"
+            onClick={() => {
+              if (pane === "preview") {
+                setPane(null);
+                return;
+              }
+              setPane("preview");
+              void runPreview(channel);
+            }}
+            disabled={busy}
+          >
+            {pane === "preview" ? "Hide preview" : "Preview"}
           </button>
-          <button type="button" className="btn" onClick={() => (preview?.kind === "email" ? setPreview(null) : runPreview("email"))} disabled={busy}>
-            {preview?.kind === "email" ? "Hide preview" : "Preview email"}
-          </button>
-          {preview && <span className="muted" style={{ fontSize: 11.5 }}>live — updates as you type</span>}
-          <button type="button" className="btn btn--link" onClick={() => setPaletteOpen((o) => !o)}>
-            {paletteOpen ? "Hide variables" : "Variables…"}
+          <button type="button" className="btn" onClick={() => setPane((p) => (p === "variables" ? null : "variables"))}>
+            {pane === "variables" ? "Hide variables" : "Variables…"}
           </button>
           {savedAt > 0 && <span className="muted" style={{ fontSize: 12 }}>Saved ✓</span>}
         </div>
-
-        {paletteOpen && (
-          <div style={{ border: "1px solid var(--border)", borderRadius: 6, padding: 8, maxHeight: 220, overflow: "auto" }}>
-            <div className="muted" style={{ fontSize: 11.5, marginBottom: 6 }}>
-              Click to append to the focused field ({FIELDS.find((f) => f.key === focused)?.label}).
-            </div>
-            {variables.map((v) => (
-              <div key={v.path} style={{ display: "flex", gap: 8, alignItems: "baseline", padding: "2px 0" }}>
-                <button type="button" className="btn btn--link mono" style={{ padding: 0, fontSize: 12 }} onClick={() => insertVar(v.path)}>
-                  {v.path}
-                </button>
-                <span className="muted" style={{ fontSize: 11.5 }}>
-                  {v.sample && <span className="mono" style={{ color: "var(--ink-2)" }}>→ {v.sample}</span>}
-                  {v.sample ? " · " : ""}
-                  {v.description}
-                  {v.available !== "always" ? ` · ${v.available}` : ""}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-
       </div>
 
-      {preview && (
-        <div className="tmpl-split__preview">
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-            <span className="m-field-label">
-              {preview.kind === "email" ? "Email preview" : "Slack preview"}
-              <span className="muted" style={{ fontWeight: 400, marginLeft: 6, fontSize: 11.5 }}>
-                sample firing · live
+      {pane && (
+        <div className="tmpl-split__side">
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6, gap: 8 }}>
+            {/* Flip between the two helpers without going back to the
+                toolbar — they occupy the same pane. */}
+            <span style={{ display: "flex", gap: 10, alignItems: "baseline" }}>
+              {(["preview", "variables"] as const).map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  className="btn btn--link"
+                  style={{ padding: 0, fontSize: 12, fontWeight: pane === p ? 600 : 400 }}
+                  onClick={() => {
+                    setPane(p);
+                    if (p === "preview" && previewBody === null) void runPreview(channel);
+                  }}
+                >
+                  {p === "preview" ? (channel === "email" ? "Email preview" : "Slack preview") : "Variables"}
+                </button>
+              ))}
+              <span className="muted" style={{ fontSize: 11.5 }}>
+                {pane === "preview" ? "sample firing · live" : `insert into ${FIELDS.find((f) => f.key === focused)?.label}`}
               </span>
             </span>
-            <button type="button" className="btn btn--link" style={{ padding: 0, fontSize: 12 }} onClick={() => setPreview(null)}>
+            <button type="button" className="btn btn--link" style={{ padding: 0, fontSize: 12 }} onClick={() => setPane(null)}>
               Close
             </button>
           </div>
-          {preview.kind === "email" ? (
+
+          {pane === "variables" ? (
+            <div className="tmpl-preview-body" style={{ border: "1px solid var(--border)", borderRadius: 6, padding: 8 }}>
+              {variables.map((v) => (
+                <div key={v.path} style={{ display: "flex", gap: 8, alignItems: "baseline", padding: "2px 0" }}>
+                  <button type="button" className="btn btn--link mono" style={{ padding: 0, fontSize: 12 }} onClick={() => insertVar(v.path)}>
+                    {v.path}
+                  </button>
+                  <span className="muted" style={{ fontSize: 11.5 }}>
+                    {v.sample && <span className="mono" style={{ color: "var(--ink-2)" }}>→ {v.sample}</span>}
+                    {v.sample ? " · " : ""}
+                    {v.description}
+                    {v.available !== "always" ? ` · ${v.available}` : ""}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : channel === "email" ? (
             <iframe
               title="email preview"
               sandbox=""
               className="tmpl-preview-body"
               style={{ width: "100%", minHeight: 320, border: "1px solid var(--border)", borderRadius: 6, background: "#fff" }}
-              srcDoc={preview.body}
+              srcDoc={previewBody ?? ""}
             />
           ) : (
             <pre
               className="tmpl-preview-body"
               style={{ border: "1px solid var(--border)", borderRadius: 6, padding: 10, fontSize: 12.5, whiteSpace: "pre-wrap", background: "var(--surface-2)", margin: 0 }}
             >
-              {preview.body}
+              {previewBody ?? ""}
             </pre>
           )}
         </div>

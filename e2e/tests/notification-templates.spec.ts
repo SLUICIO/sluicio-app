@@ -183,6 +183,11 @@ test.describe("Notification message templates", () => {
     await logIn(page);
     await page.goto("/settings?tab=system&sub=templates");
     await expect(page.getByRole("heading", { name: "Notification templates" })).toBeVisible();
+    // Email is the landing tab; Slack's fields live behind its own tab
+    // (one channel at a time keeps the palette beside the editor).
+    await expect(page.getByText("Email body (HTML)").first()).toBeVisible();
+    await expect(page.getByText("Slack body (mrkdwn)")).toHaveCount(0);
+    await page.getByRole("button", { name: "Slack template" }).click();
     await expect(page.getByText("Slack body (mrkdwn)").first()).toBeVisible();
 
     const groups = (await (await page.request.get("/api/v1/settings/groups")).json()).groups ?? [];
