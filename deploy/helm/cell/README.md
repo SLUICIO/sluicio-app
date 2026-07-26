@@ -72,8 +72,17 @@ license:
 
 `helm upgrade` after adding it — entitlements activate immediately; verify
 with `GET https://<host>/api/v1/license`. An inline `license.key` also works
-but lands in the release Secret. Unlicensed = Community features, fully
-supported.
+but lands in the release Secret.
+
+**Community Edition is the absence of a license** — there is no edition flag.
+Leave `license.existingSecret` and `license.key` empty and the chart doesn't
+render `SLUICIO_LICENSE_KEY` at all; everything except SSO, audit log,
+notification profiles, retention beyond 14 days, the require-MFA policy and
+advanced RBAC works. Adding a license later is a `helm upgrade`, not a
+reinstall — the databases are untouched.
+
+Note that a **non-empty `existingSecret` naming a Secret that doesn't exist**
+is worse than leaving it empty: the pod won't start (see Troubleshooting).
 
 Two more keys worth setting on day one:
 
@@ -128,6 +137,51 @@ want fixed UIDs; see below).
   images assume fixed UIDs. Use external databases on OpenShift (recommended),
   or grant those pods `anyuid` and set
   `postgres.podSecurityContext: {}` / `clickhouse.podSecurityContext: {}`.
+
+## Troubleshooting
+
+**The UI loads but says "Couldn't reach the cell-api", 502 Bad Gateway.**
+The frontend proxies `/api` to the cell-api Service; a 502 means nothing
+healthy is behind it. cell-api only becomes Ready once it has connected to
+*both* Postgres and ClickHouse, so a 502 is nearly always cell-api not being
+Ready rather than a proxy problem:
+
+```bash
+kubectl get pods -l app.kubernetes.io/instance=<release>
+kubectl logs deploy/<release>-cell-api
+```
+
+**cell-api is `CreateContainerConfigError`.** kubelet couldn't assemble the
+container config — a referenced Secret is missing, or the key inside it isn't
+the one the chart asks for. The pod events name it exactly:
+
+```bash
+kubectl describe pod -l app.kubernetes.io/component=cell-api
+```
+
+`secret "X" not found` → the Secret isn't in this namespace (easy to hit when
+you create it in one project and install into another). `couldn't find key Y
+in Secret X` → the Secret exists with a different key; either recreate it or
+point the chart at your key with `license.secretKey` / `mfa.secretKey` /
+`smtp.secretKey`. The defaults are `license`, `mfa-key` and `password`.
+
+A quick way back to a running install is to drop the references entirely —
+Community Edition, no MFA enrollment, everything else working:
+
+```bash
+helm upgrade <release> <chart> --reuse-values \
+  --set license.existingSecret= --set license.key= \
+  --set mfa.existingSecret= --set mfa.key=
+```
+
+Note that cell-ingest has no such Secret references, so "ingest is Running but
+cell-api isn't" is the signature of this problem rather than of an image,
+SCC or scheduling issue.
+
+**Pods stuck `CreateContainerConfigError` on OpenShift with no Secret in the
+events** is the other flavour: an image whose `USER` isn't numeric can't be
+verified against `runAsNonRoot`. The Sluicio images pin a numeric UID, so this
+points at the bundled database images, not the app.
 
 ## Topology notes
 

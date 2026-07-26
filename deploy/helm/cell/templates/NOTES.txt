@@ -26,6 +26,24 @@ the session cookie is host-scoped. See ingress/route in values.yaml.
 First run: opening the UI starts the setup flow (create the first admin +
 org). cell-api applies database migrations automatically on startup.
 
+{{- $refs := list }}
+{{- if .Values.license.existingSecret }}{{ $refs = append $refs (printf "%s (key %s)" .Values.license.existingSecret .Values.license.secretKey) }}{{ end }}
+{{- if .Values.mfa.existingSecret }}{{ $refs = append $refs (printf "%s (key %s)" .Values.mfa.existingSecret .Values.mfa.secretKey) }}{{ end }}
+{{- if .Values.smtp.existingSecret }}{{ $refs = append $refs (printf "%s (key %s)" .Values.smtp.existingSecret .Values.smtp.secretKey) }}{{ end }}
+{{- if $refs }}
+
+This release references existing Secrets:
+{{- range $refs }}
+  - {{ . }}
+{{- end }}
+Kubernetes resolves these when the cell-api pod starts. If one is missing —
+or holds a different key name — the pod stops at CreateContainerConfigError
+rather than starting, and the UI answers 502. Check with:
+
+  kubectl get secret -n {{ .Release.Namespace }}
+  kubectl describe pod -n {{ .Release.Namespace }} -l app.kubernetes.io/component=cell-api
+{{- end }}
+
 License:
 {{- if or .Values.license.key .Values.license.existingSecret }}
   a license was configured — verify entitlements with
