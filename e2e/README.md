@@ -119,7 +119,10 @@ deliberately not job-wide, so it is absent while `npm ci` / `go mod
 download` execute third-party code.
 
 Mint a dedicated, short-lived token rather than reusing a customer key
-(the signing tool is in-repo; only the private key is kept out of it):
+(the signing tool is in-repo; only the private key is kept out of it).
+**Run this from the repository root** — the `./ee/...` path is relative,
+and from anywhere else Go reads it as a stdlib package name and reports
+the confusing `package sluicio-license is not in std`:
 
 ```bash
 go run ./ee/cmd/sluicio-license mint \
