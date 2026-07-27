@@ -318,6 +318,7 @@ function HealthCheckEditor({
   const [source, setSource] = useState<"telemetry" | "pushed">(rule?.source === "pushed" ? "pushed" : "telemetry");
   const pushed = canPush && source === "pushed";
   const [name, setName] = useState(rule?.name ?? "");
+  const [runbook, setRunbook] = useState(rule?.runbook ?? "");
   const [metricNames, setMetricNames] = useState<string[]>([]);
   const [metric, setMetric] = useState(rule?.spec.metric_name ?? "");
   const [fields, setFields] = useState<LogFieldEntry[]>([]);
@@ -416,6 +417,7 @@ function HealthCheckEditor({
     // metric-signal rule (telemetry or pushed source).
     const body = {
       name: finalName,
+      runbook: runbook.trim(),
       severity,
       signal: "metric" as const,
       spec: finalSpec,
@@ -433,7 +435,6 @@ function HealthCheckEditor({
         await api.updateAlertRule(rule.id, {
           ...body,
           description: rule.description,
-          runbook: rule.runbook,
           enabled: rule.enabled,
           channel_ids: rule.channel_ids,
           group_id: rule.group_id,
@@ -484,6 +485,21 @@ function HealthCheckEditor({
           onChange={(e) => setName(e.target.value)}
           placeholder={pushed ? "e.g. Queue depth" : metric ? `${metric} health` : "Health check name"}
         />
+      </div>
+
+      <div className="m-field">
+        <label className="m-field-label">Runbook <span className="muted" style={{ fontWeight: 400 }}>optional</span></label>
+        <textarea
+          className="search__input"
+          style={{ minHeight: 68, resize: "vertical", fontFamily: "inherit" }}
+          value={runbook}
+          onChange={(e) => setRunbook(e.target.value)}
+          placeholder="What to do when this fires — e.g. Check the consumer group first; the usual cause is a stuck partition. Escalate to #payments-oncall after 15 minutes."
+        />
+        <div className="muted" style={{ fontSize: 11.5, marginTop: 4 }}>
+          Sent with every notification and available to agents over MCP, so whoever picks this
+          up gets your playbook instead of guessing.
+        </div>
       </div>
 
       {!pushed && (
@@ -639,6 +655,7 @@ function LogCheckEditor({
 }) {
   const ls = rule?.log_spec;
   const [name, setName] = useState(rule?.name ?? "");
+  const [runbook, setRunbook] = useState(rule?.runbook ?? "");
   const [severity, setSeverity] = useState<AlertSeverity>(rule?.severity ?? "warning");
   const [minSeverity, setMinSeverity] = useState<number>(ls?.min_severity ?? 17);
   const [bodyContains, setBodyContains] = useState(ls?.body_contains ?? "");
@@ -660,6 +677,7 @@ function LogCheckEditor({
     const finalName = name.trim() || (bodyContains.trim() ? `Log: ${bodyContains.trim()}` : "Log check");
     const body = {
       name: finalName,
+      runbook: runbook.trim(),
       severity,
       resolve_mode: resolveMode,
       signal: "log" as const,
@@ -676,7 +694,7 @@ function LogCheckEditor({
     try {
       if (rule) {
         await api.updateAlertRule(rule.id, {
-          ...body, description: rule.description, runbook: rule.runbook, enabled: rule.enabled,
+          ...body, description: rule.description, enabled: rule.enabled,
           channel_ids: rule.channel_ids, group_id: rule.group_id,
           title_template: rule.title_template, body_template: rule.body_template,
         });
@@ -696,6 +714,21 @@ function LogCheckEditor({
       <div className="m-field">
         <label className="m-field-label">Name</label>
         <input className="search__input" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Error logs" />
+      </div>
+
+      <div className="m-field">
+        <label className="m-field-label">Runbook <span className="muted" style={{ fontWeight: 400 }}>optional</span></label>
+        <textarea
+          className="search__input"
+          style={{ minHeight: 68, resize: "vertical", fontFamily: "inherit" }}
+          value={runbook}
+          onChange={(e) => setRunbook(e.target.value)}
+          placeholder="What to do when this fires — e.g. Check the consumer group first; the usual cause is a stuck partition. Escalate to #payments-oncall after 15 minutes."
+        />
+        <div className="muted" style={{ fontSize: 11.5, marginTop: 4 }}>
+          Sent with every notification and available to agents over MCP, so whoever picks this
+          up gets your playbook instead of guessing.
+        </div>
       </div>
 
       <div className="m-field">
@@ -783,6 +816,7 @@ function TraceCheckEditor({
   type TraceMode = "errors" | "latency" | "volume";
   const [mode, setMode] = useState<TraceMode>(ls ? "latency" : vs ? "volume" : "errors");
   const [name, setName] = useState(rule?.name ?? "");
+  const [runbook, setRunbook] = useState(rule?.runbook ?? "");
   const [severity, setSeverity] = useState<AlertSeverity>(rule?.severity ?? "warning");
   // Failed-trace fields.
   const [threshold, setThreshold] = useState<number>(ts?.threshold ?? 1);
@@ -812,6 +846,7 @@ function TraceCheckEditor({
     setErr(null);
     const common = {
       severity,
+      runbook: runbook.trim(),
       resolve_mode: resolveMode,
       signal: "trace" as const,
       ...scopeBinding(scope, target),
@@ -847,7 +882,7 @@ function TraceCheckEditor({
     try {
       if (rule) {
         await api.updateAlertRule(rule.id, {
-          ...body, description: rule.description, runbook: rule.runbook, enabled: rule.enabled,
+          ...body, description: rule.description, enabled: rule.enabled,
           channel_ids: rule.channel_ids, group_id: rule.group_id,
           title_template: rule.title_template, body_template: rule.body_template,
         });
@@ -882,6 +917,21 @@ function TraceCheckEditor({
       <div className="m-field">
         <label className="m-field-label">Name</label>
         <input className="search__input" value={name} onChange={(e) => setName(e.target.value)} placeholder={mode === "latency" ? "e.g. Slow checkout" : mode === "volume" ? "e.g. Orders stopped" : "e.g. Failed orders"} />
+      </div>
+
+      <div className="m-field">
+        <label className="m-field-label">Runbook <span className="muted" style={{ fontWeight: 400 }}>optional</span></label>
+        <textarea
+          className="search__input"
+          style={{ minHeight: 68, resize: "vertical", fontFamily: "inherit" }}
+          value={runbook}
+          onChange={(e) => setRunbook(e.target.value)}
+          placeholder="What to do when this fires — e.g. Check the consumer group first; the usual cause is a stuck partition. Escalate to #payments-oncall after 15 minutes."
+        />
+        <div className="muted" style={{ fontSize: 11.5, marginTop: 4 }}>
+          Sent with every notification and available to agents over MCP, so whoever picks this
+          up gets your playbook instead of guessing.
+        </div>
       </div>
 
       {mode === "latency" ? (
