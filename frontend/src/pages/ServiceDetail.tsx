@@ -1388,6 +1388,7 @@ function ServiceEdit({
           api.updateAlertRule(r.id, {
             name: r.name,
             description: r.description,
+            runbook: r.runbook,
             signal: r.signal as "metric" | "log" | "trace",
             severity: r.severity,
             enabled: r.enabled,

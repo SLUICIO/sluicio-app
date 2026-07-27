@@ -17,9 +17,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/sluicio/sluicio-app/services/cell-api/internal/monitoringtemplates"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/monitoringtemplates"
 )
 
 // ErrNotFound is returned when a system-type lookup misses.
@@ -39,20 +39,24 @@ type SystemType struct {
 	IsSystem       bool      `json:"is_system"`
 	DetectPrefixes []string  `json:"detect_prefixes"`
 	Checks         []Check   `json:"checks"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	// Runbook is the type-level default guidance — "Kafka consumer lag:
+	// check consumer group health first". Rides along wherever the type
+	// is reported so a responder gets it without a second lookup.
+	Runbook   string    `json:"runbook,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type Store struct{ pool *pgxpool.Pool }
 
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
-const cols = `id, org_id, key, label, is_system, detect_prefixes, checks, created_at, updated_at`
+const cols = `id, org_id, key, label, is_system, detect_prefixes, checks, COALESCE(runbook, ''), created_at, updated_at`
 
 func scan(row pgx.Row) (SystemType, error) {
 	var t SystemType
 	var prefixesJSON, checksJSON []byte
-	if err := row.Scan(&t.ID, &t.OrganizationID, &t.Key, &t.Label, &t.IsSystem, &prefixesJSON, &checksJSON, &t.CreatedAt, &t.UpdatedAt); err != nil {
+	if err := row.Scan(&t.ID, &t.OrganizationID, &t.Key, &t.Label, &t.IsSystem, &prefixesJSON, &checksJSON, &t.Runbook, &t.CreatedAt, &t.UpdatedAt); err != nil {
 		return SystemType{}, err
 	}
 	if len(prefixesJSON) > 0 {
@@ -119,28 +123,28 @@ func marshalJSONArrays(prefixes []string, checks []Check) (string, string, error
 	return string(p), string(c), nil
 }
 
-func (s *Store) Create(ctx context.Context, orgID uuid.UUID, key, label string, isSystem bool, prefixes []string, checks []Check) (SystemType, error) {
+func (s *Store) Create(ctx context.Context, orgID uuid.UUID, key, label string, isSystem bool, prefixes []string, checks []Check, runbook string) (SystemType, error) {
 	p, c, err := marshalJSONArrays(prefixes, checks)
 	if err != nil {
 		return SystemType{}, err
 	}
 	row := s.pool.QueryRow(ctx, `
-		INSERT INTO system_types (org_id, key, label, is_system, detect_prefixes, checks)
-		VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb)
-		RETURNING `+cols, orgID, key, label, isSystem, p, c)
+		INSERT INTO system_types (org_id, key, label, is_system, detect_prefixes, checks, runbook)
+		VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7)
+		RETURNING `+cols, orgID, key, label, isSystem, p, c, runbook)
 	return scan(row)
 }
 
-func (s *Store) Update(ctx context.Context, orgID, id uuid.UUID, label string, isSystem bool, prefixes []string, checks []Check) (SystemType, bool, error) {
+func (s *Store) Update(ctx context.Context, orgID, id uuid.UUID, label string, isSystem bool, prefixes []string, checks []Check, runbook string) (SystemType, bool, error) {
 	p, c, err := marshalJSONArrays(prefixes, checks)
 	if err != nil {
 		return SystemType{}, false, err
 	}
 	row := s.pool.QueryRow(ctx, `
 		UPDATE system_types
-		SET label = $3, is_system = $4, detect_prefixes = $5::jsonb, checks = $6::jsonb, updated_at = now()
+		SET label = $3, is_system = $4, detect_prefixes = $5::jsonb, checks = $6::jsonb, runbook = $7, updated_at = now()
 		WHERE org_id = $1 AND id = $2
-		RETURNING `+cols, orgID, id, label, isSystem, p, c)
+		RETURNING `+cols, orgID, id, label, isSystem, p, c, runbook)
 	t, err := scan(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return SystemType{}, false, nil

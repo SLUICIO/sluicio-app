@@ -17,11 +17,11 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/sluicio/sluicio-app/pkg/httpserver"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/api/middleware"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/monitoringtemplates"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/systemtypes"
-	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // isUniqueViolation reports whether err is a Postgres unique-constraint error.
@@ -47,6 +47,7 @@ func systemTypeToTemplate(st systemtypes.SystemType) monitoringTemplate {
 		System:         st.IsSystem,
 		DetectPrefixes: prefixes,
 		Checks:         checks,
+		Runbook:        st.Runbook,
 	}
 }
 
@@ -123,6 +124,7 @@ type systemTypeDTO struct {
 	IsSystem       bool                        `json:"is_system"`
 	DetectPrefixes []string                    `json:"detect_prefixes"`
 	Checks         []monitoringtemplates.Check `json:"checks"`
+	Runbook        string                      `json:"runbook,omitempty"`
 	BuiltIn        bool                        `json:"built_in"`
 }
 
@@ -146,6 +148,7 @@ func effectiveToDTO(e effectiveType) systemTypeDTO {
 		IsSystem:       e.Template.System,
 		DetectPrefixes: prefixes,
 		Checks:         checks,
+		Runbook:        e.Template.Runbook,
 		BuiltIn:        e.BuiltIn,
 	}
 }
@@ -174,6 +177,9 @@ type systemTypeInput struct {
 	IsSystem       bool                        `json:"is_system"`
 	DetectPrefixes []string                    `json:"detect_prefixes"`
 	Checks         []monitoringtemplates.Check `json:"checks"`
+	// Runbook: type-level guidance inherited as context by everything
+	// this type describes.
+	Runbook string `json:"runbook"`
 }
 
 func cleanPrefixes(in []string) []string {
@@ -199,7 +205,7 @@ func (h *Handlers) createSystemType(w http.ResponseWriter, r *http.Request) {
 		httpserver.WriteError(w, http.StatusBadRequest, "key and label are required")
 		return
 	}
-	st, err := h.SystemTypes.Create(r.Context(), middleware.OrgID(r), key, label, in.IsSystem, cleanPrefixes(in.DetectPrefixes), in.Checks)
+	st, err := h.SystemTypes.Create(r.Context(), middleware.OrgID(r), key, label, in.IsSystem, cleanPrefixes(in.DetectPrefixes), in.Checks, strings.TrimSpace(in.Runbook))
 	if err != nil {
 		if isUniqueViolation(err) {
 			httpserver.WriteError(w, http.StatusConflict, "a system type with that key already exists")
@@ -230,7 +236,7 @@ func (h *Handlers) updateSystemType(w http.ResponseWriter, r *http.Request) {
 		httpserver.WriteError(w, http.StatusBadRequest, "label is required")
 		return
 	}
-	st, ok, err := h.SystemTypes.Update(r.Context(), middleware.OrgID(r), id, label, in.IsSystem, cleanPrefixes(in.DetectPrefixes), in.Checks)
+	st, ok, err := h.SystemTypes.Update(r.Context(), middleware.OrgID(r), id, label, in.IsSystem, cleanPrefixes(in.DetectPrefixes), in.Checks, strings.TrimSpace(in.Runbook))
 	if err != nil {
 		h.Logger.Error("update system type failed", "err", err)
 		httpserver.WriteError(w, http.StatusInternalServerError, "update failed")

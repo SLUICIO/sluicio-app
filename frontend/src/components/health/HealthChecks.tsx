@@ -433,6 +433,7 @@ function HealthCheckEditor({
         await api.updateAlertRule(rule.id, {
           ...body,
           description: rule.description,
+          runbook: rule.runbook,
           enabled: rule.enabled,
           channel_ids: rule.channel_ids,
           group_id: rule.group_id,
@@ -675,7 +676,7 @@ function LogCheckEditor({
     try {
       if (rule) {
         await api.updateAlertRule(rule.id, {
-          ...body, description: rule.description, enabled: rule.enabled,
+          ...body, description: rule.description, runbook: rule.runbook, enabled: rule.enabled,
           channel_ids: rule.channel_ids, group_id: rule.group_id,
           title_template: rule.title_template, body_template: rule.body_template,
         });
@@ -846,7 +847,7 @@ function TraceCheckEditor({
     try {
       if (rule) {
         await api.updateAlertRule(rule.id, {
-          ...body, description: rule.description, enabled: rule.enabled,
+          ...body, description: rule.description, runbook: rule.runbook, enabled: rule.enabled,
           channel_ids: rule.channel_ids, group_id: rule.group_id,
           title_template: rule.title_template, body_template: rule.body_template,
         });

@@ -99,4 +99,3 @@ func (h *Handlers) previewAlertTemplate(w http.ResponseWriter, r *http.Request) 
 	subject, body := alerting.RenderForPreview(r.Context(), kind, req.Content, alerting.SampleAlertContext())
 	httpserver.WriteJSON(w, http.StatusOK, map[string]string{"subject": subject, "body": body})
 }
-

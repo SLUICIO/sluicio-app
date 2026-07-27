@@ -746,6 +746,7 @@ function IntegrationAlertRules({
       await api.updateAlertRule(rule.id, {
         name: rule.name,
         description: rule.description,
+        runbook: rule.runbook,
         severity: rule.severity,
         enabled: !rule.enabled,
         channel_ids: rule.channel_ids,

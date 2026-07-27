@@ -40,6 +40,10 @@ type systemTypeDoc struct {
 	IsSystem       bool       `json:"is_system" yaml:"is_system"`
 	DetectPrefixes []string   `json:"detect_prefixes" yaml:"detect_prefixes"`
 	Checks         []docCheck `json:"checks" yaml:"checks"`
+	// Runbook travels with a shared type: the guidance is the part worth
+	// sharing most, and a type imported without it silently loses the
+	// knowledge the export was made to carry.
+	Runbook string `json:"runbook,omitempty" yaml:"runbook,omitempty"`
 }
 
 // docCheck mirrors monitoringtemplates.Check with yaml tags.
@@ -196,6 +200,7 @@ func (h *Handlers) exportSystemType(w http.ResponseWriter, r *http.Request) {
 		IsSystem:       found.Template.System,
 		DetectPrefixes: found.Template.DetectPrefixes,
 		Checks:         checks,
+		Runbook:        found.Template.Runbook,
 	}
 
 	if strings.EqualFold(r.URL.Query().Get("format"), "json") {
@@ -270,7 +275,7 @@ func (h *Handlers) importSystemType(w http.ResponseWriter, r *http.Request) {
 				httpserver.WriteError(w, http.StatusConflict, fmt.Sprintf("system type %q already exists — re-import with replace=true to overwrite", doc.Key))
 				return
 			}
-			updated, ok, uerr := h.SystemTypes.Update(r.Context(), orgID, st.ID, doc.Label, doc.IsSystem, prefixes, checks)
+			updated, ok, uerr := h.SystemTypes.Update(r.Context(), orgID, st.ID, doc.Label, doc.IsSystem, prefixes, checks, doc.Runbook)
 			if uerr != nil || !ok {
 				h.Logger.Error("import system type: replace failed", "err", uerr)
 				httpserver.WriteError(w, http.StatusInternalServerError, "import failed")
@@ -282,7 +287,7 @@ func (h *Handlers) importSystemType(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	st, err := h.SystemTypes.Create(r.Context(), orgID, doc.Key, doc.Label, doc.IsSystem, prefixes, checks)
+	st, err := h.SystemTypes.Create(r.Context(), orgID, doc.Key, doc.Label, doc.IsSystem, prefixes, checks, doc.Runbook)
 	if err != nil {
 		if isUniqueViolation(err) {
 			httpserver.WriteError(w, http.StatusConflict, fmt.Sprintf("system type %q already exists — re-import with replace=true to overwrite", doc.Key))

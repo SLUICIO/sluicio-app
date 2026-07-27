@@ -139,9 +139,15 @@ export default function Alerts() {
   const toggleRule = async (rule: AlertRule) => {
     try {
       const signal = rule.signal === "log" ? "log" : rule.signal === "trace" ? "trace" : "metric";
+      // PUT /alert-rules replaces the whole rule — the handler rebuilds
+      // it from the request rather than merging — so every field omitted
+      // here is silently CLEARED. Flipping `enabled` used to wipe the
+      // rule's templates, unit, display flag and resolve mode; it now
+      // carries the full rule through and overrides only `enabled`.
       await api.updateAlertRule(rule.id, {
         name: rule.name,
         description: rule.description,
+        runbook: rule.runbook,
         severity: rule.severity,
         enabled: !rule.enabled,
         channel_ids: rule.channel_ids,
@@ -149,9 +155,16 @@ export default function Alerts() {
         spec: signal === "metric" ? rule.spec : undefined,
         log_spec: signal === "log" ? rule.log_spec : undefined,
         trace_error_spec: signal === "trace" ? rule.trace_error_spec : undefined,
+        trace_latency_spec: signal === "trace" ? rule.trace_latency_spec : undefined,
+        trace_volume_spec: signal === "trace" ? rule.trace_volume_spec : undefined,
         service_name: rule.service_name,
         integration_id: rule.integration_id,
         group_id: rule.group_id,
+        title_template: rule.title_template,
+        body_template: rule.body_template,
+        notification_config: rule.notification_config,
+        display_on_service: rule.display_on_service,
+        unit: rule.unit,
       });
       load();
     } catch (e) {

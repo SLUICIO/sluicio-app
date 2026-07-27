@@ -295,9 +295,10 @@ func contextFromJob(job DeliveryJob, env, company, link string) *AlertContext {
 			StateEmoji: stateEmoji(job.State, Severity(job.Labels["severity"])),
 		},
 		Rule: RuleFacts{
-			Name:   job.Labels["rule_name"],
-			Signal: job.RuleSignal,
-			Kind:   job.RuleKind,
+			Name:    job.Labels["rule_name"],
+			Signal:  job.RuleSignal,
+			Kind:    job.RuleKind,
+			Runbook: job.RuleRunbook,
 		},
 		Org:    OrgFacts{Company: company, Environment: env},
 		SentAt: time.Now().UTC().Format(time.RFC3339),

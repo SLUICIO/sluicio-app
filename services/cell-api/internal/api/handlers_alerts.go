@@ -45,11 +45,15 @@ type alertRuleRequest struct {
 	// threshold distinct traces over the window (zero counts as below).
 	TraceVolumeSpec *alerting.TraceVolumeRuleSpec `json:"trace_volume_spec"`
 	ChannelIDs      []string                      `json:"channel_ids"`
-	IntegrationID   string                        `json:"integration_id"` // "" = not bound to an integration
-	ServiceName     string                        `json:"service_name"`   // "" = not bound to a service
-	GroupID         string                        `json:"group_id"`       // "" = org-wide (no owning team)
-	TitleTemplate   string                        `json:"title_template"` // "" = built-in summary
-	BodyTemplate    string                        `json:"body_template"`  // "" = built-in summary
+	// Runbook: what to do when this fires. Travels in notification and
+	// event payloads and MCP responses, so responders (human or agent)
+	// get the org's playbook without a second lookup.
+	Runbook       string `json:"runbook"`
+	IntegrationID string `json:"integration_id"` // "" = not bound to an integration
+	ServiceName   string `json:"service_name"`   // "" = not bound to a service
+	GroupID       string `json:"group_id"`       // "" = org-wide (no owning team)
+	TitleTemplate string `json:"title_template"` // "" = built-in summary
+	BodyTemplate  string `json:"body_template"`  // "" = built-in summary
 	// NotificationContent: which enrichment blocks (service / integration /
 	// metadata / failing check) the email + webhook include, plus an optional
 	// inline Liquid email override. nil = no enrichment + org default.
@@ -507,6 +511,7 @@ func (h *Handlers) buildRule(orgID uuid.UUID, id uuid.UUID, req alertRuleRequest
 		GroupID:             groupID,
 		Name:                req.Name,
 		Description:         strings.TrimSpace(req.Description),
+		Runbook:             strings.TrimSpace(req.Runbook),
 		Severity:            sev,
 		Signal:              signal,
 		Enabled:             enabled,

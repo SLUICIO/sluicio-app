@@ -77,6 +77,11 @@ type monitoringTemplate struct {
 	System         bool
 	DetectPrefixes []string
 	Checks         []systemCheck
+	// Runbook is the type-level "what to do about this kind of thing".
+	// Empty on the built-ins for now — they're code-defined, and writing
+	// generic advice that reads as authoritative would be worse than
+	// none. Custom and overridden types carry the org's own.
+	Runbook string
 }
 
 var monitoringTemplates = []monitoringTemplate{

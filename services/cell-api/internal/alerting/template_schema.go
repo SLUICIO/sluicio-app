@@ -47,6 +47,7 @@ var templateVariableDocs = map[string]varDoc{
 	"rule.description": {"the alert rule's description", "when set"},
 	"rule.signal":      {"metric | log | trace", "always"},
 	"rule.kind":        {"trace-rule kind (trace_error | trace_latency | …)", "trace rules only"},
+	"rule.runbook":     {"the rule's runbook — what to do when this fires", "when the rule has one"},
 
 	"check.name":      {"the firing check's name", "metric-check rules only"},
 	"check.metric":    {"the metric that breached", "metric-check rules only"},

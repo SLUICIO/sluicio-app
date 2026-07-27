@@ -64,6 +64,11 @@ type RuleFacts struct {
 	Description string `json:"description,omitempty"`
 	Signal      string `json:"signal,omitempty"`
 	Kind        string `json:"kind,omitempty"`
+	// Runbook is the org's answer to "what do I do about this?" — the
+	// reason it travels in the payload rather than sitting in the UI. An
+	// agent handling the alert, or a human paged at 3am, gets the
+	// instruction without a second lookup.
+	Runbook string `json:"runbook,omitempty"`
 }
 
 // CheckFacts is "what failed and by how much" — the firing check's metric,

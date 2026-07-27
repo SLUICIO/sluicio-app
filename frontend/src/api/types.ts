@@ -1553,6 +1553,10 @@ export interface AlertRule {
   group_id?: string; // owning team; absent = org-wide
   name: string;
   description: string;
+  // What to DO when this fires. Travels in notification and event
+  // payloads and MCP responses, so a responder — human or agent — gets
+  // the org's playbook without a second lookup.
+  runbook?: string;
   signal: string; // "metric" | "log" | "trace" (failed-trace)
   spec: MetricRuleSpec;
   log_spec?: LogRuleSpec; // present when signal === "log"
@@ -1618,6 +1622,7 @@ export interface AlertRuleInput {
   service_name?: string; // when set, the rule defines that service's health
   integration_id?: string; // bind to an integration's health
   group_id?: string; // owning team; omit / "" = org-wide
+  runbook?: string; // what to do when this fires; rides along in payloads
   title_template?: string; // Go text/template for the notification title
   body_template?: string; // Go text/template for the notification body
   notification_config?: NotificationContent;

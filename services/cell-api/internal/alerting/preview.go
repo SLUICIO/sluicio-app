@@ -63,6 +63,10 @@ func SampleAlertContext() *AlertContext {
 			Name:        "Checkout error rate",
 			Description: "Page when checkout-api error rate is sustained.",
 			Signal:      "metric",
+			// A realistic runbook, so the palette's sample shows authors
+			// (and agents) the shape that's actually useful: what to look
+			// at, the usual cause, who to escalate to.
+			Runbook: "Check checkout-api's upstream payment provider first — the usual cause is provider latency, not our code. If the provider is healthy, look at the recent deploy list. Escalate to #payments-oncall after 15 minutes.",
 		},
 		Check: &CheckFacts{
 			Name:      "Checkout error rate",

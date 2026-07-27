@@ -32,8 +32,8 @@ type UsageServiceRow struct {
 // UsageSignalReport is one signal's section of the report.
 type UsageSignalReport struct {
 	// Metrics section: catalog counts. Logs/traces: service counts.
-	Total   int `json:"total"`
-	Unused  int `json:"unused"`
+	Total  int `json:"total"`
+	Unused int `json:"unused"`
 	// UnusedRows is the datapoint/row count the unused share produced in
 	// the window; EstBytesPerDay/Per30d scale it by the table's average
 	// compressed row size.

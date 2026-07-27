@@ -29,7 +29,7 @@ const ruleCols = `id, organization_id, integration_id, COALESCE(service_name, ''
 	EXTRACT(EPOCH FROM evaluation_interval)::bigint, enabled,
 	COALESCE(title_template, ''), COALESCE(body_template, ''), created_at, updated_at,
 	COALESCE(source, 'telemetry'), display_on_service, COALESCE(unit, ''), COALESCE(resolve_mode, 'auto'),
-	notification_config`
+	notification_config, COALESCE(runbook, '')`
 
 // notifConfigJSON marshals a rule's notification config for the jsonb column;
 // nil → SQL NULL (no per-rule config).
@@ -58,7 +58,7 @@ func scanRule(row pgx.Row) (AlertRule, error) {
 		&r.EvalSeconds, &r.Enabled,
 		&r.TitleTemplate, &r.BodyTemplate, &r.CreatedAt, &r.UpdatedAt,
 		&r.Source, &r.DisplayOnService, &r.Unit, &r.ResolveMode,
-		&ncRaw,
+		&ncRaw, &r.Runbook,
 	); err != nil {
 		return AlertRule{}, err
 	}
@@ -273,10 +273,10 @@ func (s *Store) CreateRule(ctx context.Context, r AlertRule) (AlertRule, error) 
 	defer tx.Rollback(ctx)
 
 	row := tx.QueryRow(ctx, `
-		INSERT INTO alert_rules (organization_id, integration_id, service_name, group_id, name, description, signal, rule_spec, severity, enabled, title_template, body_template, source, display_on_service, unit, resolve_mode, notification_config)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+		INSERT INTO alert_rules (organization_id, integration_id, service_name, group_id, name, description, signal, rule_spec, severity, enabled, title_template, body_template, source, display_on_service, unit, resolve_mode, notification_config, runbook)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
 		RETURNING `+ruleCols,
-		r.OrganizationID, uuidArg(r.IntegrationID), nilIfEmpty(r.ServiceName), uuidArg(r.GroupID), r.Name, nilIfEmpty(r.Description), ruleSignal(r), spec, string(r.Severity), r.Enabled, nilIfEmpty(r.TitleTemplate), nilIfEmpty(r.BodyTemplate), ruleSource(r), r.DisplayOnService, nilIfEmpty(r.Unit), resolveModeOf(r), notifConfigJSON(r.NotificationContent))
+		r.OrganizationID, uuidArg(r.IntegrationID), nilIfEmpty(r.ServiceName), uuidArg(r.GroupID), r.Name, nilIfEmpty(r.Description), ruleSignal(r), spec, string(r.Severity), r.Enabled, nilIfEmpty(r.TitleTemplate), nilIfEmpty(r.BodyTemplate), ruleSource(r), r.DisplayOnService, nilIfEmpty(r.Unit), resolveModeOf(r), notifConfigJSON(r.NotificationContent), r.Runbook)
 	created, err := scanRule(row)
 	if err != nil {
 		return AlertRule{}, fmt.Errorf("insert alert rule: %w", err)
@@ -305,10 +305,10 @@ func (s *Store) UpdateRule(ctx context.Context, orgID uuid.UUID, r AlertRule) (A
 
 	row := tx.QueryRow(ctx, `
 		UPDATE alert_rules
-		SET name = $3, description = $4, rule_spec = $5, severity = $6, enabled = $7, integration_id = $8, service_name = $9, group_id = $10, title_template = $11, body_template = $12, source = $13, display_on_service = $14, unit = $15, resolve_mode = $16, notification_config = $17, updated_at = now()
+		SET name = $3, description = $4, rule_spec = $5, severity = $6, enabled = $7, integration_id = $8, service_name = $9, group_id = $10, title_template = $11, body_template = $12, source = $13, display_on_service = $14, unit = $15, resolve_mode = $16, notification_config = $17, runbook = $18, updated_at = now()
 		WHERE organization_id = $1 AND id = $2
 		RETURNING `+ruleCols,
-		orgID, r.ID, r.Name, nilIfEmpty(r.Description), spec, string(r.Severity), r.Enabled, uuidArg(r.IntegrationID), nilIfEmpty(r.ServiceName), uuidArg(r.GroupID), nilIfEmpty(r.TitleTemplate), nilIfEmpty(r.BodyTemplate), ruleSource(r), r.DisplayOnService, nilIfEmpty(r.Unit), resolveModeOf(r), notifConfigJSON(r.NotificationContent))
+		orgID, r.ID, r.Name, nilIfEmpty(r.Description), spec, string(r.Severity), r.Enabled, uuidArg(r.IntegrationID), nilIfEmpty(r.ServiceName), uuidArg(r.GroupID), nilIfEmpty(r.TitleTemplate), nilIfEmpty(r.BodyTemplate), ruleSource(r), r.DisplayOnService, nilIfEmpty(r.Unit), resolveModeOf(r), notifConfigJSON(r.NotificationContent), r.Runbook)
 	updated, err := scanRule(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return AlertRule{}, ErrNotFound

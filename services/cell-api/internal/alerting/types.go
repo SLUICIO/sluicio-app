@@ -431,6 +431,15 @@ type AlertRule struct {
 	// ResolveMode decides what happens when the check's condition clears:
 	// ResolveAuto (self-recovering) or ResolveManual (stays firing until a
 	// human acknowledges it). Empty defaults to auto.
+	// Runbook is what to DO when this fires: "check the consumer group
+	// first, typical cause is a stuck partition, escalate to #payments".
+	// It rides along in notification and event payloads and in MCP
+	// responses, so an agent woken by the alert executes the org's
+	// playbook instead of inventing a plausible one — and a human paged
+	// at 3am gets the same sentence. Prose, not a link: a URL is no use
+	// to an agent that cannot open it.
+	Runbook string `json:"runbook,omitempty"`
+
 	ResolveMode string      `json:"resolve_mode"`
 	ChannelIDs  []uuid.UUID `json:"channel_ids"`
 	// TitleTemplate / BodyTemplate are optional Go text/template
