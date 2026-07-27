@@ -76,6 +76,7 @@ import (
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/notifyprofiles"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/notifytemplates"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/oauth"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/proposals"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/retention"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/schemas"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/servicefacets"
@@ -143,6 +144,7 @@ func main() {
 	profilesStore := notifyprofiles.NewStore(pg)
 	monitoringTemplateStore := monitoringtemplates.NewStore(pg)
 	eventSubsStore := eventsubs.NewStore(pg)
+	proposalStore := proposals.NewStore(pg)
 	systemTypeStore := systemtypes.NewStore(pg)
 	// Ensure an org-wide default notification profile exists so resolution
 	// always has a final fallback.
@@ -225,6 +227,7 @@ func main() {
 		Maintenance:         maintenance.NewStore(pg),
 		NotifyTemplates:     notifytemplates.NewStore(pg),
 		EventSubs:           eventSubsStore,
+		Proposals:           proposalStore,
 		PGPool:              pg,
 		ServiceMeta:         serviceMetaStore,
 		Metadata:            metadataStore,

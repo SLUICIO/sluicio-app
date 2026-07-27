@@ -70,28 +70,47 @@ func TestToolCatalogueCoversTheReadSurface(t *testing.T) {
 	}
 }
 
-// Every tool must advertise the read-only annotations, and must actually
-// BE read-only. The second half is the point: the annotation is a promise
-// to the client, and a mutating tool that inherited it would be telling
-// agents "no confirmation needed" about a write. messages/search is the
-// one allowed POST — a search whose body is too big for a query string.
-func TestToolsAdvertiseReadOnlyAndAreReadOnly(t *testing.T) {
+// The annotations are a promise to the client about whether calling a
+// tool is safe, so they must match what the tool actually does. The
+// direction that matters is a tool that WRITES while claiming to be
+// read-only: a client would then skip confirmation on a real write.
+//
+// messages/search is the one read that must POST — its body is too big
+// for a query string — so it's allowed to claim read-only.
+func TestToolAnnotationsMatchWhatToolsDo(t *testing.T) {
 	s := NewServer("http://example", "Bearer x")
+
+	claimsReadOnly := map[string]bool{}
 	for _, tl := range s.toolList() {
 		name := tl["name"].(string)
 		ann, ok := tl["annotations"].(map[string]any)
 		if !ok {
 			t.Fatalf("%s has no annotations", name)
 		}
-		if ann["readOnlyHint"] != true {
-			t.Errorf("%s: readOnlyHint not true", name)
+		ro, ok := ann["readOnlyHint"].(bool)
+		if !ok {
+			t.Fatalf("%s: readOnlyHint missing or not a bool", name)
 		}
+		claimsReadOnly[name] = ro
+		// Nothing in this catalogue destroys anything: reads don't, and a
+		// proposal only queues a request for human review.
 		if ann["destructiveHint"] != false {
-			t.Errorf("%s: destructiveHint should be false on a read-only tool", name)
+			t.Errorf("%s: destructiveHint should be false", name)
 		}
 	}
 
-	// Now prove the promise: drive every tool and record the verb it used.
+	// At least one writer must exist, or this test passes vacuously
+	// forever after someone deletes the propose tool.
+	sawWriter := false
+	for _, ro := range claimsReadOnly {
+		if !ro {
+			sawWriter = true
+		}
+	}
+	if !sawWriter {
+		t.Error("no write-annotated tool in the catalogue — did the propose tool lose its annotations?")
+	}
+
 	for _, tl := range s.toolList() {
 		name := tl["name"].(string)
 		var method, path string
@@ -103,23 +122,103 @@ func TestToolsAdvertiseReadOnlyAndAreReadOnly(t *testing.T) {
 		srv := NewServer(backend.URL, "Bearer x")
 		// Supply every required arg generically so the call reaches the
 		// backend instead of failing validation.
-		args := map[string]any{"id": "00000000-0000-0000-0000-000000000000", "trace_id": "abc", "metric": "m", "name": "m"}
+		args := map[string]any{
+			"id": "00000000-0000-0000-0000-000000000000", "trace_id": "abc",
+			"metric": "m", "name": "m",
+			"rule_id":   "00000000-0000-0000-0000-000000000000",
+			"rationale": "observed 40 firings in 24h, all auto-resolved within 2m",
+			"threshold": 8,
+		}
 		msg, _ := json.Marshal(map[string]any{
 			"jsonrpc": "2.0", "id": 1, "method": "tools/call",
 			"params": map[string]any{"name": name, "arguments": args},
 		})
 		_ = srv.HandleMessage(msg)
 		backend.Close()
+
 		if method == "" {
 			continue // arg validation rejected it; nothing reached the wire
 		}
-		if method == http.MethodGet {
-			continue
+		writes := method != http.MethodGet && path != "/api/v1/messages/search"
+		if writes && claimsReadOnly[name] {
+			t.Errorf("%s used %s %s but claims readOnlyHint=true — a client would skip confirmation on a real write",
+				name, method, path)
 		}
-		if method == http.MethodPost && path == "/api/v1/messages/search" {
-			continue
+		if !claimsReadOnly[name] && !writes {
+			t.Errorf("%s claims to write but only issued %s %s — the annotation over-warns", name, method, path)
 		}
-		t.Errorf("%s used %s %s — a mutating tool must carry its own annotations, not inherit the read-only set", name, method, path)
+	}
+}
+
+// The propose tool must reach the proposals endpoint with the target
+// kind and the agent's rationale, and must NOT send `before` — cell-api
+// snapshots that itself, because an agent-supplied before would let a
+// caller defeat the drift check protecting a human's concurrent edit.
+func TestProposeCheckTuningRequestShape(t *testing.T) {
+	var gotPath string
+	var body map[string]any
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte("{}"))
+	}))
+	defer backend.Close()
+
+	s := NewServer(backend.URL, "Bearer x")
+	msg, _ := json.Marshal(map[string]any{
+		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+		"params": map[string]any{"name": "sluicio_propose_check_tuning", "arguments": map[string]any{
+			"rule_id":   "11111111-2222-3333-4444-555555555555",
+			"rationale": "fired 40 times in 24h; every instance auto-resolved within 2 minutes",
+			"threshold": 8,
+			"severity":  "warning",
+		}},
+	})
+	_ = s.HandleMessage(msg)
+
+	if gotPath != "/api/v1/proposals" {
+		t.Fatalf("posted to %q, want /api/v1/proposals", gotPath)
+	}
+	if body["target_kind"] != "alert_rule" {
+		t.Errorf("target_kind = %v, want alert_rule", body["target_kind"])
+	}
+	if body["rationale"] == "" || body["rationale"] == nil {
+		t.Error("rationale must be forwarded — it's what the reviewer reads")
+	}
+	changes, _ := body["changes"].([]any)
+	if len(changes) != 2 {
+		t.Fatalf("expected 2 changes (threshold, severity), got %d", len(changes))
+	}
+	for _, c := range changes {
+		m := c.(map[string]any)
+		if _, hasBefore := m["before"]; hasBefore {
+			t.Errorf("change %v carries `before` — cell-api must snapshot it, or the drift guard can be defeated", m["field"])
+		}
+		if m["after"] == nil {
+			t.Errorf("change %v has no after value", m["field"])
+		}
+	}
+}
+
+// Omitting every tunable is a no-op proposal; it must be refused rather
+// than filing an empty diff for a human to puzzle over.
+func TestProposeCheckTuningRequiresAChange(t *testing.T) {
+	s := NewServer("http://example", "Bearer x")
+	msg, _ := json.Marshal(map[string]any{
+		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+		"params": map[string]any{"name": "sluicio_propose_check_tuning", "arguments": map[string]any{
+			"rule_id": "11111111-2222-3333-4444-555555555555", "rationale": "because",
+		}},
+	})
+	var parsed struct {
+		Result struct {
+			IsError bool `json:"isError"`
+		} `json:"result"`
+	}
+	_ = json.Unmarshal(s.HandleMessage(msg), &parsed)
+	if !parsed.Result.IsError {
+		t.Error("a proposal with no changes must be refused")
 	}
 }
 

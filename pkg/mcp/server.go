@@ -1,9 +1,14 @@
 // SPDX-License-Identifier: FSL-1.1-Apache-2.0
 //
 // Package mcp is the transport-agnostic core of Sluicio's MCP server: the
-// curated read-only tool catalogue + JSON-RPC 2.0 message handling. It is a
-// thin client over the cell-api REST surface (/api/v1) — each tool is a GET,
-// authenticated with a Sluicio Bearer token. Two transports embed it:
+// curated tool catalogue + JSON-RPC 2.0 message handling. It is a thin
+// client over the cell-api REST surface (/api/v1), authenticated with a
+// Sluicio Bearer token.
+//
+// The catalogue is read-only with one deliberate exception: an agent may
+// FILE a proposal (a reviewable change request) but never apply one. Every
+// tool is annotated so a client knows which is which — see
+// readOnlyAnnotations / proposeAnnotations. Two transports embed it:
 //
 //   - services/cell-mcp (stdio)         — local, for Claude Desktop classic etc.
 //   - cell-api  POST /api/v1/mcp (HTTP) — remote, served on the same URL as the
@@ -123,7 +128,7 @@ func (s *Server) initialize(params json.RawMessage) map[string]any {
 		"protocolVersion": proto,
 		"capabilities":    map[string]any{"tools": map[string]any{}},
 		"serverInfo":      map[string]any{"name": serverName, "version": serverVersion},
-		"instructions":    "Read-only access to a Sluicio monitoring cell. Report on integration/service/system health, errors, alerts, logs, metrics, and traces/messages — everything is filtered by the token's RBAC scope. You cannot change anything.",
+		"instructions":    "Access to a Sluicio monitoring cell. Report on integration/service/system health, errors, alerts, logs, metrics, and traces/messages — everything is filtered by the token's RBAC scope. You cannot change any monitoring configuration directly. You MAY propose a tuning change to an existing alert rule (sluicio_propose_check_tuning); that files a reviewable request which a human approves or rejects, and only their approval applies it. Propose only when you can cite what you observed, and say so in the rationale.",
 	}
 }
 
@@ -134,6 +139,10 @@ type tool struct {
 	Description string
 	Schema      map[string]any
 	Call        func(args map[string]any) (string, error)
+	// Annotations overrides the read-only set. Non-nil only for tools
+	// that write — inheriting "safe to call" would be a lie to the
+	// client, and the guard test fails any writer that forgets.
+	Annotations map[string]any
 }
 
 // readOnlyAnnotations are attached to every tool in the catalogue.
@@ -147,8 +156,10 @@ type tool struct {
 //
 // If a tool that MUTATES is ever added — the proposal primitive in the
 // agent design is the obvious candidate — it must carry its own
-// annotations rather than inherit these. TestToolsAreReadOnly guards
-// that by failing when a tool reaches cell-api by any other verb.
+// annotations rather than inherit these.
+// TestToolsAdvertiseReadOnlyAndAreReadOnly guards that by failing any
+// tool that reaches cell-api by a writing verb while claiming to be
+// read-only.
 var readOnlyAnnotations = map[string]any{
 	"readOnlyHint": true,
 	// No environment change, so "destructive" is vacuous — state it
@@ -164,14 +175,35 @@ var readOnlyAnnotations = map[string]any{
 func (s *Server) toolList() []map[string]any {
 	out := make([]map[string]any, len(s.tools))
 	for i, t := range s.tools {
+		ann := t.Annotations
+		if ann == nil {
+			ann = readOnlyAnnotations
+		}
 		out[i] = map[string]any{
 			"name":        t.Name,
 			"description": t.Description,
 			"inputSchema": t.Schema,
-			"annotations": readOnlyAnnotations,
+			"annotations": ann,
 		}
 	}
 	return out
+}
+
+// proposeAnnotations describe a tool that FILES a change request. It
+// writes — a row lands in the proposals table — so readOnlyHint is
+// false and a client is right to confirm before calling it.
+//
+// destructiveHint is false all the same: a proposal changes no
+// monitoring config on its own. It sits in a queue until a human with
+// the rights to make that change approves it, and that is the whole
+// point of the primitive. idempotentHint is false because each call
+// files a new proposal (superseding any earlier pending one for the
+// same target), not because repeats are dangerous.
+var proposeAnnotations = map[string]any{
+	"readOnlyHint":    false,
+	"destructiveHint": false,
+	"idempotentHint":  false,
+	"openWorldHint":   false,
 }
 
 func (s *Server) callTool(params json.RawMessage) map[string]any {
@@ -472,6 +504,50 @@ func buildTools(s *Server) []tool {
 					return "", fmt.Errorf("trace_id is required")
 				}
 				return s.get("/api/v1/traces/"+url.PathEscape(id), nil)
+			}},
+
+		// The one tool that writes. It does not change monitoring config:
+		// it files a proposal a human must approve, which is why it can
+		// exist at all in a catalogue that is otherwise read-only.
+		{Name: "sluicio_propose_check_tuning", Annotations: proposeAnnotations,
+			Description: "Propose a tuning change to an existing alert rule — threshold, severity, for_window, evaluation_seconds or enabled. This does NOT change anything: it files a reviewable proposal that a human with edit rights approves or rejects, and only approval applies it. Use it when a check is demonstrably too noisy or too quiet and you can say why, citing what you observed (e.g. 'fired 40 times in 24h, every instance auto-resolved within 2 minutes'). The rationale is shown verbatim to the reviewer and is required. Get rule ids from sluicio_health or sluicio_alert_instances; the current values come from the rule itself, so send only the fields you want changed.",
+			Schema: objSchema(map[string]any{
+				"rule_id":            strProp("The alert rule's id (uuid), from sluicio_health or sluicio_alert_instances."),
+				"rationale":          strProp("Why this change is right, citing what you observed. Shown verbatim to the human reviewer. Required."),
+				"threshold":          map[string]any{"type": "number", "description": "Proposed new threshold value."},
+				"severity":           strProp("Proposed new severity: info, warning or critical."),
+				"for_window":         strProp("Proposed new sustain window as a Go duration, e.g. \"5m\" — how long the condition must hold before firing."),
+				"evaluation_seconds": map[string]any{"type": "integer", "description": "Proposed new evaluation interval in seconds."},
+				"enabled":            map[string]any{"type": "boolean", "description": "Propose enabling or disabling the rule."},
+			}, "rule_id", "rationale"),
+			Call: func(a map[string]any) (string, error) {
+				ruleID := argStr(a, "rule_id")
+				if ruleID == "" {
+					return "", fmt.Errorf("rule_id is required")
+				}
+				rationale := argStr(a, "rationale")
+				if rationale == "" {
+					return "", fmt.Errorf("rationale is required — a proposal without a reason cannot be reviewed")
+				}
+				// `before` is deliberately omitted: cell-api snapshots the
+				// current values itself. An agent-supplied before could be
+				// stale or wrong, and it is the input to the drift check
+				// that protects a human's concurrent edit.
+				changes := make([]map[string]any, 0, 5)
+				for _, f := range []string{"threshold", "severity", "for_window", "evaluation_seconds", "enabled"} {
+					if v, ok := a[f]; ok && v != nil {
+						changes = append(changes, map[string]any{"field": f, "after": v})
+					}
+				}
+				if len(changes) == 0 {
+					return "", fmt.Errorf("propose at least one of: threshold, severity, for_window, evaluation_seconds, enabled")
+				}
+				return s.post("/api/v1/proposals", nil, map[string]any{
+					"target_kind": "alert_rule",
+					"target_id":   ruleID,
+					"rationale":   rationale,
+					"changes":     changes,
+				})
 			}},
 	}
 }

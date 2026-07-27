@@ -39,6 +39,7 @@ import (
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/notifyprofiles"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/notifytemplates"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/oauth"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/proposals"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/retention"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/schemas"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/servicefacets"
@@ -82,6 +83,11 @@ type Handlers struct {
 	Events *eventsubs.Emitter
 	// EventSubs is the subscriptions store behind the CRUD endpoints.
 	EventSubs *eventsubs.Store
+	// Proposals backs the agent write path: agents file reviewable
+	// change requests instead of mutating config (issue #8, WS2). nil on
+	// a cell that hasn't enabled them — the handlers degrade rather than
+	// panic, so the endpoints answer honestly instead of 500ing.
+	Proposals *proposals.Store
 	// PGPool is the raw Postgres pool for the few handlers that need
 	// transaction ownership across many domains (config export/import —
 	// the whole-bundle atomicity contract lives on one tx).
@@ -1266,6 +1272,18 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 		// Outbound event subscriptions (issue #4): CRUD is scope-tiered
 		// inside the handlers; the type catalog is read-only.
 		mux.HandleFunc("GET /api/v1/event-types", h.listEventTypes)
+
+		// Proposals — the agent write path (issue #8, WS2). Filing is
+		// open to any authenticated caller who can see the target: a
+		// proposal is inert until a human acts, so a scoped SA gains
+		// nothing by creating one. DECIDING is gated exactly like making
+		// the change by hand (writeAnywhere, same as PUT /alert-rules) —
+		// approval must never be a cheaper path to a write than the UI.
+		mux.HandleFunc("POST /api/v1/proposals", h.createProposal)
+		mux.HandleFunc("GET /api/v1/proposals", h.listProposals)
+		mux.HandleFunc("GET /api/v1/proposals/{id}", h.getProposal)
+		mux.HandleFunc("POST /api/v1/proposals/{id}/approve", h.writeAnywhere(h.approveProposal))
+		mux.HandleFunc("POST /api/v1/proposals/{id}/reject", h.writeAnywhere(h.rejectProposal))
 		mux.HandleFunc("GET /api/v1/event-subscriptions", h.listEventSubscriptions)
 		mux.HandleFunc("POST /api/v1/event-subscriptions", h.blockDemo(h.createEventSubscription))
 		mux.HandleFunc("PUT /api/v1/event-subscriptions/{id}", h.blockDemo(h.updateEventSubscription))
