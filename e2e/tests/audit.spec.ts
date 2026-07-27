@@ -8,16 +8,11 @@
 //
 // The whole suite self-skips on cells without the `audit_log`
 // entitlement (Community builds no-op the recorder), so it's safe in
-// any environment.
+// any environment — but under E2E_EXPECT_EE the same condition fails
+// instead, so a licensed run can't silently degrade to skips.
 import { test, expect, type Page } from "@playwright/test";
 import { logIn, ADMIN_EMAIL } from "./fixtures";
-
-async function auditEntitled(page: Page): Promise<boolean> {
-  const res = await page.request.get("/api/v1/license");
-  if (!res.ok()) return false;
-  const body = await res.json();
-  return Boolean(body?.features?.audit_log);
-}
+import { requireEntitlement } from "./ee-gate";
 
 async function openAuditTab(page: Page): Promise<void> {
   await page.goto("/settings?tab=audit");
@@ -29,7 +24,7 @@ const rows = (page: Page) => page.locator("table tbody tr");
 test.describe("Audit log (EE)", () => {
   test.beforeEach(async ({ page }) => {
     await logIn(page);
-    test.skip(!(await auditEntitled(page)), "cell has no audit_log entitlement");
+    await requireEntitlement(page, "audit_log");
   });
 
   test("login events are recorded and searchable by actor + action", async ({ page }) => {

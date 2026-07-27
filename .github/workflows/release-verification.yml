@@ -53,6 +53,11 @@ jobs:
       CELL_API_ADDR: ":8081"
       CELL_INGEST_ADDR: ":4318"
       INGEST_ALLOW_ANONYMOUS: "true"
+      # Whether an Enterprise licence is configured for this run. The
+      # `secrets` context is unavailable in step-level `if:`, so it is
+      # reduced to a boolean here — this exposes only WHETHER a key
+      # exists, never the key itself.
+      HAS_LICENSE: ${{ secrets.E2E_LICENSE_KEY != '' }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
@@ -68,6 +73,12 @@ jobs:
             e2e/package-lock.json
 
       - name: Start cell-api
+        # The licence is injected HERE and nowhere else. Keeping it off the
+        # job-level `env` means it is absent from dependency installs
+        # (npm ci, go mod download) — the steps that execute third-party
+        # code and are the realistic exfiltration path for a secret.
+        env:
+          SLUICIO_LICENSE_KEY: ${{ secrets.E2E_LICENSE_KEY }}
         run: |
           (cd services/cell-api && go run ./cmd/cell-api) > "$RUNNER_TEMP/cell-api.log" 2>&1 &
           echo "cell-api started (pid $!)"
@@ -103,8 +114,27 @@ jobs:
         working-directory: e2e
         run: npx playwright install --with-deps chromium
 
+      - name: Confirm the cell picked up the licence
+        # A malformed or expired key doesn't stop cell-api — it just runs
+        # Community. Without this step that degradation is invisible: the
+        # EE specs would skip and the suite would still be green.
+        if: env.HAS_LICENSE == 'true'
+        run: |
+          state=$(curl -fsS http://localhost:8081/api/v1/license || echo '{}')
+          echo "license state: $state"
+          if ! echo "$state" | grep -q '"licensed":[[:space:]]*true'; then
+            echo "::error::E2E_LICENSE_KEY is set but the cell reports unlicensed — expired, malformed, or signed by another key."
+            exit 1
+          fi
+
       - name: Run use-case E2E suite
         working-directory: e2e
+        # E2E_EXPECT_EE turns every Enterprise gate from "skip" into
+        # "fail" — so the 26 EE tests can never silently stop running
+        # again. Unset when no secret is configured, which keeps the
+        # suite green for forks and Community-only runs.
+        env:
+          E2E_EXPECT_EE: ${{ env.HAS_LICENSE == 'true' && '1' || '' }}
         run: npm test
 
       - name: Service logs (on failure)

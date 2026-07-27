@@ -8,6 +8,7 @@
 // and the general write surfaces.
 import { test, expect, type APIRequestContext, type Browser } from "@playwright/test";
 import { logIn } from "./fixtures";
+import { requireEntitlement } from "./ee-gate";
 
 const VIEWER_EMAIL = "e2e-rbac-viewer@sluicio.local";
 const VIEWER_PASSWORD = "e2e-rbac-viewer-pw1";
@@ -255,18 +256,15 @@ test.describe("RBAC — expression access policies (EE)", () => {
   // (a parallel resetExprGroup would delete another test's group mid-run).
   test.describe.configure({ mode: "serial" });
 
-  let entitled = false;
   let aServices: string[] = [];
 
   test.beforeEach(async ({ page }) => {
     await logIn(page); // admin
-    const lic = await (await page.request.get("/api/v1/license")).json();
-    entitled = Boolean(lic?.features?.rbac_advanced);
     aServices = (await serviceNames(page.request)).filter((n) => n.startsWith("a")).sort();
   });
 
   test("service-name prefix scopes a viewer to exactly the matching services", async ({ page, browser }) => {
-    test.skip(!entitled, "cell has no rbac_advanced entitlement");
+    await requireEntitlement(page, "rbac_advanced");
     test.skip(aServices.length < 1, "cell has no services starting with 'a'");
 
     const gid = await resetExprGroup(page.request);
@@ -291,7 +289,7 @@ test.describe("RBAC — expression access policies (EE)", () => {
   });
 
   test("NOT excludes a service the rest of the tree would grant", async ({ page, browser }) => {
-    test.skip(!entitled, "cell has no rbac_advanced entitlement");
+    await requireEntitlement(page, "rbac_advanced");
     test.skip(aServices.length < 2, "need at least two 'a' services to prove exclusion");
 
     const excluded = aServices[0];
@@ -320,7 +318,7 @@ test.describe("RBAC — expression access policies (EE)", () => {
   });
 
   test("malformed expression is rejected at write (400)", async ({ page }) => {
-    test.skip(!entitled, "cell has no rbac_advanced entitlement");
+    await requireEntitlement(page, "rbac_advanced");
     const gid = await resetExprGroup(page.request);
     const bad = await page.request.post(`/api/v1/settings/groups/${gid}/policies`, {
       data: { kind: "expression", conditions: { op: "not", children: [{ attr: "x", match: "regex", value: "(" }] } },
@@ -370,8 +368,7 @@ test.describe("RBAC — scoped manage (EE)", () => {
 
   test.beforeEach(async ({ page }) => {
     await logIn(page); // admin
-    const lic = await (await page.request.get("/api/v1/license")).json();
-    test.skip(!lic?.features?.rbac_advanced, "cell has no rbac_advanced entitlement");
+    await requireEntitlement(page, "rbac_advanced");
     await setupScopedEditor(page.request);
   });
 
@@ -451,8 +448,7 @@ test.describe("RBAC — resource sharing (EE)", () => {
 
   test.beforeEach(async ({ page }) => {
     await logIn(page); // admin
-    const lic = await (await page.request.get("/api/v1/license")).json();
-    test.skip(!lic?.features?.rbac_advanced, "cell has no rbac_advanced entitlement");
+    await requireEntitlement(page, "rbac_advanced");
     const add = await page.request.post("/api/v1/settings/members", {
       data: { email: SHARE_EMAIL, name: "E2E Share Viewer", password: SHARE_PASSWORD, role: "viewer" },
     });
@@ -550,8 +546,7 @@ test.describe("RBAC — per-signal visibility (EE)", () => {
 
   test.beforeEach(async ({ page }) => {
     await logIn(page); // admin
-    const lic = await (await page.request.get("/api/v1/license")).json();
-    test.skip(!lic?.features?.rbac_advanced, "cell has no rbac_advanced entitlement");
+    await requireEntitlement(page, "rbac_advanced");
     const admin = page.request;
     const logs = (await (await admin.get("/api/v1/logs?range=30d&limit=50")).json()).logs ?? [];
     SIG_SERVICE = (logs.find((l: { service_name?: string }) => l.service_name)?.service_name as string) ?? "";
@@ -631,8 +626,7 @@ test.describe("RBAC — dependency graph hides invisible neighbors", () => {
   test("scoped viewer sees no out-of-scope neighbors", async ({ page, browser }) => {
     await logIn(page); // admin
     const admin = page.request;
-    const lic = await (await admin.get("/api/v1/license")).json();
-    test.skip(!lic?.features?.rbac_advanced, "cell has no rbac_advanced entitlement");
+    await requireEntitlement(admin, "rbac_advanced");
 
     // Baseline: the admin must see at least one neighbor, or the
     // assertion below would pass vacuously.
@@ -776,8 +770,7 @@ test.describe("RBAC — per-signal combinations (EE)", () => {
 
   test.beforeEach(async ({ page }) => {
     await logIn(page);
-    const lic = await (await page.request.get("/api/v1/license")).json();
-    test.skip(!lic?.features?.rbac_advanced, "cell has no rbac_advanced entitlement");
+    await requireEntitlement(page, "rbac_advanced");
     const svcs = (await (await page.request.get("/api/v1/services?range=24h")).json()).services ?? [];
     MX_SERVICE = "";
     for (const s of svcs.slice(0, 10)) {
@@ -865,8 +858,7 @@ test.describe("RBAC — per-signal combinations (EE)", () => {
 test.describe("RBAC — share grantee must be an org member (EE)", () => {
   test("sharing to an unknown email is rejected", async ({ page }) => {
     await logIn(page);
-    const lic = await (await page.request.get("/api/v1/license")).json();
-    test.skip(!lic?.features?.rbac_advanced, "cell has no rbac_advanced entitlement");
+    await requireEntitlement(page, "rbac_advanced");
     const integs = stableIntegrations(
       (await (await page.request.get("/api/v1/integrations?range=30d")).json()).integrations ?? [],
     );

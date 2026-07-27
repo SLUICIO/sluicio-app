@@ -10,6 +10,7 @@
 // materialise into a rendered widget or fetchable data for that caller.
 import { test, expect, type APIRequestContext, type Browser } from "@playwright/test";
 import { logIn } from "./fixtures";
+import { requireEntitlement } from "./ee-gate";
 
 const VIEWER_EMAIL = "e2e-dash-viewer@sluicio.local";
 const VIEWER_PASSWORD = "e2e-dash-viewer-pw1";
@@ -114,8 +115,7 @@ test.describe("Dashboards × RBAC", () => {
   test("team editor manages exactly their team's dashboards (EE)", async ({ page, browser }) => {
     await logIn(page);
     const admin = page.request;
-    const lic = await (await admin.get("/api/v1/license")).json();
-    test.skip(!lic?.features?.rbac_advanced, "cell has no rbac_advanced entitlement");
+    await requireEntitlement(admin, "rbac_advanced");
 
     const uid = await ensureUser(admin, EDITOR_EMAIL, "E2E Dash TeamEditor", EDITOR_PASSWORD);
     const teamA = await makeGroup(admin, `e2e-dash-teama-${stamp}`, "E2E Dash TeamA");

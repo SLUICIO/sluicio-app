@@ -20,6 +20,7 @@ import {
   type Browser,
 } from "@playwright/test";
 import { logIn, ADMIN_EMAIL, ADMIN_PASSWORD } from "./fixtures";
+import { expectsEE } from "./ee-gate";
 
 const BASE_URL = process.env.E2E_BASE_URL || "http://localhost:5173";
 const OP_EMAIL = "e2e-mfa-op@sluicio.local";
@@ -65,16 +66,26 @@ async function apiLogin(email: string, password: string): Promise<APIRequestCont
   return ctx;
 }
 
-// License gate: this suite needs a licensed cell. Release verification in
-// CI runs pure Community, so every test skips there — the CE side of these
-// gates (upsells instead of 402s) is ce-upsell.spec.ts's job. Hooks below
-// early-return on !cellLicensed so provisioning never runs either.
+// License gate: this suite needs a licensed cell. Against an unlicensed
+// one every test skips — the CE side of these gates (upsells instead of
+// 402s) is ce-upsell.spec.ts's job. Hooks below early-return on
+// !cellLicensed so provisioning never runs either.
+//
+// When E2E_EXPECT_EE is set the same condition FAILS instead: a run that
+// was supposed to be licensed must not quietly turn into skips because a
+// key expired or a secret went missing.
 let cellLicensed = false;
 test.beforeAll(async () => {
   const ctx = await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD);
   const st = await (await ctx.get("/api/v1/license")).json();
   cellLicensed = Boolean(st?.licensed);
   await ctx.dispose();
+  if (!cellLicensed && expectsEE()) {
+    throw new Error(
+      "E2E_EXPECT_EE is set but the cell reports no enterprise licence. " +
+        "Check SLUICIO_LICENSE_KEY on the cell (GET /api/v1/license).",
+    );
+  }
 });
 test.beforeEach(() => {
   test.skip(!cellLicensed, "cell has no enterprise license — EE suite skipped");
