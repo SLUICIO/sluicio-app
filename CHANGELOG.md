@@ -3,8 +3,29 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.42 — 2026-07-27
+
+- proposals: run the expiry sweep, and cover the loop end to end (issue #8, WS2) (227ce87)
+- proposals: the review inbox, and drop a tunable that never applied (issue #8, WS2) (312019c)
+- proposals: apply path, HTTP surface, and the MCP propose tool (issue #8, WS2) (24f2a02)
+- proposals: the safe-write primitive for agents (issue #8, WS2) (b59f4f2)
+- mcp: annotate the catalogue as read-only (issue #8, WS1) (f45dfdc)
+- Service detail: name the facets, and stop collapsing them to one (1fb610b)
+- ci: authenticate the licence pre-check (0b2c0c9)
+- e2e docs: mint the CI licence from the repo root (bd06373)
+- e2e: make the Enterprise suite actually run, and fail when it can't (4e6662e)
+- Telemetry Advisor P1: the demand ledger (3bc91f0)
+- Notification templates: one channel at a time, Email and Slack on their own tabs (7ff9af2)
+- helm: bundled databases run under restricted-v2; drop the anyuid advice (feec02f)
+- helm: name the referenced Secrets in NOTES, document CE and CreateContainerConfigError (f693c65)
+- feat(templates): start-from-default, schema-checked variables, side-by-side preview (36a5a80)
+- feat(templates): variables that write themselves — {{ }} autocomplete, sample values, live preview (23416e5)
+- feat(templates): CodeMirror editing for the template bodies (HTML highlighting, line numbers) (8ce3918)
+- docs(testing): bring the manual use-case catalog current with everything shipped since v0.11.27 (4060a8e)
+
 ## v0.11.41 — 2026-07-25
 
+- release v0.11.41 — refresh internal changelog (0020dc2)
 - feat(helm): chart v0.3.0 — CI validation, optional NetworkPolicy/PDB, OCI publishing, appVersion v0.11.40 (#6) (4a91d93)
 - test(integration): adapt UpsertServices call sites to the two-value signature (ee2964f)
 
