@@ -70,6 +70,59 @@ func TestToolCatalogueCoversTheReadSurface(t *testing.T) {
 	}
 }
 
+// Every tool must advertise the read-only annotations, and must actually
+// BE read-only. The second half is the point: the annotation is a promise
+// to the client, and a mutating tool that inherited it would be telling
+// agents "no confirmation needed" about a write. messages/search is the
+// one allowed POST — a search whose body is too big for a query string.
+func TestToolsAdvertiseReadOnlyAndAreReadOnly(t *testing.T) {
+	s := NewServer("http://example", "Bearer x")
+	for _, tl := range s.toolList() {
+		name := tl["name"].(string)
+		ann, ok := tl["annotations"].(map[string]any)
+		if !ok {
+			t.Fatalf("%s has no annotations", name)
+		}
+		if ann["readOnlyHint"] != true {
+			t.Errorf("%s: readOnlyHint not true", name)
+		}
+		if ann["destructiveHint"] != false {
+			t.Errorf("%s: destructiveHint should be false on a read-only tool", name)
+		}
+	}
+
+	// Now prove the promise: drive every tool and record the verb it used.
+	for _, tl := range s.toolList() {
+		name := tl["name"].(string)
+		var method, path string
+		backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			method, path = r.Method, r.URL.Path
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte("{}"))
+		}))
+		srv := NewServer(backend.URL, "Bearer x")
+		// Supply every required arg generically so the call reaches the
+		// backend instead of failing validation.
+		args := map[string]any{"id": "00000000-0000-0000-0000-000000000000", "trace_id": "abc", "metric": "m", "name": "m"}
+		msg, _ := json.Marshal(map[string]any{
+			"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+			"params": map[string]any{"name": name, "arguments": args},
+		})
+		_ = srv.HandleMessage(msg)
+		backend.Close()
+		if method == "" {
+			continue // arg validation rejected it; nothing reached the wire
+		}
+		if method == http.MethodGet {
+			continue
+		}
+		if method == http.MethodPost && path == "/api/v1/messages/search" {
+			continue
+		}
+		t.Errorf("%s used %s %s — a mutating tool must carry its own annotations, not inherit the read-only set", name, method, path)
+	}
+}
+
 func TestSearchLogsRequestShape(t *testing.T) {
 	r := callTool(t, "sluicio_search_logs", map[string]any{
 		"query": "timeout", "min_severity": float64(17), "service": "orders-api",

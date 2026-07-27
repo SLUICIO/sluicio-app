@@ -136,10 +136,40 @@ type tool struct {
 	Call        func(args map[string]any) (string, error)
 }
 
+// readOnlyAnnotations are attached to every tool in the catalogue.
+//
+// The whole surface is read-only by construction: each tool is a GET
+// against cell-api, and the single POST (messages/search) is a search
+// with a body too complex for a query string, not a mutation. Declaring
+// that lets a client show the catalogue as safe and skip per-call
+// confirmation prompts — the difference between an agent that can
+// answer a question in one turn and one that asks permission 17 times.
+//
+// If a tool that MUTATES is ever added — the proposal primitive in the
+// agent design is the obvious candidate — it must carry its own
+// annotations rather than inherit these. TestToolsAreReadOnly guards
+// that by failing when a tool reaches cell-api by any other verb.
+var readOnlyAnnotations = map[string]any{
+	"readOnlyHint": true,
+	// No environment change, so "destructive" is vacuous — state it
+	// anyway; the spec's default for destructiveHint is true.
+	"destructiveHint": false,
+	// Repeating a read costs nothing beyond the query.
+	"idempotentHint": true,
+	// Closed world: everything is scoped to this cell and the caller's
+	// RBAC, never the open internet.
+	"openWorldHint": false,
+}
+
 func (s *Server) toolList() []map[string]any {
 	out := make([]map[string]any, len(s.tools))
 	for i, t := range s.tools {
-		out[i] = map[string]any{"name": t.Name, "description": t.Description, "inputSchema": t.Schema}
+		out[i] = map[string]any{
+			"name":        t.Name,
+			"description": t.Description,
+			"inputSchema": t.Schema,
+			"annotations": readOnlyAnnotations,
+		}
 	}
 	return out
 }
