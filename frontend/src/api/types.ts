@@ -350,6 +350,10 @@ export interface ServiceDetailResponse {
   // Bucketed series behind the golden-signal sparklines. Absent if the
   // backend couldn't compute it (sparklines then render flat).
   stats_series?: ServiceStatsSeries;
+  // Every facet matching the service, each tagged auto/manual. A set,
+  // not a single kind — a service that consumes a queue AND collects
+  // files carries both, and the header shows both.
+  service_facets?: ServiceFacetRef[];
   integrations: IntegrationRef[];
   // Tags attached to the service. Always present (possibly empty).
   tags?: Tag[];

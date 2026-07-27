@@ -27,7 +27,8 @@ const ERRORS_ONLY_QUERY = `?s=${encodeURIComponent("err only")}`;
 
 interface Breakdown {
   service_name: string;
-  type?: string;
+  /** Every matching facet name, `core` excluded. Often more than one. */
+  facets: string[];
   errors: number;
   pct: number;
 }
@@ -95,9 +96,11 @@ export default function ErrorBreakdown({
     .filter((s) => s.error_trace_count > 0)
     .map((s) => ({
       service_name: s.service_name,
-      // Pick the first non-core facet as a compact "kind" label —
-      // mirrors what the old single ServiceType slot used to give us.
-      type: s.service_facets?.find((f) => f.slug !== "core")?.name,
+      // Every facet, not the first one. Taking `find(...)` here dated
+      // back to a single ServiceType slot and quietly mislabelled any
+      // multi-facet service — a queue consumer that also collects files
+      // showed whichever the registry happened to declare first.
+      facets: (s.service_facets ?? []).filter((f) => f.slug !== "core").map((f) => f.name),
       errors: s.error_trace_count,
       pct: (s.error_trace_count / total) * 100,
     }))
@@ -144,10 +147,10 @@ export default function ErrorBreakdown({
           ) : (
             <span className="font-semibold">an unnamed service</span>
           )}
-          {top.type && (
+          {top.facets.length > 0 && (
             <span style={{ color: "color-mix(in oklab, var(--err-ink) 70%, transparent)" }}>
               {" "}
-              · {top.type}
+              · {top.facets.join(" · ")}
             </span>
           )}
           .
@@ -217,7 +220,7 @@ function BreakdownRow({ b, dominant, onClick }: RowProps) {
     >
       <div className="min-w-0">
         <div className="truncate font-medium">{b.service_name}</div>
-        {b.type && <div className="text-xs text-muted">{b.type}</div>}
+        {b.facets.length > 0 && <div className="truncate text-xs text-muted" title={b.facets.join(" · ")}>{b.facets.join(" · ")}</div>}
       </div>
       <div className="text-lg font-semibold tabular-nums">{b.pct.toFixed(0)}%</div>
       <div

@@ -135,6 +135,12 @@ type ServiceDetail struct {
 	// if the series query fails; the sparklines then just render flat.
 	StatsSeries  *ServiceStatsSeries `json:"stats_series,omitempty"`
 	Integrations []IntegrationRef    `json:"integrations"`
+	// ServiceFacets is every facet currently matching the service, each
+	// tagged auto/manual — the same classification the services list
+	// carries. A service may hold several (a queue consumer that also
+	// picks up files is genuinely both), so this is a set, never a
+	// single "kind": the detail page shows all of them.
+	ServiceFacets []ServiceFacetRef `json:"service_facets"`
 	// Tags attached to the service. Always present (possibly empty).
 	Tags        []tags.Tag    `json:"tags"`
 	RecentSpans []SpanSummary `json:"recent_spans"`

@@ -37,6 +37,7 @@ import type {
   NeighborsResponse,
   NotificationChannel,
   ServiceDetailResponse,
+  ServiceFacetRef,
   ServiceMetadata,
   ServiceReading,
   ServiceStatus,
@@ -384,6 +385,7 @@ export default function ServiceDetail() {
               <span className={`svc-health-pill ${pillClass}`}><span className="pip" />{pillText}</span>
             )}
           </div>
+          <FacetChips facets={data?.service_facets} />
           {meta?.description && <div className="svc-desc">{meta.description}</div>}
           <div className="svc-meta-row">
             {data?.service_namespace && <Meta k="namespace" v={data.service_namespace} mono />}
@@ -658,6 +660,44 @@ export default function ServiceDetail() {
           onClose={() => setEditCheckRule(null)}
         />
       )}
+    </div>
+  );
+}
+
+// FacetChips names how the service is classified — the thing that
+// decides which widget sections appear further down the page, which
+// until now was visible only through its effects.
+//
+// Every matching facet is shown, never a single "primary" one: a
+// service that consumes a queue AND collects files genuinely is both,
+// and picking one would be a coin flip on registry declaration order.
+// `core` is dropped because it matches everything, so it says nothing.
+//
+// An unclassified service gets an explicit line rather than an empty
+// row — blank space reads as "broken" just as easily as "none".
+function FacetChips({ facets }: { facets?: ServiceFacetRef[] }) {
+  const shown = (facets ?? []).filter((f) => f.slug !== "core");
+  if (shown.length === 0) {
+    return (
+      <div className="svc-facet-row">
+        <span className="svc-facet-chip svc-facet-chip--none" title="No I/O facet matched this service's telemetry in this window. Assign one under Advanced → Service facets.">
+          Not yet classified
+        </span>
+      </div>
+    );
+  }
+  return (
+    <div className="svc-facet-row">
+      {shown.map((f) => (
+        <span
+          key={f.slug}
+          className={`svc-facet-chip${f.source === "manual" ? " svc-facet-chip--manual" : ""}`}
+          title={f.source === "manual" ? `${f.name} — assigned manually` : `${f.name} — detected from telemetry`}
+        >
+          {f.name}
+          {f.source === "manual" && <span className="svc-facet-chip__src" aria-label="assigned manually">manual</span>}
+        </span>
+      ))}
     </div>
   );
 }

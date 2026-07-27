@@ -1936,6 +1936,7 @@ func (h *Handlers) serviceDetail(w http.ResponseWriter, r *http.Request) {
 		},
 		StatsSeries:    statsSeries,
 		Integrations:   toIntegrationRefs(ints),
+		ServiceFacets:  h.classifyServiceFacets(r.Context(), name, tr),
 		Tags:           svcTags,
 		RecentSpans:    toSpanSummaries(recent),
 		ErrorAck:       h.errorAckView(r.Context(), name, errAcks),

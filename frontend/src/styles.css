@@ -1352,6 +1352,41 @@ code, .mono {
   max-width: 720px;
 }
 
+/* How the service is classified. Sits between the title and the meta
+   row: it's identity, not a statistic. Wraps because a service can
+   legitimately carry several facets. */
+.svc-facet-row {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  margin: 2px 0 6px;
+}
+.svc-facet-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 2px 9px; border-radius: 999px;
+  font: 600 11px 'Inter', sans-serif;
+  color: var(--primary);
+  background: var(--primary-soft);
+  border: 1px solid color-mix(in oklab, var(--primary) 20%, transparent);
+}
+/* A human asserted this one; detection alone wouldn't have. Worth
+   distinguishing — "we measured this" and "someone told us" are
+   different claims about the same service. */
+.svc-facet-chip--manual {
+  color: var(--ink-2);
+  background: var(--surface-3);
+  border-color: var(--border);
+}
+.svc-facet-chip__src {
+  font: 600 9px 'Inter', sans-serif;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--muted);
+}
+.svc-facet-chip--none {
+  color: var(--muted);
+  background: transparent;
+  border-style: dashed;
+  border-color: var(--border);
+}
+
 .svc-meta-row {
   display: flex; flex-wrap: wrap; gap: 6px 14px;
   font-size: 12px;
