@@ -488,6 +488,13 @@ func main() {
 	go retentionEnforcer.Run(ctx)
 	logger.Info("retention enforcer started")
 
+	// Expire unreviewed agent proposals. Without this the TTL is
+	// decorative: an overdue proposal would keep sitting in the inbox
+	// looking actionable, and approving one filed weeks ago applies
+	// reasoning nobody can still check.
+	go proposalStore.RunExpirySweep(ctx, logger)
+	logger.Info("proposal expiry sweep started")
+
 	// Trace-completion rule evaluator. Rules live in alert_rules with
 	// signal='trace' (reusing the existing schema); this evaluator
 	// runs every 30s, classifies recent traces per integration rule,

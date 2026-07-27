@@ -25,6 +25,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -277,4 +278,48 @@ func (s *Store) ExpireDue(ctx context.Context) (int64, error) {
 		return 0, err
 	}
 	return tag.RowsAffected(), nil
+}
+
+// SweepInterval is how often the expiry sweep runs. Proposals live for
+// days, so this only has to be small relative to the TTL — hourly keeps
+// the inbox honest without a pointless query every minute.
+const SweepInterval = time.Hour
+
+// RunExpirySweep expires overdue proposals until ctx is cancelled.
+//
+// The sweep is what makes the TTL real: without it a proposal past its
+// expiry would sit in the inbox looking actionable, and approving one
+// filed three weeks ago would apply reasoning nobody can still check.
+//
+// It runs once at startup rather than waiting a full interval — a cell
+// that was down over a weekend should not serve stale proposals for an
+// hour after it comes back. Errors are logged and the loop continues:
+// a failed sweep is a retry next tick, never a reason to take down the
+// process.
+func (s *Store) RunExpirySweep(ctx context.Context, logger *slog.Logger) {
+	sweep := func() {
+		n, err := s.ExpireDue(ctx)
+		if err != nil {
+			// A cancelled context during shutdown is not a failure.
+			if ctx.Err() == nil {
+				logger.Warn("proposal expiry sweep failed", "err", err)
+			}
+			return
+		}
+		if n > 0 {
+			logger.Info("expired unreviewed proposals", "count", n)
+		}
+	}
+	sweep()
+
+	t := time.NewTicker(SweepInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			sweep()
+		}
+	}
 }
