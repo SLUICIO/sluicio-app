@@ -139,6 +139,37 @@ model ([`identity/tokens.go`](../services/cell-api/internal/identity/tokens.go))
   deny-by-default (RBAC), and demo accounts are structurally blocked
   from self-service and org administration.
 
+## Telemetry demand ledger: aggregate-only by construction
+
+To tell "expensive telemetry nobody consumes" from "expensive telemetry
+something depends on", the cell keeps a **demand ledger**: a daily
+counter, per organization, of which signals, metrics and attribute keys
+were consumed — by a query, an alert rule, a matcher, a dashboard, a
+saved view.
+
+What it records is a counter and nothing else:
+
+    Day · Organization · Signal · Service · Key · ConsumerKind · Hits
+
+**There is no user id, no query text, and no row-level history.** This
+is structural rather than a policy layered on top: the in-memory buffer's
+key has no field for an identity, and the recording helpers do not take
+the request's user as a parameter, so no call site can supply one even by
+mistake. A ledger that cannot answer "who looked at this" cannot later be
+asked to — which matters in EU deployments where per-user access logging
+would need a works-council conversation.
+
+The advisor's questions are all of the form "was this consumed", never
+"by whom", so nothing is given up by this design.
+
+Retention is a fixed 400 days, long enough to reason about telemetry
+that has gone unused for a year. The ledger is **not** included in
+configuration transfer between environments: it is observed fact about
+one cell, not configuration. It is also distinct from the [audit
+log](#tamper-evident-audit-log-hash-chain), which deliberately *does*
+record actors — the audit log answers accountability questions, and the
+demand ledger answers cost questions.
+
 ## The boundary: what the deployment owns
 
 Sluicio's images terminate plain HTTP; **TLS is the reverse proxy's

@@ -58,9 +58,10 @@ import (
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/api/middleware"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/catalog"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/dashboards"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/demand"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/erroracks"
-	"github.com/sluicio/sluicio-app/services/cell-api/internal/eventsubs"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/errornotify"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/eventsubs"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/facetmappings"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/facetoverrides"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/identity"
@@ -505,6 +506,34 @@ func main() {
 	handlers.TraceCompletionEvaluator = traceEvaluator
 	go traceEvaluator.Run(bgCtx)
 	logger.Info("trace-completion evaluator started")
+
+	// Demand ledger (docs/telemetry-advisor-design.md §2): records which
+	// telemetry is actually consumed, so the Telemetry Advisor can later
+	// contrast demand against ingest volume. Aggregate-only — daily
+	// counters per org, never per user. Invisible in this phase: it just
+	// accumulates the history the advisor will need.
+	//
+	// The table lives in pkg/clickhouse/migrations and is applied by
+	// cell-ingest, which owns the ClickHouse schema. cell-api opens
+	// ClickHouse read-only, so on a very first boot the writer may find
+	// the table missing for a few seconds; it logs once and drops those
+	// counters rather than blocking startup.
+	demandWriter := demand.NewWriter(chConn, logger, 0)
+	handlers.Demand = demandWriter
+	go demandWriter.Run(bgCtx)
+	demandSweeper := &demand.Sweeper{
+		Writer:      demandWriter,
+		OrgID:       integrations.DefaultOrgID,
+		Rules:       alertStore,
+		Matchers:    integrationStore,
+		Completions: traceCompletionStore,
+		Templates:   monitoringTemplateStore,
+		Views:       messageViews,
+		Catalog:     catalogStore,
+		Log:         logger,
+	}
+	go demandSweeper.Run(bgCtx)
+	logger.Info("demand ledger started")
 
 	mux := http.NewServeMux()
 	handlers.Mount(mux)

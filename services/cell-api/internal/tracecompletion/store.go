@@ -91,6 +91,25 @@ func (s *Store) EnabledForEval(ctx context.Context, orgID uuid.UUID) ([]Rule, er
 	return s.scanRules(ctx, rows)
 }
 
+// ListAll returns every trace-completion rule in the org, enabled or
+// not. The demand ledger's config sweep needs the disabled ones too: a
+// span name referenced by a paused rule is still referenced, and
+// treating it as unused would let the advisor suggest trimming the very
+// telemetry someone is about to re-enable.
+func (s *Store) ListAll(ctx context.Context, orgID uuid.UUID) ([]Rule, error) {
+	const q = `SELECT ` + ruleCols + `
+		FROM alert_rules
+		WHERE organization_id = $1 AND signal = 'trace'
+		  AND COALESCE(rule_spec->>'kind', '') <> 'trace_error'
+		ORDER BY integration_id, created_at`
+	rows, err := s.pool.Query(ctx, q, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("tracecompletion: list all: %w", err)
+	}
+	defer rows.Close()
+	return s.scanRules(ctx, rows)
+}
+
 // ListForIntegration returns all rules (enabled or not) attached to
 // one integration. Used by the integration-settings UI.
 func (s *Store) ListForIntegration(ctx context.Context, orgID, integrationID uuid.UUID) ([]Rule, error) {

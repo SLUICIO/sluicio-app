@@ -3,7 +3,6 @@
 package api
 
 import (
-	"github.com/sluicio/sluicio-app/services/cell-api/internal/identity"
 	"net/http"
 	"strconv"
 	"strings"
@@ -11,6 +10,8 @@ import (
 
 	"github.com/sluicio/sluicio-app/pkg/httpserver"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/api/middleware"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/demand"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/identity"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/store"
 )
 
@@ -168,6 +169,16 @@ func (h *Handlers) metricFields(w http.ResponseWriter, r *http.Request) {
 		}
 		fields = append(fields, LogFieldEntry{Key: k.Key, Type: t, UseCount: k.UseCount, Cardinality: k.Cardinality})
 	}
+
+	// Demand on the METRIC, not on the keys returned: asking for a
+	// metric's attribute keys means someone drilled into that metric.
+	// Recording the returned keys instead would be circular — the
+	// listing itself would mark every key as consumed, and T3 could
+	// never find a dead-weight attribute again.
+	if metric != "" {
+		h.recordDemand(r, demand.SignalMetric, "", metric)
+	}
+
 	httpserver.WriteJSON(w, http.StatusOK, LogFieldsResponse{
 		Window: tr.Window(),
 		Fields: fields,

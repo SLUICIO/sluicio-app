@@ -5,7 +5,6 @@ package api
 import (
 	"encoding/json"
 	"errors"
-	"github.com/sluicio/sluicio-app/services/cell-api/internal/identity"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -13,6 +12,8 @@ import (
 	"time"
 
 	"github.com/sluicio/sluicio-app/pkg/httpserver"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/demand"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/identity"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/store"
 )
 
@@ -163,6 +164,14 @@ func (h *Handlers) listLogs(w http.ResponseWriter, r *http.Request) {
 		h.Logger.Error("search logs failed", "err", err)
 		httpserver.WriteError(w, http.StatusInternalServerError, "query failed")
 		return
+	}
+
+	// Demand: the query succeeded, so these logs and the attribute keys
+	// it filtered on were genuinely consumed.
+	if service != "" {
+		h.recordDemand(r, demand.SignalLog, service, logAttrKeys(attrs)...)
+	} else {
+		h.recordDemandServices(r, demand.SignalLog, serviceIn, logAttrKeys(attrs)...)
 	}
 
 	httpserver.WriteJSON(w, http.StatusOK, LogsResponse{

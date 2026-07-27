@@ -151,16 +151,28 @@ Suggestion classes:
 
 | # | Class | Finding | Suggestion |
 |---|---|---|---|
-| F1 | Ignored rule | ≥N firings in 30d, zero interactions | Raise threshold (suggested value = p95 of observed breach magnitude), reduce severity, or disable — operator picks |
+| F1 | Ignored rule | ≥N firings in 30d, zero interactions | Raise threshold, reduce severity, or disable — operator picks, and **the advisor suggests no number** (see below) |
 | F2 | Wallpaper | One instance firing continuously ≥14d | "This is a state, not an alert" — fix or disable |
 | F3 | Flapper | ≥N fire→resolve cycles/day | Widen window / add hysteresis (suggested values from the observed cycle period) |
 | F4 | Channel-less | Enabled rule with no channel and no UI views | Route it or drop it |
 | F5 | Duplicate | Two rules on the same scope firing within the same minutes ≥90% of the time | Merge candidates |
 
 Same lifecycle table, same accept/dismiss/audit, same fingerprinting.
-F1's threshold suggestion is the one place statistics enter — a
-quantile of observed values, shown with its evidence, never applied
-automatically.
+
+**F1 puts no number in the action** (decided 2026-07-27). The advisor
+shows what was observed — how often the rule fired, how often anyone
+engaged — and lets the operator choose the new threshold. A suggested
+number in a one-click button is how someone ends up silencing a real
+alert on our recommendation, and the first time that happens they stop
+trusting every other suggestion too.
+
+A related trap in the statistics themselves: **a percentile is only
+meaningful for a distribution-shaped metric** — response times, queue
+depth, latency. It is the wrong summary for anything counted per
+integration message (message counts, error counts, completeness), where
+every message is significant and a quantile silently frames away the
+tail that matters. Where evidence is shown for a message-shaped rule, it
+must be counts and frequencies, never a quantile.
 
 ---
 
@@ -208,24 +220,28 @@ dev/demo cells can seed sooner with a shortened window for screenshots.
 
 ---
 
-## 8. Open questions (decide before implementation)
+## 8. Decisions (settled 2026-07-27)
 
-1. **CE or EE?** Proposal: demand ledger + the Usage-page "last
-   consumed" enrichment = CE (goodwill, feeds adoption); both advisors
-   = one new EE entitlement `advisor` (cost governance is a
-   commercial-tier story, and it's the 6th entitlement). Alternative:
-   Telemetry Advisor CE as a differentiator, Fatigue Advisor EE.
-2. **Human-demand tracking consent**: aggregate-only as designed, or
-   additionally behind an org toggle (`advisor.track_demand`, default
-   on, documented in security.md)?
-3. **Quarantine/observation window**: 30d default? 60? Configurable
-   per org from day one or fixed in v1?
-4. **UI placement**: dedicated "Advisor" nav entry vs a tab under
-   Usage vs under Settings → Organization.
-5. **Snippet dialect**: OTel collector processors only (proposal), or
-   also SDK-/krakend-otel-specific hints where we can detect the
-   emitter?
-6. **Suggested-threshold aggressiveness for F1**: p95 of breach
-   magnitude vs "double the current threshold" vs evidence-only (no
-   number). Proposal: show the quantile *as evidence*, put no number
-   in the one-click action for v1.
+1. **CE or EE?** Demand ledger + the Usage-page "last consumed"
+   enrichment are **CE**; both advisors sit behind a new **EE
+   entitlement `advisor`** — the 6th. Splitting the two advisors across
+   editions was rejected: two code paths for one feature, and no
+   coherent story for why one advisor is free.
+2. **Human-demand tracking**: **aggregate-only, no toggle.** There is no
+   personal data to opt out of, and an opt-out would mostly produce
+   silent "the advisor says nothing" support cases months later. Purely
+   additive if a customer ever needs it. Documented in docs/security.md.
+3. **Observation window**: **30 days, fixed in v1.** Long enough to
+   survive a monthly reporting cycle, short enough that P2 is
+   demonstrable a month after P1 ships. Revisit if a real cell wants
+   longer.
+4. **UI placement**: **a tab under Usage.** That is where someone
+   already goes to ask what telemetry costs; the advisor answers the
+   next question. A top-level nav entry oversells a monthly visit.
+5. **Snippet dialect**: **OTel collector processors only.** The one
+   surface that is always the operator's to change, and it matches the
+   existing Trim panels. Emitter-specific hints multiply templates we
+   cannot keep current.
+6. **F1 threshold aggressiveness**: **evidence only, no suggested
+   number** — see §4 for the reasoning, including why a percentile is
+   the wrong statistic for anything counted per integration message.

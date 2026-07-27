@@ -23,7 +23,9 @@ import (
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/api/middleware"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/catalog"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/dashboards"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/demand"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/erroracks"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/eventsubs"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/facetmappings"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/facetoverrides"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/identity"
@@ -35,7 +37,6 @@ import (
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/metadata"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/monitoringtemplates"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/notifyprofiles"
-	"github.com/sluicio/sluicio-app/services/cell-api/internal/eventsubs"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/notifytemplates"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/oauth"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/retention"
@@ -106,6 +107,11 @@ type Handlers struct {
 	// existing alerting machinery. Nil-safe: the read endpoints
 	// degrade to "zero counts" when the evaluator is absent.
 	TraceCompletionEvaluator *tracecompletion.Evaluator
+	// Demand records which telemetry the read paths actually consume,
+	// feeding the Telemetry Advisor's demand ledger. Aggregate-only and
+	// nil-safe by design: every method is safe on a nil receiver, so
+	// handlers record unconditionally without guarding.
+	Demand *demand.Writer
 	// IngestKeys manages per-org OTLP ingest API keys (cell-ingest
 	// authenticates batches against these). Nil-safe — the endpoints
 	// return 503 when not wired.
