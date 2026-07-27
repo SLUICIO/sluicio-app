@@ -120,7 +120,18 @@ jobs:
         # EE specs would skip and the suite would still be green.
         if: env.HAS_LICENSE == 'true'
         run: |
-          state=$(curl -fsS http://localhost:8081/api/v1/license || echo '{}')
+          # /api/v1/license is authenticated, so sign in as the seed admin
+          # first — an anonymous GET 401s and would look like a bad key.
+          jar="$RUNNER_TEMP/license-check-cookies.txt"
+          if ! curl -fsS -c "$jar" -X POST http://localhost:8081/api/v1/auth/login \
+                 -H 'Content-Type: application/json' \
+                 -d '{"email":"admin@sluicio.local","password":"admin"}' >/dev/null; then
+            echo "::error::could not sign in as the seed admin to check the licence"
+            exit 1
+          fi
+          state=$(curl -fsS -b "$jar" http://localhost:8081/api/v1/license || echo '{}')
+          # Safe to print: the read model reports plan/customer/features,
+          # never the token itself.
           echo "license state: $state"
           if ! echo "$state" | grep -q '"licensed":[[:space:]]*true'; then
             echo "::error::E2E_LICENSE_KEY is set but the cell reports unlicensed — expired, malformed, or signed by another key."
