@@ -510,7 +510,7 @@ func buildTools(s *Server) []tool {
 		// it files a proposal a human must approve, which is why it can
 		// exist at all in a catalogue that is otherwise read-only.
 		{Name: "sluicio_propose_check_tuning", Annotations: proposeAnnotations,
-			Description: "Propose a tuning change to an existing alert rule — threshold, severity, for_window, evaluation_seconds or enabled. This does NOT change anything: it files a reviewable proposal that a human with edit rights approves or rejects, and only approval applies it. Use it when a check is demonstrably too noisy or too quiet and you can say why, citing what you observed (e.g. 'fired 40 times in 24h, every instance auto-resolved within 2 minutes'). The rationale is shown verbatim to the reviewer and is required. Get rule ids from sluicio_health or sluicio_alert_instances; the current values come from the rule itself, so send only the fields you want changed.",
+			Description: "Propose a tuning change to an existing alert rule — threshold, severity, for_window or enabled. This does NOT change anything: it files a reviewable proposal that a human with edit rights approves or rejects, and only approval applies it. Use it when a check is demonstrably too noisy or too quiet and you can say why, citing what you observed (e.g. 'fired 40 times in 24h, every instance auto-resolved within 2 minutes'). The rationale is shown verbatim to the reviewer and is required. Get rule ids from sluicio_health or sluicio_alert_instances; the current values come from the rule itself, so send only the fields you want changed.",
 			Schema: objSchema(map[string]any{
 				"rule_id":            strProp("The alert rule's id (uuid), from sluicio_health or sluicio_alert_instances."),
 				"rationale":          strProp("Why this change is right, citing what you observed. Shown verbatim to the human reviewer. Required."),
@@ -534,13 +534,13 @@ func buildTools(s *Server) []tool {
 				// stale or wrong, and it is the input to the drift check
 				// that protects a human's concurrent edit.
 				changes := make([]map[string]any, 0, 5)
-				for _, f := range []string{"threshold", "severity", "for_window", "evaluation_seconds", "enabled"} {
+				for _, f := range []string{"threshold", "severity", "for_window", "enabled"} {
 					if v, ok := a[f]; ok && v != nil {
 						changes = append(changes, map[string]any{"field": f, "after": v})
 					}
 				}
 				if len(changes) == 0 {
-					return "", fmt.Errorf("propose at least one of: threshold, severity, for_window, evaluation_seconds, enabled")
+					return "", fmt.Errorf("propose at least one of: threshold, severity, for_window, enabled")
 				}
 				return s.post("/api/v1/proposals", nil, map[string]any{
 					"target_kind": "alert_rule",

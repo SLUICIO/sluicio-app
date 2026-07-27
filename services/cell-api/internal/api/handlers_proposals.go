@@ -55,12 +55,19 @@ type proposalTarget struct {
 // existing check. Deliberately narrow: these are the "this alert is too
 // noisy / too quiet" dials. Retargeting a rule (metric, service, signal)
 // is authoring, not tuning, and stays a human action.
+//
+// A field belongs here ONLY if Alerts.UpdateRule actually persists it.
+// evaluation_seconds looks tunable — it is on AlertRule and is read back
+// from the database — but UpdateRule's SET clause omits it, so proposing
+// it produced an approved proposal that changed nothing. An approval
+// that silently no-ops is worse than a rejected one: the audit trail
+// then records a change that never happened. If a field becomes
+// updatable, add it here and prove it round-trips end to end.
 var alertRuleTunables = map[string]bool{
-	"threshold":          true,
-	"severity":           true,
-	"for_window":         true,
-	"evaluation_seconds": true,
-	"enabled":            true,
+	"threshold":  true,
+	"severity":   true,
+	"for_window": true,
+	"enabled":    true,
 }
 
 var proposalTargets = map[string]proposalTarget{
@@ -81,7 +88,6 @@ var proposalTargets = map[string]proposalTarget{
 			put("threshold", r.Spec.Threshold)
 			put("severity", string(r.Severity))
 			put("for_window", r.Spec.ForWindow)
-			put("evaluation_seconds", r.EvalSeconds)
 			put("enabled", r.Enabled)
 			return out, r.Name, nil
 		},
@@ -117,15 +123,6 @@ var proposalTargets = map[string]proposalTarget{
 						return fmt.Errorf("for_window: %q is not a duration", v)
 					}
 					r.Spec.ForWindow = v
-				case "evaluation_seconds":
-					var v int
-					if err := json.Unmarshal(c.After, &v); err != nil {
-						return fmt.Errorf("evaluation_seconds: %w", err)
-					}
-					if v <= 0 {
-						return fmt.Errorf("evaluation_seconds must be positive")
-					}
-					r.EvalSeconds = v
 				case "enabled":
 					var v bool
 					if err := json.Unmarshal(c.After, &v); err != nil {

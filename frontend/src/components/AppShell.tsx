@@ -78,6 +78,7 @@ const navGroups: NavGroup[] = [
     header: "Configure",
     items: [
       { to: "/alerts", label: "Alerts", icon: <BellIcon />, requiresWrite: true },
+      { to: "/proposals", label: "Proposals", icon: <ProposalsIcon />, requiresWrite: true },
       { to: "/monitoring-templates", label: "Templates", icon: <TemplateIcon />, requiresWrite: true },
       { to: "/system-types", label: "System types", icon: <SystemsIcon />, requiresWrite: true },
       { to: "/service-facets", label: "Service facets", icon: <FacetsIcon />, requiresWrite: true },
@@ -413,6 +414,7 @@ function trailForPath(p: string, leaf: string | null): Crumb[] {
   if (p.startsWith("/tags")) return [{ label: "Tags" }];
   if (p.startsWith("/metadata-fields")) return [{ label: "Metadata fields" }];
   if (p.startsWith("/system-types")) return [{ label: "System types" }];
+  if (p.startsWith("/proposals")) return [{ label: "Proposals" }];
   if (p.startsWith("/developers")) return [{ label: "API & MCP" }];
   if (p.startsWith("/schemas")) return [{ label: "Schemas" }];
   if (p.startsWith("/topology")) return [{ label: "Topology" }];
@@ -852,6 +854,26 @@ function SideNav() {
   // firing health check across all services + integrations. Refreshed on a
   // slow poll so it stays current without hammering the errors feed.
   const [failingChecks, setFailingChecks] = useState(0);
+  // Agent-filed proposals awaiting review. Same slow poll as the failing
+  // check pill: a queue nobody notices is the failure mode the expiry
+  // sweep exists to clean up after.
+  const [pendingProposals, setPendingProposals] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    const load = () =>
+      api
+        .listProposals("pending")
+        .then((r) => {
+          if (!cancelled) setPendingProposals(r.pending_count ?? 0);
+        })
+        .catch(() => {});
+    load();
+    const t = setInterval(load, 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, []);
   useEffect(() => {
     let cancelled = false;
     const load = () =>
@@ -923,6 +945,21 @@ function SideNav() {
                         {item.icon}
                       </span>
                       <span>{item.label}</span>
+                      {item.to === "/proposals" && pendingProposals > 0 && (
+                        <span
+                          className="ml-auto"
+                          style={{
+                            font: "500 11px 'JetBrains Mono', monospace",
+                            padding: "0 6px",
+                            borderRadius: 999,
+                            background: "var(--primary-soft)",
+                            color: "var(--primary-ink)",
+                          }}
+                          title={`${pendingProposals} proposal${pendingProposals === 1 ? "" : "s"} waiting for review`}
+                        >
+                          {pendingProposals}
+                        </span>
+                      )}
                       {item.to === "/stuck" && failingChecks > 0 && (
                         <span
                           className="ml-auto"
@@ -1071,6 +1108,17 @@ function TagsIcon() {
 }
 
 // TemplateIcon — a layout/template frame (header bar + split body).
+function ProposalsIcon() {
+  // A document with a check: a change request awaiting a decision.
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" aria-hidden>
+      <path d="M3.5 2.5h6l3 3v8a0 0 0 0 1 0 0h-9z" />
+      <path d="M9.5 2.5v3h3" />
+      <path d="M5.5 10l1.5 1.5 3-3" />
+    </svg>
+  );
+}
+
 function TemplateIcon() {
   return (
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" aria-hidden>

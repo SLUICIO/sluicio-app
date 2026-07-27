@@ -144,6 +144,8 @@ import type {
   TemplateVariable,
   EventSubscription,
   EventTypeEntry,
+  Proposal,
+  ProposalDetail,
   EventDelivery,
 } from "./types";
 import { getActiveOrgSlug } from "../lib/activeOrg";
@@ -808,6 +810,19 @@ export const api = {
   updateEventSubscription: (id: string, body: { name: string; enabled?: boolean; event_filters: string[]; channel_id: string }) =>
     put<EventSubscription>(`/event-subscriptions/${encodeURIComponent(id)}`, body),
   deleteEventSubscription: (id: string) => del(`/event-subscriptions/${encodeURIComponent(id)}`),
+
+  // Proposals — the agent write path (issue #8, WS2). Approving applies
+  // the change through the normal engine; `force` overrides the drift
+  // guard when the target moved since the proposal was filed.
+  listProposals: (state?: string) =>
+    get<{ proposals: Proposal[]; pending_count: number }>(
+      `/proposals${state ? `?state=${encodeURIComponent(state)}` : ""}`,
+    ),
+  getProposal: (id: string) => get<ProposalDetail>(`/proposals/${encodeURIComponent(id)}`),
+  approveProposal: (id: string, body?: { note?: string; force?: boolean }) =>
+    post<Proposal>(`/proposals/${encodeURIComponent(id)}/approve`, body ?? {}),
+  rejectProposal: (id: string, body?: { note?: string }) =>
+    post<Proposal>(`/proposals/${encodeURIComponent(id)}/reject`, body ?? {}),
   listEventDeliveries: (id: string) =>
     get<{ deliveries: EventDelivery[] }>(`/event-subscriptions/${encodeURIComponent(id)}/deliveries`),
 

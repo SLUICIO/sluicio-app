@@ -2268,3 +2268,67 @@ code, .mono {
     max-height: none;
   }
 }
+
+/* ── Proposals inbox (issue #8, WS2) ──────────────────────────────────
+   A review surface: the diff and the reason carry the decision, so they
+   get the visual weight and everything else recedes. */
+.prop-list { display: flex; flex-direction: column; gap: 12px; }
+.prop-card {
+  border: 1px solid var(--border); border-radius: 12px;
+  background: var(--surface-2); padding: 14px 16px;
+}
+.prop-card__head { display: flex; justify-content: space-between; gap: 12px; }
+.prop-card__title { font: 600 15px 'Inter', sans-serif; color: var(--ink); }
+.prop-card__meta {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  margin-top: 4px; font-size: 12px; color: var(--muted);
+}
+.prop-chip {
+  font: 600 9.5px 'Inter', sans-serif; letter-spacing: .06em; text-transform: uppercase;
+  padding: 1px 6px; border-radius: 999px;
+  background: var(--surface-3); color: var(--muted); border: 1px solid var(--border);
+}
+
+/* The diff. Monospace on the values so 5 vs 8 and "5m" vs "10m" line up
+   and compare at a glance. */
+.prop-diff { margin: 12px 0; display: flex; flex-direction: column; gap: 4px; }
+.prop-diff__row {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 5px 8px; border-radius: 8px; background: var(--surface-3);
+}
+.prop-diff__row.is-drifted {
+  background: var(--warn-soft);
+  border: 1px solid color-mix(in oklab, var(--warn-ink) 25%, transparent);
+}
+.prop-diff__field {
+  min-width: 140px; font: 600 11px 'Inter', sans-serif;
+  letter-spacing: .04em; text-transform: uppercase; color: var(--muted);
+}
+.prop-diff__before {
+  font-family: 'JetBrains Mono', monospace; font-size: 12.5px;
+  color: var(--muted); text-decoration: line-through;
+}
+.prop-diff__arrow { color: var(--muted); }
+.prop-diff__after {
+  font-family: 'JetBrains Mono', monospace; font-size: 12.5px;
+  font-weight: 600; color: var(--ink);
+}
+.prop-diff__warn {
+  margin-left: auto; font-size: 11px; font-weight: 600; color: var(--warn-ink);
+}
+
+/* The rationale is the reviewer's actual input — an agent's diff without
+   its reasoning is not reviewable. */
+.prop-rationale, .prop-note { margin: 10px 0; }
+.prop-rationale__label {
+  display: block; font: 600 9.5px 'Inter', sans-serif;
+  letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+  margin-bottom: 3px;
+}
+.prop-rationale p, .prop-note p {
+  margin: 0; font-size: 13.5px; color: var(--ink-2); line-height: 1.5;
+}
+.prop-actions {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);
+}

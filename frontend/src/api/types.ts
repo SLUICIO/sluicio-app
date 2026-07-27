@@ -2531,3 +2531,46 @@ export interface AccessPolicyInput {
   conditions?: PolicyExpr;
   signals?: ("traces" | "logs" | "metrics" | "messages")[];
 }
+
+// ── Proposals (issue #8, WS2) ────────────────────────────────────────
+// Agent-filed change requests awaiting human review. A proposal changes
+// nothing until someone with the rights to make that edit approves it.
+
+export interface ProposalChange {
+  field: string;
+  /** What the proposer observed. Snapshotted server-side, never trusted
+   *  from the caller — it's the input to the drift check. */
+  before: unknown;
+  after: unknown;
+}
+
+export type ProposalState = "pending" | "approved" | "rejected" | "expired" | "superseded";
+
+export interface Proposal {
+  id: string;
+  target_kind: string;
+  target_id?: string;
+  target_label: string;
+  changes: ProposalChange[];
+  rationale: string;
+  proposed_by_kind: "service_account" | "user";
+  proposed_by_id?: string;
+  proposed_by_label: string;
+  /** How it arrived: "mcp" for an agent, "api" for a direct call. */
+  via: string;
+  state: ProposalState;
+  decided_by?: string;
+  decided_at?: string;
+  decision_note: string;
+  expires_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProposalDetail {
+  proposal: Proposal;
+  /** Fields whose current value no longer matches what was proposed
+   *  against — approving would overwrite somebody's edit. */
+  drifted_fields?: string[];
+  target_missing?: boolean;
+}

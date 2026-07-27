@@ -29,6 +29,7 @@ import Services from "./pages/Services";
 import Systems from "./pages/Systems";
 import SystemDetail from "./pages/SystemDetail";
 import MonitoringTemplates from "./pages/MonitoringTemplates";
+import Proposals from "./pages/Proposals";
 import SystemTypesPage from "./pages/SystemTypesPage";
 import Developers from "./pages/Developers";
 import ServiceTypeDetail from "./pages/ServiceTypeDetail";
@@ -79,6 +80,7 @@ export default function App() {
         <Route path="/integrations/:id/errors" element={<IntegrationErrors />} />
         <Route path="/integrations/:id/settings" element={<IntegrationSettings />} />
         <Route path="/monitoring-templates" element={<MonitoringTemplates />} />
+        <Route path="/proposals" element={<Proposals />} />
         <Route path="/system-types" element={<SystemTypesPage />} />
         <Route path="/developers" element={<Developers />} />
         <Route path="/service-facets" element={<ServiceTypes />} />
