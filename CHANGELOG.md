@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.45 — 2026-07-28
+
+- system types: carry the docs link into the payload (issue #8, WS4) (08ce208)
+
 ## v0.11.44 — 2026-07-28
 
+- release v0.11.44 — refresh internal changelog (1422515)
 - mcp: sluicio_cell_brief, one call to orient (issue #8, WS4) (5234717)
 
 ## v0.11.43 — 2026-07-28
