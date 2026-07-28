@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.47 — 2026-07-28
+
+- api: shed a looping caller before it floods ClickHouse (issue #8, WS5) (7e8b425)
+
 ## v0.11.46 — 2026-07-28
 
+- release v0.11.46 — refresh internal changelog (ee94470)
 - audit: record the channel a change arrived through (issue #8, WS5) (dafded6)
 
 ## v0.11.45 — 2026-07-28
