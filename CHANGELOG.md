@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.46 — 2026-07-28
+
+- audit: record the channel a change arrived through (issue #8, WS5) (dafded6)
+
 ## v0.11.45 — 2026-07-28
 
+- release v0.11.45 — refresh internal changelog (f1ea733)
 - system types: carry the docs link into the payload (issue #8, WS4) (08ce208)
 
 ## v0.11.44 — 2026-07-28
