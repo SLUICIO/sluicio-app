@@ -135,6 +135,9 @@ type Handlers struct {
 	// SystemTypes is the org-customisable system-types catalog (detection
 	// prefixes + starter checks per type). Built-ins stay code-defined.
 	SystemTypes *systemtypes.Store
+	// Limiter caps how fast one token caller may hit the API (see
+	// ratelimit.go). nil disables limiting.
+	Limiter *RateLimiter
 	// ViaToken is the per-process secret that marks MCP loopback calls so
 	// the audit log can attribute them (see audit_via.go). Empty disables
 	// the distinction rather than making it forgeable.

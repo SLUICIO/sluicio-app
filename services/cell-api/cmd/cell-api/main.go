@@ -209,9 +209,12 @@ func main() {
 	}
 
 	handlers := &api.Handlers{
-		License:             licenseMgr,
-		SelfBaseURL:         selfBaseURL,
-		ViaToken:            api.NewViaToken(),
+		License:     licenseMgr,
+		SelfBaseURL: selfBaseURL,
+		ViaToken:    api.NewViaToken(),
+		// Safety valve against a looping caller flooding ClickHouse.
+		// Generous by design — see ratelimit.go.
+		Limiter:             api.NewRateLimiter(0, 0),
 		Audit:               auditRecorder,
 		Store:               chStore,
 		ClickHouseConn:      chConn,
@@ -562,7 +565,11 @@ func main() {
 	// Principal) and in front of every handler; see api/mfa_enforce.go.
 	// Two ordered pre-handler gates (both need the Principal from the auth
 	// wrap below): password-reset first, then MFA enrollment.
-	inner := handlers.EnforcePasswordReset(handlers.EnforceMFAEnrollment(mux))
+	// Order matters: the limiter reads the Principal, so it must sit
+	// inside the auth wrap. It also sits in FRONT of the password-reset
+	// and MFA gates — a caller in a loop should be shed before doing any
+	// per-request work, not after.
+	inner := handlers.RateLimit(handlers.EnforcePasswordReset(handlers.EnforceMFAEnrollment(mux)))
 	authed := handlers.AuthMW.Wrap([]string{
 		// Liveness/readiness for orchestrators (Kubernetes probes can't
 		// authenticate). Returns only {"status":"ok"}.
