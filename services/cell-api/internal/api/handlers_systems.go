@@ -81,6 +81,11 @@ type systemDTO struct {
 	MemberCount int      `json:"member_count"`
 	// Status is the rollup of member health ("ok"/"errors"/"unhealthy"/"quiet").
 	Status string `json:"status,omitempty"`
+	// DocsURL is the reference page for this system's TYPE, when the type
+	// has one. Carried on the system (not just the type catalogue) so an
+	// agent looking at a specific broker can cite the docs without a
+	// second lookup. Empty for custom types.
+	DocsURL string `json:"docs_url,omitempty"`
 	// BadgePublic: this system exposes a public status badge.
 	BadgePublic bool `json:"badge_public"`
 }
@@ -92,7 +97,16 @@ func systemToDTO(sy catalog.System) systemDTO {
 	return systemDTO{
 		ID: sy.ID.String(), Name: sy.Name, TypeKey: sy.TypeKey, Description: sy.Description,
 		Members: sy.Members, MemberCount: len(sy.Members),
+		DocsURL: docsURLForSystemType(sy.TypeKey),
 	}
+}
+
+// systemWithBadge is systemToDTO plus the public-badge flag, which only
+// the detail view reports.
+func systemWithBadge(sy catalog.System) systemDTO {
+	dto := systemToDTO(sy)
+	dto.BadgePublic = sy.BadgePublic
+	return dto
 }
 
 // listSystems: GET /api/v1/systems — system entities, visibility-filtered.
@@ -133,10 +147,10 @@ func (h *Handlers) listSystems(w http.ResponseWriter, r *http.Request) {
 		if !all && len(sy.Members) > 0 && len(vis) == 0 {
 			continue
 		}
-		out = append(out, systemDTO{
-			ID: sy.ID.String(), Name: sy.Name, TypeKey: sy.TypeKey, Description: sy.Description,
-			Members: vis, MemberCount: len(vis), Status: aggregateStatus(statuses),
-		})
+		dto := systemToDTO(sy)
+		dto.Members, dto.MemberCount = vis, len(vis)
+		dto.Status = aggregateStatus(statuses)
+		out = append(out, dto)
 	}
 	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"systems": out})
 }
@@ -194,7 +208,7 @@ func (h *Handlers) getSystem(w http.ResponseWriter, r *http.Request) {
 	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
 		"window":     tr.Window(),
 		"can_manage": h.canManageSystem(r, id),
-		"system":     systemDTO{ID: sy.ID.String(), Name: sy.Name, TypeKey: sy.TypeKey, Description: sy.Description, BadgePublic: sy.BadgePublic},
+		"system":     systemWithBadge(sy),
 		"members":    members,
 	})
 }

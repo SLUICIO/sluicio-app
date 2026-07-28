@@ -125,7 +125,11 @@ type systemTypeDTO struct {
 	DetectPrefixes []string                    `json:"detect_prefixes"`
 	Checks         []monitoringtemplates.Check `json:"checks"`
 	Runbook        string                      `json:"runbook,omitempty"`
-	BuiltIn        bool                        `json:"built_in"`
+	// DocsURL is the public reference page for this type, when one
+	// exists. Custom types have none and omit the field rather than
+	// carry a link that 404s.
+	DocsURL string `json:"docs_url,omitempty"`
+	BuiltIn bool   `json:"built_in"`
 }
 
 func effectiveToDTO(e effectiveType) systemTypeDTO {
@@ -149,6 +153,7 @@ func effectiveToDTO(e effectiveType) systemTypeDTO {
 		DetectPrefixes: prefixes,
 		Checks:         checks,
 		Runbook:        e.Template.Runbook,
+		DocsURL:        docsURLForSystemType(e.Template.Kind),
 		BuiltIn:        e.BuiltIn,
 	}
 }
