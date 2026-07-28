@@ -347,6 +347,14 @@ func argInt(args map[string]any, key string, def int) int {
 // buildTools is the curated, read-only tool catalogue.
 func buildTools(s *Server) []tool {
 	return []tool{
+		// Start here. One call that answers "what am I looking at, and is
+		// anything wrong?" — listed first because an agent reads the
+		// catalogue top-down and this is the cheapest useful opening move.
+		{Name: "sluicio_cell_brief", Description: "START HERE for orientation. One call returning the cell's shape and current state: the organisation and environment name, counts of integrations / systems / services (with how many are unhealthy, erroring or quiet), everything firing RIGHT NOW worst-first — each with its runbook when the rule has one — services carrying traffic that no alert rule watches, and how many agent proposals await review. Deliberately compact: it is an orientation call, not a data dump, so long lists are capped and counted. Follow up with sluicio_health for why something is unhealthy, or sluicio_search_traces / sluicio_search_logs to investigate. Everything is filtered to what your token may see.", Schema: objSchema(map[string]any{
+			"window": strProp("Time window the counts cover, e.g. 1h, 24h, 7d. Default 24h."),
+		}),
+			Call: func(a map[string]any) (string, error) { return s.get("/api/v1/cell-brief", rangeArg(a, "24h")) }},
+
 		{Name: "sluicio_list_integrations", Description: "List the org's integrations with their rolled-up health status (ok/errors/unhealthy/quiet) and traffic/error counts.", Schema: objSchema(nil),
 			Call: func(a map[string]any) (string, error) { return s.get("/api/v1/integrations", nil) }},
 		{Name: "sluicio_list_services", Description: "List discovered services with their TRAFFIC (trace + error counts), last-seen, and health over a time window (default 24h). This is the source of truth for whether a service has traffic — if a service shows zero, widen `window` (e.g. 7d) before concluding it has none, since low-frequency integrations may be quiet within a short window.", Schema: objSchema(map[string]any{"window": strProp("Time window, e.g. 1h, 24h, 7d. Default 24h.")}),

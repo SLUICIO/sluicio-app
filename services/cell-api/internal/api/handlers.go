@@ -1273,6 +1273,10 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 		// inside the handlers; the type catalog is read-only.
 		mux.HandleFunc("GET /api/v1/event-types", h.listEventTypes)
 
+		// One-call orientation for agents (issue #8, WS4). Read-only and
+		// RBAC-scoped like everything else; see handlers_cell_brief.go.
+		mux.HandleFunc("GET /api/v1/cell-brief", h.cellBrief)
+
 		// Proposals — the agent write path (issue #8, WS2). Filing is
 		// open to any authenticated caller who can see the target: a
 		// proposal is inert until a human acts, so a scoped SA gains
