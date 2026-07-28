@@ -27,6 +27,10 @@ func (h *Handlers) mcpEndpoint(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	srv := mcp.NewServer(h.SelfBaseURL, r.Header.Get("Authorization"))
+	// Mark the loopback calls this session makes, so writes an agent
+	// performs are attributable in the audit log. Same process, so the
+	// secret never leaves it.
+	srv.ViaToken = h.ViaToken
 	resp := srv.HandleMessage(body)
 	if resp == nil {
 		w.WriteHeader(http.StatusAccepted) // notification — no reply

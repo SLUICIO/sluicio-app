@@ -44,6 +44,50 @@ test.describe("Audit log (EE)", () => {
     }).toPass({ timeout: 8_000 });
   });
 
+  test("entries record the channel they arrived through, and it can't be forged", async ({ page }) => {
+    // Provenance ("what did the agents do?") is only meaningful if a
+    // caller cannot claim it. This asserts both halves: a real browser
+    // change is recorded as UI, and a request that simply SETS the
+    // marker header is not believed.
+    const slug = `e2e-via-${Date.now()}`;
+    const created = await page.request.post("/api/v1/tags", {
+      data: { slug, name: "E2E via probe", color: "#5566ee" },
+    });
+    expect(created.ok(), `create tag: ${created.status()}`).toBeTruthy();
+
+    // The same action, but with the loopback marker spoofed by the caller.
+    const spoofSlug = `${slug}-spoof`;
+    const spoofed = await page.request.post("/api/v1/tags", {
+      data: { slug: spoofSlug, name: "E2E via spoof", color: "#5566ee" },
+      headers: { "X-Sluicio-Via-Token": "mcp" },
+    });
+    expect(spoofed.ok(), `create spoof tag: ${spoofed.status()}`).toBeTruthy();
+
+    const entries = await (await page.request.get("/api/v1/audit-log?action=tag.&limit=50")).json();
+    const list = entries.entries ?? [];
+    const find = (name: string) =>
+      list.find((e: { metadata?: Record<string, unknown> }) =>
+        JSON.stringify(e.metadata ?? {}).includes(name));
+
+    const honest = find(slug);
+    expect(honest, "the tag creation should be audited").toBeTruthy();
+    expect(honest.metadata.via, "a browser change is UI-originated").toBe("ui");
+
+    const spoof = find(spoofSlug);
+    expect(spoof, "the spoofed request should still be audited").toBeTruthy();
+    expect(spoof.metadata.via, "a client-set marker must NOT be accepted as agent provenance").not.toBe("mcp");
+
+    // Filtering by channel is the whole point of recording it.
+    const uiOnly = await (await page.request.get("/api/v1/audit-log?via=ui&limit=20")).json();
+    for (const e of uiOnly.entries ?? []) {
+      expect(e.metadata?.via).toBe("ui");
+    }
+    const mcpOnly = await (await page.request.get("/api/v1/audit-log?via=mcp&limit=20")).json();
+    for (const e of mcpOnly.entries ?? []) {
+      expect(e.metadata?.via).toBe("mcp");
+    }
+  });
+
   test("config changes are audited with metadata in the detail row", async ({ page }) => {
     // Mutate org config through the real API from the browser session:
     // create + delete a tag, then find both actions in the log.

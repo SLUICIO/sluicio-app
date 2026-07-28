@@ -29,6 +29,9 @@ import (
 	"time"
 )
 
+// ViaHeader carries the loopback marker described on Server.ViaToken.
+const ViaHeader = "X-Sluicio-Via-Token"
+
 const (
 	defaultProtocol = "2024-11-05"
 	serverName      = "sluicio-mcp"
@@ -42,7 +45,20 @@ type Server struct {
 	BaseURL string
 	Auth    string
 	HTTP    *http.Client
-	tools   []tool
+	// ViaToken marks loopback requests as agent-originated so cell-api can
+	// record "via: mcp" in the audit log.
+	//
+	// It is a per-process secret rather than a fixed header value on
+	// purpose. Provenance in a compliance record has to be unforgeable:
+	// a plain "X-Sluicio-Via: mcp" header could be set by any client,
+	// letting a caller either disguise its own writes as an agent's or
+	// dress an agent's up as its own. cell-api generates this at startup,
+	// hands it to the in-process MCP endpoint, and trusts the marker only
+	// when the value matches. Empty = don't send it, which is correct for
+	// the stdio transport: those calls arrive over the ordinary API and
+	// have no privileged claim to make.
+	ViaToken string
+	tools    []tool
 }
 
 // NewServer builds a Server for the given cell-api base URL + Authorization
@@ -287,6 +303,9 @@ func (s *Server) post(path string, query url.Values, body any) (string, error) {
 func (s *Server) do(req *http.Request) (string, error) {
 	req.Header.Set("Authorization", s.Auth)
 	req.Header.Set("Accept", "application/json")
+	if s.ViaToken != "" {
+		req.Header.Set(ViaHeader, s.ViaToken)
+	}
 	resp, err := s.HTTP.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("request failed: %w", err)

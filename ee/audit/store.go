@@ -317,6 +317,12 @@ func (s *Store) List(ctx context.Context, orgID uuid.UUID, f coreaudit.Filter, l
 	if f.TargetID != "" {
 		add(" AND resource_id = $%d", f.TargetID)
 	}
+	if f.Via != "" {
+		// Provenance lives in the payload so it stays inside the hash
+		// chain (see the api package's audit_via.go). Entries predating
+		// the field have no via key and correctly match nothing.
+		add(" AND payload->>'via' = $%d", f.Via)
+	}
 	if !f.From.IsZero() {
 		add(" AND occurred_at >= $%d", f.From)
 	}

@@ -135,6 +135,10 @@ type Handlers struct {
 	// SystemTypes is the org-customisable system-types catalog (detection
 	// prefixes + starter checks per type). Built-ins stay code-defined.
 	SystemTypes *systemtypes.Store
+	// ViaToken is the per-process secret that marks MCP loopback calls so
+	// the audit log can attribute them (see audit_via.go). Empty disables
+	// the distinction rather than making it forgeable.
+	ViaToken string
 	// SelfBaseURL is cell-api's own loopback base (e.g. http://127.0.0.1:8081).
 	// The HTTP MCP endpoint re-dispatches tool calls here, forwarding the
 	// caller's token, so they reuse the exact REST + auth + RBAC.

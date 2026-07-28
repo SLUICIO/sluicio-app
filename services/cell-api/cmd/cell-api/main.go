@@ -211,6 +211,7 @@ func main() {
 	handlers := &api.Handlers{
 		License:             licenseMgr,
 		SelfBaseURL:         selfBaseURL,
+		ViaToken:            api.NewViaToken(),
 		Audit:               auditRecorder,
 		Store:               chStore,
 		ClickHouseConn:      chConn,

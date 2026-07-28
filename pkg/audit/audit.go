@@ -58,6 +58,12 @@ type Filter struct {
 	// TargetType / TargetID match the audited resource exactly.
 	TargetType string
 	TargetID   string
+	// Via filters by originating channel — "mcp" answers "what did the
+	// agents do?", which is the question an admin has once agents can act
+	// at all. Matched against the payload's via key; entries written
+	// before the field existed simply don't match, rather than being
+	// mislabelled as something they weren't.
+	Via string
 	// From / To bound occurred_at (inclusive from, exclusive to).
 	From time.Time
 	To   time.Time

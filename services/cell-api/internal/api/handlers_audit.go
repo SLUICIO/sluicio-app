@@ -26,6 +26,23 @@ import (
 // store is wired — so core builds running without a license simply don't
 // audit. Best-effort: a write failure is logged, never surfaced to the
 // caller, and never blocks the action being audited.
+// withVia stamps the originating channel onto an entry's metadata.
+//
+// It goes in the METADATA rather than a new column because the payload is
+// already inside the hash chain — so provenance is tamper-evident on the
+// same terms as the rest of the entry, with no schema change and no
+// rechaining of history. Copies rather than mutating: the caller's map
+// often belongs to something else (a domain event was emitted from it a
+// line earlier), and writing through would edit that too.
+func (h *Handlers) withVia(r *http.Request, metadata map[string]any) map[string]any {
+	out := make(map[string]any, len(metadata)+1)
+	for k, v := range metadata {
+		out[k] = v
+	}
+	out["via"] = h.requestVia(r)
+	return out
+}
+
 func (h *Handlers) recordAudit(r *http.Request, action, targetType, targetID string, metadata map[string]any) {
 	// Domain events piggyback on the SAME recording points (issue #4):
 	// the audit action vocabulary IS the event taxonomy. Emission runs
@@ -44,7 +61,7 @@ func (h *Handlers) recordAudit(r *http.Request, action, targetType, targetID str
 		Action:      action,
 		TargetType:  targetType,
 		TargetID:    targetID,
-		Metadata:    metadata,
+		Metadata:    h.withVia(r, metadata),
 		IP:          clientIP(r),
 	}); err != nil {
 		h.Logger.Warn("audit record failed", "err", err, "action", action)
@@ -67,7 +84,7 @@ func (h *Handlers) recordAuditInOrg(r *http.Request, orgID uuid.UUID, action, ta
 		Action:      action,
 		TargetType:  targetType,
 		TargetID:    targetID,
-		Metadata:    metadata,
+		Metadata:    h.withVia(r, metadata),
 		IP:          clientIP(r),
 	}); err != nil {
 		h.Logger.Warn("audit record failed", "err", err, "action", action)
@@ -174,6 +191,7 @@ func (h *Handlers) listAuditLog(w http.ResponseWriter, r *http.Request) {
 		Action:     strings.TrimSpace(qp.Get("action")),
 		TargetType: strings.TrimSpace(qp.Get("target_type")),
 		TargetID:   strings.TrimSpace(qp.Get("target")),
+		Via:        strings.TrimSpace(qp.Get("via")),
 	}
 	if v := qp.Get("actor_id"); v != "" {
 		id, err := uuid.Parse(v)
