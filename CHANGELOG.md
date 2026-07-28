@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
-## v0.11.43 — 2026-07-27
+## v0.11.44 — 2026-07-28
 
+- mcp: sluicio_cell_brief, one call to orient (issue #8, WS4) (5234717)
+
+## v0.11.43 — 2026-07-28
+
+- release v0.11.43 — refresh internal changelog (08864da)
 - runbooks: an editor field, and proof the text reaches the payload (085ca55)
 - runbooks on alert rules and system types (issue #8, WS4) (5efc739)
 
