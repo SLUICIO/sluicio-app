@@ -3,8 +3,14 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.43 — 2026-07-27
+
+- runbooks: an editor field, and proof the text reaches the payload (085ca55)
+- runbooks on alert rules and system types (issue #8, WS4) (5efc739)
+
 ## v0.11.42 — 2026-07-27
 
+- release v0.11.42 — refresh internal changelog (a857269)
 - proposals: run the expiry sweep, and cover the loop end to end (issue #8, WS2) (227ce87)
 - proposals: the review inbox, and drop a tunable that never applied (issue #8, WS2) (312019c)
 - proposals: apply path, HTTP surface, and the MCP propose tool (issue #8, WS2) (24f2a02)
