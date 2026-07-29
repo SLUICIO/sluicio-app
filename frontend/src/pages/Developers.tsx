@@ -139,11 +139,15 @@ export default function Developers() {
 
       <Section n={3} title="Connect an AI assistant (MCP)">
         <p className="muted" style={{ fontSize: 13, marginTop: 0 }}>
-          Sluicio exposes a read-only MCP server so Claude Desktop/Code, Cursor, and other MCP clients can answer
+          Sluicio exposes an MCP server so Claude Desktop/Code, Cursor, and other MCP clients can answer
           questions about this cell from live data (“which integrations are unhealthy?”, “show the order-bus system”).
-          Pair it with a <strong>scoped viewer service-account token</strong> so the assistant can observe but never
-          change anything — and, via the account's group memberships, only the services (and signals) you chose to
-          hand it.
+          Pair it with a <strong>scoped viewer service-account token</strong> so the assistant sees only the services
+          (and signals) you chose to hand it, via the account's group memberships.
+        </p>
+        <p className="muted" style={{ fontSize: 13 }}>
+          The tools are read-only with one exception: an assistant can <strong>propose</strong> a tuning change to an
+          alert rule. That changes nothing on its own — it files a request with the assistant's reasoning that someone
+          with edit rights approves or rejects in <Link to="/proposals">Proposals</Link>.
         </p>
         <p className="muted" style={{ fontSize: 13 }}>
           Add a <strong>custom connector</strong> in your client pointing at this cell — nothing to install. It rides
@@ -158,8 +162,10 @@ export default function Developers() {
           token, or sign in if the client uses OAuth.
         </p>
         <p className="muted" style={{ fontSize: 12.5, marginTop: 10 }}>
-          Tools exposed: integrations, services, systems (+ members), system types, the “in trouble” errors feed,
-          the since-last-visit digest, and the metric catalog.
+          Tools exposed: a cell brief (one call for “what am I looking at, and is anything wrong?”), integrations,
+          services, systems (+ members), system types, what's unhealthy and why, the “in trouble” errors feed, alert
+          firings, the since-last-visit digest, the metric catalog and series, trace and log search, the usage report,
+          and the propose-a-tuning tool.
         </p>
       </Section>
 

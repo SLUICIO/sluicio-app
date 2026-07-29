@@ -33,10 +33,37 @@ import (
 const ViaHeader = "X-Sluicio-Via-Token"
 
 const (
-	defaultProtocol = "2024-11-05"
-	serverName      = "sluicio-mcp"
-	serverVersion   = "0.3.0"
+	// LatestProtocol is the newest MCP revision this server implements —
+	// what an initialize with no version, or an unrecognised one, gets
+	// back. It is the revision that introduced structured tool output.
+	LatestProtocol = "2025-06-18"
+	serverName     = "sluicio-mcp"
+	serverVersion  = "0.4.0"
 )
+
+// SupportedProtocols are the revisions we will speak, newest first.
+//
+// Echoing whatever the client asked for — the previous behaviour — is a
+// quiet lie: it claims support for revisions that may not exist yet, and
+// a client is entitled to take the answer at face value and use features
+// we have never implemented. The spec's rule is the honest one: agree if
+// we can, otherwise name what we do speak and let the client decide.
+//
+// 2024-11-05 stays in the list because local clients pinned to it are
+// still common, and nothing in the catalogue needs a newer revision to
+// be useful — tool annotations and output schemas are additive fields an
+// older client simply ignores.
+var SupportedProtocols = []string{"2025-06-18", "2025-03-26", "2024-11-05"}
+
+// SupportsProtocol reports whether this server speaks a revision.
+func SupportsProtocol(v string) bool {
+	for _, p := range SupportedProtocols {
+		if p == v {
+			return true
+		}
+	}
+	return false
+}
 
 // Server holds the connection config for one MCP session. BaseURL is the
 // cell-api base (e.g. https://host or http://127.0.0.1:8081); Auth is the full
@@ -133,18 +160,22 @@ func (s *Server) HandleMessage(raw []byte) []byte {
 }
 
 func (s *Server) initialize(params json.RawMessage) map[string]any {
-	proto := defaultProtocol
+	// Agree on the client's revision when we speak it; otherwise answer
+	// with our newest and let the client decide whether to continue.
+	proto := LatestProtocol
 	var p struct {
 		ProtocolVersion string `json:"protocolVersion"`
 	}
-	if json.Unmarshal(params, &p) == nil && p.ProtocolVersion != "" {
+	if json.Unmarshal(params, &p) == nil && SupportsProtocol(p.ProtocolVersion) {
 		proto = p.ProtocolVersion
 	}
 	return map[string]any{
 		"protocolVersion": proto,
-		"capabilities":    map[string]any{"tools": map[string]any{}},
-		"serverInfo":      map[string]any{"name": serverName, "version": serverVersion},
-		"instructions":    "Access to a Sluicio monitoring cell. Report on integration/service/system health, errors, alerts, logs, metrics, and traces/messages — everything is filtered by the token's RBAC scope. You cannot change any monitoring configuration directly. You MAY propose a tuning change to an existing alert rule (sluicio_propose_check_tuning); that files a reviewable request which a human approves or rejects, and only their approval applies it. Propose only when you can cite what you observed, and say so in the rationale.",
+		// The catalogue is fixed at build time, so there is nothing to
+		// notify about — say so rather than leaving a client to poll.
+		"capabilities": map[string]any{"tools": map[string]any{"listChanged": false}},
+		"serverInfo":   map[string]any{"name": serverName, "version": serverVersion},
+		"instructions": "Access to a Sluicio monitoring cell. Report on integration/service/system health, errors, alerts, logs, metrics, and traces/messages — everything is filtered by the token's RBAC scope. You cannot change any monitoring configuration directly. You MAY propose a tuning change to an existing alert rule (sluicio_propose_check_tuning); that files a reviewable request which a human approves or rejects, and only their approval applies it. Propose only when you can cite what you observed, and say so in the rationale.",
 	}
 }
 
@@ -159,6 +190,12 @@ type tool struct {
 	// that write — inheriting "safe to call" would be a lie to the
 	// client, and the guard test fails any writer that forgets.
 	Annotations map[string]any
+	// Output declares the RESULT shape (see output.go). Required on
+	// every tool — TestEveryToolDeclaresAnOutputSchema fails a new one
+	// that ships without it, because a catalogue where some tools
+	// describe their output and others don't is worse than neither: an
+	// agent can't tell "no schema" from "no such field".
+	Output map[string]any
 }
 
 // readOnlyAnnotations are attached to every tool in the catalogue.
@@ -201,6 +238,9 @@ func (s *Server) toolList() []map[string]any {
 			"inputSchema": t.Schema,
 			"annotations": ann,
 		}
+		if t.Output != nil {
+			out[i]["outputSchema"] = t.Output
+		}
 	}
 	return out
 }
@@ -236,7 +276,17 @@ func (s *Server) callTool(params json.RawMessage) map[string]any {
 			if err != nil {
 				return toolError(err.Error())
 			}
-			return map[string]any{"content": []map[string]any{{"type": "text", "text": text}}}
+			// The text block is the payload verbatim; every client can
+			// read it, including ones predating structured output.
+			res := map[string]any{"content": []map[string]any{{"type": "text", "text": text}}}
+			if t.Output != nil {
+				structured, sErr := structuredResult(t.Name, text)
+				if sErr != nil {
+					return toolError(sErr.Error())
+				}
+				res["structuredContent"] = structured
+			}
+			return res
 		}
 	}
 	return toolError("unknown tool: " + p.Name)
@@ -369,18 +419,18 @@ func buildTools(s *Server) []tool {
 		// Start here. One call that answers "what am I looking at, and is
 		// anything wrong?" — listed first because an agent reads the
 		// catalogue top-down and this is the cheapest useful opening move.
-		{Name: "sluicio_cell_brief", Description: "START HERE for orientation. One call returning the cell's shape and current state: the organisation and environment name, counts of integrations / systems / services (with how many are unhealthy, erroring or quiet), everything firing RIGHT NOW worst-first — each with its runbook when the rule has one — services carrying traffic that no alert rule watches, and how many agent proposals await review. Deliberately compact: it is an orientation call, not a data dump, so long lists are capped and counted. Follow up with sluicio_health for why something is unhealthy, or sluicio_search_traces / sluicio_search_logs to investigate. Everything is filtered to what your token may see.", Schema: objSchema(map[string]any{
+		{Name: "sluicio_cell_brief", Output: cellBriefOut, Description: "START HERE for orientation. One call returning the cell's shape and current state: the organisation and environment name, counts of integrations / systems / services (with how many are unhealthy, erroring or quiet), everything firing RIGHT NOW worst-first — each with its runbook when the rule has one — services carrying traffic that no alert rule watches, and how many agent proposals await review. Deliberately compact: it is an orientation call, not a data dump, so long lists are capped and counted. Follow up with sluicio_health for why something is unhealthy, or sluicio_search_traces / sluicio_search_logs to investigate. Everything is filtered to what your token may see.", Schema: objSchema(map[string]any{
 			"window": strProp("Time window the counts cover, e.g. 1h, 24h, 7d. Default 24h."),
 		}),
 			Call: func(a map[string]any) (string, error) { return s.get("/api/v1/cell-brief", rangeArg(a, "24h")) }},
 
-		{Name: "sluicio_list_integrations", Description: "List the org's integrations with their rolled-up health status (ok/errors/unhealthy/quiet) and traffic/error counts.", Schema: objSchema(nil),
+		{Name: "sluicio_list_integrations", Output: listIntegrationsOut, Description: "List the org's integrations with their rolled-up health status (ok/errors/unhealthy/quiet) and traffic/error counts.", Schema: objSchema(nil),
 			Call: func(a map[string]any) (string, error) { return s.get("/api/v1/integrations", nil) }},
-		{Name: "sluicio_list_services", Description: "List discovered services with their TRAFFIC (trace + error counts), last-seen, and health over a time window (default 24h). This is the source of truth for whether a service has traffic — if a service shows zero, widen `window` (e.g. 7d) before concluding it has none, since low-frequency integrations may be quiet within a short window.", Schema: objSchema(map[string]any{"window": strProp("Time window, e.g. 1h, 24h, 7d. Default 24h.")}),
+		{Name: "sluicio_list_services", Output: listServicesOut, Description: "List discovered services with their TRAFFIC (trace + error counts), last-seen, and health over a time window (default 24h). This is the source of truth for whether a service has traffic — if a service shows zero, widen `window` (e.g. 7d) before concluding it has none, since low-frequency integrations may be quiet within a short window.", Schema: objSchema(map[string]any{"window": strProp("Time window, e.g. 1h, 24h, 7d. Default 24h.")}),
 			Call: func(a map[string]any) (string, error) { return s.get("/api/v1/services", rangeArg(a, "24h")) }},
-		{Name: "sluicio_list_systems", Description: "List systems (RabbitMQ, Kafka, etc.) — entities spanning member services — with rolled-up health.", Schema: objSchema(nil),
+		{Name: "sluicio_list_systems", Output: listSystemsOut, Description: "List systems (RabbitMQ, Kafka, etc.) — entities spanning member services — with rolled-up health.", Schema: objSchema(nil),
 			Call: func(a map[string]any) (string, error) { return s.get("/api/v1/systems", nil) }},
-		{Name: "sluicio_get_system", Description: "Get one system by id, including its member services and their health.", Schema: objSchema(map[string]any{"id": strProp("The system id (uuid) from sluicio_list_systems.")}, "id"),
+		{Name: "sluicio_get_system", Output: getSystemOut, Description: "Get one system by id, including its member services and their health.", Schema: objSchema(map[string]any{"id": strProp("The system id (uuid) from sluicio_list_systems.")}, "id"),
 			Call: func(a map[string]any) (string, error) {
 				id := argStr(a, "id")
 				if id == "" {
@@ -388,13 +438,13 @@ func buildTools(s *Server) []tool {
 				}
 				return s.get("/api/v1/systems/"+url.PathEscape(id), nil)
 			}},
-		{Name: "sluicio_system_types", Description: "List the system-types catalog (built-in + custom): detection prefixes and starter health checks per type.", Schema: objSchema(nil),
+		{Name: "sluicio_system_types", Output: systemTypesOut, Description: "List the system-types catalog (built-in + custom): detection prefixes and starter health checks per type.", Schema: objSchema(nil),
 			Call: func(a map[string]any) (string, error) { return s.get("/api/v1/system-types", nil) }},
-		{Name: "sluicio_errors", Description: "The 'in trouble' feed — integrations and systems with failing health checks + open errors, for triage.", Schema: objSchema(map[string]any{"window": strProp("Time window, e.g. 1h, 24h, 7d. Default 24h.")}),
+		{Name: "sluicio_errors", Output: errorsOut, Description: "The 'in trouble' feed — integrations and systems with failing health checks + open errors, for triage.", Schema: objSchema(map[string]any{"window": strProp("Time window, e.g. 1h, 24h, 7d. Default 24h.")}),
 			Call: func(a map[string]any) (string, error) { return s.get("/api/v1/errors", rangeArg(a, "24h")) }},
-		{Name: "sluicio_health", Description: "What's unhealthy and WHY. Integrations and systems that are unhealthy or in error right now, each GROUPED with the failing health checks (rule, severity, since when) and error services that explain it — e.g. 'INT002 is unhealthy because HTTP 5xx rate is critical on order-api'. Use this over sluicio_errors when you want the reason per entity, not a flat list. Current-state: firing checks aren't windowed; the window scopes only the error/traffic portion.", Schema: objSchema(map[string]any{"window": strProp("Time window for the error/traffic portion, e.g. 1h, 24h, 7d. Default 24h.")}),
+		{Name: "sluicio_health", Output: unhealthyOut, Description: "What's unhealthy and WHY. Integrations and systems that are unhealthy or in error right now, each GROUPED with the failing health checks (rule, severity, since when) and error services that explain it — e.g. 'INT002 is unhealthy because HTTP 5xx rate is critical on order-api'. Use this over sluicio_errors when you want the reason per entity, not a flat list. Current-state: firing checks aren't windowed; the window scopes only the error/traffic portion.", Schema: objSchema(map[string]any{"window": strProp("Time window for the error/traffic portion, e.g. 1h, 24h, 7d. Default 24h.")}),
 			Call: func(a map[string]any) (string, error) { return s.get("/api/v1/unhealthy", rangeArg(a, "24h")) }},
-		{Name: "sluicio_error_report", Description: "Errors-since-<time> triage. Everything YOU'RE ALLOWED TO SEE (access-scoped to your token) that is erroring or unhealthy since a given time — default the last 24h, i.e. 'since yesterday' — each grouped with the failing health check(s) (rule, severity, since when) that make it unhealthy, plus the error services. This is the tool for questions like 'give me all errors since yesterday and the health check causing the unhealthy state'. Same current-state semantics as sluicio_health: firing checks reflect NOW; `since` scopes the error/traffic portion.", Schema: objSchema(map[string]any{"since": strProp("How far back to look — e.g. '24h' (since yesterday, the default), '2d', '7d', or an absolute 'from/to' ISO range like '2026-07-01T00:00:00Z/2026-07-02T00:00:00Z'.")}),
+		{Name: "sluicio_error_report", Output: unhealthyOut, Description: "Errors-since-<time> triage. Everything YOU'RE ALLOWED TO SEE (access-scoped to your token) that is erroring or unhealthy since a given time — default the last 24h, i.e. 'since yesterday' — each grouped with the failing health check(s) (rule, severity, since when) that make it unhealthy, plus the error services. This is the tool for questions like 'give me all errors since yesterday and the health check causing the unhealthy state'. Same current-state semantics as sluicio_health: firing checks reflect NOW; `since` scopes the error/traffic portion.", Schema: objSchema(map[string]any{"since": strProp("How far back to look — e.g. '24h' (since yesterday, the default), '2d', '7d', or an absolute 'from/to' ISO range like '2026-07-01T00:00:00Z/2026-07-02T00:00:00Z'.")}),
 			Call: func(a map[string]any) (string, error) {
 				since := argStr(a, "since")
 				if since == "" {
@@ -405,9 +455,9 @@ func buildTools(s *Server) []tool {
 				}
 				return s.get("/api/v1/unhealthy", url.Values{"range": {since}})
 			}},
-		{Name: "sluicio_digest", Description: "The since-last-visit digest: new services, detected collectors to set up, and integrations that started failing (RBAC-filtered).", Schema: objSchema(nil),
+		{Name: "sluicio_digest", Output: digestOut, Description: "The since-last-visit digest: new services, detected collectors to set up, and integrations that started failing (RBAC-filtered).", Schema: objSchema(nil),
 			Call: func(a map[string]any) (string, error) { return s.get("/api/v1/digest", nil) }},
-		{Name: "sluicio_metric_catalog", Description: "Search the metric catalog: each metric's current value, series count, and type. Optionally filter by a name query and/or scope to one service.", Schema: objSchema(map[string]any{
+		{Name: "sluicio_metric_catalog", Output: metricCatalogOut, Description: "Search the metric catalog: each metric's current value, series count, and type. Optionally filter by a name query and/or scope to one service.", Schema: objSchema(map[string]any{
 			"window": strProp("Time window, e.g. 1h, 24h. Default 1h."), "query": strProp("Substring to filter metric names by."), "service": strProp("Scope to a single service name."),
 		}),
 			Call: func(a map[string]any) (string, error) {
@@ -420,7 +470,7 @@ func buildTools(s *Server) []tool {
 				}
 				return s.get("/api/v1/metric-catalog", q)
 			}},
-		{Name: "sluicio_search_traces", Description: "Search traces within a time window: filter by service, errors-only, and/or an error-message substring. Returns matching traces (trace_id, service, span, error flag, timing) — drill in with sluicio_get_trace. NOTE: returns up to `limit` traces (default 100); a non-null next_cursor in the response means more match beyond the limit, so treat the count as a lower bound.", Schema: objSchema(map[string]any{
+		{Name: "sluicio_search_traces", Output: searchTracesOut, Description: "Search traces within a time window: filter by service, errors-only, and/or an error-message substring. Returns matching traces (trace_id, service, span, error flag, timing) — drill in with sluicio_get_trace. NOTE: returns up to `limit` traces (default 100); a non-null next_cursor in the response means more match beyond the limit, so treat the count as a lower bound.", Schema: objSchema(map[string]any{
 			"service":     strProp("Scope to one service name (e.g. INT002)."),
 			"query":       strProp("Substring to match against the error type / status message (e.g. 'timeout')."),
 			"window":      strProp("Time window, e.g. 1h, 24h, 48h, 7d. Default 24h."),
@@ -444,7 +494,7 @@ func buildTools(s *Server) []tool {
 				}
 				return s.post("/api/v1/messages/search", rangeArg(a, "24h"), map[string]any{"filters": filters, "limit": limit})
 			}},
-		{Name: "sluicio_get_integration", Description: "Get one integration by id: its matchers, member services with per-service health over the window, tags, and aggregate status. Use an id from sluicio_list_integrations.", Schema: objSchema(map[string]any{
+		{Name: "sluicio_get_integration", Output: getIntegrationOut, Description: "Get one integration by id: its matchers, member services with per-service health over the window, tags, and aggregate status. Use an id from sluicio_list_integrations.", Schema: objSchema(map[string]any{
 			"id":     strProp("The integration id (uuid)."),
 			"window": strProp("Time window for the per-service stats, e.g. 1h, 24h. Default 24h."),
 		}, "id"),
@@ -455,7 +505,7 @@ func buildTools(s *Server) []tool {
 				}
 				return s.get("/api/v1/integrations/"+url.PathEscape(id), rangeArg(a, "24h"))
 			}},
-		{Name: "sluicio_search_logs", Description: "Search log events within a time window: free-text body match, OTLP severity floor (info≈9, warn≈13, error≈17, fatal≈21), scope to a service or an integration's member services, and attribute predicates. Results are RBAC-filtered to what the token may see. Returns up to `limit` logs plus a next_cursor when more match.", Schema: objSchema(map[string]any{
+		{Name: "sluicio_search_logs", Output: searchLogsOut, Description: "Search log events within a time window: free-text body match, OTLP severity floor (info≈9, warn≈13, error≈17, fatal≈21), scope to a service or an integration's member services, and attribute predicates. Results are RBAC-filtered to what the token may see. Returns up to `limit` logs plus a next_cursor when more match.", Schema: objSchema(map[string]any{
 			"query":        strProp("Case-insensitive substring of the log body."),
 			"min_severity": map[string]any{"type": "integer", "description": "OTLP SeverityNumber floor; 17 = errors and worse. Omit for any severity."},
 			"service":      strProp("Scope to one service name."),
@@ -493,7 +543,7 @@ func buildTools(s *Server) []tool {
 				}
 				return s.get("/api/v1/logs", q)
 			}},
-		{Name: "sluicio_metric_series", Description: "Fetch one metric's time series (per service) over a window — the values behind the catalog. Use a metric name from sluicio_metric_catalog.", Schema: objSchema(map[string]any{
+		{Name: "sluicio_metric_series", Output: metricSeriesOut, Description: "Fetch one metric's time series (per service) over a window — the values behind the catalog. Use a metric name from sluicio_metric_catalog.", Schema: objSchema(map[string]any{
 			"metric":  strProp("The exact metric name (e.g. servicebus.queue.deadletter_messages)."),
 			"service": strProp("Scope to one service name (optional; omit for all emitting services)."),
 			"window":  strProp("Time window, e.g. 1h, 24h. Default 1h."),
@@ -510,7 +560,7 @@ func buildTools(s *Server) []tool {
 				}
 				return s.get("/api/v1/metric-series", q)
 			}},
-		{Name: "sluicio_alert_instances", Description: "Recent alert instances (rule firings) — each with its rule, severity, state (firing/resolved), summary, and timestamps. RBAC-filtered. The 'alerts' complement to sluicio_errors: this is rule-firing history, not the open-error feed.", Schema: objSchema(map[string]any{
+		{Name: "sluicio_alert_instances", Output: alertInstancesOut, Description: "Recent alert instances (rule firings) — each with its rule, severity, state (firing/resolved), summary, and timestamps. RBAC-filtered. The 'alerts' complement to sluicio_errors: this is rule-firing history, not the open-error feed.", Schema: objSchema(map[string]any{
 			"limit": map[string]any{"type": "integer", "description": "Max instances (1-500). Default 100."},
 		}),
 			Call: func(a map[string]any) (string, error) {
@@ -520,11 +570,11 @@ func buildTools(s *Server) []tool {
 				}
 				return s.get("/api/v1/alert-instances", url.Values{"limit": {fmt.Sprintf("%d", limit)}})
 			}},
-		{Name: "sluicio_usage_report", Description: "The admin usage report (Settings → Reports): per signal — metrics, logs, traces — how much of what's ingested is NOT watched by any alert rule, with storage estimates (bytes per day / per 30 days) and a per-service breakdown for logs and traces (services without alert coverage first, each with row count and estimated compressed size). Answers 'what are we storing that nobody alerts on?' and 'what would trimming save?'. To see WHICH metrics are unused, combine with sluicio_metric_catalog and filter rule_count == 0. Requires an admin token — others get a permission error.", Schema: objSchema(map[string]any{
+		{Name: "sluicio_usage_report", Output: usageReportOut, Description: "The admin usage report (Settings → Reports): per signal — metrics, logs, traces — how much of what's ingested is NOT watched by any alert rule, with storage estimates (bytes per day / per 30 days) and a per-service breakdown for logs and traces (services without alert coverage first, each with row count and estimated compressed size). Answers 'what are we storing that nobody alerts on?' and 'what would trimming save?'. To see WHICH metrics are unused, combine with sluicio_metric_catalog and filter rule_count == 0. Requires an admin token — others get a permission error.", Schema: objSchema(map[string]any{
 			"window": strProp("Time window the report is computed over, e.g. 24h, 7d, 30d. Default 24h."),
 		}),
 			Call: func(a map[string]any) (string, error) { return s.get("/api/v1/reports/usage", rangeArg(a, "24h")) }},
-		{Name: "sluicio_get_trace", Description: "Fetch one trace by id — all its spans across services, with timings and errors. Use a trace_id from sluicio_search_traces or a sample_trace_id from sluicio_errors.", Schema: objSchema(map[string]any{"trace_id": strProp("The trace id (hex string).")}, "trace_id"),
+		{Name: "sluicio_get_trace", Output: getTraceOut, Description: "Fetch one trace by id — all its spans across services, with timings and errors. Use a trace_id from sluicio_search_traces or a sample_trace_id from sluicio_errors.", Schema: objSchema(map[string]any{"trace_id": strProp("The trace id (hex string).")}, "trace_id"),
 			Call: func(a map[string]any) (string, error) {
 				id := argStr(a, "trace_id")
 				if id == "" {
@@ -536,16 +586,20 @@ func buildTools(s *Server) []tool {
 		// The one tool that writes. It does not change monitoring config:
 		// it files a proposal a human must approve, which is why it can
 		// exist at all in a catalogue that is otherwise read-only.
-		{Name: "sluicio_propose_check_tuning", Annotations: proposeAnnotations,
+		{Name: "sluicio_propose_check_tuning", Output: proposeOut, Annotations: proposeAnnotations,
 			Description: "Propose a tuning change to an existing alert rule — threshold, severity, for_window or enabled. This does NOT change anything: it files a reviewable proposal that a human with edit rights approves or rejects, and only approval applies it. Use it when a check is demonstrably too noisy or too quiet and you can say why, citing what you observed (e.g. 'fired 40 times in 24h, every instance auto-resolved within 2 minutes'). The rationale is shown verbatim to the reviewer and is required. Get rule ids from sluicio_health or sluicio_alert_instances; the current values come from the rule itself, so send only the fields you want changed.",
 			Schema: objSchema(map[string]any{
-				"rule_id":            strProp("The alert rule's id (uuid), from sluicio_health or sluicio_alert_instances."),
-				"rationale":          strProp("Why this change is right, citing what you observed. Shown verbatim to the human reviewer. Required."),
-				"threshold":          map[string]any{"type": "number", "description": "Proposed new threshold value."},
-				"severity":           strProp("Proposed new severity: info, warning or critical."),
-				"for_window":         strProp("Proposed new sustain window as a Go duration, e.g. \"5m\" — how long the condition must hold before firing."),
-				"evaluation_seconds": map[string]any{"type": "integer", "description": "Proposed new evaluation interval in seconds."},
-				"enabled":            map[string]any{"type": "boolean", "description": "Propose enabling or disabling the rule."},
+				"rule_id":   strProp("The alert rule's id (uuid), from sluicio_health or sluicio_alert_instances."),
+				"rationale": strProp("Why this change is right, citing what you observed. Shown verbatim to the human reviewer. Required."),
+				"threshold": map[string]any{"type": "number", "description": "Proposed new threshold value."},
+				"severity":  strProp("Proposed new severity: info, warning or critical."),
+				// evaluation_seconds is deliberately absent: the apply path
+				// does not persist it, so advertising it would invite an
+				// agent to file a proposal a human approves and that then
+				// changes nothing. TestProposeSchemaOffersOnlyApplicableFields
+				// keeps this list and the API's tunables in step.
+				"for_window": strProp("Proposed new sustain window as a Go duration, e.g. \"5m\" — how long the condition must hold before firing."),
+				"enabled":    map[string]any{"type": "boolean", "description": "Propose enabling or disabling the rule."},
 			}, "rule_id", "rationale"),
 			Call: func(a map[string]any) (string, error) {
 				ruleID := argStr(a, "rule_id")

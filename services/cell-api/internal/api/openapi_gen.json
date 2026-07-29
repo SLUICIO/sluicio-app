@@ -741,6 +741,23 @@
         ]
       }
     },
+    "/api/v1/cell-brief": {
+      "get": {
+        "operationId": "get_api_v1_cell_brief",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "List cell-brief",
+        "tags": [
+          "cell-brief"
+        ]
+      }
+    },
     "/api/v1/cell-settings/retention": {
       "get": {
         "operationId": "get_api_v1_cell_settings_retention",
@@ -2505,6 +2522,36 @@
       }
     },
     "/api/v1/mcp": {
+      "delete": {
+        "operationId": "delete_api_v1_mcp",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Not supported (405) — the MCP endpoint is stateless and issues no session id",
+        "tags": [
+          "mcp"
+        ]
+      },
+      "get": {
+        "operationId": "get_api_v1_mcp",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Not supported (405) — this endpoint offers no server-initiated event stream",
+        "tags": [
+          "mcp"
+        ]
+      },
       "post": {
         "operationId": "post_api_v1_mcp",
         "responses": {
@@ -2515,7 +2562,7 @@
             "description": "Unauthenticated"
           }
         },
-        "summary": "Create mcp",
+        "summary": "MCP Streamable HTTP endpoint — one JSON-RPC message in, one response out",
         "tags": [
           "mcp"
         ]
@@ -3765,6 +3812,119 @@
         "summary": "Update org",
         "tags": [
           "orgs"
+        ]
+      }
+    },
+    "/api/v1/proposals": {
+      "get": {
+        "operationId": "get_api_v1_proposals",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "List proposals",
+        "tags": [
+          "proposals"
+        ]
+      },
+      "post": {
+        "operationId": "post_api_v1_proposals",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Create proposal",
+        "tags": [
+          "proposals"
+        ]
+      }
+    },
+    "/api/v1/proposals/{id}": {
+      "get": {
+        "operationId": "get_api_v1_proposals_id_",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Get proposal",
+        "tags": [
+          "proposals"
+        ]
+      }
+    },
+    "/api/v1/proposals/{id}/approve": {
+      "post": {
+        "operationId": "post_api_v1_proposals_id_approve",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Create proposal",
+        "tags": [
+          "proposals"
+        ]
+      }
+    },
+    "/api/v1/proposals/{id}/reject": {
+      "post": {
+        "operationId": "post_api_v1_proposals_id_reject",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Create proposal",
+        "tags": [
+          "proposals"
         ]
       }
     },
@@ -6757,6 +6917,9 @@
       "name": "badges"
     },
     {
+      "name": "cell-brief"
+    },
+    {
       "name": "cell-settings"
     },
     {
@@ -6869,6 +7032,9 @@
     },
     {
       "name": "orgs"
+    },
+    {
+      "name": "proposals"
     },
     {
       "name": "reports"

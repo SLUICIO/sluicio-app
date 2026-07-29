@@ -70,6 +70,9 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 ## badges
 - GET /api/v1/badges/{kind}/{id} — Get badge
 
+## cell-brief
+- GET /api/v1/cell-brief — List cell-brief
+
 ## cell-settings
 - GET /api/v1/cell-settings/retention — List cell-settings
 - GET /api/v1/cell-settings/system — List cell-settings
@@ -202,7 +205,9 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 - DELETE /api/v1/maps/{id} — Delete map
 
 ## mcp
-- POST /api/v1/mcp — Create mcp
+- POST /api/v1/mcp — MCP Streamable HTTP endpoint — one JSON-RPC message in, one response out
+- GET /api/v1/mcp — Not supported (405) — this endpoint offers no server-initiated event stream
+- DELETE /api/v1/mcp — Not supported (405) — the MCP endpoint is stateless and issues no session id
 
 ## me
 - GET /api/v1/me — List me
@@ -309,6 +314,13 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 ## orgs
 - GET /api/v1/orgs/{id} — Get org
 - PATCH /api/v1/orgs/{id} — Update org
+
+## proposals
+- POST /api/v1/proposals — Create proposal
+- GET /api/v1/proposals — List proposals
+- GET /api/v1/proposals/{id} — Get proposal
+- POST /api/v1/proposals/{id}/approve — Create proposal
+- POST /api/v1/proposals/{id}/reject — Create proposal
 
 ## reports
 - GET /api/v1/reports/usage — List reports

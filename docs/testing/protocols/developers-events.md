@@ -6,8 +6,8 @@
 |-------|-------|
 | **Area** | The API & MCP page: tokens, REST/OpenAPI, the MCP server, outbound event subscriptions |
 | **Automation status** | Partial (event subscriptions + MCP RBAC automated; assistant clients manual) |
-| **Automated by** | [event-subscriptions.spec.ts](../../../e2e/tests/event-subscriptions.spec.ts), [rbac.spec.ts](../../../e2e/tests/rbac.spec.ts) (MCP surface) |
-| **Last reviewed** | 2026-07-25 |
+| **Automated by** | [event-subscriptions.spec.ts](../../../e2e/tests/event-subscriptions.spec.ts), [mcp.spec.ts](../../../e2e/tests/mcp.spec.ts) (transport + output schemas), [rbac.spec.ts](../../../e2e/tests/rbac.spec.ts) (MCP surface) |
+| **Last reviewed** | 2026-07-29 |
 
 ## Preconditions
 - Stack up, admin session. For events: at least one **webhook** notification channel pointing somewhere you can observe (a request-bin, n8n, or a local sink). For MCP: a service-account token.
@@ -21,9 +21,14 @@
 - **Automation:** Partial.
 
 ### Case 2 — MCP server from a real client
-- **Steps:** Add the connector URL (`<cell>/api/v1/mcp`) in Claude Desktop/Code or Cursor with a **viewer** service-account token → ask "which integrations are unhealthy?" and "what are we storing that nobody alerts on?"
-- **Expected:** Tools resolve read-only data scoped to the token; the usage-report tool (`sluicio_usage_report`) answers the second question and is **refused for non-admin tokens**. No tool can mutate anything.
-- **Automation:** Partial — RBAC parity + the usage-report gate are automated (`rbac.spec.ts`); a real client session is manual.
+- **Steps:** Add the connector URL (`<cell>/api/v1/mcp`) in Claude Desktop/Code or Cursor with a **viewer** service-account token → ask "what am I looking at?" (should reach for `sluicio_cell_brief` first), then "which integrations are unhealthy?" and "what are we storing that nobody alerts on?"
+- **Expected:** The client completes the handshake without a session id and without opening a GET stream. Tools resolve data scoped to the token; the usage-report tool (`sluicio_usage_report`) answers the last question and is **refused for non-admin tokens**. Nothing the assistant calls changes monitoring config: the only writer files a proposal.
+- **Automation:** Partial — RBAC parity + the usage-report gate (`rbac.spec.ts`), transport + output-schema conformance (`mcp.spec.ts`); a real client session is manual.
+
+### Case 2b — An assistant proposes a change, a human decides
+- **Steps:** With the connector attached, ask the assistant to suggest a tuning for a noisy check and to file it. Then open **Proposals** in the nav.
+- **Expected:** The client prompts for confirmation before calling (the tool is annotated as not read-only). The proposal appears in the inbox with the assistant's rationale verbatim and a before/after diff the cell snapshotted itself — nothing has changed yet. Approving applies it through the normal rule editor; rejecting leaves the rule untouched. The audit entry records `via: mcp`.
+- **Automation:** Partial — the write path and the response shape are automated (`proposals.spec.ts`, `mcp.spec.ts`); the assistant's own judgement is manual.
 
 ## Event subscriptions (v0.11.40+)
 

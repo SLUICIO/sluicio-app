@@ -169,7 +169,24 @@ func tagFor(p string) string {
 	return segs[i]
 }
 
+// summaryOverrides carry the handful of routes the noun-and-verb rule
+// below gets wrong. It is deliberately tiny: the mechanical summary is
+// right for 300-odd CRUD routes, and a table that grew to cover them all
+// would just be a second place to keep in step with the code.
+//
+// The MCP methods are here because llms.txt is READ BY AGENTS, and
+// "List mcp" would tell one that GET /api/v1/mcp enumerates something —
+// it does not; it exists only to answer 405 with an explanation.
+var summaryOverrides = map[string]string{
+	"POST /api/v1/mcp":   "MCP Streamable HTTP endpoint — one JSON-RPC message in, one response out",
+	"GET /api/v1/mcp":    "Not supported (405) — this endpoint offers no server-initiated event stream",
+	"DELETE /api/v1/mcp": "Not supported (405) — the MCP endpoint is stateless and issues no session id",
+}
+
 func summaryFor(method, p, tag string) string {
+	if s, ok := summaryOverrides[method+" "+p]; ok {
+		return s
+	}
 	last := p[strings.LastIndex(p, "/")+1:]
 	byID := strings.HasPrefix(last, "{")
 	noun := strings.TrimSuffix(tag, "s")

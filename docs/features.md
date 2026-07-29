@@ -81,7 +81,7 @@ catalog in docs/testing/protocols/).
 | Slug | Feature | What it is |
 |---|---|---|
 | `api` | REST API | Full JSON API with OpenAPI spec, llms.txt (token-frugal AI format), and a live try-it reference |
-| `mcp` | MCP server | Read-only Model Context Protocol tools (HTTP endpoint + stdio binary); inherits the caller token's RBAC |
+| `mcp` | MCP server | Model Context Protocol tools over Streamable HTTP + stdio, with annotations and output schemas; read-only apart from filing a proposal a human must approve; inherits the caller token's RBAC |
 | `helm-compose` | Deployment | Quickstart compose, Helm chart, single-binary services, embedded migrations |
 | `retention` | Telemetry retention | Per-signal retention (free tier up to 14 days; beyond is Enterprise) |
 | `cell-settings` | Cell settings | Environment label, ingest base URL, security knobs — operator-gated |

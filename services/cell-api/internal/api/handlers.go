@@ -813,9 +813,13 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/systems/{id}/metadata", h.getSystemMetadata)
 	mux.HandleFunc("PUT /api/v1/systems/{id}/metadata", h.writeAnywhere(h.requireManageSystem(h.putSystemMetadata)))
 
-	// Remote MCP transport — authed (Bearer); tools re-dispatch over loopback
-	// so they reuse the REST + RBAC. Served on the app URL behind the proxy.
+	// Remote MCP transport (Streamable HTTP) — authed (Bearer); tools
+	// re-dispatch over loopback so they reuse the REST + RBAC. Served on the
+	// app URL behind the proxy. GET and DELETE are registered only so the
+	// 405 they must return can explain itself; see handlers_mcp.go.
 	mux.HandleFunc("POST /api/v1/mcp", h.mcpEndpoint)
+	mux.HandleFunc("GET /api/v1/mcp", h.mcpStreamEndpoint)
+	mux.HandleFunc("DELETE /api/v1/mcp", h.mcpDeleteEndpoint)
 
 	// OAuth 2.1 authorization server for the MCP endpoint (public; skip-listed
 	// in main). Lets OAuth-only MCP connectors (Claude remote / Cowork) connect.
