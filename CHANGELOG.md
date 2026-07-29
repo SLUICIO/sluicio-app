@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.51 — 2026-07-29
+
+- retention: separate "who chose this" from "is it still running" (005fa7b)
+
 ## v0.11.50 — 2026-07-29
 
+- release v0.11.50 — refresh internal changelog (e8211fc)
 - advisor: cover the decision logic properly, and make CI actually evaluate (7260dac)
 - release v0.11.50 — refresh internal changelog (5b242c4)
 - readme: show the product (b46becd)
