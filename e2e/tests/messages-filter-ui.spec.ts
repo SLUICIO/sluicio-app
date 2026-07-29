@@ -8,7 +8,13 @@ import { test, expect } from "@playwright/test";
 import { logIn } from "./fixtures";
 
 test("error-type list + integration↔service cross-narrowing on /search", async ({ page }) => {
-  test.setTimeout(90_000);
+  // The budget must exceed what this test is ALLOWED to spend waiting.
+  // Two polls below wait up to 60s and 45s for data that resolves
+  // asynchronously on a cold cell — 105s — so a 90s test timeout meant
+  // the test could not pass on any cell slow enough to need them. It
+  // survived on warm cells and died on busy ones, which reads as
+  // flakiness but is really arithmetic: raise this if either poll grows.
+  test.setTimeout(180_000);
   await logIn(page);
   const admin = page.request;
   const stamp = Date.now().toString(36);
