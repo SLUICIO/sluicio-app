@@ -408,7 +408,7 @@ func evalPIIAttributes(ctx context.Context, in TelemetryInput, attrs []SpanAttrS
 			Advisor:     "telemetry",
 			ScopeKind:   "attribute",
 			ScopeID:     a.Service + "." + a.Key,
-			Title:       fmt.Sprintf("%q on %s looks like it carries %ss", a.Key, a.Service, kind),
+			Title:       fmt.Sprintf("%q on %s carries values that look like %s", a.Key, a.Service, pluralPattern(kind)),
 			Loss: "Hashing keeps correlation working (the same value still matches itself) while the " +
 				"original stops being retained. If the readable value is needed for support, this is a " +
 				"retention decision rather than a collector one.",
@@ -437,6 +437,21 @@ func piiEvidence(kind string, hits, sampled int, spans uint64) map[string]any {
 		"present_on_spans":        spans,
 		"compliance":              true,
 	}
+}
+
+// pluralPattern renders a pattern name for "values that look like …".
+// Naive %ss produced "email addresss"; the patterns are a closed set, so
+// the plural is stated rather than derived.
+func pluralPattern(kind string) string {
+	switch kind {
+	case "email address":
+		return "email addresses"
+	case "national ID number":
+		return "national ID numbers"
+	case "IBAN":
+		return "IBANs"
+	}
+	return kind
 }
 
 func classifyPII(values []string) (string, int) {

@@ -119,7 +119,12 @@ func LogStreamsSupply(ctx context.Context, conn driver.Conn, orgID uuid.UUID, fr
 		SELECT ServiceName,
 		       -- Collapse to the band floor: 1 trace, 5 debug, 9 info,
 		       -- 13 warn, 17 error, 21 fatal.
-		       intDiv(greatest(SeverityNumber, 1) - 1, 4) * 4 + 1 AS band,
+		       --
+		       -- Cast explicitly: arithmetic on an Int32 column widens to
+		       -- Int64 in ClickHouse, and the driver refuses to narrow it
+		       -- on scan. Doing it in SQL keeps the Go struct field the
+		       -- same type as SeverityNumber everywhere else.
+		       toInt32(intDiv(greatest(SeverityNumber, 1) - 1, 4) * 4 + 1) AS band,
 		       any(SeverityText)                                  AS severityText,
 		       count()                                            AS rows,
 		       min(Timestamp)                                     AS firstSeen,
