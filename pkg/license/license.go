@@ -59,11 +59,20 @@ const (
 	// member to enrol). Per-user MFA itself is free/core — only the
 	// compliance knob is Enterprise.
 	FeatureMFAPolicy Feature = "mfa_policy"
+	// FeatureAdvisor gates the Telemetry and Alert Fatigue advisors.
+	//
+	// The demand LEDGER underneath them is Community and always on: it is
+	// how the Usage page can say when a metric was last consumed, and a
+	// cell that only starts recording once someone buys a licence would
+	// have no history to advise from on the day they did. What Enterprise
+	// buys is the analysis — the suggestions, their evidence and the
+	// accept/dismiss trail — not the measurement.
+	FeatureAdvisor Feature = "advisor"
 )
 
 // AllFeatures is the canonical list, used to render the features map in the
 // status response so the frontend always sees every gate.
-var AllFeatures = []Feature{FeatureSSO, FeatureRBACAdvanced, FeatureAuditLog, FeatureRetentionLong, FeatureMFAPolicy}
+var AllFeatures = []Feature{FeatureSSO, FeatureRBACAdvanced, FeatureAuditLog, FeatureRetentionLong, FeatureMFAPolicy, FeatureAdvisor}
 
 // Limits are optional numeric caps carried by a license. Zero means "no
 // explicit limit from the license" (callers apply their own free-tier

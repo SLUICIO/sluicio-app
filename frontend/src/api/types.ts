@@ -1961,7 +1961,8 @@ export type LicenseFeature =
   | "rbac_advanced"
   | "audit_log"
   | "retention_long"
-  | "mfa_policy";
+  | "mfa_policy"
+  | "advisor";
 
 // The /api/v1/license read model. `features` always carries every gate so
 // the UI can branch without optional-chaining. `licensed` is true only for a

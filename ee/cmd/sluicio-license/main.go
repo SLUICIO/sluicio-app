@@ -8,7 +8,7 @@
 //
 //	sluicio-license keygen  -out <priv-path>            # new Ed25519 keypair (prints public key to embed)
 //	sluicio-license mint     -key <priv-path> -customer "Acme AB" \
-//	    -features sso,rbac_advanced,audit_log,retention_long \
+//	    -features sso,rbac_advanced,audit_log,retention_long,advisor \
 //	    -days 365 [-max-retention-days 365]              # prints a signed license token
 //	sluicio-license inspect  -token <token>             # verifies against the embedded public key + prints claims
 //
@@ -76,7 +76,7 @@ func mint(args []string) {
 	keyPath := fs.String("key", "", "path to the base64 Ed25519 private key")
 	customer := fs.String("customer", "", "customer / organisation name")
 	plan := fs.String("plan", "enterprise", "plan name")
-	features := fs.String("features", "sso,rbac_advanced,audit_log,retention_long,mfa_policy", "comma-separated entitlements")
+	features := fs.String("features", "sso,rbac_advanced,audit_log,retention_long,mfa_policy,advisor", "comma-separated entitlements")
 	days := fs.Int("days", 365, "validity in days from now (0 = perpetual)")
 	maxRetentionDays := fs.Int("max-retention-days", 0, "optional retention cap to embed (0 = unlimited)")
 	maxIntegrations := fs.Int("max-integrations", 0, "integration cap to embed (Pro 25, Business 75; 0 = unlimited/Enterprise)")
