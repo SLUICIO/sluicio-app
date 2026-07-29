@@ -53,6 +53,7 @@ import (
 	"github.com/sluicio/sluicio-app/pkg/mail"
 	impostgres "github.com/sluicio/sluicio-app/pkg/postgres"
 	"github.com/sluicio/sluicio-app/pkg/version"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/advisor"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/alerting"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/api"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/api/middleware"
@@ -543,11 +544,50 @@ func main() {
 		Completions: traceCompletionStore,
 		Templates:   monitoringTemplateStore,
 		Views:       messageViews,
+		Facets:      facetMappingsStore,
+		Dashboards:  dashboardStore,
 		Catalog:     catalogStore,
 		Log:         logger,
 	}
 	go demandSweeper.Run(bgCtx)
 	logger.Info("demand ledger started")
+
+	// The advisors (issue #1) sit on top of that ledger. The store is
+	// wired unconditionally so an entitled cell can read previously
+	// computed findings even while ClickHouse is briefly unavailable;
+	// the ENGINE checks the entitlement before spending the cell's
+	// most expensive query on a report nobody may read.
+	advisorStore := advisor.NewStore(pg)
+	handlers.Advisor = advisorStore
+	advisorEngine := &advisor.Engine{
+		Store:    advisorStore,
+		Pool:     pg,
+		CH:       chConn,
+		Log:      logger,
+		Entitled: func() bool { return licenseMgr.Entitled(license.FeatureAdvisor) },
+		Orgs: func(context.Context) ([]uuid.UUID, error) {
+			// Single-org per cell today (integrations.DefaultOrgID); the
+			// signature takes a list so multi-tenant cells need no change
+			// here when they arrive.
+			return []uuid.UUID{integrations.DefaultOrgID}, nil
+		},
+		IntegrationServices: func(ctx context.Context, orgID uuid.UUID) (map[string]bool, error) {
+			byIntegration, err := catalogStore.IntegrationServicesBulk(ctx, orgID)
+			if err != nil {
+				return nil, err
+			}
+			out := map[string]bool{}
+			for _, names := range byIntegration {
+				for _, n := range names {
+					out[n] = true
+				}
+			}
+			return out, nil
+		},
+	}
+	handlers.AdvisorEngine = advisorEngine
+	go advisorEngine.Run(bgCtx)
+	logger.Info("advisor started")
 
 	mux := http.NewServeMux()
 	handlers.Mount(mux)

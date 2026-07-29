@@ -61,6 +61,47 @@ func (s *Store) ListForService(ctx context.Context, orgID uuid.UUID, serviceName
 	return out, rows.Err()
 }
 
+// ListAll returns every mapping in the org.
+//
+// Exists for the demand sweep (docs/telemetry-advisor-design.md §2): an
+// attribute that drives facet classification is CONSUMED, permanently,
+// for as long as the mapping exists — and the Telemetry Advisor must
+// never propose deleting it. Per-service listing would mean the sweep
+// enumerating services first and missing mappings for services that
+// have gone quiet, which are exactly the ones an advisor is most likely
+// to judge.
+func (s *Store) ListAll(ctx context.Context, orgID uuid.UUID) ([]Mapping, error) {
+	const q = `
+		SELECT id, organization_id, service_name,
+		       attribute_source, attribute_key, match_operator, match_value,
+		       set_io_kind, set_io_role, created_at, updated_at
+		FROM service_facet_mappings
+		WHERE organization_id = $1
+		ORDER BY service_name ASC, created_at ASC
+	`
+	rows, err := s.pool.Query(ctx, q, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("list all facet mappings: %w", err)
+	}
+	defer rows.Close()
+	out := make([]Mapping, 0)
+	for rows.Next() {
+		var m Mapping
+		var source, op string
+		if err := rows.Scan(
+			&m.ID, &m.OrganizationID, &m.ServiceName,
+			&source, &m.AttributeKey, &op, &m.MatchValue,
+			&m.SetIOKind, &m.SetIORole, &m.CreatedAt, &m.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		m.AttributeSource = AttributeSource(source)
+		m.MatchOperator = Operator(op)
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
 // Get returns one mapping by ID, scoped to the org.
 func (s *Store) Get(ctx context.Context, orgID, id uuid.UUID) (Mapping, error) {
 	const q = `

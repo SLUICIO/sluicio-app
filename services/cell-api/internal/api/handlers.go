@@ -19,6 +19,7 @@ import (
 	"github.com/sluicio/sluicio-app/pkg/httpserver"
 	"github.com/sluicio/sluicio-app/pkg/license"
 	"github.com/sluicio/sluicio-app/pkg/mail"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/advisor"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/alerting"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/api/middleware"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/catalog"
@@ -88,6 +89,14 @@ type Handlers struct {
 	// a cell that hasn't enabled them — the handlers degrade rather than
 	// panic, so the endpoints answer honestly instead of 500ing.
 	Proposals *proposals.Store
+	// Advisor stores the Telemetry / Alert Fatigue findings; AdvisorEngine
+	// evaluates them. Both nil on a cell without ClickHouse.
+	Advisor       *advisor.Store
+	AdvisorEngine *advisor.Engine
+	// advisorRunAt rate-limits manual evaluations per org — a full run
+	// samples a month of spans.
+	advisorRunMu sync.Mutex
+	advisorRunAt map[uuid.UUID]time.Time
 	// PGPool is the raw Postgres pool for the few handlers that need
 	// transaction ownership across many domains (config export/import —
 	// the whole-bundle atomicity contract lives on one tx).
@@ -1383,6 +1392,31 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 		mux.HandleFunc("GET /api/v1/audit-log/verify",
 			h.AuthMW.RequireRole(identity.Role.CanAdmin, h.requireFeature(license.FeatureAuditLog, h.verifyAuditChain)))
 	}
+
+	// Telemetry & Alert Fatigue advisors (issue #1) — admin-only and
+	// advisor-entitlement gated.
+	//
+	// Admin-only is not a formality here: a suggestion states what the
+	// whole org ingests and what it costs, which a group-scoped editor
+	// has no business reading. The demand LEDGER that feeds it is
+	// Community and always recording — see handlers_advisor.go.
+	if h.AuthMW != nil {
+		adminAdvisor := func(next http.HandlerFunc) http.HandlerFunc {
+			return h.AuthMW.RequireRole(identity.Role.CanAdmin, h.requireFeature(license.FeatureAdvisor, next))
+		}
+		mux.HandleFunc("GET /api/v1/advisor/suggestions", adminAdvisor(h.listAdvisorSuggestions))
+		mux.HandleFunc("POST /api/v1/advisor/suggestions/{id}/accept",
+			adminAdvisor(h.decideAdvisorSuggestion("accepted")))
+		mux.HandleFunc("POST /api/v1/advisor/suggestions/{id}/dismiss",
+			adminAdvisor(h.decideAdvisorSuggestion("dismissed")))
+		mux.HandleFunc("POST /api/v1/advisor/run", adminAdvisor(h.runAdvisor))
+	}
+
+	// Deep-link engagement: recorded for ANY authenticated reader, not
+	// just admins. It measures whether a notification reached somebody
+	// who looked — gating it by role would make an on-call engineer's
+	// click invisible and the rule look ignored.
+	mux.HandleFunc("POST /api/v1/alert-instances/{id}/opened", h.alertInstanceOpened)
 
 	// SSO/OIDC provider + claim-mapping config — admin-only and sso-entitlement
 	// gated. The login flow itself is the public /api/v1/auth/sso/* block above.

@@ -34,6 +34,13 @@ const (
 	SignalTrace  Signal = "trace"
 	SignalLog    Signal = "log"
 	SignalMetric Signal = "metric"
+	// SignalAlert is engagement with an ALERT rather than with
+	// telemetry: someone followed a notification's deep link back into
+	// the app. The Key is the rule id, which is what the Alert Fatigue
+	// Advisor asks about — "did anyone act on this rule's pages" — and
+	// it is the only demand signal that measures attention rather than
+	// consumption.
+	SignalAlert Signal = "alert"
 )
 
 // ConsumerKind is who consumed it. Beyond provenance this disambiguates

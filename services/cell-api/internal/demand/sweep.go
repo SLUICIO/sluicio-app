@@ -26,6 +26,8 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/alerting"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/dashboards"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/facetmappings"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/integrations"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/messageviews"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/monitoringtemplates"
@@ -57,6 +59,21 @@ type (
 	IntegrationServices interface {
 		IntegrationServices(ctx context.Context, integrationID uuid.UUID) ([]string, error)
 	}
+	// FacetSource lists the org's facet mappings. An attribute that
+	// classifies a service into a facet is consumed by CODE rather than
+	// by any query, so without this sweep the Telemetry Advisor would
+	// see no demand for it and propose deleting the attribute that makes
+	// the service's own detail page work.
+	FacetSource interface {
+		ListAll(ctx context.Context, orgID uuid.UUID) ([]facetmappings.Mapping, error)
+	}
+	// DashboardSource lists the org's dashboards. A pinned integration
+	// is a standing claim on its services' telemetry: somebody looks at
+	// that card every morning, and whether they filtered anything is not
+	// the point.
+	DashboardSource interface {
+		List(ctx context.Context, orgID uuid.UUID, callerID *uuid.UUID) ([]dashboards.Dashboard, error)
+	}
 )
 
 // Sweeper walks org config once a day and records mechanical demand.
@@ -68,6 +85,8 @@ type Sweeper struct {
 	Completions CompletionSource
 	Templates   TemplateSource
 	Views       ViewSource
+	Facets      FacetSource
+	Dashboards  DashboardSource
 	Catalog     IntegrationServices
 	Log         *slog.Logger
 	// Every defaults to 24h. The sweep is idempotent within a day —
@@ -108,6 +127,8 @@ func (s *Sweeper) RunOnce(ctx context.Context) {
 		{"completion rules", s.sweepCompletions},
 		{"templates", s.sweepTemplates},
 		{"message views", s.sweepViews},
+		{"facet mappings", s.sweepFacets},
+		{"dashboards", s.sweepDashboards},
 	} {
 		if err := step.fn(ctx); err != nil {
 			// Tolerated: the other sources still contribute today's rows.
@@ -255,6 +276,68 @@ func (s *Sweeper) sweepViews(ctx context.Context) error {
 			// built-in columns (status, service, traceId…).
 			if f.Field == messageviews.FieldPayload && f.FieldPath != "" {
 				s.Writer.Record(s.OrgID, SignalTrace, "", f.FieldPath, KindView)
+			}
+		}
+	}
+	return nil
+}
+
+// sweepFacets records the attribute keys that drive facet
+// classification. These are the most dangerous keys to lose: nothing
+// QUERIES them, so every other demand source is silent about them,
+// while deleting one would quietly change how a service is classified
+// across the whole product.
+func (s *Sweeper) sweepFacets(ctx context.Context) error {
+	if s.Facets == nil {
+		return nil
+	}
+	mappings, err := s.Facets.ListAll(ctx, s.OrgID)
+	if err != nil {
+		return err
+	}
+	for _, m := range mappings {
+		if m.AttributeKey == "" {
+			continue
+		}
+		s.Writer.Record(s.OrgID, SignalTrace, m.ServiceName, m.AttributeKey, KindFacet)
+	}
+	return nil
+}
+
+// sweepDashboards records whole-signal demand for the services behind
+// every pinned integration.
+//
+// Whole-signal, not per-key: a dashboard card does not name attributes,
+// it says "this integration matters enough to look at daily". That is a
+// claim on the service's traces in general, and the honest way to
+// record it is the same way a human opening the service page is
+// recorded.
+func (s *Sweeper) sweepDashboards(ctx context.Context) error {
+	if s.Dashboards == nil || s.Catalog == nil {
+		return nil
+	}
+	// callerID nil = every dashboard in the org. The ledger records THAT
+	// an integration is pinned, never on whose dashboard.
+	boards, err := s.Dashboards.List(ctx, s.OrgID, nil)
+	if err != nil {
+		return err
+	}
+	seen := map[string]bool{}
+	for _, b := range boards {
+		for _, item := range b.Items {
+			if item.IntegrationID == uuid.Nil {
+				continue
+			}
+			svcs, err := s.Catalog.IntegrationServices(ctx, item.IntegrationID)
+			if err != nil {
+				continue
+			}
+			for _, svc := range svcs {
+				if seen[svc] {
+					continue
+				}
+				seen[svc] = true
+				s.Writer.Record(s.OrgID, SignalTrace, svc, "", KindDashboard)
 			}
 		}
 	}

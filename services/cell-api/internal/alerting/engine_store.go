@@ -103,6 +103,22 @@ func (s *Store) InstanceServiceName(ctx context.Context, orgID, instanceID uuid.
 	return name, nil
 }
 
+// InstanceRuleID returns the rule behind one alert instance, org-scoped.
+//
+// Backs the deep-link engagement signal: a notification links to an
+// INSTANCE, but the Alert Fatigue Advisor reasons about RULES ("does
+// anyone act on this rule's pages"), so the instance has to be resolved
+// before the demand row can be written.
+func (s *Store) InstanceRuleID(ctx context.Context, orgID, instanceID uuid.UUID) (uuid.UUID, error) {
+	var id uuid.UUID
+	err := s.pool.QueryRow(ctx, `
+		SELECT r.id
+		FROM alert_instances i
+		JOIN alert_rules r ON r.id = i.alert_rule_id
+		WHERE i.id = $2 AND r.organization_id = $1`, orgID, instanceID).Scan(&id)
+	return id, err
+}
+
 func (s *Store) AcknowledgeInstance(ctx context.Context, orgID, instanceID uuid.UUID) error {
 	_, err := s.pool.Exec(ctx, `
 		UPDATE alert_instances i
