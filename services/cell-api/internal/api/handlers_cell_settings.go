@@ -83,8 +83,16 @@ type retentionResponse struct {
 }
 
 type retentionEntry struct {
-	Days          int        `json:"days"`
+	Days int `json:"days"`
+	// LastAppliedAt is when somebody last CHOSE this policy —
+	// provenance, not liveness. It deliberately does not move when the
+	// hourly enforcer re-asserts an unchanged TTL.
 	LastAppliedAt *time.Time `json:"last_applied_at,omitempty"`
+	// LastEnforcedAt is when the enforcer last re-asserted the TTL on
+	// ClickHouse. This is the liveness signal: a policy set months ago
+	// is fine, an enforcement that stopped last week is not, and only
+	// two separate fields can tell those apart.
+	LastEnforcedAt *time.Time `json:"last_enforced_at,omitempty"`
 }
 
 // retentionRequest is the PATCH body. Each field is optional —
@@ -128,9 +136,9 @@ func (h *Handlers) getRetention(w http.ResponseWriter, r *http.Request) {
 	}
 	auditMax, auditUnlocked := h.effectiveAuditRetentionMaxDays()
 	httpserver.WriteJSON(w, http.StatusOK, retentionResponse{
-		Traces:            toEntry(pol.Traces.Days, pol.LastAppliedAt[settings.TelemetryTraces]),
-		Logs:              toEntry(pol.Logs.Days, pol.LastAppliedAt[settings.TelemetryLogs]),
-		Metrics:           toEntry(pol.Metrics.Days, pol.LastAppliedAt[settings.TelemetryMetrics]),
+		Traces:            toEntry(pol.Traces.Days, pol.LastAppliedAt[settings.TelemetryTraces], pol.LastEnforcedAt[settings.TelemetryTraces]),
+		Logs:              toEntry(pol.Logs.Days, pol.LastAppliedAt[settings.TelemetryLogs], pol.LastEnforcedAt[settings.TelemetryLogs]),
+		Metrics:           toEntry(pol.Metrics.Days, pol.LastAppliedAt[settings.TelemetryMetrics], pol.LastEnforcedAt[settings.TelemetryMetrics]),
 		MinDays:           settings.RetentionMinDays,
 		MaxDays:           maxDays,
 		LongRetention:     longUnlocked,
@@ -140,10 +148,13 @@ func (h *Handlers) getRetention(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func toEntry(days int, last time.Time) retentionEntry {
+func toEntry(days int, applied, enforced time.Time) retentionEntry {
 	e := retentionEntry{Days: days}
-	if !last.IsZero() {
-		e.LastAppliedAt = &last
+	if !applied.IsZero() {
+		e.LastAppliedAt = &applied
+	}
+	if !enforced.IsZero() {
+		e.LastEnforcedAt = &enforced
 	}
 	return e
 }
@@ -274,9 +285,9 @@ func (h *Handlers) patchRetention(w http.ResponseWriter, r *http.Request) {
 		ApplyWarning string `json:"apply_warning,omitempty"`
 	}{
 		retentionResponse: retentionResponse{
-			Traces:            toEntry(pol.Traces.Days, pol.LastAppliedAt[settings.TelemetryTraces]),
-			Logs:              toEntry(pol.Logs.Days, pol.LastAppliedAt[settings.TelemetryLogs]),
-			Metrics:           toEntry(pol.Metrics.Days, pol.LastAppliedAt[settings.TelemetryMetrics]),
+			Traces:            toEntry(pol.Traces.Days, pol.LastAppliedAt[settings.TelemetryTraces], pol.LastEnforcedAt[settings.TelemetryTraces]),
+			Logs:              toEntry(pol.Logs.Days, pol.LastAppliedAt[settings.TelemetryLogs], pol.LastEnforcedAt[settings.TelemetryLogs]),
+			Metrics:           toEntry(pol.Metrics.Days, pol.LastAppliedAt[settings.TelemetryMetrics], pol.LastEnforcedAt[settings.TelemetryMetrics]),
 			MinDays:           settings.RetentionMinDays,
 			MaxDays:           maxDays,
 			LongRetention:     longUnlocked,

@@ -1952,7 +1952,13 @@ export interface TraceCompletionFiring {
 // coding it on the client.
 export interface RetentionEntry {
   days: number;
+  /** When somebody last CHOSE this policy — provenance, not liveness.
+   *  Does not move when the hourly enforcer re-asserts an unchanged TTL. */
   last_applied_at?: string;
+  /** When the enforcer last re-asserted the TTL on ClickHouse. This is
+   *  the liveness signal: a policy set months ago is fine, enforcement
+   *  that stopped last week is not. */
+  last_enforced_at?: string;
 }
 
 // One Enterprise feature key, mirrored from ee/license.Feature.

@@ -2805,6 +2805,7 @@ function RetentionTab() {
         sublabel="OTLP spans — the parent/child waterfall of each message."
         days={data.traces.days}
         lastApplied={data.traces.last_applied_at}
+        lastEnforced={data.traces.last_enforced_at}
         min={data.min_days}
         max={data.max_days}
         isAdmin={isAdmin}
@@ -2818,6 +2819,7 @@ function RetentionTab() {
         sublabel="OTLP log records — search results, severity-banded volume."
         days={data.logs.days}
         lastApplied={data.logs.last_applied_at}
+        lastEnforced={data.logs.last_enforced_at}
         min={data.min_days}
         max={data.max_days}
         isAdmin={isAdmin}
@@ -2831,6 +2833,7 @@ function RetentionTab() {
         sublabel="OTLP metric points — gauges, counters, histograms."
         days={data.metrics.days}
         lastApplied={data.metrics.last_applied_at}
+        lastEnforced={data.metrics.last_enforced_at}
         min={data.min_days}
         max={data.max_days}
         isAdmin={isAdmin}
@@ -3531,6 +3534,7 @@ function RetentionRow({
   sublabel,
   days,
   lastApplied,
+  lastEnforced,
   min,
   max,
   isAdmin,
@@ -3540,6 +3544,7 @@ function RetentionRow({
   sublabel: string;
   days: number;
   lastApplied?: string;
+  lastEnforced?: string;
   min: number;
   max: number;
   isAdmin: boolean;
@@ -3594,9 +3599,20 @@ function RetentionRow({
       <div style={{ minWidth: 0 }}>
         <div style={{ fontWeight: 600, fontSize: 14 }}>{label}</div>
         <div className="muted" style={{ fontSize: 12 }}>{sublabel}</div>
-        {lastApplied && (
+        {(lastApplied || lastEnforced) && (
           <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
-            Last applied to ClickHouse: {new Date(lastApplied).toLocaleString()}
+            {lastApplied && <>Policy set {new Date(lastApplied).toLocaleString()}</>}
+            {lastApplied && lastEnforced && " · "}
+            {/* The liveness half. "Policy set" alone reads as a stalled
+                job once it is a few weeks old, which is exactly how this
+                was misread — a 3-day retention working perfectly looked
+                broken because nobody had changed the setting since. */}
+            {lastEnforced && (
+              <>
+                TTL re-applied {new Date(lastEnforced).toLocaleString()}
+                <span title="The enforcer re-asserts the TTL on ClickHouse hourly. ClickHouse then drops expired parts during its own merge cycle, so data can outlive the cutoff briefly."> ⓘ</span>
+              </>
+            )}
           </div>
         )}
         {error && <div className="alert alert--error" style={{ marginTop: 8 }}>{error}</div>}

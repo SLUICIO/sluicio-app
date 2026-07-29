@@ -91,11 +91,14 @@ func (e *Enforcer) ApplyOnce(ctx context.Context) error {
 }
 
 // applyAll reads the configured retention for each telemetry type and
-// pushes it into the matching ClickHouse table. When recordApplied is
-// true (the PATCH-handler path), we update cell_settings.
-// last_applied so the UI shows when the user-visible change landed.
-// When false (the periodic-loop path), we don't — the enforcer is a
-// safety net, not a user-facing event.
+// pushes it into the matching ClickHouse table.
+//
+// Two timestamps come out of this, answering different questions:
+// last_ENFORCED is written every time (liveness — did the safety net
+// run), while last_APPLIED is written only when recordApplied is true,
+// i.e. the PATCH-handler path (provenance — when did somebody choose
+// this policy). Collapsing them into one, as this used to, makes a
+// long-stable policy look like a stalled enforcer.
 //
 // Tries all three types even if one fails; returns the first error.
 func (e *Enforcer) applyAll(ctx context.Context, recordApplied bool) error {
@@ -193,11 +196,21 @@ func (e *Enforcer) applyOne(ctx context.Context, t settings.TelemetryType, days 
 	if err := e.ch.Exec(ctx, alter); err != nil {
 		return fmt.Errorf("retention: alter %s TTL: %w", table, err)
 	}
+	now := time.Now().UTC()
+	// Always record the ENFORCEMENT: this ran, whether or not anything
+	// changed. It is the only liveness signal an operator has, and
+	// re-asserting an unchanged TTL is a metadata no-op, so without a
+	// timestamp "running fine, nothing to do" and "stopped a fortnight
+	// ago" are indistinguishable.
+	if err := e.settings.RecordRetentionEnforced(ctx, t, now); err != nil {
+		// Non-fatal: the ClickHouse change succeeded, which is what
+		// actually protects the data. Only the timestamp is lost.
+		e.logger.Warn("retention: record enforced failed", "err", err, "table", table)
+	}
 	if recordApplied {
-		if err := e.settings.RecordRetentionApplied(ctx, t, time.Now().UTC()); err != nil {
-			// Non-fatal — the CH-side change succeeded. The UI's
-			// "last applied at" will lag until the next user-driven
-			// update.
+		// And separately, the POLICY CHANGE — only on the user-driven
+		// path, so this timestamp keeps meaning "somebody chose this".
+		if err := e.settings.RecordRetentionApplied(ctx, t, now); err != nil {
 			e.logger.Warn("retention: record applied failed", "err", err, "table", table)
 		}
 	}

@@ -28,9 +28,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sluicio/sluicio-app/services/cell-api/internal/secretcrypto"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/secretcrypto"
 )
 
 // Store is the Postgres-backed cell_settings reader/writer.
@@ -112,6 +112,17 @@ type RetentionPolicy struct {
 	// means "never applied yet" (fresh install, or applied via raw
 	// ClickHouse before this code shipped).
 	LastAppliedAt map[TelemetryType]time.Time
+	// LastEnforcedAt[type] is the time the periodic enforcer most
+	// recently re-asserted the TTL, whether or not anything changed.
+	//
+	// Deliberately separate from LastAppliedAt, which answers a
+	// different question. "When did somebody choose this policy" and
+	// "is enforcement still running" are both worth knowing and mean
+	// opposite things when they disagree: a policy set months ago with
+	// a recent enforcement is healthy, the reverse is a stalled job.
+	// One field would have to pick a meaning and mislead about the
+	// other — which it did, and was read as a stalled enforcer.
+	LastEnforcedAt map[TelemetryType]time.Time
 }
 
 // GetRetention loads the full policy. If a row is missing the
@@ -119,10 +130,11 @@ type RetentionPolicy struct {
 // to the 14-day default so an out-of-sync deployment still works.
 func (s *Store) GetRetention(ctx context.Context) (RetentionPolicy, error) {
 	out := RetentionPolicy{
-		Traces:        RetentionSetting{Days: 14},
-		Logs:          RetentionSetting{Days: 14},
-		Metrics:       RetentionSetting{Days: 14},
-		LastAppliedAt: map[TelemetryType]time.Time{},
+		Traces:         RetentionSetting{Days: 14},
+		Logs:           RetentionSetting{Days: 14},
+		Metrics:        RetentionSetting{Days: 14},
+		LastAppliedAt:  map[TelemetryType]time.Time{},
+		LastEnforcedAt: map[TelemetryType]time.Time{},
 	}
 	// One round-trip: pull all four keys we care about.
 	const q = `
@@ -132,7 +144,8 @@ func (s *Store) GetRetention(ctx context.Context) (RetentionPolicy, error) {
 			'telemetry.retention.traces',
 			'telemetry.retention.logs',
 			'telemetry.retention.metrics',
-			'telemetry.retention.last_applied'
+			'telemetry.retention.last_applied',
+			'telemetry.retention.last_enforced'
 		)`
 	rows, err := s.pool.Query(ctx, q)
 	if err != nil {
@@ -152,6 +165,13 @@ func (s *Store) GetRetention(ctx context.Context) (RetentionPolicy, error) {
 			_ = json.Unmarshal(raw, &out.Logs)
 		case "telemetry.retention.metrics":
 			_ = json.Unmarshal(raw, &out.Metrics)
+		case "telemetry.retention.last_enforced":
+			var m map[string]time.Time
+			if err := json.Unmarshal(raw, &m); err == nil {
+				for k, v := range m {
+					out.LastEnforcedAt[TelemetryType(k)] = v
+				}
+			}
 		case "telemetry.retention.last_applied":
 			// The shape here is map[string]time.Time but the keys are
 			// strings, not TelemetryType. Decode permissively.
@@ -212,6 +232,33 @@ func (s *Store) RecordRetentionApplied(ctx context.Context, kind TelemetryType, 
 		    updated_at = now()`
 	if _, err := s.pool.Exec(ctx, q, string(kind), at); err != nil {
 		return fmt.Errorf("settings: record retention applied: %w", err)
+	}
+	return nil
+}
+
+// RecordRetentionEnforced is the periodic loop's write-back: the TTL
+// was re-asserted on ClickHouse, whether or not it changed.
+//
+// This is a liveness signal, and the only one an operator has. The
+// enforcer re-applies an unchanged TTL as a no-op, so without a
+// timestamp there is no way to distinguish "running fine, nothing to
+// do" from "stopped a fortnight ago" — and the two look identical
+// right up until retention silently stops happening.
+func (s *Store) RecordRetentionEnforced(ctx context.Context, kind TelemetryType, at time.Time) error {
+	if !validKind(kind) {
+		return fmt.Errorf("settings: invalid telemetry type %q", kind)
+	}
+	const q = `
+		INSERT INTO cell_settings (key, value, updated_at)
+		VALUES ('telemetry.retention.last_enforced',
+		        jsonb_build_object($1::text, to_jsonb($2::timestamptz)),
+		        now())
+		ON CONFLICT (key) DO UPDATE
+		SET value = COALESCE(cell_settings.value, '{}'::jsonb)
+		            || jsonb_build_object($1::text, to_jsonb($2::timestamptz)),
+		    updated_at = now()`
+	if _, err := s.pool.Exec(ctx, q, string(kind), at); err != nil {
+		return fmt.Errorf("settings: record retention enforced: %w", err)
 	}
 	return nil
 }
