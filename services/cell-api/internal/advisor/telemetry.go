@@ -107,6 +107,13 @@ type TelemetryInput struct {
 // EvaluateTelemetry runs T1–T6 and returns the findings, most valuable
 // first is left to the caller (weight carries the ranking).
 func EvaluateTelemetry(ctx context.Context, in TelemetryInput) ([]Suggestion, error) {
+	// The absence of demand is only evidence if we were watching for the
+	// whole window. See DemandSet.Mature — without this a cell whose
+	// ledger is younger than the window would be told to delete the
+	// telemetry it uses most.
+	if !in.Demand.Mature(in.From) {
+		return nil, nil
+	}
 	var out []Suggestion
 
 	metrics, err := MetricsSupply(ctx, in.Conn, in.OrgID, in.From, in.To)

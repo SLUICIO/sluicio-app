@@ -2615,4 +2615,8 @@ export interface AdvisorSuggestionsResponse {
   /** The observation window the findings were measured over. A number
    *  without its period is not evidence. */
   window_days: number;
+  /** How much demand history exists. "Nothing to suggest" and "we have
+   *  not been watching long enough to say" look identical on screen and
+   *  mean opposite things — this tells them apart. */
+  ledger: { ready: boolean; days: number; needs_days: number };
 }

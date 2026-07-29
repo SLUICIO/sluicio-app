@@ -57,11 +57,22 @@ func (h *Handlers) listAdvisorSuggestions(w http.ResponseWriter, r *http.Request
 		httpserver.WriteError(w, http.StatusInternalServerError, "listing suggestions failed")
 		return
 	}
+	// An empty advisor has two very different causes — "everything is
+	// used" and "we have not been watching long enough to say" — and
+	// they look identical on screen. Saying which is the difference
+	// between a feature that looks broken and one that is honest about
+	// needing time.
+	ledger := advisor.LedgerStatus{Ready: true}
+	if h.AdvisorEngine != nil {
+		ledger = h.AdvisorEngine.Ledger(r.Context(), middleware.OrgID(r))
+	}
 	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
 		"suggestions": items,
-		// The window is echoed so a reader knows what "unused" measured
-		// over. A number without its period is not evidence.
-		"window_days": int(advisor.ObservationWindow.Hours() / 24),
+		// The EFFECTIVE window is echoed, not the constant — a cell
+		// running a shortened window for testing must say so, or its
+		// findings read as if they came from a month of observation.
+		"window_days": ledger.NeedsDays,
+		"ledger":      ledger,
 	})
 }
 

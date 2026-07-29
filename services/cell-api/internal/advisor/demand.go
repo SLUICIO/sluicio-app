@@ -34,6 +34,10 @@ import (
 
 // DemandSet is one org's consumption over the observation window.
 type DemandSet struct {
+	// Earliest is the oldest day the ledger holds for this org, zero if
+	// it holds nothing. It decides whether the ledger is old enough to
+	// be believed — see Mature.
+	Earliest time.Time
 	// human[signal|service|key] — someone looked.
 	human map[string]time.Time
 	// mechanical[signal|service|key] — config references it.
@@ -74,8 +78,30 @@ func LoadDemand(ctx context.Context, conn driver.Conn, orgID uuid.UUID, since ti
 		if day.After(target[k]) {
 			target[k] = day
 		}
+		if d.Earliest.IsZero() || day.Before(d.Earliest) {
+			d.Earliest = day
+		}
 	}
 	return d, rows.Err()
+}
+
+// Mature reports whether the ledger has been recording since `from` —
+// i.e. long enough to cover the whole observation window.
+//
+// This is the difference between an advisor that is trustworthy on its
+// first day and one that is systematically wrong for a month. The
+// ABSENCE of demand is only evidence if we were watching: on a cell
+// where the ledger started last Tuesday, a metric somebody charted
+// three weeks ago has no recorded demand, and every evaluator would
+// read that as "nobody uses this" and propose deleting it.
+//
+// Mechanical demand is exempt from the problem — the sweep re-records
+// config every day, so it is current regardless of history — but every
+// class that turns on "nobody LOOKED" is unsafe until the ledger spans
+// the window. So the advisors stay silent and say why, rather than
+// spending their credibility on a month of confident false positives.
+func (d *DemandSet) Mature(from time.Time) bool {
+	return !d.Earliest.IsZero() && !d.Earliest.After(from)
 }
 
 // ConsumedSince reports whether anything consumed this key at or after

@@ -44,6 +44,11 @@ export default function AdvisorPanel() {
   const [tab, setTab] = useState<Tab>("telemetry");
   const [items, setItems] = useState<AdvisorSuggestion[]>([]);
   const [windowDays, setWindowDays] = useState(30);
+  const [ledger, setLedger] = useState<{ ready: boolean; days: number; needs_days: number }>({
+    ready: true,
+    days: 0,
+    needs_days: 30,
+  });
   const [loading, setLoading] = useState(true);
   const [entitled, setEntitled] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -57,6 +62,7 @@ export default function AdvisorPanel() {
       const res = await api.listAdvisorSuggestions(tab);
       setItems(res.suggestions ?? []);
       setWindowDays(res.window_days ?? 30);
+      if (res.ledger) setLedger(res.ledger);
       setEntitled(true);
     } catch (e) {
       // 402 is the entitlement gate, not a failure — show what the
@@ -149,11 +155,29 @@ export default function AdvisorPanel() {
       {error && <div className="alert alert--error" style={{ marginBottom: 12 }}>{error}</div>}
       {loading && <p className="muted">Loading…</p>}
 
-      {!loading && items.length === 0 && (
+      {!loading && !ledger.ready && (
+        <div className="card" style={{ padding: 20 }}>
+          <h4 style={{ marginTop: 0 }}>Still watching</h4>
+          <p className="muted" style={{ fontSize: 13, marginBottom: 8 }}>
+            The advisor has {ledger.days} {ledger.days === 1 ? "day" : "days"} of consumption history and
+            needs {ledger.needs_days}. It will start advising in about{" "}
+            {Math.max(ledger.needs_days - ledger.days, 1)} days.
+          </p>
+          <p className="muted" style={{ fontSize: 13, margin: 0 }}>
+            This wait is deliberate. "Nobody used this" is only true if we were watching the whole time —
+            judging {ledger.needs_days} days of telemetry against {ledger.days} would call anything you
+            charted last month unused, and recommend deleting it. Config you already have (alert rules,
+            facet mappings, dashboards) is protected from day one; it is people's queries that need the
+            history.
+          </p>
+        </div>
+      )}
+
+      {!loading && ledger.ready && items.length === 0 && (
         <div className="card" style={{ padding: 20 }}>
           <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-            Nothing to suggest. Either everything this cell collects is being used, or there is not yet{" "}
-            {windowDays} days of history to judge it over.
+            Nothing to suggest — everything this cell collects has a consumer, and no alert rule is
+            firing unattended.
           </p>
         </div>
       )}

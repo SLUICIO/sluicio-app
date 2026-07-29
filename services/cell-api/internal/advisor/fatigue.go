@@ -127,6 +127,14 @@ func LoadRuleStats(ctx context.Context, in FatigueInput) ([]RuleStats, error) {
 
 // EvaluateFatigue runs F1–F5.
 func EvaluateFatigue(ctx context.Context, in FatigueInput) ([]Suggestion, error) {
+	// F1 turns on "nobody engaged", and engagement includes following a
+	// notification's deep link — which is only recorded from the day the
+	// ledger started. Judging a rule people click through daily as
+	// ignored, because we were not yet counting, is exactly the mistake
+	// that makes an operator distrust the whole advisor.
+	if !in.Demand.Mature(in.From) {
+		return nil, nil
+	}
 	stats, err := LoadRuleStats(ctx, in)
 	if err != nil {
 		return nil, fmt.Errorf("advisor: rule stats: %w", err)

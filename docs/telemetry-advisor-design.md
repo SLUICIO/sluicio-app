@@ -248,3 +248,37 @@ dev/demo cells can seed sooner with a shortened window for screenshots.
 6. **F1 threshold aggressiveness**: **evidence only, no suggested
    number** — see §4 for the reasoning, including why a percentile is
    the wrong statistic for anything counted per integration message.
+
+---
+
+## 9. Implementation notes (2026-07-29)
+
+Two things the design did not anticipate, both found while building.
+
+**The ledger must be as old as the window before anything is judged.**
+The absence of demand is only evidence if we were watching. On a cell
+whose ledger started last week, a metric somebody charted three weeks
+ago has no recorded demand, and every evaluator reads that as "nobody
+uses this". The advisors therefore return nothing until the ledger spans
+the observation window, and the UI says so — an empty advisor and one
+that has not been watching long enough look identical on screen and mean
+opposite things. Mechanical demand is exempt: the sweep re-records
+config daily, so alert rules, facet mappings and dashboards protect
+their telemetry from day one. It is people's queries that need history.
+
+`ADVISOR_WINDOW_DAYS` shortens the window for testing and demos. It is a
+cell env var rather than an org setting on purpose: a shorter window
+makes the advisor readier to call something unused, and a customer
+should not be able to make their own advisor jumpier without realising
+that is what they did. The effective window is echoed in every API
+response so findings from a shortened window cannot be mistaken for a
+month's observation.
+
+**Facet mappings had to become a demand source before T3 could ship.**
+An attribute that classifies a service into a facet is consumed by code,
+not by any query, so every other demand source is silent about it — and
+T3 would have proposed deleting the attribute that makes the service's
+own detail page work. Dashboards were added for the same reason at
+whole-signal grain: a pinned integration is a standing claim on its
+services, and whether anyone filtered an attribute on it is not the
+point.

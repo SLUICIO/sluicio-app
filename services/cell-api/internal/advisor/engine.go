@@ -69,8 +69,26 @@ type Engine struct {
 	IntegrationServices func(ctx context.Context, orgID uuid.UUID) (map[string]bool, error)
 	// Every defaults to 24h.
 	Every time.Duration
+	// Window overrides the observation window. Zero means the shipped
+	// 30 days.
+	//
+	// It exists so the feature can be exercised before a cell has a
+	// month of history — testing, demos, screenshots. Shortening it
+	// makes the advisor MORE likely to call something unused, so it is
+	// an env knob on the cell rather than an org setting: a customer
+	// should never be able to make their own advisor jumpier without
+	// realising that is what they did.
+	Window time.Duration
 	// Now is swappable for tests.
 	Now func() time.Time
+}
+
+// window is the effective observation window.
+func (e *Engine) window() time.Duration {
+	if e.Window > 0 {
+		return e.Window
+	}
+	return ObservationWindow
 }
 
 func (e *Engine) now() time.Time {
@@ -124,6 +142,32 @@ func (e *Engine) RunAll(ctx context.Context) {
 	}
 }
 
+// LedgerStatus reports how much demand history an org has, and whether
+// it is yet enough to advise from.
+type LedgerStatus struct {
+	Ready     bool `json:"ready"`
+	Days      int  `json:"days"`
+	NeedsDays int  `json:"needs_days"`
+}
+
+// Ledger reports the org's demand-history status. The UI needs this to
+// explain an empty advisor: "nothing to suggest" and "not watching long
+// enough to say" look identical on screen and mean opposite things.
+func (e *Engine) Ledger(ctx context.Context, orgID uuid.UUID) LedgerStatus {
+	now := e.now()
+	window := int(e.window().Hours() / 24)
+	dem, err := LoadDemand(ctx, e.CH, orgID, now.Add(-evidenceHorizon))
+	if err != nil || dem.Earliest.IsZero() {
+		return LedgerStatus{Ready: false, Days: 0, NeedsDays: window}
+	}
+	days := int(now.Sub(dem.Earliest).Hours() / 24)
+	return LedgerStatus{
+		Ready:     dem.Mature(now.Add(-e.window())),
+		Days:      days,
+		NeedsDays: window,
+	}
+}
+
 // Result reports what a run produced, for the manual-trigger response.
 type Result struct {
 	Telemetry int `json:"telemetry_findings"`
@@ -135,7 +179,7 @@ type Result struct {
 // RunOrg evaluates one org and reconciles the result.
 func (e *Engine) RunOrg(ctx context.Context, orgID uuid.UUID) error {
 	now := e.now()
-	from := now.Add(-ObservationWindow)
+	from := now.Add(-e.window())
 
 	dem, err := LoadDemand(ctx, e.CH, orgID, now.Add(-evidenceHorizon))
 	if err != nil {

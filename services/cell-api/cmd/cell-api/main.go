@@ -585,6 +585,16 @@ func main() {
 			return out, nil
 		},
 	}
+	// ADVISOR_WINDOW_DAYS shortens the observation window for testing and
+	// demos, where waiting a month to see the feature is not an option.
+	// Logged loudly when set: a short window makes the advisor readier to
+	// call something unused, and nobody should discover that from a
+	// surprising suggestion.
+	if d := env.Int("ADVISOR_WINDOW_DAYS", 0); d > 0 {
+		advisorEngine.Window = time.Duration(d) * 24 * time.Hour
+		logger.Warn("advisor observation window shortened — findings are less conservative than the shipped default",
+			"days", d, "default_days", int(advisor.ObservationWindow.Hours()/24))
+	}
 	handlers.AdvisorEngine = advisorEngine
 	go advisorEngine.Run(bgCtx)
 	logger.Info("advisor started")
