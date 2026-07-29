@@ -7,6 +7,14 @@
 //	go run ./services/cell-ingest/cmd/seed-traces
 //	go run ./services/cell-ingest/cmd/seed-traces -continuous
 //
+// Config (env; flags override):
+//
+//	SLUICIO_INGEST_URL   OTLP base, e.g. http://localhost:4319 (default
+//	                     http://localhost:4318 — the dev cell). SET THIS
+//	                     when a second cell is running, or the seed lands
+//	                     in the wrong one without saying so.
+//	SLUICIO_INGEST_KEY   org ingest key, when the cell requires one.
+//
 // The synthetic data models a small integration estate (an order API,
 // a payment service, a fulfillment worker, and a partner EDI feed)
 // with a realistic mix of successful and failed spans. Each batch also
@@ -121,10 +129,42 @@ var demoServices = []serviceSpec{
 	},
 }
 
+// defaultIngestBase is where a bare `go run` sends telemetry: the
+// developer's own cell. That default is convenient and, for anyone
+// running a SECOND cell (a throwaway stack, a container under test),
+// the easiest mistake in this repo to make — the seeder silently fills
+// the wrong cell, and nothing about the output says so.
+const defaultIngestBase = "http://localhost:4318"
+
+// ingestBase resolves the OTLP base URL the three signal endpoints are
+// derived from, given the raw SLUICIO_INGEST_URL value ("" when unset).
+//
+// It accepts a full signal URL as well as a base, because every OTLP
+// document in the world shows `http://host:4318/v1/traces` and that is
+// what people paste. Taking it literally would derive
+// `…/v1/traces/v1/logs` for logs, so the signal path is trimmed back
+// off rather than the caller being told they held it wrong.
+func ingestBase(raw string) string {
+	v := strings.TrimRight(strings.TrimSpace(raw), "/")
+	if v == "" {
+		return defaultIngestBase
+	}
+	for _, sig := range []string{"/v1/traces", "/v1/logs", "/v1/metrics"} {
+		if strings.HasSuffix(v, sig) {
+			return strings.TrimSuffix(v, sig)
+		}
+	}
+	return v
+}
+
 func main() {
-	endpoint := flag.String("endpoint", "http://localhost:4318/v1/traces", "cell-ingest OTLP traces endpoint")
-	logsEndpoint := flag.String("logs-endpoint", "http://localhost:4318/v1/logs", "cell-ingest OTLP logs endpoint")
-	metricsEndpoint := flag.String("metrics-endpoint", "http://localhost:4318/v1/metrics", "cell-ingest OTLP metrics endpoint")
+	// Flag beats env beats default: the env var sets the flag's DEFAULT,
+	// so an explicit -endpoint still wins and scripts that already pass
+	// flags are unaffected.
+	base := ingestBase(os.Getenv("SLUICIO_INGEST_URL"))
+	endpoint := flag.String("endpoint", base+"/v1/traces", "cell-ingest OTLP traces endpoint (default from SLUICIO_INGEST_URL)")
+	logsEndpoint := flag.String("logs-endpoint", base+"/v1/logs", "cell-ingest OTLP logs endpoint (default from SLUICIO_INGEST_URL)")
+	metricsEndpoint := flag.String("metrics-endpoint", base+"/v1/metrics", "cell-ingest OTLP metrics endpoint (default from SLUICIO_INGEST_URL)")
 	batchSize := flag.Int("batch", 50, "spans per request")
 	continuous := flag.Bool("continuous", false, "keep emitting until interrupted")
 	interval := flag.Duration("interval", 5*time.Second, "wait between batches in continuous mode")
