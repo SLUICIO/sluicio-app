@@ -214,6 +214,7 @@ test.describe("MCP — declared output schemas match the cell", () => {
 
     try {
       const problems: string[] = [];
+      const gated: string[] = [];
       let checked = 0;
       for (const tool of tools) {
         expect(tool.outputSchema, `${tool.name} declares no outputSchema`).toBeTruthy();
@@ -223,6 +224,19 @@ test.describe("MCP — declared output schemas match the cell", () => {
         if (tool.annotations.readOnlyHint !== true) continue;
 
         const result = await callTool(request, token, tool.name, args[tool.name] ?? { window: "24h" });
+
+        // A tool behind an Enterprise entitlement returns 402 on a cell
+        // without the licence. That is the gate working, not a schema
+        // problem — this test's claim is "if a tool returns a payload,
+        // the payload matches its declared schema", and a 402 is not a
+        // payload. Matched on the machine-readable marker rather than
+        // the status text, and ONLY that marker: every other error still
+        // fails, and the `checked` floor below stops the whole test
+        // decaying into skips if gating ever spread.
+        if (result.isError && String(result.content?.[0]?.text ?? "").includes('"enterprise_feature"')) {
+          gated.push(tool.name);
+          continue;
+        }
         expect(result.isError, `${tool.name}: ${result.content?.[0]?.text}`).toBeFalsy();
         expect(
           result.structuredContent,
@@ -234,6 +248,11 @@ test.describe("MCP — declared output schemas match the cell", () => {
 
         validate(tool.name, tool.outputSchema, result.structuredContent, problems);
         checked++;
+      }
+      if (gated.length > 0) {
+        // Say what was not covered. A silently reduced scope reads as
+        // "everything passed" when it was not everything.
+        console.log(`  (entitlement-gated on this cell, not schema-checked: ${gated.join(", ")})`);
       }
       expect(checked, "no read-only tool was actually called").toBeGreaterThan(10);
       expect(problems, `declared output schemas no longer describe what cell-api returns:\n${problems.join("\n")}`)
