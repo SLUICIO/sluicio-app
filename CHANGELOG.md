@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.48 — 2026-07-29
+
+- build: move to Node 24 LTS, and state the floor instead of implying it (8a4a0bc)
+
 ## v0.11.47 — 2026-07-28
 
+- release v0.11.47 — refresh internal changelog (51e4610)
 - api: shed a looping caller before it floods ClickHouse (issue #8, WS5) (7e8b425)
 
 ## v0.11.46 — 2026-07-28
