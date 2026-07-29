@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.49 — 2026-07-29
+
+- mcp: say what each tool returns, and answer the transport spec properly (issue #8, WS1) (4193151)
+
 ## v0.11.48 — 2026-07-29
 
+- release v0.11.48 — refresh internal changelog (67c7044)
 - build: move to Node 24 LTS, and state the floor instead of implying it (8a4a0bc)
 
 ## v0.11.47 — 2026-07-28
