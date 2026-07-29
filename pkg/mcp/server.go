@@ -583,6 +583,21 @@ func buildTools(s *Server) []tool {
 				return s.get("/api/v1/traces/"+url.PathEscape(id), nil)
 			}},
 
+		{Name: "sluicio_advisor_suggestions", Output: advisorOut, Description: "What this cell collects that nothing consumes, and which alert rules nobody acts on. Returns the Telemetry Advisor's findings (unused metrics, unread log streams, dead-weight span attributes, echoed request headers, possible personal data) and the Alert Fatigue Advisor's (rules that fire unattended, fire continuously, flap, or reach no channel) — each with the counted evidence behind it, what would be LOST by acting, and a ready-to-paste OpenTelemetry Collector config where one applies. Quote the loss statement alongside the saving; a suggestion presented as pure upside is how somebody drops something load-bearing. Filter by advisor (telemetry|alerting). Requires an admin token and an Enterprise licence with the advisor entitlement; others get a permission error. Nothing here changes anything — a human accepts or dismisses each finding in the UI.", Schema: objSchema(map[string]any{
+			"advisor": strProp("Limit to one advisor: telemetry or alerting. Omit for both."),
+			"state":   strProp("Filter by state: open (default view), accepted, verified or dismissed."),
+		}),
+			Call: func(a map[string]any) (string, error) {
+				q := url.Values{}
+				if v := argStr(a, "advisor"); v != "" {
+					q.Set("advisor", v)
+				}
+				if v := argStr(a, "state"); v != "" {
+					q.Set("state", v)
+				}
+				return s.get("/api/v1/advisor/suggestions", q)
+			}},
+
 		// The one tool that writes. It does not change monitoring config:
 		// it files a proposal a human must approve, which is why it can
 		// exist at all in a catalogue that is otherwise read-only.

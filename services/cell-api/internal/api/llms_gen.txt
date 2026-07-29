@@ -21,6 +21,12 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 - POST /api/v1/account/mfa/enable — Create account
 - POST /api/v1/account/mfa/disable — Create account
 
+## advisor
+- GET /api/v1/advisor/suggestions — List advisor
+- POST /api/v1/advisor/suggestions/{id}/accept — Create advisor
+- POST /api/v1/advisor/suggestions/{id}/dismiss — Create advisor
+- POST /api/v1/advisor/run — Create advisor
+
 ## alert-deliveries
 - GET /api/v1/alert-deliveries — List alert-deliveries
 
@@ -28,6 +34,7 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 - GET /api/v1/alert-instances — List alert-instances
 - POST /api/v1/alert-instances/{id}/acknowledge — Create alert-instance
 - POST /api/v1/alert-instances/{id}/resolve — Create alert-instance
+- POST /api/v1/alert-instances/{id}/opened — Create alert-instance
 
 ## alert-rules
 - GET /api/v1/alert-rules — List alert-rules

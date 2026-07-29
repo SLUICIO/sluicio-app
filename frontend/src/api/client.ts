@@ -4,6 +4,8 @@
 // use relative paths from the browser.
 
 import type {
+  AdvisorSuggestion,
+  AdvisorSuggestionsResponse,
   Announcement,
   ConfigImportReport,
   AnnouncementInput,
@@ -213,6 +215,27 @@ const patch = <T,>(p: string, body: unknown) =>
 const del = (p: string) => request<void>(p, { method: "DELETE" });
 
 export const api = {
+  // --- Advisor (issue #1). Admin-only + EE-gated server-side; the UI
+  // renders the 402 upsell rather than hiding the tab, so an evaluator
+  // can see what the feature is.
+  listAdvisorSuggestions: (advisor?: "telemetry" | "alerting", state?: string) => {
+    const q = new URLSearchParams();
+    if (advisor) q.set("advisor", advisor);
+    if (state) q.set("state", state);
+    const qs = q.toString();
+    return get<AdvisorSuggestionsResponse>(`/advisor/suggestions${qs ? `?${qs}` : ""}`);
+  },
+  acceptAdvisorSuggestion: (id: string, note = "") =>
+    post<AdvisorSuggestion>(`/advisor/suggestions/${encodeURIComponent(id)}/accept`, { note }),
+  dismissAdvisorSuggestion: (id: string, note = "") =>
+    post<AdvisorSuggestion>(`/advisor/suggestions/${encodeURIComponent(id)}/dismiss`, { note }),
+  runAdvisor: () => post<{ open_suggestions: number }>(`/advisor/run`, {}),
+  // Records that somebody followed a notification's deep link. Fire and
+  // forget: this is a measurement, and a failed measurement must never
+  // interrupt the page the operator came to read.
+  markAlertInstanceOpened: (id: string) =>
+    post<void>(`/alert-instances/${encodeURIComponent(id)}/opened`, {}).catch(() => undefined),
+
   listServices: (window: string = "1h") =>
     get<ServicesResponse>(`/services?range=${encodeURIComponent(window)}`),
 

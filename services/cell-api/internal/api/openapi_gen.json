@@ -203,6 +203,94 @@
         ]
       }
     },
+    "/api/v1/advisor/run": {
+      "post": {
+        "operationId": "post_api_v1_advisor_run",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Create advisor",
+        "tags": [
+          "advisor"
+        ]
+      }
+    },
+    "/api/v1/advisor/suggestions": {
+      "get": {
+        "operationId": "get_api_v1_advisor_suggestions",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "List advisor",
+        "tags": [
+          "advisor"
+        ]
+      }
+    },
+    "/api/v1/advisor/suggestions/{id}/accept": {
+      "post": {
+        "operationId": "post_api_v1_advisor_suggestions_id_accept",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Create advisor",
+        "tags": [
+          "advisor"
+        ]
+      }
+    },
+    "/api/v1/advisor/suggestions/{id}/dismiss": {
+      "post": {
+        "operationId": "post_api_v1_advisor_suggestions_id_dismiss",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Create advisor",
+        "tags": [
+          "advisor"
+        ]
+      }
+    },
     "/api/v1/alert-deliveries": {
       "get": {
         "operationId": "get_api_v1_alert_deliveries",
@@ -240,6 +328,33 @@
     "/api/v1/alert-instances/{id}/acknowledge": {
       "post": {
         "operationId": "post_api_v1_alert_instances_id_acknowledge",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Create alert-instance",
+        "tags": [
+          "alert-instances"
+        ]
+      }
+    },
+    "/api/v1/alert-instances/{id}/opened": {
+      "post": {
+        "operationId": "post_api_v1_alert_instances_id_opened",
         "parameters": [
           {
             "in": "path",
@@ -6888,6 +7003,9 @@
     },
     {
       "name": "account"
+    },
+    {
+      "name": "advisor"
     },
     {
       "name": "alert-deliveries"

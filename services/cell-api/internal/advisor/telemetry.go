@@ -408,19 +408,28 @@ func evalPIIAttributes(ctx context.Context, in TelemetryInput, attrs []SpanAttrS
 			Snippet: snippetRedactAttr(a.Service, a.Key),
 			// Compliance findings rank above cost ones: a big number
 			// should not push a personal-data finding down the page.
-			Weight: int64(a.EstBytesPerDay) + 1<<40,
-			Evidence: map[string]any{
-				"pattern": kind,
-				// Deliberately a proportion, never an example value —
-				// the finding must not copy the data into the table
-				// that reports it.
-				"sampled_values_matching": fmt.Sprintf("%d of %d", hits, len(values)),
-				"present_on_spans":        a.SpansWithKey,
-				"compliance":              true,
-			},
+			Weight:   int64(a.EstBytesPerDay) + 1<<40,
+			Evidence: piiEvidence(kind, hits, len(values), a.SpansWithKey),
 		})
 	}
 	return out
+}
+
+// piiEvidence builds the evidence block for a compliance finding.
+//
+// Its whole job is to describe personal data WITHOUT carrying any: a
+// finding that copies a sampled email address into the suggestions
+// table has created a second copy of the problem it is reporting, in a
+// table with none of the retention controls of the first. So the
+// evidence is a proportion and a count, and the sampled values never
+// leave the process that read them.
+func piiEvidence(kind string, hits, sampled int, spans uint64) map[string]any {
+	return map[string]any{
+		"pattern":                 kind,
+		"sampled_values_matching": fmt.Sprintf("%d of %d", hits, sampled),
+		"present_on_spans":        spans,
+		"compliance":              true,
+	}
 }
 
 func classifyPII(values []string) (string, int) {

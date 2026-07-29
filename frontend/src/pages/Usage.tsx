@@ -10,8 +10,10 @@
 // Read-only and org-admin only (route + API both gated).
 
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import type { Integration, IntegrationUsage, UsageVolumeResponse } from "../api/types";
+import AdvisorPanel from "../components/AdvisorPanel";
 import TimeWindowPicker from "../components/TimeWindowPicker";
 import { SortableTh } from "../components/primitives";
 import { formatBytes, formatNumber } from "../lib/format";
@@ -37,6 +39,17 @@ const UNASSIGNED = "(unassigned)";
 
 export default function Usage() {
   usePageTitle("Usage");
+  // Two tabs on one page (design §8.4): what this cell stores, and what
+  // of it anybody uses. The second question only makes sense next to the
+  // first, which is why the advisor is not its own nav entry.
+  const [params, setParams] = useSearchParams();
+  const tab = params.get("tab") === "advisor" ? "advisor" : "storage";
+  const setTab = (t: "storage" | "advisor") => {
+    const next = new URLSearchParams(params);
+    if (t === "storage") next.delete("tab");
+    else next.set("tab", t);
+    setParams(next, { replace: true });
+  };
   const [windowVal] = useTimeWindow();
   const [data, setData] = useState<UsageVolumeResponse | null>(null);
   const [integrations, setIntegrations] = useState<Integration[]>([]);
@@ -194,13 +207,37 @@ export default function Usage() {
           </p>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          {windowed && <TimeWindowPicker />}
-          <button className="btn" onClick={() => setReloadKey((k) => k + 1)} disabled={loading}>
-            {loading ? "Loading…" : "Refresh"}
-          </button>
+          {tab === "storage" && windowed && <TimeWindowPicker />}
+          {tab === "storage" && (
+            <button className="btn" onClick={() => setReloadKey((k) => k + 1)} disabled={loading}>
+              {loading ? "Loading…" : "Refresh"}
+            </button>
+          )}
         </div>
       </div>
 
+      <div className="level-seg" role="tablist" aria-label="Usage view" style={{ marginBottom: 16 }}>
+        <button
+          role="tab"
+          aria-selected={tab === "storage"}
+          className={`level-seg__btn${tab === "storage" ? " is-active" : ""}`}
+          onClick={() => setTab("storage")}
+        >
+          Storage
+        </button>
+        <button
+          role="tab"
+          aria-selected={tab === "advisor"}
+          className={`level-seg__btn${tab === "advisor" ? " is-active" : ""}`}
+          onClick={() => setTab("advisor")}
+        >
+          Advisor
+        </button>
+      </div>
+
+      {tab === "advisor" && <AdvisorPanel />}
+      {tab === "storage" && (
+      <>
       <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 13, marginBottom: 16, cursor: "pointer" }}>
         <input type="checkbox" checked={windowed} onChange={(e) => setWindowed(e.target.checked)} />
         Limit to selected time window
@@ -326,6 +363,8 @@ export default function Usage() {
         “Series” is distinct metric + label-set combinations (Grafana “active series”). Per-row size is estimated from
         each table's real on-disk size; the cards show the exact stored size.
       </p>
+      </>
+      )}
     </div>
   );
 }

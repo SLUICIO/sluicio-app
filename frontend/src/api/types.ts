@@ -2580,3 +2580,39 @@ export interface ProposalDetail {
   drifted_fields?: string[];
   target_missing?: boolean;
 }
+
+// --- Advisor (issue #1) -------------------------------------------------
+
+// One finding the advisor stands behind. Recomputed nightly from counted
+// facts; `state` is the only part a human writes.
+export interface AdvisorSuggestion {
+  id: string;
+  fingerprint: string;
+  /** T1…T6 (telemetry) or F1…F5 (alerting). */
+  class: string;
+  advisor: "telemetry" | "alerting";
+  scope_kind?: string;
+  scope_id?: string;
+  title: string;
+  /** What you give up by acting — rendered next to what you save. */
+  loss?: string;
+  /** Ready-to-paste collector config. Empty for alerting findings, where
+   *  the change is inside Sluicio rather than in a collector. */
+  snippet?: string;
+  evidence: Record<string, unknown>;
+  /** Ranking key: est. bytes/day (telemetry) or firings (alerting). */
+  weight: number;
+  state: "open" | "accepted" | "verified" | "dismissed";
+  decided_by?: string;
+  decided_at?: string;
+  decision_note?: string;
+  first_seen_at: string;
+  last_seen_at: string;
+}
+
+export interface AdvisorSuggestionsResponse {
+  suggestions: AdvisorSuggestion[];
+  /** The observation window the findings were measured over. A number
+   *  without its period is not evidence. */
+  window_days: number;
+}

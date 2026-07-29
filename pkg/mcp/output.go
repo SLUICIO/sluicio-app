@@ -433,6 +433,24 @@ var (
 		}),
 	}, "trace_id", "spans")
 
+	advisorOut = outSchema(map[string]any{
+		"suggestions": arrOf("Findings the advisor currently stands behind, most valuable first.", map[string]any{
+			"id":            strOut("Suggestion id (uuid) — needed to accept or dismiss it in the UI."),
+			"class":         strOut("Which evaluator produced it: T1-T6 (telemetry) or F1-F5 (alerting)."),
+			"advisor":       strOut("telemetry | alerting."),
+			"scope_kind":    strOut("What it is about: metric, service, attribute or rule."),
+			"scope_id":      strOut("The thing itself — a metric name, a service, or a rule id."),
+			"title":         strOut("The finding in one sentence."),
+			"loss":          strOut("What is given up by acting. Quote this alongside the saving, never instead of it."),
+			"snippet":       strOut("Ready-to-paste OTel collector config. Empty for alerting findings, where the change is inside Sluicio."),
+			"evidence":      objOf("The counted facts behind the finding — volumes, last-consumed dates, firing counts.", nil),
+			"weight":        intOut("Ranking key: estimated bytes/day for telemetry, firings for alerting."),
+			"state":         strOut("open | accepted | verified | dismissed."),
+			"first_seen_at": strOut("When the advisor first made this finding (RFC3339) — how long it has been true."),
+		}),
+		"window_days": intOut("The observation window the findings were measured over. A number without its period is not evidence."),
+	}, "suggestions")
+
 	proposeOut = outSchema(map[string]any{
 		"id":           strOut("The proposal's id (uuid)."),
 		"state":        strOut("pending until a human decides. Nothing has changed yet."),

@@ -15,6 +15,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/sluicio/sluicio-app/pkg/httpserver"
+	"github.com/sluicio/sluicio-app/pkg/license"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/api/middleware"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/identity"
 )
@@ -166,15 +167,27 @@ func (h *Handlers) getDigest(w http.ResponseWriter, r *http.Request) {
 		h.Logger.Warn("digest: shared resources failed", "err", err)
 	}
 
+	// Advisor findings raised since the watermark (design §5). Admin-only
+	// and entitlement-gated like the advisor itself — a count is still
+	// org-wide cost information, so a non-admin simply sees nothing
+	// rather than a teaser they cannot open.
+	advisorNew := 0
+	if h.Advisor != nil && h.featureEntitled(license.FeatureAdvisor) && p.Role.CanAdmin() {
+		if n, err := h.Advisor.CountNewSince(ctx, orgID, since); err == nil {
+			advisorNew = n
+		}
+	}
+
 	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
 		"since":        since,
 		"new_services": newServices,
 		"failures":     failures,
 		"shared":       shared,
 		"counts": map[string]int{
-			"new_services": len(newServices),
-			"failures":     len(failures),
-			"shared":       len(shared),
+			"new_services":        len(newServices),
+			"failures":            len(failures),
+			"shared":              len(shared),
+			"advisor_suggestions": advisorNew,
 		},
 	})
 }
