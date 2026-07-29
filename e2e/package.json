@@ -5,6 +5,7 @@
   "description": "End-to-end test suite for Sluicio — drives the real UI against a live stack.",
   "license": "Apache-2.0",
   "type": "module",
+  "engines": { "node": ">=24" },
   "scripts": {
     "test": "playwright test",
     "test:headed": "playwright test --headed",

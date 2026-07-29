@@ -11,7 +11,7 @@
 # (Caddy in deploy/server/) routes /api to cell-api. This image only
 # serves the static SPA.
 
-FROM node:20-bookworm-slim AS build
+FROM node:24-bookworm-slim AS build
 
 WORKDIR /app
 
