@@ -3,8 +3,23 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.50 — 2026-07-29
+
+- readme: show the product (b46becd)
+- e2e: an entitlement gate is not a schema failure (8f812a8)
+- advisor: fix a scan-type bug and a plural, both found by running it for real (ddf9479)
+- advisor: do not judge before the ledger is as old as the window (ecb0979)
+- advisor: docs, the manual protocol, and the e2e gate (issue #1) (dcd4bfb)
+- advisor: the Usage tab, the MCP tool, and the engagement signal that makes F1 honest (d949fe4)
+- advisor: API, engine wiring, and the demand sources the guardrails depend on (ad31fa3)
+- advisor: entitlement, suggestion store, and the T/F evaluators (issue #1) (0e8182b)
+- seed: let SLUICIO_INGEST_URL redirect the seeder, since the default is a trap (b824bd8)
+- seed: an EDI gateway where the message type, not the topology, is the integration boundary (a31b02e)
+- e2e: give the filter-UI spec a budget bigger than its own waits (e52b38e)
+
 ## v0.11.49 — 2026-07-29
 
+- release v0.11.49 — refresh internal changelog (d925a9b)
 - mcp: say what each tool returns, and answer the transport spec properly (issue #8, WS1) (4193151)
 
 ## v0.11.48 — 2026-07-29
