@@ -2,7 +2,10 @@
 
 # Telemetry Advisor & Alert Fatigue Advisor (design)
 
-Status: **draft for review** (2026-07-14). Nothing here is implemented.
+Status: **shipped** (2026-07-29, issue #1). All six open questions were
+settled 2026-07-27 — see §8. Implementation notes where the code
+departs from or sharpens this document are inline in
+`services/cell-api/internal/advisor/`.
 
 Two advisors on one shared foundation, both applying the same idea:
 **Sluicio is the only consumer surface for the telemetry it stores, so it

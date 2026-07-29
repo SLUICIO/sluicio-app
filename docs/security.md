@@ -162,6 +162,17 @@ would need a works-council conversation.
 The advisor's questions are all of the form "was this consumed", never
 "by whom", so nothing is given up by this design.
 
+The same rule covers the one signal that measures **attention** rather
+than consumption: when someone follows a notification's deep link back
+into the app, the cell records that the ALERT RULE was engaged with —
+`Signal=alert`, `Key=<rule id>`, no instance, no user, no timestamp
+beyond the day. It exists because the Alert Fatigue Advisor cannot
+otherwise distinguish "nobody opened this page" from "everyone opened it
+and judged it fine", and without that distinction it would eventually
+recommend silencing rules people rely on. It is deliberately not an
+acknowledgement: following a link is engagement, and treating it as an
+ack would let a glance clear a real alert.
+
 Retention is a fixed 400 days, long enough to reason about telemetry
 that has gone unused for a year. The ledger is **not** included in
 configuration transfer between environments: it is observed fact about

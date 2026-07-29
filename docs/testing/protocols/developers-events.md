@@ -4,9 +4,9 @@
 
 | Field | Value |
 |-------|-------|
-| **Area** | The API & MCP page: tokens, REST/OpenAPI, the MCP server, outbound event subscriptions |
+| **Area** | The API & MCP page: tokens, REST/OpenAPI, the MCP server, outbound event subscriptions; the Usage → Advisor tab |
 | **Automation status** | Partial (event subscriptions + MCP RBAC automated; assistant clients manual) |
-| **Automated by** | [event-subscriptions.spec.ts](../../../e2e/tests/event-subscriptions.spec.ts), [mcp.spec.ts](../../../e2e/tests/mcp.spec.ts) (transport + output schemas), [rbac.spec.ts](../../../e2e/tests/rbac.spec.ts) (MCP surface) |
+| **Automated by** | [advisor.spec.ts](../../../e2e/tests/advisor.spec.ts), [event-subscriptions.spec.ts](../../../e2e/tests/event-subscriptions.spec.ts), [mcp.spec.ts](../../../e2e/tests/mcp.spec.ts) (transport + output schemas), [rbac.spec.ts](../../../e2e/tests/rbac.spec.ts) (MCP surface) |
 | **Last reviewed** | 2026-07-29 |
 
 ## Preconditions
@@ -61,3 +61,21 @@
 ## Notes
 - Events are **best-effort notifications**; the audit log remains the tamper-evident record. Never present a subscription as a compliance control.
 - Webhook payloads and PagerDuty events are deliberately not templatable — consumers parse them (see [alerts-notifications.md](alerts-notifications.md) for what IS templatable).
+
+## Advisor (Enterprise, v0.11.50+)
+
+### Case 8 — The advisor explains itself before it advises
+- **Surface:** Usage → Advisor (route `/usage?tab=advisor`). **Endpoints:** `GET /api/v1/advisor/suggestions`, `POST /api/v1/advisor/run`
+- **Steps:** Open the tab on a licensed cell with at least 30 days of telemetry → press **Evaluate now** → read one card top to bottom.
+- **Expected:** Each card reads finding → evidence → **what you lose** → collector snippet → Accept/Dismiss, in that order. Every card has a loss statement and counted evidence; none shows a bare saving. Telemetry cards carry a copyable collector config; alerting cards carry none (the change is inside Sluicio). An F1 card states explicitly that no threshold is proposed.
+- **Automation:** Partial — shape, gating and decision persistence are automated (`advisor.spec.ts`); judging whether a finding is *good* is manual.
+
+### Case 9 — A decision sticks
+- **Steps:** Dismiss a suggestion → press **Evaluate now** again.
+- **Expected:** It does not come back. It remains visible under `?state=dismissed`. It only reappears if the underlying volume roughly doubles. Accepting instead leaves an `advisor.suggestion_accepted` audit entry carrying the suggestion's title — the paper trail for "why did we stop collecting that".
+- **Automation:** yes.
+
+### Case 10 — Guardrails hold on a real cell
+- **Steps:** Pick a metric an alert rule watches, an attribute a facet mapping uses, and a service pinned to a dashboard. Confirm none of them is ever suggested. Then disable (do not delete) that alert rule and re-evaluate.
+- **Expected:** None appear as suggestions. **The paused rule still protects its metric** — config is demand for as long as it exists, so disabling a rule must not make its metric a deletion candidate. Warnings and errors are never proposed for dropping at any volume.
+- **Automation:** manual — needs real config and telemetry the seed does not model.

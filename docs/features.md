@@ -3,9 +3,9 @@
 # Sluicio feature matrix
 
 The canonical list of shipped features, split by edition. **Community**
-is everything in the open-source product; **Enterprise** is the five
+is everything in the open-source product; **Enterprise** is the six
 license-gated entitlements (`pkg/license`: `sso`, `rbac_advanced`,
-`audit_log`, `retention_long`, `mfa_policy`). Each feature has a stable
+`audit_log`, `retention_long`, `mfa_policy`, `advisor`). Each feature has a stable
 slug — other trackers (docs, announcements, marketing) key off it, so
 don't rename slugs; add new rows when features ship.
 
@@ -95,6 +95,7 @@ catalog in docs/testing/protocols/).
 | `audit-log` | Audit log | `audit_log` | Hash-chained, tamper-evident audit trail with UI verification, filters, CSV export, configurable retention |
 | `retention-long` | Long retention | `retention_long` | Telemetry retention beyond the free 14-day cap |
 | `mfa-policy` | Org-wide MFA policy | `mfa_policy` | Require MFA enrolment for every member (server-side enforcement) |
+| `advisor` | Telemetry & Alert Fatigue advisors | `advisor` | What this cell collects that nothing consumes, and which alert rules nobody acts on — each with counted evidence, what would be lost, and a ready-to-paste collector config. The demand ledger underneath is Community and always recording, so the history is there on the day a licence is enabled |
 
 Licensing note: `max_integrations` (integrations + systems) is an
 advisory license field, not a hard gate; there are no seat caps.
@@ -103,6 +104,5 @@ advisory license field, not a hard gate; there are no seat caps.
 
 | Slug | Feature | Status |
 |---|---|---|
-| `telemetry-advisor` | Telemetry Advisor (usage-vs-ingest collector suggestions, alert-fatigue advisor) | Design in review — issue #1 |
 | `otelflow-integration` | OTelFlow embedded (saved, RBAC-scoped collector configs) | Design in review — issue #3 |
 | `event-subscriptions` | Outbound event subscriptions (CloudEvents domain events: integration.created, service.discovered, …) | Design in review — issue #4 |
