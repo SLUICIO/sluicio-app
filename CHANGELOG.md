@@ -5,6 +5,8 @@ _Internal: not shown anywhere in the Sluicio product._
 
 ## v0.11.50 — 2026-07-29
 
+- advisor: cover the decision logic properly, and make CI actually evaluate (7260dac)
+- release v0.11.50 — refresh internal changelog (5b242c4)
 - readme: show the product (b46becd)
 - e2e: an entitlement gate is not a schema failure (8f812a8)
 - advisor: fix a scan-type bug and a plural, both found by running it for real (ddf9479)
