@@ -118,7 +118,19 @@ func (s *Store) Upsert(ctx context.Context, orgID uuid.UUID, f Suggestion) error
 			loss       = EXCLUDED.loss,
 			snippet    = EXCLUDED.snippet,
 			evidence   = EXCLUDED.evidence,
-			weight     = EXCLUDED.weight,
+			-- Weight is the re-open baseline, so a DISMISSED row keeps
+			-- the value the human saw rather than tracking the finding.
+			-- Refreshing it every night would drift the trigger upward
+			-- with the metric itself: dismissed at 1000, refreshed to
+			-- 1900, and now nothing under 3800 counts as a doubling —
+			-- so a finding that genuinely doubled over a fortnight
+			-- would never resurface. Frozen until it re-opens.
+			weight = CASE
+				WHEN advisor_suggestions.state = 'dismissed'
+				     AND EXCLUDED.weight < GREATEST(advisor_suggestions.weight, 1) * $12
+				THEN advisor_suggestions.weight
+				ELSE EXCLUDED.weight
+			END,
 			last_seen_at = now(),
 			updated_at   = now(),
 			-- …but only reopen a dismissal the facts have outgrown. An

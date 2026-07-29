@@ -79,6 +79,13 @@ jobs:
         # code and are the realistic exfiltration path for a secret.
         env:
           SLUICIO_LICENSE_KEY: ${{ secrets.E2E_LICENSE_KEY }}
+          # Shorten the advisor's observation window. A CI cell is built
+          # fresh every run, so at the shipped 30 days nothing is ever
+          # old enough to judge and the advisor returns early at its
+          # maturity gate — which means its ClickHouse supply queries
+          # never execute here at all. That is exactly where an Int32
+          # scan bug hid until it was found by hand.
+          ADVISOR_WINDOW_DAYS: "1"
         run: |
           (cd services/cell-api && go run ./cmd/cell-api) > "$RUNNER_TEMP/cell-api.log" 2>&1 &
           echo "cell-api started (pid $!)"
@@ -103,6 +110,22 @@ jobs:
         # look at. Best-effort: a seed hiccup shouldn't fail the run
         # before the suite even starts — the specs assert what they need.
         run: go run ./services/cell-ingest/cmd/seed-traces || echo "seed warning (continuing)"
+
+      - name: Age the demand ledger so the advisor actually evaluates
+        # The window above is necessary but not sufficient: the maturity
+        # gate compares the ledger's EARLIEST day against the window, and
+        # a ledger written during this run is always inside it. Backdating
+        # one row is the smallest honest way to say "assume we have been
+        # watching" — it grants no demand for anything real, so every
+        # guardrail still applies to the seeded telemetry.
+        run: |
+          curl -sS -X POST 'http://localhost:8123/' \
+            -H 'Content-Type: text/plain' \
+            --data-binary "INSERT INTO telemetry.telemetry_demand
+              (Day, OrganizationId, Signal, ServiceName, Key, ConsumerKind, Hits)
+              VALUES (today() - 40, '00000000-0000-0000-0000-000000000001',
+                      'trace', '__ci_ledger_age__', '', 'human', 1)" \
+            || echo "::warning::could not age the demand ledger; advisor findings will stay gated"
 
       - name: Install frontend deps
         working-directory: frontend
