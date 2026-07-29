@@ -18,6 +18,10 @@ OpenTelemetry Collector at it and Sluicio discovers your services from their
 telemetry, lets you group them into the business integrations they serve, and
 turns starter health checks on with a click.
 
+![The Sluicio dashboard: integration health at a glance — message volume,
+success rate, and per-integration cards, with the one unhealthy integration
+called out](docs/images/dashboard.png)
+
 ## Try it live
 
 A hosted demo runs at **[demo.sluicio.com](https://demo.sluicio.com)** — log in
