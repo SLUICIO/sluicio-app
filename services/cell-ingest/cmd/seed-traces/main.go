@@ -57,6 +57,7 @@ var demoScenarios = []scenarioFactory{
 	orderFlowScenario,
 	shipmentFlowScenario,
 	ftpFanoutScenario,
+	ediGatewayScenario,
 }
 
 type serviceSpec struct {
@@ -1685,6 +1686,287 @@ func ftpFanoutScenario(rng *mrand.Rand) []serviceSpans {
 		})
 	}
 	return out
+}
+
+// --- EDI gateway scenario ----------------------------------------------
+//
+// ediGatewayScenario models the shape the fan-out scenario deliberately
+// lacks: ONE entry point whose message type decides an entirely
+// different downstream flow. Three integrations share a front door.
+//
+//	edi-gateway  receive_interchange (Server, root)
+//	  └── publish_<type> (Producer) ──▶ per-type queue
+//	        │
+//	        ├── ORDERS ▶ order-validator    ──HTTP──▶ erp-adapter
+//	        ├── INVOIC ▶ invoice-matcher    ──HTTP──▶ finance-ledger
+//	        └── DESADV ▶ despatch-notifier  ──HTTP──▶ warehouse-sync
+//
+// Why this exists, beyond variety: the estate needs a case where the
+// obvious mechanical groupings all give the WRONG answer, because that
+// is the case real customers have and the one any grouping heuristic
+// has to survive.
+//
+//   - Entry point does not discriminate. All three flows root at
+//     edi-gateway, so "one integration per root service" merges three
+//     businesses into one.
+//   - Naming does not discriminate. order-validator, invoice-matcher
+//     and despatch-notifier share no prefix or suffix with their own
+//     downstream partner, and erp-adapter / finance-ledger /
+//     warehouse-sync share none with anything.
+//   - The dependency graph does not discriminate. Every flow touches
+//     edi-gateway, so connected components collapse all three.
+//
+// What DOES separate them is the service SET per trace (the three
+// downstream pairs are disjoint) correlating with edi.message_type.
+// That makes this the positive counterpart to the FTP fan-out, where
+// document.type varies but every value traverses the same services —
+// there the attribute is a facet of one flow, here it is the boundary
+// between three. A grouping feature has to tell those apart, and the
+// estate now contains both.
+//
+// The INVOIC branch fails at the ledger roughly 8% of the time, which
+// is the reason the distinction is worth money rather than tidy: with
+// all three modelled as one integration, an invoice flow degrading is
+// invisible behind two healthy ones.
+
+type ediRoute struct {
+	messageType string
+	queue       string
+	processor   string // service that consumes and validates
+	workSpan    string
+	sink        string // service it calls over HTTP
+	sinkSpan    string
+	sinkPath    string
+	failRate    float64
+}
+
+var ediRoutes = []ediRoute{
+	{
+		messageType: "ORDERS", queue: "edi.orders",
+		processor: "order-validator", workSpan: "validate_order_message",
+		sink: "erp-adapter", sinkSpan: "POST /erp/salesorders", sinkPath: "/erp/salesorders",
+		failRate: 0.02,
+	},
+	{
+		messageType: "INVOIC", queue: "edi.invoices",
+		processor: "invoice-matcher", workSpan: "match_invoice_to_order",
+		sink: "finance-ledger", sinkSpan: "POST /ledger/entries", sinkPath: "/ledger/entries",
+		// The unhappy branch: an invoice that matches no purchase order
+		// is rejected downstream. Deliberately the highest failure rate
+		// in the estate's happy-path scenarios.
+		failRate: 0.08,
+	},
+	{
+		messageType: "DESADV", queue: "edi.despatch",
+		processor: "despatch-notifier", workSpan: "expand_despatch_lines",
+		sink: "warehouse-sync", sinkSpan: "POST /wms/inbound", sinkPath: "/wms/inbound",
+		failRate: 0.01,
+	},
+}
+
+// ediRouteWeights repeats each route so ORDERS dominates, INVOIC is
+// common and DESADV is comparatively rare. Even traffic across the
+// three would make the split look easier than it is — an uneven mix is
+// what forces a real decision about the volume floor below which a flow
+// is not worth proposing as its own integration.
+var ediRouteWeights = []int{0, 0, 0, 0, 0, 1, 1, 1, 2, 2}
+
+var ediPartners = []string{"GS1-7350000000001", "GS1-5790000000002", "GS1-4012345000003"}
+
+func ediGatewayScenario(rng *mrand.Rand) []serviceSpans {
+	route := ediRoutes[ediRouteWeights[rng.Intn(len(ediRouteWeights))]]
+	now := time.Now().UTC()
+	traceID := randomID(16)
+	rootID := randomID(8)
+	publishID := randomID(8)
+	consumeID := randomID(8)
+	workID := randomID(8)
+	callID := randomID(8)
+	sinkID := randomID(8)
+
+	partner := ediPartners[rng.Intn(len(ediPartners))]
+	controlRef := fmt.Sprintf("ICR%09d", rng.Intn(999999999))
+	msgSystem := fanoutMessagingBuses[rng.Intn(len(fanoutMessagingBuses))]
+	lineCount := int64(1 + rng.Intn(40))
+
+	failed := rng.Float64() < route.failRate
+	sinkStatus := int64(202)
+	if failed {
+		sinkStatus = 422
+	}
+
+	// Lay the trace out backwards from now so the spans nest in time.
+	receiveDur := time.Duration(20+rng.Intn(60)) * time.Millisecond
+	publishDur := time.Duration(4+rng.Intn(12)) * time.Millisecond
+	queueLatency := time.Duration(5+rng.Intn(60)) * time.Millisecond
+	consumeDur := time.Duration(3+rng.Intn(10)) * time.Millisecond
+	workDur := time.Duration(30+rng.Intn(200)) * time.Millisecond
+	callDur := time.Duration(40+rng.Intn(180)) * time.Millisecond
+
+	callEnd := now
+	callStart := callEnd.Add(-callDur)
+	workEnd := callEnd
+	workStart := callStart.Add(-workDur)
+	consumeEnd := workStart
+	consumeStart := consumeEnd.Add(-consumeDur)
+	publishEnd := consumeStart.Add(-queueLatency)
+	publishStart := publishEnd.Add(-publishDur)
+	receiveEnd := publishEnd
+	receiveStart := publishStart.Add(-receiveDur)
+
+	okStatus := func() *tracepb.Status { return &tracepb.Status{Code: tracepb.Status_STATUS_CODE_OK} }
+
+	// --- edi-gateway: the shared front door ------------------------------
+	receiveAttrs := []*commonpb.KeyValue{
+		stringAttr("edi.message_type", route.messageType),
+		stringAttr("edi.interchange_control_ref", controlRef),
+		stringAttr("edi.partner_id", partner),
+		stringAttr("edi.standard", "EDIFACT"),
+		intAttr("edi.line_count", lineCount),
+		stringAttr("http.request.method", "POST"),
+		stringAttr("http.route", "/as2/inbound"),
+		stringAttr("integration.id", "edi-gateway"),
+	}
+	receiveAttrs = append(receiveAttrs, ioAttrs("input", "http", "as2", "/as2/inbound")...)
+	receiveSpan := &tracepb.Span{
+		TraceId:           traceID,
+		SpanId:            rootID,
+		ParentSpanId:      []byte{},
+		Name:              "receive_interchange",
+		Kind:              tracepb.Span_SPAN_KIND_SERVER,
+		StartTimeUnixNano: uint64(receiveStart.UnixNano()),
+		EndTimeUnixNano:   uint64(receiveEnd.UnixNano()),
+		Attributes:        receiveAttrs,
+		Status:            okStatus(),
+	}
+
+	publishAttrs := []*commonpb.KeyValue{
+		stringAttr("messaging.system", msgSystem),
+		stringAttr("messaging.destination.name", route.queue),
+		stringAttr("messaging.operation", "publish"),
+		stringAttr("edi.message_type", route.messageType),
+		stringAttr("edi.interchange_control_ref", controlRef),
+		stringAttr("integration.id", "edi-gateway"),
+	}
+	publishAttrs = append(publishAttrs, ioAttrs("output", "queue", msgSystem, route.queue)...)
+	publishSpan := &tracepb.Span{
+		TraceId:           traceID,
+		SpanId:            publishID,
+		ParentSpanId:      rootID,
+		Name:              "publish_" + strings.ToLower(route.messageType),
+		Kind:              tracepb.Span_SPAN_KIND_PRODUCER,
+		StartTimeUnixNano: uint64(publishStart.UnixNano()),
+		EndTimeUnixNano:   uint64(publishEnd.UnixNano()),
+		Attributes:        publishAttrs,
+		Status:            okStatus(),
+	}
+
+	// --- the per-type processor ------------------------------------------
+	consumeAttrs := []*commonpb.KeyValue{
+		stringAttr("messaging.system", msgSystem),
+		stringAttr("messaging.destination.name", route.queue),
+		stringAttr("messaging.operation", "consume"),
+		stringAttr("edi.message_type", route.messageType),
+		stringAttr("edi.interchange_control_ref", controlRef),
+	}
+	consumeAttrs = append(consumeAttrs, ioAttrs("input", "queue", msgSystem, route.queue)...)
+	consumeSpan := &tracepb.Span{
+		TraceId:           traceID,
+		SpanId:            consumeID,
+		ParentSpanId:      publishID,
+		Name:              "consume_" + strings.ToLower(route.messageType),
+		Kind:              tracepb.Span_SPAN_KIND_CONSUMER,
+		StartTimeUnixNano: uint64(consumeStart.UnixNano()),
+		EndTimeUnixNano:   uint64(consumeEnd.UnixNano()),
+		Attributes:        consumeAttrs,
+		Status:            okStatus(),
+	}
+
+	workSpan := &tracepb.Span{
+		TraceId:           traceID,
+		SpanId:            workID,
+		ParentSpanId:      consumeID,
+		Name:              route.workSpan,
+		Kind:              tracepb.Span_SPAN_KIND_INTERNAL,
+		StartTimeUnixNano: uint64(workStart.UnixNano()),
+		EndTimeUnixNano:   uint64(workEnd.UnixNano()),
+		Attributes: []*commonpb.KeyValue{
+			stringAttr("edi.message_type", route.messageType),
+			stringAttr("edi.partner_id", partner),
+			intAttr("edi.line_count", lineCount),
+		},
+		Status: okStatus(),
+	}
+
+	callAttrs := []*commonpb.KeyValue{
+		stringAttr("http.request.method", "POST"),
+		stringAttr("http.url", "https://"+route.sink+".example.internal"+route.sinkPath),
+		intAttr("http.response.status_code", sinkStatus),
+		stringAttr("peer.service", route.sink),
+		stringAttr("edi.message_type", route.messageType),
+	}
+	callAttrs = append(callAttrs, ioAttrs("output", "http", "https", route.sink+".example.internal"+route.sinkPath)...)
+	callSpan := &tracepb.Span{
+		TraceId:           traceID,
+		SpanId:            callID,
+		ParentSpanId:      workID,
+		Name:              "call_" + route.sink,
+		Kind:              tracepb.Span_SPAN_KIND_CLIENT,
+		StartTimeUnixNano: uint64(callStart.UnixNano()),
+		EndTimeUnixNano:   uint64(callEnd.UnixNano()),
+		Attributes:        callAttrs,
+		Status:            okStatus(),
+	}
+
+	// --- the sink --------------------------------------------------------
+	sinkAttrs := []*commonpb.KeyValue{
+		stringAttr("http.request.method", "POST"),
+		stringAttr("http.route", route.sinkPath),
+		intAttr("http.response.status_code", sinkStatus),
+		stringAttr("edi.message_type", route.messageType),
+		stringAttr("edi.partner_id", partner),
+	}
+	sinkAttrs = append(sinkAttrs, ioAttrs("input", "http", "https", route.sinkPath)...)
+	sinkSpan := &tracepb.Span{
+		TraceId:           traceID,
+		SpanId:            sinkID,
+		ParentSpanId:      callID,
+		Name:              route.sinkSpan,
+		Kind:              tracepb.Span_SPAN_KIND_SERVER,
+		StartTimeUnixNano: uint64(callStart.Add(2 * time.Millisecond).UnixNano()),
+		EndTimeUnixNano:   uint64(callEnd.Add(-2 * time.Millisecond).UnixNano()),
+		Attributes:        sinkAttrs,
+		Status:            okStatus(),
+	}
+
+	// The failure surfaces on BOTH sides of the HTTP boundary, the way a
+	// real rejection does — the caller sees its request fail and the
+	// callee records why, so the flow graph shows where it broke.
+	if failed {
+		reason := "no matching purchase order for invoice"
+		callSpan.Status = &tracepb.Status{Code: tracepb.Status_STATUS_CODE_ERROR, Message: reason}
+		sinkSpan.Status = &tracepb.Status{Code: tracepb.Status_STATUS_CODE_ERROR, Message: reason}
+		callSpan.Attributes = append(callSpan.Attributes, stringAttr("error.type", "UnmatchedInvoice"))
+		sinkSpan.Attributes = append(sinkSpan.Attributes, stringAttr("error.type", "UnmatchedInvoice"))
+	}
+
+	return []serviceSpans{
+		{
+			serviceName:      "edi-gateway",
+			serviceNamespace: "production",
+			spans:            []*tracepb.Span{receiveSpan, publishSpan},
+		},
+		{
+			serviceName:      route.processor,
+			serviceNamespace: "production",
+			spans:            []*tracepb.Span{consumeSpan, workSpan, callSpan},
+		},
+		{
+			serviceName:      route.sink,
+			serviceNamespace: "production",
+			spans:            []*tracepb.Span{sinkSpan},
+		},
+	}
 }
 
 func healthyWorkerSpan(rng *mrand.Rand, svc serviceSpec) []*tracepb.Span {
