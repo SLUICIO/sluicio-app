@@ -9,6 +9,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useTraceHref } from "../lib/traceHref";
+import { pickInitialSpan } from "../lib/spanSelection";
 import { api } from "../api/client";
 import TraceWaterfall from "./TraceWaterfall";
 import { KVTable, StatusPip, attributeRows } from "./primitives";
@@ -28,6 +29,14 @@ interface Props {
   // in integration A shouldn't visually flag here if the user is
   // looking at it through integration B.
   integrationContextId?: string;
+  // Spans that satisfied the search this trace was opened from, oldest
+  // first. The drawer opens on the first one that exists in the trace
+  // and marks the rest, so "why did this come back?" is answered on
+  // arrival instead of by reading the waterfall.
+  //
+  // Undefined/empty means the caller has no opinion (no span-level
+  // predicate), and the default selection below applies unchanged.
+  matchedSpanIds?: string[];
 }
 
 function traceTotalMs(spans: SpanSummary[]): number {
@@ -46,6 +55,7 @@ export default function TraceDrawer({
   traceId,
   onClose,
   integrationContextId,
+  matchedSpanIds,
 }: Props) {
   const [data, setData] = useState<TraceDetailResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -74,10 +84,9 @@ export default function TraceDrawer({
       .then((d) => {
         if (cancelled) return;
         setData(d);
-        // Default-select the first error span, else the first span, so
-        // attributes are visible immediately.
-        const firstErr = d.spans.find((s) => s.status_code === "Error");
-        setSelectedSpan((firstErr ?? d.spans[0])?.span_id ?? null);
+        // Prefer the span that answered the user's search, else the
+        // first error span, else the first span — see pickInitialSpan.
+        setSelectedSpan(pickInitialSpan(d.spans, matchedSpanIds));
       })
       .catch((e) => !cancelled && setError(String(e.message ?? e)))
       .finally(() => !cancelled && setLoading(false));
@@ -226,7 +235,7 @@ export default function TraceDrawer({
           </div>
           <div className="flex items-center gap-3">
             <Link
-              to={traceHref(traceId, integrationContextId)}
+              to={traceHref(traceId, integrationContextId, selectedSpan ?? undefined)}
               className="whitespace-nowrap text-xs hover:underline"
               style={{ color: "var(--primary)" }}
             >
@@ -270,6 +279,7 @@ export default function TraceDrawer({
                     spans={data.spans}
                     onHopClick={setSelectedSpan}
                     selected={selectedSpan ?? undefined}
+                    matchedSpanIds={matchedSpanIds}
                     // Investigating from the Errors view: if the trace has a
                     // failing span, open filtered to it instead of the whole
                     // (possibly huge) trace.

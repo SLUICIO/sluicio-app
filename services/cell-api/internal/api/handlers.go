@@ -2138,6 +2138,7 @@ func (h *Handlers) search(w http.ResponseWriter, r *http.Request) {
 			ServiceCount:    t.ServiceCount,
 			MatchedService:  t.MatchedService,
 			MatchedSpanName: t.MatchedSpanName,
+			MatchedSpanIDs:  t.MatchedSpanIDs,
 			Attributes:      mergeAttributes(t.MatchedResourceAttrs, t.MatchedSpanAttrs),
 		})
 	}

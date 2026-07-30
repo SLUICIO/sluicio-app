@@ -934,6 +934,7 @@ func (s *Store) SearchMessages(ctx context.Context, p MessagesSearchParams) ([]S
 		           argMax(SpanName, Timestamp)            AS matched_span_name,
 		           argMax(ResourceAttributes, Timestamp)  AS matched_resource_attrs,
 		           argMax(SpanAttributes, Timestamp)      AS matched_span_attrs,
+		           %s                                     AS matched_span_ids,
 		           max(Timestamp)                         AS latest_match,
 		           countIf(StatusCode = 'Error') > 0      AS has_error
 		    FROM traces
@@ -964,11 +965,12 @@ func (s *Store) SearchMessages(ctx context.Context, p MessagesSearchParams) ([]S
 		    m.matched_span_name,
 		    m.matched_resource_attrs,
 		    m.matched_span_attrs,
+		    m.matched_span_ids,
 		    m.latest_match
 		FROM summary AS s
 		INNER JOIN matching AS m ON s.TraceId = m.TraceId
 		ORDER BY m.latest_match DESC, m.TraceId DESC
-	`, strings.Join(whereClauses, " AND "), having)
+	`, matchedSpanIDsExpr(len(p.Clauses) > 0), strings.Join(whereClauses, " AND "), having)
 
 	rows, err := s.conn.Query(ctx, sql, args...)
 	if err != nil {
@@ -984,6 +986,7 @@ func (s *Store) SearchMessages(ctx context.Context, p MessagesSearchParams) ([]S
 			&r.TotalSpans, &r.ServiceCount,
 			&r.MatchedService, &r.MatchedSpanName,
 			&r.MatchedResourceAttrs, &r.MatchedSpanAttrs,
+			&r.MatchedSpanIDs,
 			&r.LatestMatch,
 		); err != nil {
 			return nil, err
@@ -1241,10 +1244,51 @@ type SearchTraceRow struct {
 	MatchedSpanName      string
 	MatchedResourceAttrs map[string]string
 	MatchedSpanAttrs     map[string]string
+	// MatchedSpanIDs are the spans that actually satisfied the search
+	// predicate, oldest first, so the trace view can open on the span the
+	// user was looking for instead of making them hunt for it.
+	//
+	// EMPTY when the search carried no span-level predicate — "every
+	// trace in the last hour" matches every span, and highlighting all of
+	// them says nothing. Empty here means "no opinion", and the trace
+	// view keeps its own default selection.
+	//
+	// Capped (see matchedSpanIDsExpr): a caller that wants every span in
+	// a trace should fetch the trace.
+	MatchedSpanIDs []string
 	// LatestMatch is the timestamp of the most recent matching span,
 	// used as the keyset cursor key by SearchMessages. Unset (zero) by
 	// SearchTraces, which doesn't paginate.
 	LatestMatch time.Time
+}
+
+// matchedSpanIDsExpr builds the aggregate that collects matching span
+// ids inside the `matching` CTE, oldest first.
+//
+// hasPredicate=false yields a typed empty array rather than the real
+// aggregate: with no predicate every span in the window "matches", and
+// both the work and the answer would be pointless.
+//
+// The two caps are deliberate and different. groupArray(1000) bounds
+// what a single trace can pull into memory — a runaway fan-out trace
+// must not be able to make this query expensive. The arraySlice then
+// keeps only the first 50, which is what actually crosses the wire: the
+// UI selects one span and highlights the rest, and nobody navigates a
+// 1000-item highlight list. Sorting happens between the two, so the 50
+// are genuinely the oldest matches and not an arbitrary 50.
+//
+// arrayDistinct is NOT cosmetic. `traces` holds one ROW per write, and
+// the same span legitimately appears several times before ClickHouse
+// merges the parts — a real local trace showed 20 rows for 4 spans. The
+// aggregate collects rows, so without deduping a handful of repeatedly
+// written spans could fill all 50 slots and push genuine later matches
+// out of the response entirely. It runs after the sort because it keeps
+// first-occurrence order, which is what makes "oldest first" survive.
+func matchedSpanIDsExpr(hasPredicate bool) string {
+	if !hasPredicate {
+		return "CAST([], 'Array(String)')"
+	}
+	return "arraySlice(arrayDistinct(arrayMap(t -> t.2, arraySort(t -> t.1, groupArray(1000)((Timestamp, SpanId))))), 1, 50)"
 }
 
 // SearchTraces runs a case-insensitive search across span attributes
@@ -1272,6 +1316,7 @@ func (s *Store) SearchTraces(ctx context.Context, q string, from, to time.Time, 
 		           argMax(SpanName, Timestamp)            AS matched_span_name,
 		           argMax(ResourceAttributes, Timestamp)  AS matched_resource_attrs,
 		           argMax(SpanAttributes, Timestamp)      AS matched_span_attrs,
+		           %s                                     AS matched_span_ids,
 		           max(Timestamp)                         AS latest_match
 		    FROM traces
 		    WHERE Timestamp >= ? AND Timestamp <= ?
@@ -1309,12 +1354,13 @@ func (s *Store) SearchTraces(ctx context.Context, q string, from, to time.Time, 
 		    m.matched_service,
 		    m.matched_span_name,
 		    m.matched_resource_attrs,
-		    m.matched_span_attrs
+		    m.matched_span_attrs,
+		    m.matched_span_ids
 		FROM summary AS s
 		INNER JOIN matching AS m ON s.TraceId = m.TraceId
 		%s
 		ORDER BY s.trace_start DESC
-	`, serviceFilterClause, failedFilterClause(onlyFailed))
+	`, matchedSpanIDsExpr(strings.TrimSpace(q) != ""), serviceFilterClause, failedFilterClause(onlyFailed))
 
 	args := []any{
 		from, to,
@@ -1337,6 +1383,7 @@ func (s *Store) SearchTraces(ctx context.Context, q string, from, to time.Time, 
 			&r.TotalSpans, &r.ServiceCount,
 			&r.MatchedService, &r.MatchedSpanName,
 			&r.MatchedResourceAttrs, &r.MatchedSpanAttrs,
+			&r.MatchedSpanIDs,
 		); err != nil {
 			return nil, err
 		}

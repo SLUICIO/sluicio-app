@@ -359,6 +359,14 @@ type TraceSearchResult struct {
 	MatchedService  string            `json:"matched_service"`
 	MatchedSpanName string            `json:"matched_span_name"`
 	Attributes      map[string]string `json:"attributes,omitempty"`
+	// MatchedSpanIDs are the spans that satisfied the query, oldest
+	// first, so opening the trace can land on the span the user was
+	// actually looking for rather than the trace's default.
+	//
+	// Omitted when the search had no span-level predicate — then every
+	// span "matched" and the field would assert something false. Absent
+	// means "no opinion", not "nothing matched".
+	MatchedSpanIDs []string `json:"matched_span_ids,omitempty"`
 }
 
 // MessageCursorJSON is the keyset cursor for the next page of message

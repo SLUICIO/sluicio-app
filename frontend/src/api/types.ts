@@ -892,6 +892,11 @@ export interface TraceSearchResult {
   matched_service: string;
   matched_span_name: string;
   attributes?: Record<string, string>;
+  // The spans that satisfied the query, oldest first. Absent when the
+  // search had no span-level predicate (e.g. "everything in the last
+  // hour"), which means "no opinion" rather than "nothing matched" —
+  // the trace view keeps its own default selection in that case.
+  matched_span_ids?: string[];
 }
 
 // Keyset cursor for the next page of message search results. Both

@@ -122,6 +122,8 @@ export default function ServiceMessagesTab({ serviceName }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [openTraceId, setOpenTraceId] = useState<string | null>(null);
+  // See Search.tsx — the matched spans travel with the open trace.
+  const [openMatchedSpans, setOpenMatchedSpans] = useState<string[] | undefined>();
 
   const PAGE = 100;
   const messagesListHeight = useMemo(
@@ -418,7 +420,9 @@ export default function ServiceMessagesTab({ serviceName }: Props) {
             height={messagesListHeight}
             itemKey={(r) => r.trace_id}
             onRowClick={(r) => {
-              if (r.trace_id) setOpenTraceId(r.trace_id);
+              if (!r.trace_id) return;
+              setOpenTraceId(r.trace_id);
+              setOpenMatchedSpans(r.matched_span_ids);
             }}
             rowClassName={(r) => (r.trace_id ? "cursor-pointer hover:bg-surface-3" : "cursor-not-allowed opacity-60")}
             empty={
@@ -502,7 +506,14 @@ export default function ServiceMessagesTab({ serviceName }: Props) {
         onSubmit={onSaveAsView}
       />
 
-      <TraceDrawer traceId={openTraceId} onClose={() => setOpenTraceId(null)} />
+      <TraceDrawer
+        traceId={openTraceId}
+        matchedSpanIds={openMatchedSpans}
+        onClose={() => {
+          setOpenTraceId(null);
+          setOpenMatchedSpans(undefined);
+        }}
+      />
     </div>
   );
 }

@@ -8,11 +8,20 @@
 
 import { useLocation } from "react-router-dom";
 
-export function useTraceHref(): (traceId: string, integrationId?: string) => string {
+export function useTraceHref(): (
+  traceId: string,
+  integrationId?: string,
+  spanId?: string,
+) => string {
   const location = useLocation();
-  return (traceId, integrationId) => {
+  return (traceId, integrationId, spanId) => {
     const params = new URLSearchParams();
     if (integrationId) params.set("integration", integrationId);
+    // Carry the span the user is looking at, so following "open full
+    // view" lands on it. Without this, stepping up from the drawer to
+    // the full page silently drops the selection and the user has to
+    // find their span a second time.
+    if (spanId) params.set("span", spanId);
     params.set("from", `${location.pathname}${location.search}`);
     return `/traces/${encodeURIComponent(traceId)}?${params.toString()}`;
   };

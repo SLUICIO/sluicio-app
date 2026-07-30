@@ -175,6 +175,8 @@ export default function IntegrationMessagesPage() {
   const [exporting, setExporting] = useState(false);
   // The trace whose waterfall + attributes are shown in the drawer.
   const [openTraceId, setOpenTraceId] = useState<string | null>(null);
+  // See Search.tsx — the matched spans travel with the open trace.
+  const [openMatchedSpans, setOpenMatchedSpans] = useState<string[] | undefined>();
 
   const PAGE = 100;
   const messagesListHeight = useMemo(
@@ -728,7 +730,9 @@ export default function IntegrationMessagesPage() {
             height={messagesListHeight}
             itemKey={(r) => r.trace_id}
             onRowClick={(r) => {
-              if (r.trace_id) setOpenTraceId(r.trace_id);
+              if (!r.trace_id) return;
+              setOpenTraceId(r.trace_id);
+              setOpenMatchedSpans(r.matched_span_ids);
             }}
             rowClassName={(r) => (r.trace_id ? "cursor-pointer hover:bg-surface-3" : "cursor-not-allowed opacity-60")}
             empty={
@@ -895,7 +899,11 @@ export default function IntegrationMessagesPage() {
 
       <TraceDrawer
         traceId={openTraceId}
-        onClose={() => setOpenTraceId(null)}
+        matchedSpanIds={openMatchedSpans}
+        onClose={() => {
+          setOpenTraceId(null);
+          setOpenMatchedSpans(undefined);
+        }}
         integrationContextId={id}
       />
     </div>

@@ -133,6 +133,10 @@ export default function Search() {
   // The clicked message opens in a right-side trace blade (like the
   // service- and integration-scoped message views), not a full-page nav.
   const [openTraceId, setOpenTraceId] = useState<string | null>(null);
+  // Carried alongside the open trace so the drawer can select the span
+  // that actually matched. Cleared with it — a stale list would mark
+  // the wrong spans on the next trace opened.
+  const [openMatchedSpans, setOpenMatchedSpans] = useState<string[] | undefined>();
   const [hasResults, setHasResults] = useState(false);
   const [nextCursor, setNextCursor] = useState<MessageCursor | undefined>(undefined);
   const [hasMore, setHasMore] = useState(false);
@@ -576,7 +580,9 @@ export default function Search() {
               height={messagesListHeight}
               itemKey={(r) => r.trace_id}
               onRowClick={(r) => {
-                if (r.trace_id) setOpenTraceId(r.trace_id);
+                if (!r.trace_id) return;
+                setOpenTraceId(r.trace_id);
+                setOpenMatchedSpans(r.matched_span_ids);
               }}
               rowClassName={(r) => (r.trace_id ? "cursor-pointer hover:bg-surface-3" : "cursor-not-allowed opacity-60")}
               empty={
@@ -690,7 +696,14 @@ export default function Search() {
         onSubmit={onSaveAsNewSubmit}
       />
 
-      <TraceDrawer traceId={openTraceId} onClose={() => setOpenTraceId(null)} />
+      <TraceDrawer
+        traceId={openTraceId}
+        matchedSpanIds={openMatchedSpans}
+        onClose={() => {
+          setOpenTraceId(null);
+          setOpenMatchedSpans(undefined);
+        }}
+      />
     </div>
   );
 }

@@ -69,6 +69,7 @@ export default function TraceDetail() {
   // integrations; one being late doesn't make it late everywhere.
   const [searchParams] = useSearchParams();
   const integrationContextId = searchParams.get("integration") ?? undefined;
+  const spanParam = searchParams.get("span") ?? undefined;
   // ?from=<path> — the in-app page (path + query) the user opened this
   // trace from, forwarded by the TraceDrawer's "open full view" and the
   // list pages' trace links. Drives the breadcrumb so the trail reads
@@ -112,10 +113,24 @@ export default function TraceDetail() {
     setError(null);
     api
       .traceDetail(traceId)
-      .then(setData)
+      .then((d) => {
+        setData(d);
+        // ?span= is set when arriving from the drawer's "open full
+        // view", so the span the user was already reading stays
+        // selected across the step up.
+        //
+        // Only honoured when the id is really in this trace, and NOT
+        // via pickInitialSpan: its fallbacks are wrong here. A stale or
+        // hand-edited param would then select the first error span, and
+        // the user would read someone else's span believing it was the
+        // one they linked to. Selecting nothing is the honest answer.
+        if (spanParam && d.spans.some((sp) => sp.span_id === spanParam)) {
+          setSelectedSpan(spanParam);
+        }
+      })
       .catch((e) => setError(String(e.message ?? e)))
       .finally(() => setLoading(false));
-  }, [traceId]);
+  }, [traceId, spanParam]);
 
   // Breadcrumb: origin first, then (when in an integration context)
   // the integration, then this trace. Without any context the default

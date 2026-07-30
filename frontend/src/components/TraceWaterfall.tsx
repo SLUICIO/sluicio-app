@@ -5,7 +5,7 @@
 // positioned bar in a 0-to-total-ms ruler, and the duration on the
 // right. Parallel hops overlap in time on the ruler.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { SpanSummary } from "../api/types";
 import { formatDurationMs } from "../lib/format";
 import { StatusPip } from "./primitives";
@@ -25,6 +25,15 @@ interface Props {
   // under hundreds of healthy ones. The "Errors only" toggle still lets the
   // user expand to the full trace.
   defaultErrorsOnly?: boolean;
+  // Spans that satisfied the search the user arrived from. Marked so a
+  // trace opened from a filter shows WHY it came back — with several
+  // matches, one is selected and the others stay findable instead of
+  // the user re-reading the waterfall to work out which span was meant.
+  //
+  // Distinct from selection: matched says "this answered your query",
+  // selected says "you are looking at this one". They start on the same
+  // span and diverge as soon as the user clicks elsewhere.
+  matchedSpanIds?: string[];
 }
 
 function hops(spans: SpanSummary[]): { hops: Hop[]; total: number; t0: number } {
@@ -47,7 +56,14 @@ function hops(spans: SpanSummary[]): { hops: Hop[]; total: number; t0: number } 
   return { hops: list, total: tn - t0, t0 };
 }
 
-export default function TraceWaterfall({ spans, onHopClick, selected, defaultErrorsOnly }: Props) {
+export default function TraceWaterfall({
+  spans,
+  onHopClick,
+  selected,
+  defaultErrorsOnly,
+  matchedSpanIds,
+}: Props) {
+  const matched = useMemo(() => new Set(matchedSpanIds ?? []), [matchedSpanIds]);
   // "Errors only" filter — for long traces where the failing spans are
   // buried. We still derive total/t0 from ALL spans below, so the error
   // bars keep their true position on the full-trace timeline.
@@ -70,8 +86,13 @@ export default function TraceWaterfall({ spans, onHopClick, selected, defaultErr
   // every span errored, but staying visible there is less surprising than
   // vanishing on a fully-failed trace.)
   const showErrorsToggle = errorCount > 0;
+  // Errors-only never hides a span the user searched for. On an errored
+  // trace the toggle defaults ON, so without this exception arriving from
+  // "file.name contains orders" onto a trace whose match is a healthy
+  // span would hide that span — the one row the user came to see —
+  // behind a filter they never set.
   const visible = errorsOnly
-    ? list.filter((h) => h.span.status_code === "Error")
+    ? list.filter((h) => h.span.status_code === "Error" || matched.has(h.span.span_id))
     : list;
 
   // Ruler ticks at 0%, 25%, 50%, 75%, 100% of total.
@@ -131,6 +152,7 @@ export default function TraceWaterfall({ spans, onHopClick, selected, defaultErr
         const width = Math.max(0.3, (h.durationMs / total) * 100);
         const isError = h.span.status_code === "Error";
         const isSelected = selected === h.span.span_id;
+        const isMatch = matched.has(h.span.span_id);
         return (
           <button
             type="button"
@@ -142,12 +164,36 @@ export default function TraceWaterfall({ spans, onHopClick, selected, defaultErr
               gridTemplateColumns: "260px 1fr 90px",
               borderBottom: "1px solid var(--border)",
               background: isSelected ? "var(--surface-3)" : undefined,
+              // A match is marked on the leading edge rather than by
+              // background, so it survives being the selected row —
+              // background alone would make selection erase the very
+              // thing that explains why the trace is on screen.
+              boxShadow: isMatch ? "inset 3px 0 0 0 var(--primary)" : undefined,
             }}
           >
             <div className="flex min-w-0 items-center gap-2">
               <StatusPip kind={isError ? "err" : "ok"} />
               <div className="min-w-0">
-                <div className="truncate font-medium">{h.span.service_name}</div>
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <span className="truncate font-medium">{h.span.service_name}</span>
+                  {isMatch && (
+                    <span
+                      title="This span matched your search"
+                      style={{
+                        flex: "none",
+                        fontSize: 10,
+                        lineHeight: "14px",
+                        padding: "0 5px",
+                        borderRadius: 999,
+                        color: "var(--primary)",
+                        border: "1px solid color-mix(in srgb, var(--primary) 45%, transparent)",
+                        background: "color-mix(in srgb, var(--primary) 12%, transparent)",
+                      }}
+                    >
+                      match
+                    </span>
+                  )}
+                </div>
                 <div className="truncate text-xs text-muted">{h.span.span_name}</div>
               </div>
             </div>
