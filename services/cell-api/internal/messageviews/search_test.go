@@ -81,3 +81,63 @@ func TestErrorTypeClauses(t *testing.T) {
 		}
 	}
 }
+
+// The status picker offers four fixed labels. Build has to agree with
+// every one of them, and the labels are the contract — the UI sends the
+// literal string the user clicked.
+//
+// This is pinned by label rather than by intent because the bug it
+// exists for was purely lexical: "any (ok, warn, err)" enumerates the
+// statuses it admits, so a substring test for "warn" matched the ONE
+// option that means "do not filter" and turned it into errors-only.
+// Testing normStatus with tidy inputs like "any" would have passed
+// while the shipped label failed, so the exact strings are the fixture.
+//
+// Keep this list identical to `choices` in FilterEditor.tsx.
+func TestStatusPickerLabelsMapToTheRightFilter(t *testing.T) {
+	cases := []struct {
+		label      string
+		onlyFailed bool
+		statusOK   bool
+	}{
+		{"any (ok, warn, err)", false, false},
+		{"ok only", false, true},
+		{"err only", true, false},
+		// Warn is not modelled yet and deliberately narrows to errors,
+		// so the user sees the strongest signal rather than nothing.
+		{"warn or err", true, false},
+	}
+	for _, c := range cases {
+		sql, err := Build([]Filter{{Field: FieldStatus, Op: OpIs, Value: c.label}})
+		if err != nil {
+			t.Fatalf("%q: build: %v", c.label, err)
+		}
+		if sql.OnlyFailed != c.onlyFailed || sql.StatusOK != c.statusOK {
+			t.Errorf("%q → OnlyFailed=%v StatusOK=%v; want OnlyFailed=%v StatusOK=%v",
+				c.label, sql.OnlyFailed, sql.StatusOK, c.onlyFailed, c.statusOK)
+		}
+	}
+}
+
+// "any" must stay inert no matter how the label is written, since its
+// whole job is to impose no filter at all. A filter that silently
+// narrows is worse than one that errors: the result set looks like an
+// answer.
+func TestAnyStatusNeverNarrows(t *testing.T) {
+	for _, v := range []string{
+		"any (ok, warn, err)",
+		"Any (OK, WARN, ERR)",
+		"  any (ok, warn, err)  ",
+		"any",
+		"",
+	} {
+		sql, err := Build([]Filter{{Field: FieldStatus, Op: OpIs, Value: v}})
+		if err != nil {
+			t.Fatalf("%q: build: %v", v, err)
+		}
+		if sql.OnlyFailed || sql.StatusOK {
+			t.Errorf("%q narrowed the result set (OnlyFailed=%v StatusOK=%v); "+
+				"an 'any' status must impose no filter", v, sql.OnlyFailed, sql.StatusOK)
+		}
+	}
+}

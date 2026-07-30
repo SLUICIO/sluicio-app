@@ -247,14 +247,24 @@ func parseTimePreset(v string) string {
 func normStatus(v string) string {
 	v = strings.ToLower(strings.TrimSpace(v))
 	switch {
+	// "any" is tested FIRST, and this ordering is load-bearing. The
+	// picker's label for it is "any (ok, warn, err)" — it enumerates the
+	// statuses it lets through. That label CONTAINS "warn", so while the
+	// substring test below came first, choosing the broadest option
+	// resolved to "warn-or-err" and therefore to errors-only: the one
+	// choice that means "filter nothing" quietly became the narrowest
+	// filter available, and a user picking it saw only failures.
+	//
+	// Substring evidence is weaker than prefix evidence, so anything
+	// that decides on a substring has to run after every prefix test.
+	case strings.HasPrefix(v, "any"):
+		return "any"
 	case strings.HasPrefix(v, "err"):
 		return "err"
 	case strings.HasPrefix(v, "ok"):
 		return "ok"
 	case strings.Contains(v, "warn"):
 		return "warn-or-err"
-	case strings.HasPrefix(v, "any"):
-		return "any"
 	}
 	return ""
 }
