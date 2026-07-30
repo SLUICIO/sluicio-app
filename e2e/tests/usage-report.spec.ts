@@ -86,16 +86,31 @@ test.describe("Usage report — savings suggestions + per-signal coverage", () =
       await expect(page.getByText(/aren't used in any alert/).first()).toBeVisible();
       await expect(page.getByText(/could save/).first()).toBeVisible();
     }
+    // The three per-signal breakdowns are behind a tab strip; only the
+    // summary cards above it are always on screen. Each list has to be
+    // selected before it exists in the DOM.
+    const signalTab = (name: string) => page.getByRole("tab", { name, exact: true });
+
     if ((report.logs.services ?? []).length > 0) {
+      await signalTab("Logs").click();
       // Generous window — the report fetch competes with the whole suite.
       await expect(page.getByRole("heading", { name: "Logs by service" })).toBeVisible({ timeout: 20_000 });
       const uncoveredLog = (report.logs.services ?? []).find((s: { covered: boolean }) => !s.covered);
       if (uncoveredLog) {
         await expect(page.getByText("not covered").first()).toBeVisible();
       }
+      // Selecting a tab must also LOOK selected. The strip shipped once
+      // with no visual selected state at all — every tab looked idle,
+      // so the page read as broken even though it worked.
+      await expect(signalTab("Logs")).toHaveAttribute("aria-selected", "true");
+      await expect(signalTab("Metrics")).toHaveAttribute("aria-selected", "false");
     }
     if ((report.traces.services ?? []).length > 0) {
+      await signalTab("Traces").click();
       await expect(page.getByRole("heading", { name: "Traces by service" })).toBeVisible({ timeout: 20_000 });
+      // Switching away must actually hide the previous list, or the
+      // tabs are decoration and the page is as crowded as before.
+      await expect(page.getByRole("heading", { name: "Logs by service" })).toHaveCount(0);
     }
   });
 
