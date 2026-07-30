@@ -3024,6 +3024,13 @@ function ReportsTab() {
   // stored, with storage estimates — feeds the savings cards and the
   // logs/traces sections.
   const [report, setReport] = useState<UsageReportResponse | null>(null);
+  // Which signal's breakdown is on screen. The three SUMMARY cards stay
+  // above the tabs: the whole point of this page is the gap between what
+  // you store and what you watch, and that comparison only works when
+  // all three signals are visible at once. Only the long per-signal
+  // lists are tabbed, because three scrolling tables stacked on one page
+  // is how you end up never reading the second two.
+  const [signal, setSignal] = useState<"metrics" | "logs" | "traces">("metrics");
 
   useEffect(() => {
     setLoading(true);
@@ -3084,84 +3091,111 @@ function ReportsTab() {
         </div>
       )}
 
-      <h2 style={{ marginBottom: 4 }}>Metrics not used in health checks</h2>
-      <p className="muted" style={{ fontSize: 13.5, marginTop: 0 }}>
-        These metrics are being ingested and stored, but no health check or alert rule references them — the prime
-        candidates to trim. Open{" "}
-        <button type="button" className="btn btn--link" style={{ padding: 0 }} onClick={() => setTrimOpen(true)}>
-          Trim ingestion
-        </button>{" "}
-        to generate a collector config that drops the ones you don't need.
-      </p>
-
-      {loading ? (
-        <div className="placeholder">Loading…</div>
-      ) : metrics.length === 0 ? (
-        <div className="placeholder">No metrics seen in this window.</div>
-      ) : unused.length === 0 ? (
-        <div className="placeholder">Every metric in this window is watched by a health check. Nothing to trim. 🟢</div>
-      ) : (
-        <>
-          <div className="muted" style={{ fontSize: 13, margin: "6px 0 10px" }}>
-            <strong style={{ color: "var(--ink)" }}>{unused.length}</strong> of {metrics.length} metrics are unused
-            (highest series count first).
-          </div>
-          <div
-            style={{ maxHeight: 460, overflow: "auto", border: "1px solid var(--border)", borderRadius: 6 }}
-            onScroll={onScroll}
+      <div className="level-seg" role="tablist" aria-label="Signal breakdown" style={{ marginBottom: 14 }}>
+        {([
+          ["metrics", "Metrics"],
+          ["logs", "Logs"],
+          ["traces", "Traces"],
+        ] as const).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            aria-selected={signal === key}
+            className={`level-seg__btn${signal === key ? " is-active" : ""}`}
+            onClick={() => setSignal(key)}
           >
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Metric</th>
-                  <th>Type</th>
-                  <th className="num">Series</th>
-                  <th className="num">Points</th>
-                </tr>
-              </thead>
-              <tbody>
-                {shown.map((m) => (
-                  <Fragment key={m.name}>
-                    <tr
-                      onClick={() =>
-                        setExpanded((prev) => {
-                          const n = new Set(prev);
-                          n.has(m.name) ? n.delete(m.name) : n.add(m.name);
-                          return n;
-                        })
-                      }
-                      style={{ cursor: "pointer" }}
-                      title="Show attribute breakdown"
-                    >
-                      <td className="mono" style={{ fontSize: 12.5 }}>
-                        <span className="muted" style={{ marginRight: 6 }}>{expanded.has(m.name) ? "▾" : "▸"}</span>
-                        {m.name}
-                      </td>
-                      <td className="muted">{m.type}</td>
-                      <td className="num">{(m.series_count ?? 0).toLocaleString()}</td>
-                      <td className="num">{(m.point_count ?? 0).toLocaleString()}</td>
-                    </tr>
-                    {expanded.has(m.name) && (
-                      <tr>
-                        <td colSpan={4} style={{ padding: "2px 12px 10px 34px", background: "var(--surface-3)" }}>
-                          <MetricAttributesInline metric={m.name} window={range} />
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {signal === "metrics" && (
+        <div style={{ marginTop: 22 }}>
+        <h2 style={{ marginBottom: 4 }}>Metrics not used in health checks</h2>
+        <p className="muted" style={{ fontSize: 13.5, marginTop: 0 }}>
+          These metrics are being ingested and stored, but no health check or alert rule references them — the prime
+          candidates to trim. Open{" "}
+          <button type="button" className="btn btn--link" style={{ padding: 0 }} onClick={() => setTrimOpen(true)}>
+            Trim ingestion
+          </button>{" "}
+          to generate a collector config that drops the ones you don't need.
+        </p>
+
+        {loading ? (
+          <div className="placeholder">Loading…</div>
+        ) : metrics.length === 0 ? (
+          <div className="placeholder">No metrics seen in this window.</div>
+        ) : unused.length === 0 ? (
+          <div className="placeholder">Every metric in this window is watched by a health check. Nothing to trim. 🟢</div>
+        ) : (
+          <>
+            <div className="muted" style={{ fontSize: 13, margin: "6px 0 10px" }}>
+              <strong style={{ color: "var(--ink)" }}>{unused.length}</strong> of {metrics.length} metrics are unused
+              (highest series count first).
+            </div>
+            <div
+              style={{ maxHeight: 460, overflow: "auto", border: "1px solid var(--border)", borderRadius: 6 }}
+              onScroll={onScroll}
+            >
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Metric</th>
+                    <th>Type</th>
+                    <th className="num">Series</th>
+                    <th className="num">Points</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {shown.map((m) => (
+                    <Fragment key={m.name}>
+                      <tr
+                        onClick={() =>
+                          setExpanded((prev) => {
+                            const n = new Set(prev);
+                            n.has(m.name) ? n.delete(m.name) : n.add(m.name);
+                            return n;
+                          })
+                        }
+                        style={{ cursor: "pointer" }}
+                        title="Show attribute breakdown"
+                      >
+                        <td className="mono" style={{ fontSize: 12.5 }}>
+                          <span className="muted" style={{ marginRight: 6 }}>{expanded.has(m.name) ? "▾" : "▸"}</span>
+                          {m.name}
                         </td>
+                        <td className="muted">{m.type}</td>
+                        <td className="num">{(m.series_count ?? 0).toLocaleString()}</td>
+                        <td className="num">{(m.point_count ?? 0).toLocaleString()}</td>
                       </tr>
-                    )}
-                  </Fragment>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
-            Showing {shown.length} of {unused.length}
-            {shown.length < unused.length ? " — scroll for more" : ""}
-          </div>
-        </>
+                      {expanded.has(m.name) && (
+                        <tr>
+                          <td colSpan={4} style={{ padding: "2px 12px 10px 34px", background: "var(--surface-3)" }}>
+                            <MetricAttributesInline metric={m.name} window={range} />
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+              Showing {shown.length} of {unused.length}
+              {shown.length < unused.length ? " — scroll for more" : ""}
+            </div>
+          </>
+        )}
+        </div>
       )}
 
-      {report && <SignalServicesSection title="Logs by service" signal="log" rep={report.logs} />}
-      {report && <SignalServicesSection title="Traces by service" signal="trace" rep={report.traces} />}
+      {signal === "logs" && report && (
+        <SignalServicesSection title="Logs by service" signal="log" rep={report.logs} />
+      )}
+      {signal === "traces" && report && (
+        <SignalServicesSection title="Traces by service" signal="trace" rep={report.traces} />
+      )}
 
       {trimOpen && <TrimIngestionPanel window={range} onClose={() => setTrimOpen(false)} />}
     </div>

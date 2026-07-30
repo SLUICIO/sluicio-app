@@ -39,7 +39,7 @@ func generateEDITrace(rng *mrand.Rand) ediTrace {
 	out := ediTrace{services: map[string]bool{}}
 	for _, ss := range ediGatewayScenario(rng) {
 		out.services[ss.serviceName] = true
-		if ss.serviceName != "edi-gateway" {
+		if ss.serviceName != "b2b-gateway" {
 			out.downstream = append(out.downstream, ss.serviceName)
 		}
 		for _, sp := range ss.spans {
@@ -71,7 +71,7 @@ func TestEDIScenarioKeepsItsShape(t *testing.T) {
 	for i := 0; i < n; i++ {
 		tr := generateEDITrace(rng)
 
-		if tr.rootService != "edi-gateway" {
+		if tr.rootService != "b2b-gateway" {
 			t.Fatalf("trace rooted at %q; every flow must enter through the shared gateway, "+
 				"or the scenario stops modelling the case it exists for", tr.rootService)
 		}

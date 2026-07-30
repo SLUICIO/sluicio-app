@@ -1730,11 +1730,17 @@ func ftpFanoutScenario(rng *mrand.Rand) []serviceSpans {
 
 // --- EDI gateway scenario ----------------------------------------------
 //
+// The service is named b2b-gateway rather than the obvious edi-gateway:
+// that name is taken by a separate test-data generator that models a
+// four-service partner pipeline, and two generators writing spans under
+// one service.name produce a service whose traces come from two
+// unrelated flows — which looks like a real topology bug and is not.
+//
 // ediGatewayScenario models the shape the fan-out scenario deliberately
 // lacks: ONE entry point whose message type decides an entirely
 // different downstream flow. Three integrations share a front door.
 //
-//	edi-gateway  receive_interchange (Server, root)
+//	b2b-gateway  receive_interchange (Server, root)
 //	  └── publish_<type> (Producer) ──▶ per-type queue
 //	        │
 //	        ├── ORDERS ▶ order-validator    ──HTTP──▶ erp-adapter
@@ -1747,14 +1753,14 @@ func ftpFanoutScenario(rng *mrand.Rand) []serviceSpans {
 // has to survive.
 //
 //   - Entry point does not discriminate. All three flows root at
-//     edi-gateway, so "one integration per root service" merges three
+//     b2b-gateway, so "one integration per root service" merges three
 //     businesses into one.
 //   - Naming does not discriminate. order-validator, invoice-matcher
 //     and despatch-notifier share no prefix or suffix with their own
 //     downstream partner, and erp-adapter / finance-ledger /
 //     warehouse-sync share none with anything.
 //   - The dependency graph does not discriminate. Every flow touches
-//     edi-gateway, so connected components collapse all three.
+//     b2b-gateway, so connected components collapse all three.
 //
 // What DOES separate them is the service SET per trace (the three
 // downstream pairs are disjoint) correlating with edi.message_type.
@@ -1856,7 +1862,7 @@ func ediGatewayScenario(rng *mrand.Rand) []serviceSpans {
 
 	okStatus := func() *tracepb.Status { return &tracepb.Status{Code: tracepb.Status_STATUS_CODE_OK} }
 
-	// --- edi-gateway: the shared front door ------------------------------
+	// --- b2b-gateway: the shared front door ------------------------------
 	receiveAttrs := []*commonpb.KeyValue{
 		stringAttr("edi.message_type", route.messageType),
 		stringAttr("edi.interchange_control_ref", controlRef),
@@ -1865,7 +1871,7 @@ func ediGatewayScenario(rng *mrand.Rand) []serviceSpans {
 		intAttr("edi.line_count", lineCount),
 		stringAttr("http.request.method", "POST"),
 		stringAttr("http.route", "/as2/inbound"),
-		stringAttr("integration.id", "edi-gateway"),
+		stringAttr("integration.id", "b2b-gateway"),
 	}
 	receiveAttrs = append(receiveAttrs, ioAttrs("input", "http", "as2", "/as2/inbound")...)
 	receiveSpan := &tracepb.Span{
@@ -1886,7 +1892,7 @@ func ediGatewayScenario(rng *mrand.Rand) []serviceSpans {
 		stringAttr("messaging.operation", "publish"),
 		stringAttr("edi.message_type", route.messageType),
 		stringAttr("edi.interchange_control_ref", controlRef),
-		stringAttr("integration.id", "edi-gateway"),
+		stringAttr("integration.id", "b2b-gateway"),
 	}
 	publishAttrs = append(publishAttrs, ioAttrs("output", "queue", msgSystem, route.queue)...)
 	publishSpan := &tracepb.Span{
@@ -1992,7 +1998,7 @@ func ediGatewayScenario(rng *mrand.Rand) []serviceSpans {
 
 	return []serviceSpans{
 		{
-			serviceName:      "edi-gateway",
+			serviceName:      "b2b-gateway",
 			serviceNamespace: "production",
 			spans:            []*tracepb.Span{receiveSpan, publishSpan},
 		},

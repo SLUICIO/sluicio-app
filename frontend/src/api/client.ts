@@ -184,7 +184,15 @@ async function request<T>(
     } catch {
       /* ignore */
     }
-    throw new Error(`${res.status} ${detail}`);
+    // Carry the status on the error object as well as in the message.
+    // Callers that need to tell an entitlement gate (402) from a real
+    // failure cannot parse it back out of a human-readable string, and
+    // one that tries will silently fall through to an error banner —
+    // which is exactly what the Advisor panel did, showing a raw
+    // "402 Payment Required" where the upsell should have been.
+    const err = new Error(`${res.status} ${detail}`) as Error & { status?: number };
+    err.status = res.status;
+    throw err;
   }
   if (res.status === 204) return undefined as unknown as T;
   // Defensive: a 200 with no body (e.g. a backend that failed to encode

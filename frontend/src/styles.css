@@ -875,6 +875,15 @@ code, .mono {
 .level-seg__btn[aria-checked="true"].is-warn  { color: var(--warn-ink); }
 .level-seg__btn[aria-checked="true"].is-err   { color: var(--err-ink); }
 .level-seg__btn[aria-checked="true"].is-fatal { background: var(--err); color: #fff; box-shadow: none; }
+/* Tab variant. A segmented radio group marks its choice with
+   aria-checked; a tablist uses aria-selected. Both are correct ARIA for
+   their own widget, so the selected LOOK is shared here rather than
+   forcing tabs to lie about what they are — without this a tablist
+   built on .level-seg renders with no active state at all. */
+.level-seg__btn.is-active,
+.level-seg__btn[aria-selected="true"] {
+  background: var(--surface-2); color: var(--ink); font-weight: 600; box-shadow: var(--shadow-sm);
+}
 
 /* composite filter chip — key · op · value · × */
 .fchip {
