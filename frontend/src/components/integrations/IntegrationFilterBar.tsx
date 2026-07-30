@@ -8,6 +8,7 @@
 
 import type { MetadataField } from "../../api/types";
 import SearchableSelect from "../SearchableSelect";
+import { uid } from "../../lib/uid";
 
 export type StaticFilterField = "name" | "namespace" | "description" | "slug" | "status" | "system_kind";
 export type FilterField = StaticFilterField | `meta:${string}`;
@@ -123,7 +124,7 @@ export default function IntegrationFilterBar({ filters, onChange, metadataFields
     const op = opsFor(spec.kind)[0].value;
     onChange([
       ...filters,
-      { id: crypto.randomUUID(), field: spec.field, op, value: "" },
+      { id: uid(), field: spec.field, op, value: "" },
     ]);
   };
 

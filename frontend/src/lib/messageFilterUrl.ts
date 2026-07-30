@@ -14,6 +14,7 @@
 // the route, so only the user-set rows round-trip through the URL.
 
 import type { Filter } from "../components/search/FilterEditor";
+import { uid } from "./uid";
 
 // hydrateFiltersFromUrl reads ?q / ?s into a list of user filters. The
 // caller prepends any locked scope filter; this only returns the
@@ -25,7 +26,7 @@ export function hydrateFiltersFromUrl(search: string): Filter[] {
   const s = params.get("s");
   if (s) {
     out.push({
-      id: crypto.randomUUID(),
+      id: uid(),
       field: "status",
       op: "is",
       value: s,
@@ -43,7 +44,7 @@ export function hydrateFiltersFromUrl(search: string): Filter[] {
       // bare "orderId:1" shorthand resolve to the same payload row.
       const path = lhs.startsWith("payload.") ? lhs.slice("payload.".length) : lhs;
       out.push({
-        id: crypto.randomUUID(),
+        id: uid(),
         field: "payload",
         fieldPath: path,
         op: "equals",

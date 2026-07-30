@@ -7,6 +7,51 @@
 import { test, expect } from "@playwright/test";
 import { logIn } from "./fixtures";
 
+// Adding a filter is one of the first things anyone does with the
+// product, so it gets a test that drives the button in a browser rather
+// than only unit-testing the id helper underneath it.
+//
+// The interesting case is the one that reached a user: on a self-hosted
+// cell at http://box.local:8080 the page is NOT a secure context, so
+// crypto.randomUUID does not exist and the click threw
+// "crypto.randomUUID is not a function", emptying the view.
+//
+// Playwright always drives http://localhost, which IS a secure context,
+// and Chromium has no switch to make an origin less trusted — only
+// --unsafely-treat-insecure-origin-as-secure, which goes the wrong way.
+// So the context is removed at the only place that matters to this code:
+// the API surface. Deleting randomUUID before any script runs leaves the
+// page in exactly the state a LAN-hostname browser hands it —
+// getRandomValues present, randomUUID absent — in a real browser, on the
+// real page, through the real click.
+test("adding a filter works without crypto.randomUUID — the non-secure-context cell", async ({ page }) => {
+  const crashes: string[] = [];
+  page.on("pageerror", (e) => crashes.push(e.message));
+  await page.addInitScript(() => {
+    // @ts-expect-error deleting an optional platform API on purpose
+    delete Crypto.prototype.randomUUID;
+    // @ts-expect-error some builds expose it as an own property too
+    delete crypto.randomUUID;
+  });
+  await logIn(page);
+
+  // Guard the guard: if a future browser or polyfill puts randomUUID back,
+  // this test would silently go back to exercising the secure-context
+  // path and prove nothing.
+  expect(
+    await page.evaluate(() => typeof (crypto as Crypto).randomUUID),
+    "randomUUID is still present — this test is no longer reproducing the reported failure",
+  ).toBe("undefined");
+
+  await page.goto("/search?s=any");
+  await page.getByRole("button", { name: "+ add a filter" }).click();
+  // The row must actually render — not merely fail to throw.
+  await expect(page.getByRole("button", { name: /attribute/ }).last()).toBeVisible();
+  await page.getByRole("button", { name: "+ add a filter" }).click();
+  await expect(page.getByRole("button", { name: /attribute/ })).toHaveCount(2);
+  expect(crashes, `adding a filter threw: ${crashes.join(" | ")}`).toEqual([]);
+});
+
 test("error-type list + integration↔service cross-narrowing on /search", async ({ page }) => {
   // The budget must exceed what this test is ALLOWED to spend waiting.
   // Two polls below wait up to 60s and 45s for data that resolves
@@ -15,6 +60,27 @@ test("error-type list + integration↔service cross-narrowing on /search", async
   // survived on warm cells and died on busy ones, which reads as
   // flakiness but is really arithmetic: raise this if either poll grows.
   test.setTimeout(180_000);
+
+  // Fail on any uncaught exception during the filter flow.
+  //
+  // Building a filter is among the first things anyone does with the
+  // product, and when the editor throws it takes the whole view down
+  // with it — the page just empties, with the reason only in a console
+  // nobody has open. Asserting the absence of uncaught errors turns that
+  // into a test failure rather than a support conversation.
+  //
+  // Scoped to pageerror (uncaught exceptions) rather than console.error,
+  // which carries React warnings and failed background fetches and would
+  // make this flaky for no gain.
+  //
+  // Note what this canNOT catch: anything that only misbehaves outside a
+  // secure context. Playwright drives http://localhost, where
+  // crypto.randomUUID and friends exist — a self-hosted cell on
+  // http://box.local:8080 is a different world. That class of bug is
+  // guarded in frontend/src/lib/uid.test.ts, where the context can be
+  // taken away deliberately.
+  const crashes: string[] = [];
+  page.on("pageerror", (e) => crashes.push(e.message));
   await logIn(page);
   const admin = page.request;
   const stamp = Date.now().toString(36);
@@ -62,7 +128,13 @@ test("error-type list + integration↔service cross-narrowing on /search", async
         { timeout: 45_000 },
       )
       .toBeGreaterThan(0);
-    await page.goto("/search?s=any");
+    // ?range=24h must match the window the poll above checked. The page
+    // otherwise opens on DEFAULT_WINDOW ("1h") while we verified error
+    // types exist over 24h — so on a cell whose seed is more than an hour
+    // old the picker is legitimately empty and this test fails for a
+    // reason that has nothing to do with the picker. That passed on CI
+    // only because CI seeds minutes before it asserts.
+    await page.goto("/search?s=any&range=24h");
     await expect(page.getByRole("button", { name: "+ add a filter" })).toBeVisible();
     // Add a filter row → defaults to payload; switch it to error type.
     await page.getByRole("button", { name: "+ add a filter" }).click();
@@ -93,6 +165,7 @@ test("error-type list + integration↔service cross-narrowing on /search", async
     await page.getByRole("button", { name: `Probe A ${stamp}` }).click();
     await expect(page.getByRole("button", { name: `Probe A ${stamp}` }).last()).toBeVisible();
     await expect(page.getByRole("button", { name: `Probe B ${stamp}` })).toHaveCount(0);
+    expect(crashes, `the filter editor threw: ${crashes.join(" | ")}`).toEqual([]);
   } finally {
     await admin.delete(`/api/v1/integrations/${a}`);
     await admin.delete(`/api/v1/integrations/${b}`);

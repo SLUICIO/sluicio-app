@@ -34,6 +34,7 @@ import {
   writeFiltersToParams,
 } from "../lib/messageFilterUrl";
 import { useTimeWindow } from "../lib/useTimeWindow";
+import { uid } from "../lib/uid";
 
 // makeLockedServiceFilter builds the non-removable scope row. The
 // search engine matches on the service name, so the value is the name.
@@ -80,7 +81,7 @@ function viewFromWire(v: MessageView): SavedView {
     filters: v.filters
       .filter((f) => f.field !== "time")
       .map((f) => ({
-        id: f.id ?? crypto.randomUUID(),
+        id: f.id ?? uid(),
         field: f.field,
         fieldPath: f.fieldPath,
         op: f.op,
@@ -243,7 +244,7 @@ export default function ServiceMessagesTab({ serviceName }: Props) {
     setUserFilters(
       v.filters
         .filter((f) => !f.locked && f.field !== "time")
-        .map((f) => ({ ...f, id: f.id || crypto.randomUUID() })),
+        .map((f) => ({ ...f, id: f.id || uid() })),
     );
     setShowOpenSaved(false);
   };

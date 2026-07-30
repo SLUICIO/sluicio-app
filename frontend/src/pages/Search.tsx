@@ -46,6 +46,7 @@ import {
   fetchAllMessages,
   messageRowsToCsv,
 } from "../lib/messagesCsv";
+import { uid } from "../lib/uid";
 
 // ── view ↔ wire conversion ───────────────────────────────────────────
 // SavedView (UI) <-> MessageView (wire). The shapes are nearly
@@ -69,7 +70,7 @@ function viewFromWire(v: MessageView): SavedView {
     filters: v.filters
       .filter((f) => f.field !== "time")
       .map((f) => ({
-        id: f.id ?? crypto.randomUUID(),
+        id: f.id ?? uid(),
         field: f.field,
         fieldPath: f.fieldPath,
         op: f.op,
@@ -101,7 +102,7 @@ function filtersToWire(filters: Filter[]): MessageFilter[] {
 // before saving. Lives only in memory until save fires.
 function blankView(): SavedView {
   return {
-    id: `draft-${crypto.randomUUID()}`,
+    id: `draft-${uid()}`,
     name: "untitled view",
     mine: true,
     pinned: false,

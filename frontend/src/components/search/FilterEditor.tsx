@@ -8,6 +8,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { MessageAttributeKey, MessageFieldDescriptor } from "../../api/types";
+import { uid } from "../../lib/uid";
 
 export type Field = "payload" | "time" | "integration" | "status" | "service" | "errorType" | "traceId" | "spanId";
 export type Operator = "equals" | "contains" | "is" | "in" | "matches";
@@ -159,7 +160,7 @@ export default function FilterEditor({
     // field pill opens straight onto the attribute typeahead, so we never
     // pin a made-up example like "orderId".
     const next: Filter = {
-      id: crypto.randomUUID(),
+      id: uid(),
       field: "payload",
       fieldPath: "",
       op: "equals",

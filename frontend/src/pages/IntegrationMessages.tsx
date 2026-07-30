@@ -55,6 +55,7 @@ import {
   fetchAllMessages,
   messageRowsToCsv,
 } from "../lib/messagesCsv";
+import { uid } from "../lib/uid";
 
 // The add-field options offered in the filter editor on this page.
 // "integration" is intentionally omitted — the page is already scoped to one
@@ -109,7 +110,7 @@ function viewFromWire(v: MessageView): SavedView {
     filters: v.filters
       .filter((f) => f.field !== "time")
       .map((f) => ({
-        id: f.id ?? crypto.randomUUID(),
+        id: f.id ?? uid(),
         field: f.field,
         fieldPath: f.fieldPath,
         op: f.op,
@@ -471,7 +472,7 @@ export default function IntegrationMessagesPage() {
     setUserFilters(
       v.filters
         .filter((f) => !f.locked && f.field !== "time")
-        .map((f) => ({ ...f, id: f.id || crypto.randomUUID() })),
+        .map((f) => ({ ...f, id: f.id || uid() })),
     );
     setShowOpenSaved(false);
   };
