@@ -3,8 +3,15 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.52 — 2026-07-30
+
+- test: follow the reports page behind its new tab strip (e41e3f6)
+- filters: stop crashing on cells that aren't a secure context (56c9ba5)
+- ui: the tab strips had no selected state, and a 402 read as a crash (0431258)
+
 ## v0.11.51 — 2026-07-29
 
+- release v0.11.51 — refresh internal changelog (c3c1eca)
 - retention: separate "who chose this" from "is it still running" (005fa7b)
 
 ## v0.11.50 — 2026-07-29
