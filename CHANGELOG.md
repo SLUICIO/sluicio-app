@@ -3,8 +3,14 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.55 — 2026-07-31
+
+- systems: pick a type from the catalog instead of typing its key (7d3d61a)
+- health checks: bind one to a system (issue #13) (0fefa6f)
+
 ## v0.11.54 — 2026-07-31
 
+- release v0.11.54 — refresh internal changelog (a8f6e7d)
 - health checks: bind one to an integration, not just a service (7d8e5c7)
 - health checks: the split-by preview counted the wrong noun (dd6830c)
 
