@@ -752,8 +752,15 @@ export const api = {
   updateAlertRule: (id: string, body: AlertRuleInput) =>
     put<AlertRule>(`/alert-rules/${encodeURIComponent(id)}`, body),
   deleteAlertRule: (id: string) => del(`/alert-rules/${encodeURIComponent(id)}`),
-  previewAlertRule: (spec: MetricRuleSpec, serviceName?: string) =>
-    post<AlertPreview>(`/alert-rules/preview`, { spec, service_name: serviceName }),
+  // The scope must match how the saved rule will evaluate: a preview
+  // that quietly widened to every visible service would show a number
+  // the rule never produces.
+  previewAlertRule: (spec: MetricRuleSpec, serviceName?: string, integrationId?: string) =>
+    post<AlertPreview>(`/alert-rules/preview`, {
+      spec,
+      service_name: serviceName,
+      integration_id: integrationId,
+    }),
   // Render a notification (email HTML / webhook JSON) against a sample firing
   // context for the given content config — preview, no send.
   // Notification message templates (org→team ladder, issue #5).

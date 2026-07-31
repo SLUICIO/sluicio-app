@@ -11,6 +11,7 @@ import {
   isTimestampMetric,
   formatTimestampSeconds,
   formatTimestampSecondsCompact,
+  displayUnit,
 } from "../../lib/format";
 import MetricTypePill from "./MetricTypePill";
 import Sparkline from "./Sparkline";
@@ -47,7 +48,7 @@ export default function MetricRow({
       <div className="mt-name">
         <span className="m-name-text">{entry.name}</span>
         <span className="m-desc">
-          {entry.unit ? `${entry.unit} · ` : ""}
+          {displayUnit(entry.unit) ? `${displayUnit(entry.unit)} · ` : ""}
           {entry.aggregation}
         </span>
       </div>
@@ -65,7 +66,9 @@ export default function MetricRow({
         ) : (
           <>
             <span className={`m-val ${breached ? "br" : ""}`}>{formatMetricValue(entry.value, entry.unit)}</span>
-            {entry.unit && !isByteUnit(entry.unit) && <span className="m-unit">{entry.unit}</span>}
+            {displayUnit(entry.unit) && !isByteUnit(entry.unit) && (
+          <span className="m-unit">{displayUnit(entry.unit)}</span>
+        )}
             <span className={`m-delta d-${dir}`}>
               {dir === "up" ? "▲" : dir === "down" ? "▼" : "–"} {pct >= 0 ? "+" : ""}
               {pct.toFixed(0)}%

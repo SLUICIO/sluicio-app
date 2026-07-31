@@ -625,6 +625,13 @@ func (h *Handlers) previewAlertRule(w http.ResponseWriter, r *http.Request) {
 		// matching how a service-bound rule actually evaluates. Empty =
 		// integration/global preview (across all visible services).
 		ServiceName string `json:"service_name"`
+		// IntegrationID, when set, scopes the preview to that
+		// integration's member services — matching how an
+		// integration-bound rule actually evaluates. A preview that
+		// silently fell back to "every visible service" would show a
+		// number the saved rule never produces, which is worse than no
+		// preview: it looks like a rehearsal and is not one.
+		IntegrationID string `json:"integration_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httpserver.WriteError(w, http.StatusBadRequest, "invalid JSON body")
@@ -644,9 +651,44 @@ func (h *Handlers) previewAlertRule(w http.ResponseWriter, r *http.Request) {
 	// the real evaluation. A caller with no access (or asking for a service
 	// they can't see) gets an empty (no-data) preview.
 	var pf policyResolution
-	if req.ServiceName != "" {
+	switch {
+	case req.ServiceName != "":
 		pf = h.resolveServiceFilter(r, req.ServiceName, []string{req.ServiceName})
-	} else {
+	case req.IntegrationID != "":
+		id, err := uuid.Parse(req.IntegrationID)
+		if err != nil {
+			httpserver.WriteError(w, http.StatusBadRequest, "invalid integration_id")
+			return
+		}
+		members, mErr := h.Catalog.IntegrationServices(r.Context(), id)
+		if mErr != nil {
+			h.Logger.Warn("alert preview: integration members failed", "err", mErr, "integration", id)
+			httpserver.WriteError(w, http.StatusInternalServerError, "query failed")
+			return
+		}
+		// No members yet (a freshly created integration whose catalog
+		// membership has not reconciled) has to read as "no data", not as
+		// "every service" — resolveServiceFilter with an empty list would
+		// widen the preview to the whole cell.
+		if len(members) == 0 {
+			httpserver.WriteJSON(w, http.StatusOK, map[string]any{
+				"value": 0, "samples": 0, "has_data": false, "breached": false,
+				"threshold": req.Spec.Threshold, "window": TimeRange{From: from, To: to}.Window(),
+			})
+			return
+		}
+		pf = h.resolveServiceFilter(r, "", members)
+		// A caller who can see NONE of the members intersects down to an
+		// empty list, and an empty ServiceIn reads downstream as "no
+		// filter" — i.e. the whole cell. The ?service= path is protected
+		// by Blocked; this one has to say so itself, or previewing an
+		// integration you cannot see would aggregate metrics you cannot
+		// see. Empty access and empty intersection are the same answer
+		// here: no data.
+		if !pf.EmptyAccess && !pf.Blocked && len(pf.ServiceIn) == 0 {
+			pf.EmptyAccess = true
+		}
+	default:
 		pf = h.resolveServiceFilter(r, "", nil)
 	}
 	if pf.EmptyAccess || pf.Blocked {

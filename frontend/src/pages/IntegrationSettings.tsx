@@ -40,6 +40,7 @@ import ResourceSharesCard from "../components/ResourceSharesCard";
 import MetadataPanel from "../components/MetadataPanel";
 import { usePageTitle } from "../lib/usePageTitle";
 import { useTimeWindow } from "../lib/useTimeWindow";
+import HealthChecks from "../components/health/HealthChecks";
 
 type TimeUnit = "seconds" | "minutes" | "hours";
 
@@ -65,6 +66,9 @@ export default function IntegrationSettings() {
   const { can } = useCurrentUser();
   const isAdmin = can("org.manage");
   const [windowVal] = useTimeWindow();
+  // Bumped when the alert-rules card mutates a rule, so the health-check
+  // list above it (which fetches independently) does not go stale.
+  const [healthReloadKey, setHealthReloadKey] = useState(0);
 
   const [integration, setIntegration] = useState<IntegrationDetail | null>(null);
   // Scoped manage (RBAC v2): server-computed per integration.
@@ -278,11 +282,21 @@ export default function IntegrationSettings() {
         </div>
       </section>
 
+      {/* Health checks for the INTEGRATION itself. The rule row has
+          carried integration_id for every signal all along, and each
+          evaluator already honours it — this component was simply never
+          mounted with scope="integration", so the only way to create one
+          was the failed-trace drawer on the Errors breakdown. */}
+      {canWrite && <HealthChecks scope="integration" target={id} window={windowVal} reloadKey={healthReloadKey} />}
+
       <IntegrationAlertRules
         rules={alertRules}
         channels={channels}
         canWrite={canWrite}
-        onChanged={refresh}
+        onChanged={() => {
+          refresh();
+          setHealthReloadKey((k) => k + 1);
+        }}
         onError={setError}
       />
 
@@ -782,20 +796,19 @@ function IntegrationAlertRules({
       <div className="border-b border-border px-4 py-3">
         <h2 className="text-base font-semibold">Alert rules</h2>
         <p className="text-xs text-muted mt-1">
-          Rules bound to this integration — failed-trace alerts created from
-          the <b>Errors</b> breakdown, plus any metric or log rules scoped
-          here. They notify through the same channels as everything on the{" "}
-          <Link to="/alerts">Alerts</Link> page. Create failed-trace rules
-          from the Errors breakdown; create metric/log rules from the{" "}
-          <Link to="/metrics">Metrics</Link> and <Link to="/logs">Logs</Link>{" "}
-          explorers.
+          Delivery for the same rules listed above: which channels each one
+          notifies, and whether it is enabled. Add and edit the checks
+          themselves in <b>Health checks</b>; this view exists to turn one
+          off without deleting it. They notify through the same channels as
+          everything on the <Link to="/alerts">Alerts</Link> page.
         </p>
       </div>
       <div className="p-4">
         {rules.length === 0 ? (
           <div className="placeholder">
-            No alert rules bound to this integration yet. Open the{" "}
-            <b>Errors</b> tab and use “Alert on failed traces” to add one.
+            No alert rules bound to this integration yet. Add one under{" "}
+            <b>Health checks</b> above, or from the <b>Errors</b> tab with
+            “Alert on failed traces”.
           </div>
         ) : (
           <table className="table">

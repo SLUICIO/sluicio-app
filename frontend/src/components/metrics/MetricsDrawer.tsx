@@ -8,7 +8,7 @@
 
 import type { ReactNode } from "react";
 import type { LogAttrFilter, MetricCatalogEntry, Window } from "../../api/types";
-import { isTimestampMetric, formatTimestampSeconds, formatMetricValue, isByteUnit } from "../../lib/format";
+import { isTimestampMetric, formatTimestampSeconds, formatMetricValue, isByteUnit, displayUnit } from "../../lib/format";
 import MetricAttributes from "./MetricAttributes";
 import MetricChart from "./MetricChart";
 import MetricTypePill, { metricTypeLabel } from "./MetricTypePill";
@@ -58,7 +58,9 @@ export default function MetricsDrawer({
       <div className="m-stat-k">{k}</div>
       <div className={`m-stat-v ${br ? "br" : ""}`}>
         {isTs ? formatTimestampSeconds(v) : formatMetricValue(v, entry.unit)}
-        {entry.unit && !isTs && !isByteUnit(entry.unit) && <span className="m-stat-u">{entry.unit}</span>}
+        {displayUnit(entry.unit) && !isTs && !isByteUnit(entry.unit) && (
+          <span className="m-stat-u">{displayUnit(entry.unit)}</span>
+        )}
       </div>
     </div>
   );
@@ -76,7 +78,7 @@ export default function MetricsDrawer({
         <div className="m-d-name">{entry.name}</div>
         <div className="m-d-desc">
           {metricTypeLabel(entry.type)} · {entry.aggregation}
-          {entry.unit ? ` · ${entry.unit}` : ""}
+          {displayUnit(entry.unit) ? ` · ${displayUnit(entry.unit)}` : ""}
         </div>
         <div className="m-d-stats">
           {stat("Current", entry.value, breached)}

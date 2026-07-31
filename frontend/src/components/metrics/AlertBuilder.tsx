@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../api/client";
 import SearchableSelect from "../SearchableSelect";
+import { displayUnit } from "../../lib/format";
 import AlertNotificationContent from "./AlertNotificationContent";
 import type {
   AlertAggregation,
@@ -75,6 +76,20 @@ export default function AlertBuilder({
   const [channels, setChannels] = useState<NotificationChannel[]>([]);
   const [services, setServices] = useState<string[]>([]);
   const [healthService, setHealthService] = useState(defaultService ?? "");
+  // A health check can govern a service OR an integration. Both are
+  // first-class on the rule row (service_name / integration_id) and every
+  // evaluator already honours either, so this picker is the only thing
+  // that ever limited it to services.
+  //
+  // Kept as an explicit kind + two values rather than one merged list:
+  // a service name and an integration name can collide, and a picker
+  // where "orders" might mean either is a worse answer than one more
+  // click.
+  const [bindKind, setBindKind] = useState<"none" | "service" | "integration">(
+    defaultService ? "service" : "none",
+  );
+  const [healthIntegration, setHealthIntegration] = useState("");
+  const [integrations, setIntegrations] = useState<{ id: string; name: string }[]>([]);
   // Owning team. "" = org-wide (visible to everyone). Non-admins can
   // only pick teams they belong to — the API enforces this too.
   const [groups, setGroups] = useState<Group[]>([]);
@@ -100,6 +115,16 @@ export default function AlertBuilder({
   const [error, setError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState(0);
 
+  // What this rule will govern, or "" for a notify-only rule. Drives the
+  // button and the confirmation, so both say the same thing the picker
+  // does.
+  const bindTargetLabel =
+    bindKind === "service"
+      ? healthService
+      : bindKind === "integration" && healthIntegration
+        ? integrations.find((i) => i.id === healthIntegration)?.name ?? "this integration"
+        : "";
+
   const spec: MetricRuleSpec = useMemo(
     () => ({ metric_name: metricName, aggregation: agg, operator: op, threshold, for_window: forWindow, attrs, split_by: splitBy || undefined }),
     [metricName, agg, op, threshold, forWindow, attrs, splitBy],
@@ -117,6 +142,8 @@ export default function AlertBuilder({
   useEffect(() => {
     setName(`${metricName} alert`);
     setHealthService(defaultService ?? "");
+    setHealthIntegration("");
+    setBindKind(defaultService ? "service" : "none");
     setSplitBy("");
     setTitleTpl("");
     setBodyTpl("");
@@ -130,6 +157,16 @@ export default function AlertBuilder({
       .listServices("24h")
       .then((r) => setServices((r.services ?? []).map((s) => s.service_name).sort()))
       .catch(() => setServices([]));
+    api
+      .listIntegrations("24h")
+      .then((r) =>
+        setIntegrations(
+          (r.integrations ?? [])
+            .map((i) => ({ id: i.id, name: i.name }))
+            .sort((a, b) => a.name.localeCompare(b.name)),
+        ),
+      )
+      .catch(() => setIntegrations([]));
     // Attribute keys on this metric — the split-by dimension options.
     api
       .metricFields("1h", metricName)
@@ -145,13 +182,17 @@ export default function AlertBuilder({
     setPreviewLoading(true);
     debounce.current = window.setTimeout(() => {
       api
-        .previewAlertRule(spec, healthService || undefined)
+        .previewAlertRule(
+          spec,
+          bindKind === "service" ? healthService || undefined : undefined,
+          bindKind === "integration" ? healthIntegration || undefined : undefined,
+        )
         .then(setPreview)
         .catch(() => setPreview(null))
         .finally(() => setPreviewLoading(false));
     }, 350);
     return () => window.clearTimeout(debounce.current);
-  }, [spec, healthService]);
+  }, [spec, healthService, healthIntegration, bindKind]);
 
   const toggleChannel = (id: string) =>
     setSelected((prev) => {
@@ -170,7 +211,8 @@ export default function AlertBuilder({
         enabled: true,
         channel_ids: [...selected],
         spec,
-        service_name: healthService || undefined,
+        service_name: bindKind === "service" ? healthService || undefined : undefined,
+        integration_id: bindKind === "integration" ? healthIntegration || undefined : undefined,
         group_id: team || undefined,
         title_template: titleTpl.trim() || undefined,
         body_template: bodyTpl.trim() || undefined,
@@ -227,7 +269,7 @@ export default function AlertBuilder({
             value={threshold}
             onChange={(e) => setThreshold(Number(e.target.value))}
           />
-          {unit && <span className="m-rs-prose muted">{unit}</span>}
+          {displayUnit(unit) && <span className="m-rs-prose muted">{displayUnit(unit)}</span>}
           <span className="m-rs-prose">for</span>
           <select className="m-rs-sel" value={forWindow} onChange={(e) => setForWindow(e.target.value)}>
             {WINDOWS.map((wn) => (
@@ -242,18 +284,54 @@ export default function AlertBuilder({
             service health check is the most common reason to open this
             from the Metrics page. */}
         <div className="m-field m-healthcheck">
-          <label className="m-field-label">♥ Add as a health check to a service</label>
-          <SearchableSelect
-            value={healthService}
-            onChange={setHealthService}
-            options={services}
-            allLabel="Don't — just alert, leave service health unchanged"
-            placeholder="Pick the service this metric reflects…"
-          />
+          <label className="m-field-label">♥ Add as a health check</label>
+          <div className="level-seg" role="tablist" aria-label="Health check target" style={{ marginBottom: 8 }}>
+            {([
+              ["none", "Just alert"],
+              ["service", "A service"],
+              ["integration", "An integration"],
+            ] as const).map(([k, label]) => (
+              <button
+                key={k}
+                type="button"
+                role="tab"
+                aria-selected={bindKind === k}
+                className={`level-seg__btn${bindKind === k ? " is-active" : ""}`}
+                onClick={() => setBindKind(k)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {bindKind === "service" && (
+            <SearchableSelect
+              value={healthService}
+              onChange={setHealthService}
+              options={services}
+              allLabel="Pick a service…"
+              placeholder="Pick the service this metric reflects…"
+            />
+          )}
+          {bindKind === "integration" && (
+            <SearchableSelect
+              value={healthIntegration}
+              onChange={setHealthIntegration}
+              options={integrations.map((i) => i.id)}
+              labelFor={(id) => integrations.find((i) => i.id === id)?.name ?? id}
+              allLabel="Pick an integration…"
+              placeholder="Pick the integration this metric reflects…"
+            />
+          )}
           <span className="muted" style={{ fontSize: 11.5 }}>
-            {healthService
+            {bindKind === "service" && healthService
               ? `Whenever the threshold above is breached, ${healthService} reads as unhealthy — this becomes one of its health checks, and any integration it belongs to follows.`
-              : "Optional — bind this metric to a service so it (and its integrations) reads unhealthy whenever the threshold above is breached."}
+              : bindKind === "integration" && healthIntegration
+                ? `Whenever the threshold above is breached, ${
+                    integrations.find((i) => i.id === healthIntegration)?.name ?? "this integration"
+                  } reads as unhealthy. The check is evaluated across that integration's member services — bind it to a service instead if you mean one service specifically.`
+                : bindKind === "none"
+                  ? "This rule notifies, but leaves service and integration health unchanged."
+                  : "Pick a target above — the preview below is scoped to whatever you choose, so it matches how the saved check will evaluate."}
           </span>
         </div>
 
@@ -414,17 +492,19 @@ export default function AlertBuilder({
         {savedAt > 0 && !error && (
           <div className="m-preview ok" style={{ margin: 0 }}>
             <span className="m-preview-pip" />{" "}
-            {healthService ? `Health check added to ${healthService}.` : "Alert rule created."}
+            {bindTargetLabel
+              ? `Health check added to ${bindTargetLabel}.`
+              : "Alert rule created."}
           </div>
         )}
 
         <div className="m-builder-actions">
           <button className="btn btn--primary" type="button" disabled={saving} onClick={create}>
             {saving
-              ? healthService
+              ? bindTargetLabel
                 ? "Adding…"
                 : "Creating…"
-              : healthService
+              : bindTargetLabel
                 ? "Add health check"
                 : "Create alert rule"}
           </button>
@@ -484,7 +564,7 @@ function PreviewBanner({
   // unit "1". Rendering it verbatim puts a stray digit after the number,
   // so a threshold of 200 reads "≠ 200 1" and looks like a typo or a
   // second value. It carries no information a reader wants; drop it.
-  const u = unit && unit !== "1" ? ` ${unit}` : "";
+  const u = displayUnit(unit) ? ` ${displayUnit(unit)}` : "";
   if (!preview.has_data) {
     return (
       <div className="m-preview ok">

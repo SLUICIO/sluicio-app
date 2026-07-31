@@ -65,6 +65,23 @@ export function isByteUnit(unit?: string): boolean {
   return BYTE_UNITS.has(u);
 }
 
+// A metric's unit as it should be SHOWN, or "" when it should not be.
+//
+// UCUM — which OTel metric units follow — spells "dimensionless" as the
+// unit `1`. Rendered literally it puts a stray digit after every value:
+// "99 1", "threshold 50 1", "Current 99 > threshold 50 1". Readers see a
+// typo or a second number, and it conveys nothing either way. The
+// annotation forms ({1}) mean the same thing and are dropped too.
+//
+// Anything else is returned trimmed, including counts like {messages} —
+// those genuinely tell the reader what they are looking at.
+export function displayUnit(unit?: string): string {
+  if (!unit) return "";
+  const u = unit.trim();
+  if (u === "1" || u === "{1}") return "";
+  return u;
+}
+
 // Compact value for a metric stat cell. Byte-unit metrics render as sizes
 // (16.9 GB); other large values use compact notation (18.1M) so a big
 // number like rabbitmq.node.disk_free doesn't overflow the panel. Small
