@@ -129,6 +129,23 @@ export default function AlertBuilder({
           ? systems.find((sy) => sy.id === healthSystem)?.name ?? "this system"
           : "";
 
+  // What an existing rule governs, resolved to a NAME. The rule carries
+  // ids; the catalogs above carry the names, and an id tells the reader
+  // nothing. null = notify-only (no health binding).
+  const bindingOf = (rule: AlertRule): { kind: string; label: string } | null => {
+    if (rule.system_id) {
+      return { kind: "system", label: systems.find((sy) => sy.id === rule.system_id)?.name ?? rule.system_id };
+    }
+    if (rule.integration_id) {
+      return {
+        kind: "integration",
+        label: integrations.find((i) => i.id === rule.integration_id)?.name ?? rule.integration_id,
+      };
+    }
+    if (rule.service_name) return { kind: "service", label: rule.service_name };
+    return null;
+  };
+
   const spec: MetricRuleSpec = useMemo(
     () => ({ metric_name: metricName, aggregation: agg, operator: op, threshold, for_window: forWindow, attrs, split_by: splitBy || undefined }),
     [metricName, agg, op, threshold, forWindow, attrs, splitBy],
@@ -551,7 +568,10 @@ export default function AlertBuilder({
             <span className="m-section-count">{existing.length}</span>
           </div>
           <div className="m-existing">
-            {existing.map((rule) => (
+            {existing.map((rule) => {
+              const ruleAttrs = rule.spec.attrs ?? [];
+              const bound = bindingOf(rule);
+              return (
               <div key={rule.id} className="m-existing-row">
                 <div className={`m-ex-bar sev-${rule.severity}`} />
                 <div className="m-ex-mid">
@@ -561,13 +581,57 @@ export default function AlertBuilder({
                     {rule.spec.threshold} for {rule.spec.for_window}
                     {rule.spec.split_by && <span className="muted"> · split by {rule.spec.split_by}</span>}
                   </div>
+                  {/* Attribute filters and the binding are what actually
+                      tell two rules on the SAME metric apart. Without them
+                      three checks differing only by endpoint and by the
+                      service they govern rendered as three identical
+                      boxes — the name defaults to "<metric> alert" for all
+                      of them, so there was nothing on screen to
+                      distinguish them or to say which one to remove. */}
+                  {(ruleAttrs.length > 0 || bound) && (
+                    <div
+                      style={{
+                        display: "flex",
+                        flexWrap: "wrap",
+                        gap: 4,
+                        alignItems: "center",
+                        marginTop: 3,
+                      }}
+                    >
+                      {ruleAttrs.map((a) => (
+                        <span
+                          key={`${a.key}${a.op}${a.value}`}
+                          className="badge mono"
+                          style={{ fontSize: 10.5 }}
+                          title="Attribute filter — this rule only watches series matching it"
+                        >
+                          {a.key} {a.op === "eq" ? "=" : a.op} {a.value}
+                        </span>
+                      ))}
+                      {bound && (
+                        <span
+                          className="muted"
+                          style={{ fontSize: 11 }}
+                          title={`This check defines the health of this ${bound.kind}`}
+                        >
+                          ♥ {bound.kind} · {bound.label}
+                        </span>
+                      )}
+                      {!bound && (
+                        <span className="muted" style={{ fontSize: 11 }} title="Notifies only; no health pill changes">
+                          notify only
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <span className={`m-rule-badge sev-${rule.severity}`}>{rule.severity}</span>
                 <button className="m-ex-tgt" type="button" onClick={() => removeRule(rule.id)}>
                   remove
                 </button>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
