@@ -24,6 +24,10 @@ interface Props {
   // use "right" when the control sits near the right edge of the window
   // so the popover doesn't overflow off-screen.
   align?: "left" | "right";
+  // Read-only mode: the current selection still renders (so the value is
+  // visible) but the popover cannot be opened. Used where a form is shown
+  // to someone without write access.
+  disabled?: boolean;
 }
 
 export default function SearchableSelect({
@@ -34,6 +38,7 @@ export default function SearchableSelect({
   allLabel = "All",
   labelFor = (v) => v,
   align = "left",
+  disabled = false,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -141,8 +146,9 @@ export default function SearchableSelect({
         className="toolbar__select"
         aria-haspopup="listbox"
         aria-expanded={open}
-        onClick={() => setOpen((o) => !o)}
-        style={{ minWidth: 180, textAlign: "left" }}
+        disabled={disabled}
+        onClick={() => !disabled && setOpen((o) => !o)}
+        style={{ minWidth: 180, textAlign: "left", opacity: disabled ? 0.6 : undefined }}
       >
         {value === "" ? <span className="muted">{allLabel}</span> : label(value)}
         <span aria-hidden style={{ float: "right", color: "var(--muted)" }}>▾</span>

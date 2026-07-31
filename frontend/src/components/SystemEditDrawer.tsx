@@ -11,6 +11,7 @@ import { api } from "../api/client";
 import type { System } from "../api/types";
 import EditDrawer from "./primitives/EditDrawer";
 import SearchableSelect from "./SearchableSelect";
+import SystemTypePicker from "./SystemTypePicker";
 import PublicBadgeControl from "./PublicBadgeControl";
 
 interface Props {
@@ -81,16 +82,11 @@ export default function SystemEditDrawer({ system, attachable, canWrite, onClose
             Name
             <input className="svc-input" value={name} onChange={(e) => setName(e.target.value)} disabled={!canWrite} />
           </label>
-          <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 13 }}>
-            Type
-            <input
-              className="svc-input"
-              value={typeKey}
-              onChange={(e) => setTypeKey(e.target.value)}
-              placeholder="e.g. rabbitmq, kafka"
-              disabled={!canWrite}
-            />
-          </label>
+          {/* Was a free-text key. type_key is stored verbatim and never
+              checked against the catalog, so a near-miss ("RabbitMQ",
+              "rabbit") silently matched no type and the system quietly
+              got no starter checks or template. */}
+          <SystemTypePicker label="Type" value={typeKey} onChange={setTypeKey} disabled={!canWrite} />
           <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 13 }}>
             Description
             <textarea

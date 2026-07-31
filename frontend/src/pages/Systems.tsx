@@ -13,6 +13,8 @@ import { formatNumber } from "../lib/format";
 import { usePageTitle } from "../lib/usePageTitle";
 import { useCurrentUser } from "../lib/useCurrentUser";
 import StatusPip from "../components/primitives/StatusPip";
+import { EditDrawer } from "../components/primitives";
+import SystemTypePicker from "../components/SystemTypePicker";
 import { pipForStatus } from "../components/primitives/pipForStatus";
 
 export default function Systems() {
@@ -24,6 +26,10 @@ export default function Systems() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newTypeKey, setNewTypeKey] = useState("");
+  const [createError, setCreateError] = useState<string | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const statusFilter = searchParams.get("status") ?? "";
   const clearStatus = () => {
@@ -64,17 +70,34 @@ export default function Systems() {
     });
   }, [systems, statusFilter]);
 
+  // Creating a system used to be two window.prompt() calls, the second
+  // asking for the type KEY from memory ("e.g. rabbitmq, kafka,
+  // postgresql"). type_key is stored verbatim and never checked against
+  // the catalog, so "RabbitMQ" or "rabbit" saved cleanly and then matched
+  // no type — the system got no starter checks, no monitoring template
+  // and no docs link, with nothing to say why. A picker over the catalog
+  // makes the valid answers visible and the invalid ones unreachable.
   const create = async () => {
-    const name = window.prompt("Name the new system (e.g. “Order Bus”, “Billing DB”):");
-    if (!name || !name.trim()) return;
-    const typeKey = window.prompt("System type key (e.g. rabbitmq, kafka, postgresql) — optional:", "") ?? "";
+    setNewName("");
+    setNewTypeKey("");
+    setCreateError(null);
+    setCreating(true);
+  };
+
+  const submitCreate = async () => {
+    const name = newName.trim();
+    if (!name) {
+      setCreateError("A name is required.");
+      return;
+    }
     setBusy(true);
-    setError(null);
+    setCreateError(null);
     try {
-      await api.createSystem({ name: name.trim(), type_key: typeKey.trim().toLowerCase() });
+      await api.createSystem({ name, type_key: newTypeKey });
+      setCreating(false);
       refresh();
     } catch (e) {
-      setError(String((e as Error).message ?? e));
+      setCreateError(String((e as Error).message ?? e));
     } finally {
       setBusy(false);
     }
@@ -154,6 +177,40 @@ export default function Systems() {
             </div>
           </div>
         </div>
+      )}
+
+      {creating && (
+        <EditDrawer title="New system" onClose={() => setCreating(false)}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 13 }}>
+              Name
+              <input
+                className="svc-input"
+                autoFocus
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                placeholder="e.g. Order Bus, Billing DB"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") submitCreate();
+                }}
+              />
+            </label>
+            <SystemTypePicker label="Type" value={newTypeKey} onChange={setNewTypeKey} />
+            <span className="muted" style={{ fontSize: 11.5 }}>
+              The type decides which starter checks and monitoring template this system can apply. It can be
+              changed later, and left unset if you are not sure yet.
+            </span>
+            {createError && <div className="alert alert--error" style={{ margin: 0 }}>{createError}</div>}
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className="btn primary" type="button" onClick={submitCreate} disabled={busy}>
+                {busy ? "Creating…" : "Create system"}
+              </button>
+              <button className="btn" type="button" onClick={() => setCreating(false)} disabled={busy}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </EditDrawer>
       )}
     </div>
   );
