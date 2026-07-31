@@ -480,7 +480,11 @@ function PreviewBanner({
     return <div className="m-preview ok"><span className="m-preview-pip" /> Checking current value…</div>;
   }
   if (!preview) return null;
-  const u = unit ? ` ${unit}` : "";
+  // UCUM — which OTel metrics follow — spells "dimensionless" as the
+  // unit "1". Rendering it verbatim puts a stray digit after the number,
+  // so a threshold of 200 reads "≠ 200 1" and looks like a typo or a
+  // second value. It carries no information a reader wants; drop it.
+  const u = unit && unit !== "1" ? ` ${unit}` : "";
   if (!preview.has_data) {
     return (
       <div className="m-preview ok">
@@ -500,8 +504,8 @@ function PreviewBanner({
         <div className="m-preview ok">
           <span className="m-preview-pip" />
           <span>
-            <b>Quiet.</b> No {splitBy} has {op} <span className="mono">{th}{u}</span> across{" "}
-            {preview.groups.length} value{preview.groups.length === 1 ? "" : "s"}.
+            <b>Quiet.</b> No <span className="mono">{splitBy}</span> value is {op}{" "}
+            <span className="mono">{th}{u}</span> ({preview.groups.length} checked).
           </span>
         </div>
       );
@@ -510,8 +514,18 @@ function PreviewBanner({
       <div className="m-preview breach">
         <span className="m-preview-pip" />
         <span>
-          <b>Would fire for {breaching.length} {splitBy}{breaching.length === 1 ? "" : "s"}</b>{" "}
-          (of {preview.groups.length}) {op} <span className="mono">{th}{u}</span>:
+          {/* The count belongs to the attribute's VALUES, not to the
+              attribute. Reading "1 http.url" invites the question the
+              sentence should already have answered — one what? — and the
+              plural was worse: two breaching URLs rendered as
+              "2 http.urls", pluralising a key that is not a countable
+              noun. Say "value(s) of <key>" and the number has something
+              to attach to. */}
+          <b>
+            Would fire for {breaching.length} of {preview.groups.length}{" "}
+            <span className="mono">{splitBy}</span> value{preview.groups.length === 1 ? "" : "s"}
+          </b>{" "}
+          {op} <span className="mono">{th}{u}</span>:
           <div style={{ marginTop: 4, display: "flex", flexWrap: "wrap", gap: 4 }}>
             {sorted.map((g) => (
               <span key={g.label} className="badge mono" style={{ fontSize: 11 }}>
