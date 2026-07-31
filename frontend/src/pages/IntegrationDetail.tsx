@@ -481,6 +481,21 @@ export default function IntegrationDetailPage() {
                 widgets={serviceWidgets}
                 loading={serviceLoading}
                 error={serviceError}
+                // The member row is already scoped to this integration's
+                // slice by the API, so the inspector can contrast it with
+                // the service-wide figures it fetches itself.
+                scope={(() => {
+                  const m = (data?.services ?? []).find(
+                    (s) => s.service_name === selectedService,
+                  );
+                  return m
+                    ? {
+                        traceCount: m.trace_count,
+                        errorTraceCount: m.error_trace_count,
+                        label: data?.integration?.name ?? "this integration",
+                      }
+                    : undefined;
+                })()}
               />
             </aside>
           </div>

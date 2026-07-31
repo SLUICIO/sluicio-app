@@ -722,7 +722,11 @@ func (h *Handlers) getIntegration(w http.ResponseWriter, r *http.Request) {
 	}
 	memberNames = visibleMembers
 	openErrors := h.openErrorServices(r.Context(), middleware.OrgID(r))
-	matched := h.servicesFromMembers(r.Context(), memberNames, allServices, firingServices, h.errorAcks(r.Context(), middleware.OrgID(r)), openErrors, tr)
+	// The integration's attribute predicate. Empty for a service-only
+	// integration, in which case the catalog's service-wide counts are
+	// already the right answer.
+	detailAttrs := h.integrationGroups(r.Context(), id)
+	matched := h.servicesFromMembers(r.Context(), memberNames, allServices, firingServices, h.errorAcks(r.Context(), middleware.OrgID(r)), openErrors, tr, detailAttrs)
 
 	// Trace-completion rules gate the message scope and drive the
 	// delayed-trace failure count. With a start-span gate, a "message"
@@ -1170,6 +1174,21 @@ func (h *Handlers) reconcileCatalog(ctx context.Context) {
 // zero counts. Status is recomputed against those zeroed counts —
 // custom-metric breaches + firing health rules still drive unhealthy
 // since those reflect current state, not the window.
+//
+// attrGroups is the integration's attribute predicate (empty for a
+// service-only integration). When present, the per-member counts are
+// the integration's SLICE of that service rather than the service's
+// whole traffic.
+//
+// That distinction is the entire point of this parameter. The rows
+// returned here feed the member list and the error breakdown, both of
+// which sit on an integration page and are read as statements about the
+// integration. Copying the catalog's service-wide counts made an
+// integration with two clean traces report its service's five failures
+// from other flows, and the breakdown then divided by them and said
+// "100% of failures come from <service>" — on an integration that had
+// none. The header, the flow nodes and the message list all applied the
+// predicate; only this projection did not.
 func (h *Handlers) servicesFromMembers(
 	ctx context.Context,
 	members []string,
@@ -1178,10 +1197,22 @@ func (h *Handlers) servicesFromMembers(
 	errAcks map[string]erroracks.Ack,
 	openErrors map[string]bool,
 	tr TimeRange,
+	attrGroups [][]store.LogAttrFilter,
 ) []ServiceSummary {
 	byName := make(map[string]store.ServiceRow, len(all))
 	for _, s := range all {
 		byName[s.ServiceName] = s
+	}
+	// Same call the flow-graph nodes make, so the member rows and the
+	// graph cannot drift apart.
+	var scoped map[string][2]uint64
+	if len(attrGroups) > 0 {
+		var err error
+		scoped, err = h.Store.ServiceTraceCountsFiltered(ctx, members, tr.From, tr.To, attrGroups)
+		if err != nil {
+			h.Logger.Warn("scoped member counts failed; falling back to service-wide", "err", err)
+			scoped = nil
+		}
 	}
 	out := make([]ServiceSummary, 0, len(members))
 	for _, name := range members {
@@ -1189,12 +1220,19 @@ func (h *Handlers) servicesFromMembers(
 		if !ok {
 			row = store.ServiceRow{ServiceName: name}
 		}
-		effErr := h.effectiveErrorCount(ctx, name, row.ErrorTraceCount, tr.From, tr.To, errAcks)
+		traceCount, rawErr := row.TraceCount, row.ErrorTraceCount
+		if scoped != nil {
+			// Absent = this member had no traffic matching the predicate
+			// in the window, which is a real zero rather than missing data.
+			c := scoped[name]
+			traceCount, rawErr = c[0], c[1]
+		}
+		effErr := h.effectiveErrorCountScoped(ctx, name, members, rawErr, tr.From, tr.To, errAcks, attrGroups)
 		out = append(out, ServiceSummary{
 			ServiceName:      row.ServiceName,
 			ServiceNamespace: row.ServiceNamespace,
 			LastSeen:         row.LastSeen,
-			TraceCount:       row.TraceCount,
+			TraceCount:       traceCount,
 			ErrorTraceCount:  effErr,
 			ServiceFacets:    h.classifyServiceFacets(ctx, name, tr),
 			Tags:             []tags.Tag{},

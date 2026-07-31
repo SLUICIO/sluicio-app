@@ -102,11 +102,19 @@ test.describe("Audit log (EE)", () => {
 
     await openAuditTab(page);
     await page.getByLabel("Action", { exact: true }).fill("tag.");
-    await expect(rows(page).first()).toContainText("tag.deleted", { timeout: 5_000 });
-    await expect(rows(page).nth(1)).toContainText("tag.created");
+    // Narrow to THIS tag's entries before asserting order. The audit log
+    // is org-wide and other specs create tags concurrently, so the two
+    // newest `tag.*` rows are not necessarily ours — the run that caught
+    // this found a foreign `tag.created` sitting in row 0. Filtering by
+    // our own id keeps the ordering assertion (delete above create)
+    // while making it independent of what else is running.
+    const mine = rows(page).filter({ hasText: tag.id });
+    await expect(mine).toHaveCount(2, { timeout: 5_000 });
+    await expect(mine.first()).toContainText("tag.deleted");
+    await expect(mine.nth(1)).toContainText("tag.created");
 
     // Expand the tag.created row — the detail JSON carries the metadata.
-    await rows(page).nth(1).click();
+    await mine.nth(1).click();
     await expect(page.locator("table pre")).toContainText(slug);
   });
 

@@ -32,6 +32,20 @@ interface Props {
   widgets: WidgetResult[];
   loading: boolean;
   error: string | null;
+  // This service's slice of the integration being viewed, when the
+  // integration narrows by attribute (one Node-RED runtime emits every
+  // flow; an integration is one flow of it).
+  //
+  // `detail` is the SERVICE endpoint and always reports the service's
+  // whole life — which is genuinely useful here ("this service is sick,
+  // though not for this integration") but reads as a contradiction when
+  // the surrounding page is talking about the integration. So the slice
+  // leads and the service-wide figures follow under their own heading,
+  // rather than one silently standing in for the other.
+  //
+  // Omitted on the service page itself, where there is no narrower
+  // scope to contrast with.
+  scope?: { traceCount: number; errorTraceCount: number; label: string };
 }
 
 export default function ServiceInspector({
@@ -40,6 +54,7 @@ export default function ServiceInspector({
   widgets,
   loading,
   error,
+  scope,
 }: Props) {
   // The service's currently-failing health checks (firing rules bound to
   // it), so an unhealthy service explains *why* — not just "0 errors".
@@ -175,26 +190,82 @@ export default function ServiceInspector({
 
       {stats && (
         <>
-          <div className="grid grid-cols-2 gap-3">
-            <StatTile
-              label="traces"
-              value={formatNumber(stats.trace_count)}
-            />
-            <StatTile
-              label="success"
-              value={`${((1 - stats.error_rate) * 100).toFixed(1)}%`}
-              tone={stats.error_rate > 0.05 ? "err" : "ok"}
-            />
-            <StatTile
-              label="p95"
-              value={formatDurationMs(stats.p95_duration_ms)}
-            />
-            <StatTile
-              label="error traces"
-              value={formatNumber(stats.error_trace_count)}
-              tone={stats.error_trace_count > 0 ? "err" : "default"}
-            />
-          </div>
+          {(() => {
+            // Only contrast the two scopes when they actually differ.
+            // On a service-only integration the slice IS the service, and
+            // an "across all traffic" line saying the same numbers twice
+            // is noise that makes the page look like it disagrees with
+            // itself.
+            const narrowed =
+              scope !== undefined &&
+              (scope.traceCount !== stats.trace_count ||
+                scope.errorTraceCount !== stats.error_trace_count);
+            if (!narrowed) {
+              return (
+                <div className="grid grid-cols-2 gap-3">
+                  <StatTile label="traces" value={formatNumber(stats.trace_count)} />
+                  <StatTile
+                    label="success"
+                    value={`${((1 - stats.error_rate) * 100).toFixed(1)}%`}
+                    tone={stats.error_rate > 0.05 ? "err" : "ok"}
+                  />
+                  <StatTile label="p95" value={formatDurationMs(stats.p95_duration_ms)} />
+                  <StatTile
+                    label="error traces"
+                    value={formatNumber(stats.error_trace_count)}
+                    tone={stats.error_trace_count > 0 ? "err" : "default"}
+                  />
+                </div>
+              );
+            }
+            const scopedRate =
+              scope!.traceCount > 0 ? scope!.errorTraceCount / scope!.traceCount : 0;
+            const otherTraces = Math.max(0, stats.trace_count - scope!.traceCount);
+            const otherErrors = Math.max(0, stats.error_trace_count - scope!.errorTraceCount);
+            return (
+              <>
+                <div className="mb-1 text-xs text-muted">In {scope!.label}</div>
+                <div className="grid grid-cols-2 gap-3">
+                  <StatTile label="traces" value={formatNumber(scope!.traceCount)} />
+                  <StatTile
+                    label="success"
+                    value={`${((1 - scopedRate) * 100).toFixed(1)}%`}
+                    tone={scopedRate > 0.05 ? "err" : "ok"}
+                  />
+                  <StatTile
+                    label="error traces"
+                    value={formatNumber(scope!.errorTraceCount)}
+                    tone={scope!.errorTraceCount > 0 ? "err" : "default"}
+                  />
+                  <StatTile label="p95 · all traffic" value={formatDurationMs(stats.p95_duration_ms)} />
+                </div>
+                {/* The service's own life, under its own heading. Without
+                    this the page would hide that the service is failing
+                    elsewhere; without the heading it would look like this
+                    integration is failing. */}
+                <div
+                  className="mt-3 rounded-md p-3 text-xs"
+                  style={{ background: "var(--surface-3)", color: "var(--muted-ink, var(--ink))" }}
+                >
+                  <div className="mb-1 font-medium">Across all traffic on this service</div>
+                  <div>
+                    {formatNumber(stats.trace_count)} traces ·{" "}
+                    {formatNumber(stats.error_trace_count)} error traces
+                  </div>
+                  <div className="mt-1 text-muted">
+                    {formatNumber(otherTraces)} traces and {formatNumber(otherErrors)} errors belong
+                    to other integrations using {serviceName}.
+                  </div>
+                  <Link
+                    to={`/services/${encodeURIComponent(serviceName)}`}
+                    className="mt-1 inline-block underline-offset-2 hover:underline"
+                  >
+                    View the service →
+                  </Link>
+                </div>
+              </>
+            );
+          })()}
 
           <div>
             <div className="mb-1 text-xs text-muted">throughput · window</div>

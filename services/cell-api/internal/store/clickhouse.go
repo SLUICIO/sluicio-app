@@ -745,6 +745,70 @@ func (s *Store) ErrorTraceCountSince(ctx context.Context, service string, since,
 	return n, nil
 }
 
+// ErrorTraceCountSinceFiltered is ErrorTraceCountSince narrowed to an
+// integration's slice of a service's traffic.
+//
+// It exists because an acknowledgement is recorded per SERVICE, while a
+// service can carry many integrations (one Node-RED runtime emits every
+// flow). Recounting a service's errors since the watermark and showing
+// that on an integration page reports failures the integration does not
+// own — which is the bug this scoping exists to close.
+//
+// Membership matches ServiceTraceCountsFiltered exactly: a trace belongs
+// to the integration when SOME span of it, on SOME member service,
+// satisfies the attribute predicate — then every error span of that
+// trace on `service` counts. Diverging from that here (say, by AND-ing
+// the attributes onto the error span itself) would make this number
+// disagree with the trace count sitting beside it, which is the same
+// class of contradiction, moved rather than fixed.
+//
+// attrGroups is DNF (OR of AND-groups) to mirror how integration
+// matchers combine. Empty attrGroups is a programming error rather than
+// a no-op — callers with no predicate want ErrorTraceCountSince — so it
+// returns an error rather than silently counting everything.
+func (s *Store) ErrorTraceCountSinceFiltered(
+	ctx context.Context,
+	service string,
+	members []string,
+	since, to time.Time,
+	attrGroups [][]LogAttrFilter,
+) (uint64, error) {
+	if len(attrGroups) == 0 || len(members) == 0 {
+		return 0, fmt.Errorf("error trace count since filtered: needs members and attribute groups")
+	}
+	placeholders := make([]string, len(members))
+	for i := range members {
+		placeholders[i] = "?"
+	}
+	in := strings.Join(placeholders, ",")
+
+	// Placeholder order follows the SQL: outer service + bounds, then the
+	// membership subquery's bounds + member list, then the attr clause.
+	args := []any{service, since, to, since, to}
+	for _, n := range members {
+		args = append(args, n)
+	}
+	attrSQL := ""
+	if clause, cargs := attrGroupsClause("SpanAttributes", attrGroups); clause != "" {
+		attrSQL = " AND " + clause
+		args = append(args, cargs...)
+	}
+	q := `
+		SELECT toUInt64(uniqExactIf(TraceId, StatusCode = 'Error'))
+		FROM traces
+		WHERE ServiceName = ? AND Timestamp > ? AND Timestamp <= ?
+		  AND TraceId IN (
+		      SELECT TraceId FROM traces
+		      WHERE Timestamp > ? AND Timestamp <= ?
+		        AND ServiceName IN (` + in + `)` + attrSQL + `
+		  )`
+	var n uint64
+	if err := s.conn.QueryRow(ctx, q, args...).Scan(&n); err != nil {
+		return 0, fmt.Errorf("error trace count since filtered: %w", err)
+	}
+	return n, nil
+}
+
 // ServiceErrorStat is the per-service error summary behind the persistent
 // "unacknowledged errors" feed: how many distinct error traces a service
 // produced over the scanned window, when they first/last occurred, and a

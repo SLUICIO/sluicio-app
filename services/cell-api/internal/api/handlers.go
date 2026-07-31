@@ -1793,6 +1793,47 @@ func (h *Handlers) effectiveErrorCount(ctx context.Context, service string, wind
 	return n
 }
 
+// effectiveErrorCountScoped is effectiveErrorCount for a member service
+// viewed through one integration: the acknowledgement watermark is
+// applied, but the recount is restricted to the integration's slice.
+//
+// The watermark itself stays service-wide, and deliberately so. "Clear
+// errors" is only offered on the service page, so every ack that exists
+// was made by someone looking at service-wide errors — the record means
+// "I have reviewed this service up to T", and that reading is honest on
+// every page. What must not leak across integrations is the COUNT, and
+// that is what the predicate fixes here.
+//
+// With no attribute predicate (a service-only integration) this is
+// exactly effectiveErrorCount.
+func (h *Handlers) effectiveErrorCountScoped(
+	ctx context.Context,
+	service string,
+	members []string,
+	windowErr uint64,
+	from, to time.Time,
+	acks map[string]erroracks.Ack,
+	attrGroups [][]store.LogAttrFilter,
+) uint64 {
+	if len(attrGroups) == 0 {
+		return h.effectiveErrorCount(ctx, service, windowErr, from, to, acks)
+	}
+	if windowErr == 0 {
+		return 0
+	}
+	ack, ok := acks[service]
+	if !ok || !ack.AcknowledgedUntil.After(from) {
+		return windowErr
+	}
+	n, err := h.Store.ErrorTraceCountSinceFiltered(ctx, service, members, ack.AcknowledgedUntil, to, attrGroups)
+	if err != nil {
+		h.Logger.Warn("scoped effective error count failed; using raw",
+			"err", err, "service", service)
+		return windowErr
+	}
+	return n
+}
+
 // computeServiceStatus returns a service's status. Health is driven SOLELY
 // by configured health checks: a service is "unhealthy" iff a check bound to
 // it is firing, otherwise "ok". Raw trace errors no longer flip a service to

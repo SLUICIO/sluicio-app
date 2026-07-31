@@ -47,9 +47,14 @@ test("adding a filter works without crypto.randomUUID — the non-secure-context
   await page.getByRole("button", { name: "+ add a filter" }).click();
   // The row must actually render — not merely fail to throw.
   await expect(page.getByRole("button", { name: /attribute/ }).last()).toBeVisible();
-  await page.getByRole("button", { name: "+ add a filter" }).click();
-  await expect(page.getByRole("button", { name: /attribute/ })).toHaveCount(2);
   expect(crashes, `adding a filter threw: ${crashes.join(" | ")}`).toEqual([]);
+  // This deliberately does NOT click twice to assert two rows. A fresh
+  // row is a bare "payload" with no fieldPath, and writeFiltersToParams
+  // does not serialize those — so a second click races the URL
+  // round-trip and the count is legitimately 1 or 2 depending on timing.
+  // It failed exactly that way under full-suite load. Nothing about the
+  // crash this file guards needs a second row, and id uniqueness is
+  // covered properly (5000 ids) in frontend/src/lib/uid.test.ts.
 });
 
 test("error-type list + integration↔service cross-narrowing on /search", async ({ page }) => {
@@ -59,7 +64,16 @@ test("error-type list + integration↔service cross-narrowing on /search", async
   // the test could not pass on any cell slow enough to need them. It
   // survived on warm cells and died on busy ones, which reads as
   // flakiness but is really arithmetic: raise this if either poll grows.
-  test.setTimeout(180_000);
+  //
+  // 180s was still not enough. The first poll lists EVERY integration on
+  // the cell, and a suite run leaves ~85 behind, so on a long-lived
+  // throwaway stack that call grows without bound while the rest of the
+  // suite competes for the same cell. Alone this test finishes in ~3s;
+  // under a full parallel run it spent the entire budget and died in its
+  // cleanup. The poll deliberately uses the LIST endpoint because that
+  // is the response cross-narrowing consumes, so the cost is inherent
+  // and the budget has to cover it.
+  test.setTimeout(300_000);
 
   // Fail on any uncaught exception during the filter flow.
   //

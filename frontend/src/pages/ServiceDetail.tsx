@@ -431,6 +431,22 @@ export default function ServiceDetail() {
             {(data?.stats.error_trace_count ?? 0) === 1 ? "" : "s"} as reviewed. The service
             reads healthy again until new failures arrive; the traces themselves stay in history.
           </span>
+          {/* Blast radius. The acknowledgement is a watermark on the
+              SERVICE, so it clears errors for every integration this
+              service carries — including flows nobody just looked at.
+              That is fine when one service means one integration, and
+              easy to get wrong when a single runtime emits dozens. Say
+              which ones rather than leaving it to be discovered. */}
+          {(data?.integrations ?? []).length > 1 && (
+            <span
+              className="muted"
+              style={{ fontSize: 12.5, borderLeft: "3px solid var(--warn)", paddingLeft: 8 }}
+            >
+              This clears errors for all {(data?.integrations ?? []).length} integrations using{" "}
+              {name} — {(data?.integrations ?? []).map((i) => i.name).join(", ")} — not just the one
+              you came from.
+            </span>
+          )}
           <input
             className="search__input"
             placeholder="Optional comment (e.g. 'known issue, fix deployed in #1234')"
