@@ -84,9 +84,6 @@ export default function TraceDrawer({
       .then((d) => {
         if (cancelled) return;
         setData(d);
-        // Prefer the span that answered the user's search, else the
-        // first error span, else the first span — see pickInitialSpan.
-        setSelectedSpan(pickInitialSpan(d.spans, matchedSpanIds));
       })
       .catch((e) => !cancelled && setError(String(e.message ?? e)))
       .finally(() => !cancelled && setLoading(false));
@@ -94,6 +91,19 @@ export default function TraceDrawer({
       cancelled = true;
     };
   }, [traceId]);
+
+  // Initial selection lives in its own effect rather than inside the
+  // fetch above, so it can depend on matchedSpanIds honestly. Folding it
+  // into the fetch meant either lying to the dependency array or
+  // re-fetching the whole trace whenever the matched spans changed
+  // identity — the selection is not a reason to hit the network.
+  //
+  // Neither dependency changes when the user clicks a span, so this does
+  // not fight manual selection; it runs when a trace finishes loading.
+  useEffect(() => {
+    if (!data) return;
+    setSelectedSpan(pickInitialSpan(data.spans, matchedSpanIds));
+  }, [data, matchedSpanIds]);
 
   // Close on Escape.
   useEffect(() => {

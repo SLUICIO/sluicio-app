@@ -5,6 +5,8 @@ _Internal: not shown anywhere in the Sluicio product._
 
 ## v0.11.53 — 2026-07-31
 
+- trace drawer: pick the initial span in its own effect (5c3df8f)
+- release v0.11.53 — refresh internal changelog (a3a167d)
 - integrations: an integration's numbers must describe the integration (3f91fcd)
 - search: open a trace on the span that actually matched (e396551)
 - search: "any (ok, warn, err)" was filtering to errors only (be8b4d2)
