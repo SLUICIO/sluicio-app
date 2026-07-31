@@ -24,9 +24,30 @@ import AttributeSuggest from "../logs/AttributeSuggest";
 import FilterChip from "../logs/FilterChip";
 import { alertCondition, alertSignalLabel } from "../../lib/alertRule";
 
+// CheckScope is what a health check governs. All three are first-class
+// on the rule row (service_name / integration_id / system_id) and every
+// evaluator resolves them the same way — a group scope becomes its member
+// services before the query runs.
+export type CheckScope = "service" | "integration" | "system";
+
 // CheckKind is the rule type the editor builds. "metric" covers both the
 // telemetry + pushed sources (toggled inside the metric editor).
 type CheckKind = "metric" | "log" | "trace";
+
+// scopeQuery / scopeBinding keep the "which field names this scope"
+// decision in ONE place. It appears in the list query, the create/update
+// payload and the preview; when it was spelled inline as a ternary,
+// adding a third scope meant finding every one of them.
+function scopeQuery(scope: CheckScope, target: string) {
+  switch (scope) {
+    case "service":
+      return { service: target };
+    case "integration":
+      return { integration: target };
+    case "system":
+      return { system: target };
+  }
+}
 const editorKindOf = (r: AlertRule): CheckKind =>
   r.signal === "log" ? "log" : r.signal === "trace" ? "trace" : "metric";
 
@@ -101,7 +122,7 @@ export default function HealthChecks({
   window: win,
   reloadKey,
 }: {
-  scope: "service" | "integration";
+  scope: CheckScope;
   target: string;
   window: string;
   // Bump to force a re-fetch when checks change outside this component
@@ -119,7 +140,7 @@ export default function HealthChecks({
   const refresh = useCallback(() => {
     setLoading(true);
     api
-      .listAlertRules(scope === "service" ? { service: target } : { integration: target })
+      .listAlertRules(scopeQuery(scope, target))
       .then((r) => setRules(r.rules ?? []))
       .catch(() => setRules([]))
       .finally(() => setLoading(false));
@@ -277,7 +298,7 @@ export function HealthCheckEditDrawer({
   onClose,
 }: {
   rule: AlertRule;
-  scope: "service" | "integration";
+  scope: CheckScope;
   target: string;
   window: string;
   onSaved: () => void;
@@ -301,7 +322,7 @@ function HealthCheckEditor({
   onSaved,
   onCancel,
 }: {
-  scope: "service" | "integration";
+  scope: CheckScope;
   target: string;
   window: string;
   // When set, the editor edits this existing rule (PUT); otherwise it
@@ -386,7 +407,12 @@ function HealthCheckEditor({
       // Scope the preview to this service so it matches how the check actually
       // evaluates (service-bound rules only aggregate their own service).
       api
-        .previewAlertRule(spec, scope === "service" ? target : undefined)
+        .previewAlertRule(
+          spec,
+          scope === "service" ? target : undefined,
+          scope === "integration" ? target : undefined,
+          scope === "system" ? target : undefined,
+        )
         .then(setPreview)
         .catch(() => setPreview(null));
     }, 350);
@@ -425,7 +451,7 @@ function HealthCheckEditor({
       display_on_service: scope === "service" ? displayOnService : false,
       unit: unit.trim() || undefined,
       resolve_mode: resolveMode,
-      ...(scope === "service" ? { service_name: target } : { integration_id: target }),
+      ...scopeBinding(scope, target),
     };
     try {
       if (rule) {
@@ -632,10 +658,17 @@ function HealthCheckEditor({
   );
 }
 
-// scopeBinding returns the service_name / integration_id field that binds a
-// rule to its target, shared by the log + trace editors.
-function scopeBinding(scope: "service" | "integration", target: string) {
-  return scope === "service" ? { service_name: target } : { integration_id: target };
+// scopeBinding returns the service_name / integration_id / system_id
+// field that binds a rule to its target, shared by every editor.
+function scopeBinding(scope: CheckScope, target: string) {
+  switch (scope) {
+    case "service":
+      return { service_name: target };
+    case "integration":
+      return { integration_id: target };
+    case "system":
+      return { system_id: target };
+  }
 }
 
 // LogCheckEditor — create/edit a log-signal health check: fire when ≥N logs
@@ -647,7 +680,7 @@ function LogCheckEditor({
   onSaved,
   onCancel,
 }: {
-  scope: "service" | "integration";
+  scope: CheckScope;
   target: string;
   rule: AlertRule | null;
   onSaved: () => void;
@@ -803,7 +836,7 @@ function TraceCheckEditor({
   onSaved,
   onCancel,
 }: {
-  scope: "service" | "integration";
+  scope: CheckScope;
   target: string;
   rule: AlertRule | null;
   onSaved: () => void;

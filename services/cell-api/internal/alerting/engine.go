@@ -23,10 +23,10 @@ import (
 // metric (empty = no scope, for integration/global rules) — without it a
 // check on a metric many services emit would pool them all.
 type MetricEvaluator interface {
-	MetricAggregate(ctx context.Context, metricName string, attrs []AttrFilter, aggregation, serviceName string, integrationID *uuid.UUID, from, to time.Time) (float64, uint64, error)
+	MetricAggregate(ctx context.Context, metricName string, attrs []AttrFilter, aggregation, serviceName string, integrationID, systemID *uuid.UUID, from, to time.Time) (float64, uint64, error)
 	// MetricAggregateGrouped reduces the metric per distinct value of
 	// splitKey, for split-by rules. One MetricGroup per value.
-	MetricAggregateGrouped(ctx context.Context, metricName string, attrs []AttrFilter, aggregation, splitKey, serviceName string, integrationID *uuid.UUID, from, to time.Time) ([]MetricGroup, error)
+	MetricAggregateGrouped(ctx context.Context, metricName string, attrs []AttrFilter, aggregation, splitKey, serviceName string, integrationID, systemID *uuid.UUID, from, to time.Time) ([]MetricGroup, error)
 }
 
 // LogCountQuery is the criteria a log rule counts matches for, over
@@ -39,6 +39,7 @@ type LogCountQuery struct {
 	Attrs         []AttrFilter
 	ServiceName   string     // bound service ("" = none)
 	IntegrationID *uuid.UUID // bound integration (nil = none)
+	SystemID      *uuid.UUID // bound system (nil = none)
 	From, To      time.Time
 }
 
@@ -55,6 +56,7 @@ type LogCounter interface {
 // takes precedence when, defensively, both are present.
 type TraceErrorQuery struct {
 	IntegrationID *uuid.UUID
+	SystemID      *uuid.UUID
 	ServiceName   string
 	From, To      time.Time
 	// Attrs narrow which error spans make a trace count as failed
@@ -74,6 +76,7 @@ type TraceErrorCounter interface {
 // [From,To] at Quantile (1.0 = max).
 type TraceLatencyQuery struct {
 	IntegrationID *uuid.UUID
+	SystemID      *uuid.UUID
 	ServiceName   string
 	Quantile      float64
 	From, To      time.Time
@@ -90,17 +93,25 @@ type TraceLatencyEvaluator interface {
 // service (exactly one set), counting total distinct traces over [From,To].
 type TraceVolumeQuery struct {
 	IntegrationID *uuid.UUID
+	SystemID      *uuid.UUID
 	ServiceName   string
 	From, To      time.Time
 }
 
 // TraceVolumeEvaluator returns the total distinct trace count for a query's
-// scope. Unlike the latency/error evaluators there is no "no data → skip":
-// zero traces is exactly the condition a low-traffic check exists to catch
-// (dead-man's-switch). Implemented by the ClickHouse store (adapted at
-// wiring time).
+// scope. Implemented by the ClickHouse store (adapted at wiring time).
+//
+// Unlike the latency/error evaluators there is no "zero → skip": zero
+// traces from a real scope is exactly the condition a low-traffic check
+// exists to catch (dead-man's-switch). A named service that emitted
+// nothing MUST fire.
+//
+// scoped=false is a different statement: the scope resolved to no
+// services at all — a system or integration with no members yet. Nothing
+// there COULD have traffic, so firing "traffic dropped" would page
+// someone about a group that does not exist. The caller skips instead.
 type TraceVolumeEvaluator interface {
-	TotalTraces(ctx context.Context, q TraceVolumeQuery) (uint64, error)
+	TotalTraces(ctx context.Context, q TraceVolumeQuery) (total uint64, scoped bool, err error)
 }
 
 // Engine runs the two background loops behind alerting: an evaluator
@@ -421,7 +432,7 @@ func (e *Engine) evaluateRule(ctx context.Context, rule AlertRule) {
 	}
 	to := time.Now().UTC()
 	from := to.Add(-rule.Spec.ForWindowDuration())
-	value, samples, err := e.eval.MetricAggregate(ctx, rule.Spec.MetricName, rule.Spec.Attrs, string(rule.Spec.Aggregation), rule.ServiceName, rule.IntegrationID, from, to)
+	value, samples, err := e.eval.MetricAggregate(ctx, rule.Spec.MetricName, rule.Spec.Attrs, string(rule.Spec.Aggregation), rule.ServiceName, rule.IntegrationID, rule.SystemID, from, to)
 	if err != nil {
 		e.log.Error("alert eval: aggregate failed", "rule", rule.ID, "err", err)
 		return
@@ -551,7 +562,7 @@ func pushedRuleSummary(rule AlertRule, value float64, state string) string {
 func (e *Engine) evaluateSplitRule(ctx context.Context, rule AlertRule) {
 	to := time.Now().UTC()
 	from := to.Add(-rule.Spec.ForWindowDuration())
-	groups, err := e.eval.MetricAggregateGrouped(ctx, rule.Spec.MetricName, rule.Spec.Attrs, string(rule.Spec.Aggregation), rule.Spec.SplitBy, rule.ServiceName, rule.IntegrationID, from, to)
+	groups, err := e.eval.MetricAggregateGrouped(ctx, rule.Spec.MetricName, rule.Spec.Attrs, string(rule.Spec.Aggregation), rule.Spec.SplitBy, rule.ServiceName, rule.IntegrationID, rule.SystemID, from, to)
 	if err != nil {
 		e.log.Error("alert eval: grouped aggregate failed", "rule", rule.ID, "err", err)
 		return
@@ -702,6 +713,7 @@ func (e *Engine) evaluateLogRule(ctx context.Context, rule AlertRule) {
 		Attrs:         spec.Attrs,
 		ServiceName:   rule.ServiceName,
 		IntegrationID: rule.IntegrationID,
+		SystemID:      rule.SystemID,
 		From:          from,
 		To:            to,
 	})
@@ -1006,10 +1018,22 @@ func (e *Engine) evaluateTraceErrorOnce(ctx context.Context) {
 	}
 }
 
+// ruleHasScope reports whether a trace rule names something to count
+// over. A failed-trace / latency / low-traffic rule is meaningless
+// unbounded — "how many traces failed, anywhere?" is not a health check —
+// so the evaluators skip a rule with no scope rather than scanning the
+// whole cell.
+//
+// A system counts, since 0077: it resolves to its member services just
+// as an integration resolves to its own.
+func ruleHasScope(rule AlertRule) bool {
+	return rule.IntegrationID != nil || rule.SystemID != nil || rule.ServiceName != ""
+}
+
 func (e *Engine) evaluateTraceErrorRule(ctx context.Context, rule AlertRule) {
 	// A failed-trace rule must be scoped to an integration or a single
 	// service; without either there's nothing to count.
-	if rule.TraceErrorSpec == nil || (rule.IntegrationID == nil && rule.ServiceName == "") {
+	if rule.TraceErrorSpec == nil || !ruleHasScope(rule) {
 		return
 	}
 	spec := *rule.TraceErrorSpec
@@ -1021,6 +1045,7 @@ func (e *Engine) evaluateTraceErrorRule(ctx context.Context, rule AlertRule) {
 	from := to.Add(-spec.WindowDuration())
 	count, err := e.traceEval.CountErrorTraces(ctx, TraceErrorQuery{
 		IntegrationID: rule.IntegrationID,
+		SystemID:      rule.SystemID,
 		ServiceName:   rule.ServiceName,
 		From:          from,
 		To:            to,
@@ -1115,7 +1140,7 @@ func (e *Engine) evaluateTraceLatencyOnce(ctx context.Context) {
 }
 
 func (e *Engine) evaluateTraceLatencyRule(ctx context.Context, rule AlertRule) {
-	if rule.TraceLatencySpec == nil || (rule.IntegrationID == nil && rule.ServiceName == "") {
+	if rule.TraceLatencySpec == nil || !ruleHasScope(rule) {
 		return
 	}
 	spec := *rule.TraceLatencySpec
@@ -1123,6 +1148,7 @@ func (e *Engine) evaluateTraceLatencyRule(ctx context.Context, rule AlertRule) {
 	from := to.Add(-spec.WindowDuration())
 	latencyMs, samples, err := e.latencyEval.TraceLatencyMs(ctx, TraceLatencyQuery{
 		IntegrationID: rule.IntegrationID,
+		SystemID:      rule.SystemID,
 		ServiceName:   rule.ServiceName,
 		Quantile:      spec.Quantile(),
 		From:          from,
@@ -1216,20 +1242,29 @@ func (e *Engine) evaluateTraceVolumeOnce(ctx context.Context) {
 }
 
 func (e *Engine) evaluateTraceVolumeRule(ctx context.Context, rule AlertRule) {
-	if rule.TraceVolumeSpec == nil || (rule.IntegrationID == nil && rule.ServiceName == "") {
+	if rule.TraceVolumeSpec == nil || !ruleHasScope(rule) {
 		return
 	}
 	spec := *rule.TraceVolumeSpec
 	to := time.Now().UTC()
 	from := to.Add(-spec.WindowDuration())
-	total, err := e.volumeEval.TotalTraces(ctx, TraceVolumeQuery{
+	total, scoped, err := e.volumeEval.TotalTraces(ctx, TraceVolumeQuery{
 		IntegrationID: rule.IntegrationID,
+		SystemID:      rule.SystemID,
 		ServiceName:   rule.ServiceName,
 		From:          from,
 		To:            to,
 	})
 	if err != nil {
 		e.log.Error("volume alert eval: query failed", "rule", rule.ID, "err", err)
+		return
+	}
+	if !scoped {
+		// The system/integration has no member services. "Traffic dropped
+		// below N" is not a claim we can make about a group with nothing
+		// in it, and firing here would page someone at 3am about an empty
+		// set. A named service with no traffic still fires — see the
+		// interface doc.
 		return
 	}
 	// Below the floor → unhealthy. Zero counts (the silent-service case the

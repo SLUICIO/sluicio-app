@@ -1554,6 +1554,9 @@ export interface AlertRule {
   id: string;
   organization_id: string;
   integration_id?: string;
+  // Bound system. Resolved to the system's member services at evaluation
+  // time, the way integration_id resolves to an integration's members.
+  system_id?: string;
   service_name?: string;
   group_id?: string; // owning team; absent = org-wide
   name: string;
@@ -1626,6 +1629,7 @@ export interface AlertRuleInput {
   trace_volume_spec?: TraceVolumeRuleSpec;
   service_name?: string; // when set, the rule defines that service's health
   integration_id?: string; // bind to an integration's health
+  system_id?: string; // bind to a system's health (e.g. a Kafka cluster)
   group_id?: string; // owning team; omit / "" = org-wide
   runbook?: string; // what to do when this fires; rides along in payloads
   title_template?: string; // Go text/template for the notification title

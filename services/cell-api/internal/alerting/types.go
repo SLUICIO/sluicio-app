@@ -399,6 +399,15 @@ type AlertRule struct {
 	ID             uuid.UUID  `json:"id"`
 	OrganizationID uuid.UUID  `json:"organization_id"`
 	IntegrationID  *uuid.UUID `json:"integration_id,omitempty"`
+	// SystemID binds the check to a system — "the Kafka cluster is
+	// healthy iff consumer lag < X" describes the cluster, not any one
+	// broker. Resolved to the system's member services at evaluation
+	// time, the way IntegrationID resolves to an integration's members.
+	//
+	// The schema permits more than one scope (see 0009 and 0077); when
+	// several are set, resolution order is system → integration →
+	// service, and the API rejects ambiguous NEW rules.
+	SystemID       *uuid.UUID `json:"system_id,omitempty"`
 	ServiceName    string     `json:"service_name,omitempty"` // bound service (health check); "" = none
 	// GroupID is the owning team. nil = org-wide (visible to everyone);
 	// set = visible/editable only by team members + org admins.

@@ -76,20 +76,22 @@ export default function AlertBuilder({
   const [channels, setChannels] = useState<NotificationChannel[]>([]);
   const [services, setServices] = useState<string[]>([]);
   const [healthService, setHealthService] = useState(defaultService ?? "");
-  // A health check can govern a service OR an integration. Both are
-  // first-class on the rule row (service_name / integration_id) and every
-  // evaluator already honours either, so this picker is the only thing
-  // that ever limited it to services.
+  // A health check can govern a service, an integration, or a system.
+  // All three are first-class on the rule row (service_name /
+  // integration_id / system_id) and every evaluator resolves them the
+  // same way, so this picker is the only thing that ever limited it.
   //
-  // Kept as an explicit kind + two values rather than one merged list:
-  // a service name and an integration name can collide, and a picker
-  // where "orders" might mean either is a worse answer than one more
-  // click.
-  const [bindKind, setBindKind] = useState<"none" | "service" | "integration">(
+  // Kept as an explicit kind plus one picker per kind, rather than a
+  // single merged list: a service, an integration and a system can all
+  // share a name, and a list where "orders" might mean any of the three
+  // is a worse answer than one more click.
+  const [bindKind, setBindKind] = useState<"none" | "service" | "integration" | "system">(
     defaultService ? "service" : "none",
   );
   const [healthIntegration, setHealthIntegration] = useState("");
   const [integrations, setIntegrations] = useState<{ id: string; name: string }[]>([]);
+  const [healthSystem, setHealthSystem] = useState("");
+  const [systems, setSystems] = useState<{ id: string; name: string }[]>([]);
   // Owning team. "" = org-wide (visible to everyone). Non-admins can
   // only pick teams they belong to — the API enforces this too.
   const [groups, setGroups] = useState<Group[]>([]);
@@ -123,7 +125,9 @@ export default function AlertBuilder({
       ? healthService
       : bindKind === "integration" && healthIntegration
         ? integrations.find((i) => i.id === healthIntegration)?.name ?? "this integration"
-        : "";
+        : bindKind === "system" && healthSystem
+          ? systems.find((sy) => sy.id === healthSystem)?.name ?? "this system"
+          : "";
 
   const spec: MetricRuleSpec = useMemo(
     () => ({ metric_name: metricName, aggregation: agg, operator: op, threshold, for_window: forWindow, attrs, split_by: splitBy || undefined }),
@@ -143,6 +147,7 @@ export default function AlertBuilder({
     setName(`${metricName} alert`);
     setHealthService(defaultService ?? "");
     setHealthIntegration("");
+    setHealthSystem("");
     setBindKind(defaultService ? "service" : "none");
     setSplitBy("");
     setTitleTpl("");
@@ -167,6 +172,16 @@ export default function AlertBuilder({
         ),
       )
       .catch(() => setIntegrations([]));
+    api
+      .listSystems()
+      .then((r) =>
+        setSystems(
+          (r.systems ?? [])
+            .map((sy) => ({ id: sy.id, name: sy.name }))
+            .sort((a, b) => a.name.localeCompare(b.name)),
+        ),
+      )
+      .catch(() => setSystems([]));
     // Attribute keys on this metric — the split-by dimension options.
     api
       .metricFields("1h", metricName)
@@ -186,13 +201,14 @@ export default function AlertBuilder({
           spec,
           bindKind === "service" ? healthService || undefined : undefined,
           bindKind === "integration" ? healthIntegration || undefined : undefined,
+          bindKind === "system" ? healthSystem || undefined : undefined,
         )
         .then(setPreview)
         .catch(() => setPreview(null))
         .finally(() => setPreviewLoading(false));
     }, 350);
     return () => window.clearTimeout(debounce.current);
-  }, [spec, healthService, healthIntegration, bindKind]);
+  }, [spec, healthService, healthIntegration, healthSystem, bindKind]);
 
   const toggleChannel = (id: string) =>
     setSelected((prev) => {
@@ -213,6 +229,7 @@ export default function AlertBuilder({
         spec,
         service_name: bindKind === "service" ? healthService || undefined : undefined,
         integration_id: bindKind === "integration" ? healthIntegration || undefined : undefined,
+        system_id: bindKind === "system" ? healthSystem || undefined : undefined,
         group_id: team || undefined,
         title_template: titleTpl.trim() || undefined,
         body_template: bodyTpl.trim() || undefined,
@@ -290,6 +307,7 @@ export default function AlertBuilder({
               ["none", "Just alert"],
               ["service", "A service"],
               ["integration", "An integration"],
+              ["system", "A system"],
             ] as const).map(([k, label]) => (
               <button
                 key={k}
@@ -322,6 +340,16 @@ export default function AlertBuilder({
               placeholder="Pick the integration this metric reflects…"
             />
           )}
+          {bindKind === "system" && (
+            <SearchableSelect
+              value={healthSystem}
+              onChange={setHealthSystem}
+              options={systems.map((sy) => sy.id)}
+              labelFor={(id) => systems.find((sy) => sy.id === id)?.name ?? id}
+              allLabel="Pick a system…"
+              placeholder="Pick the system this metric reflects…"
+            />
+          )}
           <span className="muted" style={{ fontSize: 11.5 }}>
             {bindKind === "service" && healthService
               ? `Whenever the threshold above is breached, ${healthService} reads as unhealthy — this becomes one of its health checks, and any integration it belongs to follows.`
@@ -329,7 +357,11 @@ export default function AlertBuilder({
                 ? `Whenever the threshold above is breached, ${
                     integrations.find((i) => i.id === healthIntegration)?.name ?? "this integration"
                   } reads as unhealthy. The check is evaluated across that integration's member services — bind it to a service instead if you mean one service specifically.`
-                : bindKind === "none"
+                : bindKind === "system" && healthSystem
+                  ? `Whenever the threshold above is breached, ${
+                      systems.find((sy) => sy.id === healthSystem)?.name ?? "this system"
+                    } reads as unhealthy on its own — no individual member service has to look unhealthy first. Evaluated across the system's member services.`
+                  : bindKind === "none"
                   ? "This rule notifies, but leaves service and integration health unchanged."
                   : "Pick a target above — the preview below is scoped to whatever you choose, so it matches how the saved check will evaluate."}
           </span>

@@ -670,19 +670,47 @@ func (h *Handlers) canSeeIntegration(r *http.Request, integrationID uuid.UUID) b
 	return anyVisible
 }
 
+// canSeeSystemID is canSeeSystem for a caller holding only the id — the
+// alert paths, which read a rule's system_id without loading the system.
+//
+// Semantics match canSeeSystem deliberately, including the part that
+// looks odd: a system with NO members is visible to everyone. There is
+// no telemetry behind an empty system to leak, and the alternative hides
+// a freshly created system's own health check from the person who just
+// created it.
+func (h *Handlers) canSeeSystemID(r *http.Request, systemID uuid.UUID) bool {
+	members, err := h.Catalog.SystemMemberNames(r.Context(), middleware.OrgID(r), systemID)
+	if err != nil {
+		h.Logger.Warn("system visibility check failed; allowing", "err", err, "system", systemID)
+		return true
+	}
+	if len(members) == 0 {
+		return true
+	}
+	_, anyVisible := h.filterVisibleMembers(r, members)
+	return anyVisible
+}
+
 // canSeeAlertTarget reports whether the caller may see an alert /
-// failing health check bound to the given target. Service- and
-// integration-bound checks are gated by the *telemetry* visibility
-// boundary (canSeeService / canSeeIntegration) — a service-scoped
-// health check with no team must not leak to someone who can't see the
-// service. Global (unbound) checks carry no service data, so they fall
-// back to the team-ownership filter applied by the caller.
-func (h *Handlers) canSeeAlertTarget(r *http.Request, serviceName string, integrationID *uuid.UUID) bool {
-	if serviceName != "" {
-		return h.canSeeService(r, serviceName)
+// failing health check bound to the given target. Service-, integration-
+// and system-bound checks are gated by the *telemetry* visibility
+// boundary (canSeeService / canSeeIntegration / canSeeSystem) — a
+// service-scoped health check with no team must not leak to someone who
+// can't see the service. Global (unbound) checks carry no service data,
+// so they fall back to the team-ownership filter applied by the caller.
+//
+// Order matches the evaluators' resolution precedence (system →
+// integration → service), so what a caller is allowed to see is decided
+// by the same scope the check actually evaluates over.
+func (h *Handlers) canSeeAlertTarget(r *http.Request, serviceName string, integrationID, systemID *uuid.UUID) bool {
+	if systemID != nil {
+		return h.canSeeSystemID(r, *systemID)
 	}
 	if integrationID != nil {
 		return h.canSeeIntegration(r, *integrationID)
+	}
+	if serviceName != "" {
+		return h.canSeeService(r, serviceName)
 	}
 	return true
 }

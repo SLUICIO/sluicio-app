@@ -281,16 +281,16 @@ func main() {
 
 	// Background alerting: evaluate metric rules and deliver firings to
 	// channels. Shares the ClickHouse + Postgres stores; stops with ctx.
-	alertEngine := alerting.NewEngine(alertStore, metricEvaluatorAdapter{chStore, catalogStore}, logCounterAdapter{chStore, catalogStore}, traceErrorCounterAdapter{chStore, catalogStore, erroracksStore, integrations.DefaultOrgID}, integrations.DefaultOrgID, logger)
+	alertEngine := alerting.NewEngine(alertStore, metricEvaluatorAdapter{chStore, catalogStore, integrations.DefaultOrgID}, logCounterAdapter{chStore, catalogStore, integrations.DefaultOrgID}, traceErrorCounterAdapter{chStore, catalogStore, erroracksStore, integrations.DefaultOrgID}, integrations.DefaultOrgID, logger)
 	// Route deliveries through global/integration/team channels when a rule
 	// has none of its own.
 	alertEngine.SetChannelResolver(profilesStore)
 	// Trace-latency rules ("response time over X") read the same service set
 	// as trace_error, then ask ClickHouse for the windowed quantile latency.
-	alertEngine.SetLatencyEvaluator(traceLatencyEvaluatorAdapter{chStore, catalogStore})
+	alertEngine.SetLatencyEvaluator(traceLatencyEvaluatorAdapter{chStore, catalogStore, integrations.DefaultOrgID})
 	// Trace-volume rules ("fewer than X traces") read the same service set,
 	// then count distinct traces — zero counts as below (dead-man's-switch).
-	alertEngine.SetVolumeEvaluator(traceVolumeEvaluatorAdapter{chStore, catalogStore})
+	alertEngine.SetVolumeEvaluator(traceVolumeEvaluatorAdapter{chStore, catalogStore, integrations.DefaultOrgID})
 	go alertEngine.Run(bgCtx)
 
 	// Error notifier: sends one notification when a service's unacknowledged
@@ -677,6 +677,10 @@ func main() {
 type metricEvaluatorAdapter struct {
 	s       *store.Store
 	catalog *catalog.Store
+	// orgID scopes system membership lookups — SystemMemberNames is
+	// org-qualified, and a scope resolver must not be the one place that
+	// forgets which tenant it is answering for.
+	orgID   uuid.UUID
 }
 
 // metricScope resolves a rule's binding to the store's serviceIn allowlist,
@@ -686,9 +690,22 @@ type metricEvaluatorAdapter struct {
 // means "integration with no resolved members" — evaluate as no-data rather
 // than falling through to nil (which would pool the metric across the whole
 // org — the bug this fixes).
-func (a metricEvaluatorAdapter) metricScope(ctx context.Context, serviceName string, integrationID *uuid.UUID) (serviceIn []string, ok bool, err error) {
-	if serviceName != "" {
-		return []string{serviceName}, true, nil
+func (a metricEvaluatorAdapter) metricScope(ctx context.Context, serviceName string, integrationID, systemID *uuid.UUID) (serviceIn []string, ok bool, err error) {
+	// Precedence when a rule carries more than one scope: system, then
+	// integration, then service. The schema has permitted multiple since
+	// 0009 and 0077 did not change that (a CHECK added retroactively
+	// could fail on live rows), so the order is fixed here and the API
+	// rejects ambiguous NEW rules. Narrowest-intent-first: a rule that
+	// names a system was created on a system page.
+	if systemID != nil {
+		svcs, err := a.catalog.SystemMemberNames(ctx, a.orgID, *systemID)
+		if err != nil {
+			return nil, false, err
+		}
+		if len(svcs) == 0 {
+			return nil, false, nil // no members yet → no data
+		}
+		return svcs, true, nil
 	}
 	if integrationID != nil {
 		svcs, err := a.catalog.IntegrationServices(ctx, *integrationID)
@@ -700,11 +717,14 @@ func (a metricEvaluatorAdapter) metricScope(ctx context.Context, serviceName str
 		}
 		return svcs, true, nil
 	}
+	if serviceName != "" {
+		return []string{serviceName}, true, nil
+	}
 	return nil, true, nil // global — all services
 }
 
-func (a metricEvaluatorAdapter) MetricAggregate(ctx context.Context, metricName string, attrs []alerting.AttrFilter, aggregation, serviceName string, integrationID *uuid.UUID, from, to time.Time) (float64, uint64, error) {
-	serviceIn, ok, err := a.metricScope(ctx, serviceName, integrationID)
+func (a metricEvaluatorAdapter) MetricAggregate(ctx context.Context, metricName string, attrs []alerting.AttrFilter, aggregation, serviceName string, integrationID, systemID *uuid.UUID, from, to time.Time) (float64, uint64, error) {
+	serviceIn, ok, err := a.metricScope(ctx, serviceName, integrationID, systemID)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -714,8 +734,8 @@ func (a metricEvaluatorAdapter) MetricAggregate(ctx context.Context, metricName 
 	return a.s.MetricAggregate(ctx, metricName, alertAttrsToStore(attrs), aggregation, from, to, serviceIn)
 }
 
-func (a metricEvaluatorAdapter) MetricAggregateGrouped(ctx context.Context, metricName string, attrs []alerting.AttrFilter, aggregation, splitKey, serviceName string, integrationID *uuid.UUID, from, to time.Time) ([]alerting.MetricGroup, error) {
-	serviceIn, ok, err := a.metricScope(ctx, serviceName, integrationID)
+func (a metricEvaluatorAdapter) MetricAggregateGrouped(ctx context.Context, metricName string, attrs []alerting.AttrFilter, aggregation, splitKey, serviceName string, integrationID, systemID *uuid.UUID, from, to time.Time) ([]alerting.MetricGroup, error) {
+	serviceIn, ok, err := a.metricScope(ctx, serviceName, integrationID, systemID)
 	if err != nil {
 		return nil, err
 	}
@@ -750,6 +770,10 @@ func alertAttrsToStore(attrs []alerting.AttrFilter) []store.LogAttrFilter {
 type logCounterAdapter struct {
 	s       *store.Store
 	catalog *catalog.Store
+	// orgID scopes system membership lookups — SystemMemberNames is
+	// org-qualified, and a scope resolver must not be the one place that
+	// forgets which tenant it is answering for.
+	orgID   uuid.UUID
 }
 
 func (a logCounterAdapter) CountLogs(ctx context.Context, q alerting.LogCountQuery) (uint64, error) {
@@ -763,7 +787,18 @@ func (a logCounterAdapter) CountLogs(ctx context.Context, q alerting.LogCountQue
 	for _, f := range q.Attrs {
 		p.Attrs = append(p.Attrs, store.LogAttrFilter{Key: f.Key, Op: f.Op, Value: f.Value})
 	}
-	if q.IntegrationID != nil {
+	// System takes precedence over integration, matching metricScope.
+	if q.SystemID != nil {
+		svcs, err := a.catalog.SystemMemberNames(ctx, a.orgID, *q.SystemID)
+		if err != nil {
+			return 0, err
+		}
+		if len(svcs) == 0 {
+			// System has no member services yet → nothing to match.
+			return 0, nil
+		}
+		p.ServiceIn = svcs
+	} else if q.IntegrationID != nil {
 		svcs, err := a.catalog.IntegrationServices(ctx, *q.IntegrationID)
 		if err != nil {
 			return 0, err
@@ -794,6 +829,12 @@ type traceErrorCounterAdapter struct {
 func (a traceErrorCounterAdapter) CountErrorTraces(ctx context.Context, q alerting.TraceErrorQuery) (uint64, error) {
 	var svcs []string
 	switch {
+	case q.SystemID != nil:
+		s, err := a.catalog.SystemMemberNames(ctx, a.orgID, *q.SystemID)
+		if err != nil {
+			return 0, err
+		}
+		svcs = s
 	case q.IntegrationID != nil:
 		s, err := a.catalog.IntegrationServices(ctx, *q.IntegrationID)
 		if err != nil {
@@ -861,10 +902,26 @@ func (a traceErrorCounterAdapter) countRespectingClears(ctx context.Context, svc
 type traceLatencyEvaluatorAdapter struct {
 	s       *store.Store
 	catalog *catalog.Store
+	// orgID scopes system membership lookups — SystemMemberNames is
+	// org-qualified, and a scope resolver must not be the one place that
+	// forgets which tenant it is answering for.
+	orgID   uuid.UUID
 }
 
 func (a traceLatencyEvaluatorAdapter) TraceLatencyMs(ctx context.Context, q alerting.TraceLatencyQuery) (float64, uint64, error) {
-	// Integration scope: resolve the integration's service set, then measure.
+	// System / integration scope: resolve to a service set, then measure.
+	// System first, matching metricScope's precedence.
+	if q.SystemID != nil {
+		svcs, err := a.catalog.SystemMemberNames(ctx, a.orgID, *q.SystemID)
+		if err != nil {
+			return 0, 0, err
+		}
+		if len(svcs) == 0 {
+			// No member services yet → no samples to measure.
+			return 0, 0, nil
+		}
+		return a.s.LatencyMsForServices(ctx, svcs, q.Quantile, q.From, q.To)
+	}
 	if q.IntegrationID != nil {
 		svcs, err := a.catalog.IntegrationServices(ctx, *q.IntegrationID)
 		if err != nil {
@@ -887,30 +944,53 @@ func (a traceLatencyEvaluatorAdapter) TraceLatencyMs(ctx context.Context, q aler
 // trace count for a low-traffic ("fewer than X") rule. Same service-set
 // resolution as the latency/error adapters, then DistinctTraceCounts —
 // dropping the errored half, since a volume floor cares only about total
-// throughput. An integration whose service set is empty reports zero, which
-// (per the dead-man's-switch semantics) is itself a breach.
+// throughput.
+//
+// The second return distinguishes "this scope produced no traffic" from
+// "this scope contains nothing". The first is the breach the rule exists
+// to catch; the second is a system or integration with no member
+// services, where firing would page someone about an empty set. Before
+// this existed, both read as zero and both fired.
 type traceVolumeEvaluatorAdapter struct {
 	s       *store.Store
 	catalog *catalog.Store
+	// orgID scopes system membership lookups — SystemMemberNames is
+	// org-qualified, and a scope resolver must not be the one place that
+	// forgets which tenant it is answering for.
+	orgID   uuid.UUID
 }
 
-func (a traceVolumeEvaluatorAdapter) TotalTraces(ctx context.Context, q alerting.TraceVolumeQuery) (uint64, error) {
+func (a traceVolumeEvaluatorAdapter) TotalTraces(ctx context.Context, q alerting.TraceVolumeQuery) (uint64, bool, error) {
+	// System first, matching metricScope's precedence.
+	if q.SystemID != nil {
+		svcs, err := a.catalog.SystemMemberNames(ctx, a.orgID, *q.SystemID)
+		if err != nil {
+			return 0, false, err
+		}
+		if len(svcs) == 0 {
+			return 0, false, nil
+		}
+		total, _, err := a.s.DistinctTraceCounts(ctx, svcs, q.From, q.To, nil)
+		return total, true, err
+	}
 	if q.IntegrationID != nil {
 		svcs, err := a.catalog.IntegrationServices(ctx, *q.IntegrationID)
 		if err != nil {
-			return 0, err
+			return 0, false, err
 		}
 		if len(svcs) == 0 {
-			return 0, nil
+			return 0, false, nil
 		}
 		total, _, err := a.s.DistinctTraceCounts(ctx, svcs, q.From, q.To, nil)
-		return total, err
+		return total, true, err
 	}
+	// A named service is always in scope, even with no traffic — that is
+	// precisely the dead-man's-switch case.
 	if q.ServiceName != "" {
 		total, _, err := a.s.DistinctTraceCounts(ctx, []string{q.ServiceName}, q.From, q.To, nil)
-		return total, err
+		return total, true, err
 	}
-	return 0, nil
+	return 0, false, nil
 }
 
 // traceCompletionAlertAdapter lets the trace-completion evaluator

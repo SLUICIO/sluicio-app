@@ -120,7 +120,7 @@ func (h *Handlers) getDigest(w http.ResponseWriter, r *http.Request) {
 			if !inst.StartedAt.After(since) {
 				continue
 			}
-			if !h.canSeeAlertTarget(r, inst.ServiceName, inst.IntegrationID) {
+			if !h.canSeeAlertTarget(r, inst.ServiceName, inst.IntegrationID, inst.SystemID) {
 				continue
 			}
 			f := failureDigest{

@@ -24,7 +24,7 @@ type Store struct {
 
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
-const ruleCols = `id, organization_id, integration_id, COALESCE(service_name, ''), group_id, name, COALESCE(description, ''),
+const ruleCols = `id, organization_id, integration_id, system_id, COALESCE(service_name, ''), group_id, name, COALESCE(description, ''),
 	signal, rule_spec, severity,
 	EXTRACT(EPOCH FROM evaluation_interval)::bigint, enabled,
 	COALESCE(title_template, ''), COALESCE(body_template, ''), created_at, updated_at,
@@ -48,12 +48,13 @@ func scanRule(row pgx.Row) (AlertRule, error) {
 	var (
 		r       AlertRule
 		intg    uuid.NullUUID
+		sys     uuid.NullUUID
 		grp     uuid.NullUUID
 		specRaw []byte
 		ncRaw   []byte
 	)
 	if err := row.Scan(
-		&r.ID, &r.OrganizationID, &intg, &r.ServiceName, &grp, &r.Name, &r.Description,
+		&r.ID, &r.OrganizationID, &intg, &sys, &r.ServiceName, &grp, &r.Name, &r.Description,
 		&r.Signal, &specRaw, &r.Severity,
 		&r.EvalSeconds, &r.Enabled,
 		&r.TitleTemplate, &r.BodyTemplate, &r.CreatedAt, &r.UpdatedAt,
@@ -71,6 +72,10 @@ func scanRule(row pgx.Row) (AlertRule, error) {
 	if intg.Valid {
 		id := intg.UUID
 		r.IntegrationID = &id
+	}
+	if sys.Valid {
+		id := sys.UUID
+		r.SystemID = &id
 	}
 	if grp.Valid {
 		id := grp.UUID
@@ -273,10 +278,10 @@ func (s *Store) CreateRule(ctx context.Context, r AlertRule) (AlertRule, error) 
 	defer tx.Rollback(ctx)
 
 	row := tx.QueryRow(ctx, `
-		INSERT INTO alert_rules (organization_id, integration_id, service_name, group_id, name, description, signal, rule_spec, severity, enabled, title_template, body_template, source, display_on_service, unit, resolve_mode, notification_config, runbook)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+		INSERT INTO alert_rules (organization_id, integration_id, system_id, service_name, group_id, name, description, signal, rule_spec, severity, enabled, title_template, body_template, source, display_on_service, unit, resolve_mode, notification_config, runbook)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
 		RETURNING `+ruleCols,
-		r.OrganizationID, uuidArg(r.IntegrationID), nilIfEmpty(r.ServiceName), uuidArg(r.GroupID), r.Name, nilIfEmpty(r.Description), ruleSignal(r), spec, string(r.Severity), r.Enabled, nilIfEmpty(r.TitleTemplate), nilIfEmpty(r.BodyTemplate), ruleSource(r), r.DisplayOnService, nilIfEmpty(r.Unit), resolveModeOf(r), notifConfigJSON(r.NotificationContent), r.Runbook)
+		r.OrganizationID, uuidArg(r.IntegrationID), uuidArg(r.SystemID), nilIfEmpty(r.ServiceName), uuidArg(r.GroupID), r.Name, nilIfEmpty(r.Description), ruleSignal(r), spec, string(r.Severity), r.Enabled, nilIfEmpty(r.TitleTemplate), nilIfEmpty(r.BodyTemplate), ruleSource(r), r.DisplayOnService, nilIfEmpty(r.Unit), resolveModeOf(r), notifConfigJSON(r.NotificationContent), r.Runbook)
 	created, err := scanRule(row)
 	if err != nil {
 		return AlertRule{}, fmt.Errorf("insert alert rule: %w", err)
@@ -305,10 +310,10 @@ func (s *Store) UpdateRule(ctx context.Context, orgID uuid.UUID, r AlertRule) (A
 
 	row := tx.QueryRow(ctx, `
 		UPDATE alert_rules
-		SET name = $3, description = $4, rule_spec = $5, severity = $6, enabled = $7, integration_id = $8, service_name = $9, group_id = $10, title_template = $11, body_template = $12, source = $13, display_on_service = $14, unit = $15, resolve_mode = $16, notification_config = $17, runbook = $18, updated_at = now()
+		SET name = $3, description = $4, rule_spec = $5, severity = $6, enabled = $7, integration_id = $8, system_id = $19, service_name = $9, group_id = $10, title_template = $11, body_template = $12, source = $13, display_on_service = $14, unit = $15, resolve_mode = $16, notification_config = $17, runbook = $18, updated_at = now()
 		WHERE organization_id = $1 AND id = $2
 		RETURNING `+ruleCols,
-		orgID, r.ID, r.Name, nilIfEmpty(r.Description), spec, string(r.Severity), r.Enabled, uuidArg(r.IntegrationID), nilIfEmpty(r.ServiceName), uuidArg(r.GroupID), nilIfEmpty(r.TitleTemplate), nilIfEmpty(r.BodyTemplate), ruleSource(r), r.DisplayOnService, nilIfEmpty(r.Unit), resolveModeOf(r), notifConfigJSON(r.NotificationContent), r.Runbook)
+		orgID, r.ID, r.Name, nilIfEmpty(r.Description), spec, string(r.Severity), r.Enabled, uuidArg(r.IntegrationID), nilIfEmpty(r.ServiceName), uuidArg(r.GroupID), nilIfEmpty(r.TitleTemplate), nilIfEmpty(r.BodyTemplate), ruleSource(r), r.DisplayOnService, nilIfEmpty(r.Unit), resolveModeOf(r), notifConfigJSON(r.NotificationContent), r.Runbook, uuidArg(r.SystemID))
 	updated, err := scanRule(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return AlertRule{}, ErrNotFound
@@ -659,6 +664,41 @@ func (s *Store) FiringHealthIntegrations(ctx context.Context, orgID uuid.UUID) (
 	rows, err := s.pool.Query(ctx, q, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("firing health integrations: %w", err)
+	}
+	defer rows.Close()
+	out := map[uuid.UUID]bool{}
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out[id] = true
+	}
+	return out, rows.Err()
+}
+
+// FiringHealthSystems is FiringHealthIntegrations for systems (issue
+// #13): the set of system IDs with a firing check bound directly to the
+// system. A system-scoped firing check makes the system unhealthy on its
+// own, independent of its member services' statuses — otherwise "the
+// cluster is unhealthy" would depend on some individual broker also
+// looking unhealthy, which is exactly the coupling a cluster-level check
+// exists to avoid.
+//
+// Same trace-completion exclusion as the integration query: delayed is a
+// separate dimension from unhealthy, and the kind predicate mirrors
+// ListRules so the three stay consistent.
+func (s *Store) FiringHealthSystems(ctx context.Context, orgID uuid.UUID) (map[uuid.UUID]bool, error) {
+	const q = `
+		SELECT DISTINCT r.system_id
+		FROM alert_instances i
+		JOIN alert_rules r ON r.id = i.alert_rule_id
+		WHERE r.organization_id = $1 AND i.state = 'firing'
+		  AND r.system_id IS NOT NULL
+		  AND (r.signal <> 'trace' OR r.rule_spec->>'kind' IN ('` + TraceErrorSpecKind + `', '` + TraceLatencySpecKind + `', '` + TraceVolumeSpecKind + `'))`
+	rows, err := s.pool.Query(ctx, q, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("firing health systems: %w", err)
 	}
 	defer rows.Close()
 	out := map[uuid.UUID]bool{}

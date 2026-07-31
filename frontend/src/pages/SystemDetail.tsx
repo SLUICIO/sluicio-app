@@ -12,6 +12,7 @@ import type { AlertInstance, AlertRule, MetadataField, ServiceSummary, System } 
 import { formatRelative } from "../lib/format";
 import { usePageTitle } from "../lib/usePageTitle";
 import { useCurrentUser } from "../lib/useCurrentUser";
+import HealthChecks from "../components/health/HealthChecks";
 import ResourceGroupsCard from "../components/ResourceGroupsCard";
 import ResourceSharesCard from "../components/ResourceSharesCard";
 import { useTimeWindow } from "../lib/useTimeWindow";
@@ -309,6 +310,12 @@ export default function SystemDetail() {
           )}
         </div>
       )}
+
+      {/* Health checks for the SYSTEM itself (issue #13). Distinct from
+          the member rollup above: "the cluster is healthy iff consumer
+          lag < X" is a statement about the cluster, and should not depend
+          on some individual broker also looking unhealthy. */}
+      {canWrite && <HealthChecks scope="system" target={id} window="1h" />}
 
       {editing && (
         <SystemEditDrawer

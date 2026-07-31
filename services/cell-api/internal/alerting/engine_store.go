@@ -566,7 +566,7 @@ func (s *Store) RecentInstances(ctx context.Context, orgID uuid.UUID, limit int)
 	const q = `
 		SELECT i.id, i.alert_rule_id, r.name, r.severity, i.state,
 		       i.started_at, i.ended_at, COALESCE(i.summary, ''), i.handled_at, r.group_id,
-		       COALESCE(r.service_name, ''), r.integration_id
+		       COALESCE(r.service_name, ''), r.integration_id, r.system_id
 		FROM alert_instances i
 		JOIN alert_rules r ON r.id = i.alert_rule_id
 		WHERE r.organization_id = $1
@@ -583,7 +583,8 @@ func (s *Store) RecentInstances(ctx context.Context, orgID uuid.UUID, limit int)
 		var ended *time.Time
 		var grp uuid.NullUUID
 		var intg uuid.NullUUID
-		if err := rows.Scan(&v.ID, &v.AlertRuleID, &v.RuleName, &v.Severity, &v.State, &v.StartedAt, &ended, &v.Summary, &v.HandledAt, &grp, &v.ServiceName, &intg); err != nil {
+		var sys uuid.NullUUID
+		if err := rows.Scan(&v.ID, &v.AlertRuleID, &v.RuleName, &v.Severity, &v.State, &v.StartedAt, &ended, &v.Summary, &v.HandledAt, &grp, &v.ServiceName, &intg, &sys); err != nil {
 			return nil, err
 		}
 		v.EndedAt = ended
@@ -594,6 +595,10 @@ func (s *Store) RecentInstances(ctx context.Context, orgID uuid.UUID, limit int)
 		if intg.Valid {
 			id := intg.UUID
 			v.IntegrationID = &id
+		}
+		if sys.Valid {
+			id := sys.UUID
+			v.SystemID = &id
 		}
 		out = append(out, v)
 	}
@@ -615,6 +620,7 @@ type FiringInstance struct {
 	Summary       string     `json:"summary,omitempty"`
 	ServiceName   string     `json:"service_name,omitempty"`
 	IntegrationID *uuid.UUID `json:"integration_id,omitempty"`
+	SystemID      *uuid.UUID `json:"system_id,omitempty"`
 	// GroupID is the owning team of the rule (nil = org-wide). Drives the
 	// same team access-control filter as rules/instances.
 	GroupID *uuid.UUID `json:"group_id,omitempty"`
@@ -627,7 +633,7 @@ func (s *Store) FiringInstances(ctx context.Context, orgID uuid.UUID) ([]FiringI
 	const q = `
 		SELECT i.id, r.id, r.name, r.severity, i.started_at, i.handled_at,
 		       COALESCE(i.summary, ''), COALESCE(r.service_name, ''),
-		       r.integration_id, r.group_id
+		       r.integration_id, r.system_id, r.group_id
 		FROM alert_instances i
 		JOIN alert_rules r ON r.id = i.alert_rule_id
 		WHERE r.organization_id = $1 AND i.state = 'firing'
@@ -642,14 +648,19 @@ func (s *Store) FiringInstances(ctx context.Context, orgID uuid.UUID) ([]FiringI
 		var (
 			v    FiringInstance
 			intg uuid.NullUUID
+			sys  uuid.NullUUID
 			grp  uuid.NullUUID
 		)
-		if err := rows.Scan(&v.ID, &v.RuleID, &v.RuleName, &v.Severity, &v.StartedAt, &v.HandledAt, &v.Summary, &v.ServiceName, &intg, &grp); err != nil {
+		if err := rows.Scan(&v.ID, &v.RuleID, &v.RuleName, &v.Severity, &v.StartedAt, &v.HandledAt, &v.Summary, &v.ServiceName, &intg, &sys, &grp); err != nil {
 			return nil, err
 		}
 		if intg.Valid {
 			id := intg.UUID
 			v.IntegrationID = &id
+		}
+		if sys.Valid {
+			id := sys.UUID
+			v.SystemID = &id
 		}
 		if grp.Valid {
 			id := grp.UUID
@@ -675,11 +686,13 @@ type InstanceView struct {
 	// GroupID is the owning team of the instance's rule (nil =
 	// org-wide). Drives the same team access-control filter as rules.
 	GroupID *uuid.UUID `json:"group_id,omitempty"`
-	// ServiceName / IntegrationID are the rule's bound target. They drive
-	// the telemetry-visibility filter (a service-scoped instance must not
-	// leak to someone who can't see the service). "" / nil = unbound.
+	// ServiceName / IntegrationID / SystemID are the rule's bound target.
+	// They drive the telemetry-visibility filter (a service-scoped
+	// instance must not leak to someone who can't see the service).
+	// "" / nil = unbound.
 	ServiceName   string     `json:"service_name,omitempty"`
 	IntegrationID *uuid.UUID `json:"integration_id,omitempty"`
+	SystemID      *uuid.UUID `json:"system_id,omitempty"`
 }
 
 // DeliveryView is one row of the "what's been sent" history: a
@@ -703,10 +716,11 @@ type DeliveryView struct {
 	// GroupID is the owning team of the underlying rule (nil =
 	// org-wide); drives the team access-control filter.
 	GroupID *uuid.UUID `json:"group_id,omitempty"`
-	// ServiceName / IntegrationID are the rule's bound target, for the
-	// telemetry-visibility filter. "" / nil = unbound.
+	// ServiceName / IntegrationID / SystemID are the rule's bound target,
+	// for the telemetry-visibility filter. "" / nil = unbound.
 	ServiceName   string     `json:"service_name,omitempty"`
 	IntegrationID *uuid.UUID `json:"integration_id,omitempty"`
+	SystemID      *uuid.UUID `json:"system_id,omitempty"`
 }
 
 // ListDeliveries returns recent notification jobs in the org,
@@ -762,7 +776,7 @@ func (s *Store) ListDeliveries(ctx context.Context, orgID uuid.UUID, f DeliveryF
 		       i.state, j.state, j.attempts, COALESCE(j.last_error, ''),
 		       COALESCE(j.sent_subject, ''), COALESCE(j.sent_body, ''), COALESCE(i.summary, ''),
 		       j.created_at, j.updated_at, r.group_id,
-		       COALESCE(r.service_name, ''), r.integration_id
+		       COALESCE(r.service_name, ''), r.integration_id, r.system_id
 		FROM notification_jobs j
 		JOIN notification_channels c ON c.id = j.channel_id
 		JOIN alert_instances i ON i.id = j.alert_instance_id
@@ -780,12 +794,13 @@ func (s *Store) ListDeliveries(ctx context.Context, orgID uuid.UUID, f DeliveryF
 		var d DeliveryView
 		var grp uuid.NullUUID
 		var intg uuid.NullUUID
+		var sys uuid.NullUUID
 		if err := rows.Scan(
 			&d.JobID, &d.ChannelName, &d.ChannelKind, &d.RuleName, &d.Severity,
 			&d.AlertState, &d.JobState, &d.Attempts, &d.LastError,
 			&d.Subject, &d.Body, &d.Summary,
 			&d.CreatedAt, &d.UpdatedAt, &grp,
-			&d.ServiceName, &intg,
+			&d.ServiceName, &intg, &sys,
 		); err != nil {
 			return nil, err
 		}
@@ -796,6 +811,10 @@ func (s *Store) ListDeliveries(ctx context.Context, orgID uuid.UUID, f DeliveryF
 		if intg.Valid {
 			id := intg.UUID
 			d.IntegrationID = &id
+		}
+		if sys.Valid {
+			id := sys.UUID
+			d.SystemID = &id
 		}
 		out = append(out, d)
 	}

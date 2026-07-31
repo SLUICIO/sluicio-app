@@ -741,10 +741,11 @@ export const api = {
     ),
 
   // Alerting: metric rules, would-fire preview, channels, instances ----
-  listAlertRules: (opts: { service?: string; integration?: string } = {}) => {
+  listAlertRules: (opts: { service?: string; integration?: string; system?: string } = {}) => {
     const p = new URLSearchParams();
     if (opts.service) p.set("service", opts.service);
     if (opts.integration) p.set("integration", opts.integration);
+    if (opts.system) p.set("system", opts.system);
     const qs = p.toString();
     return get<{ rules: AlertRule[] }>(`/alert-rules${qs ? `?${qs}` : ""}`);
   },
@@ -755,11 +756,17 @@ export const api = {
   // The scope must match how the saved rule will evaluate: a preview
   // that quietly widened to every visible service would show a number
   // the rule never produces.
-  previewAlertRule: (spec: MetricRuleSpec, serviceName?: string, integrationId?: string) =>
+  previewAlertRule: (
+    spec: MetricRuleSpec,
+    serviceName?: string,
+    integrationId?: string,
+    systemId?: string,
+  ) =>
     post<AlertPreview>(`/alert-rules/preview`, {
       spec,
       service_name: serviceName,
       integration_id: integrationId,
+      system_id: systemId,
     }),
   // Render a notification (email HTML / webhook JSON) against a sample firing
   // context for the given content config — preview, no send.

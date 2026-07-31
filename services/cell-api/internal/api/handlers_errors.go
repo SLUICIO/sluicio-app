@@ -93,7 +93,7 @@ func (h *Handlers) failingChecks(r *http.Request) ([]FailingCheck, error) {
 		if !canSeeAlertGroup(fi.GroupID, visible, filter) {
 			continue
 		}
-		if !h.canSeeAlertTarget(r, fi.ServiceName, fi.IntegrationID) {
+		if !h.canSeeAlertTarget(r, fi.ServiceName, fi.IntegrationID, fi.SystemID) {
 			continue
 		}
 		fc := FailingCheck{

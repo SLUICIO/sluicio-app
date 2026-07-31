@@ -131,6 +131,14 @@ func (h *Handlers) listSystems(w http.ResponseWriter, r *http.Request) {
 			statusByName[s.ServiceName] = s.Status
 		}
 	}
+	// A check bound to the system itself makes it unhealthy on its own —
+	// "the cluster is unhealthy" must not depend on some individual
+	// broker also looking unhealthy.
+	firingSystems, fsErr := h.Alerts.FiringHealthSystems(r.Context(), middleware.OrgID(r))
+	if fsErr != nil {
+		h.Logger.Warn("firing health systems failed", "err", fsErr)
+		firingSystems = map[uuid.UUID]bool{}
+	}
 	out := make([]systemDTO, 0, len(systems))
 	for _, sy := range systems {
 		vis := make([]string, 0, len(sy.Members))
@@ -150,6 +158,9 @@ func (h *Handlers) listSystems(w http.ResponseWriter, r *http.Request) {
 		dto := systemToDTO(sy)
 		dto.Members, dto.MemberCount = vis, len(vis)
 		dto.Status = aggregateStatus(statuses)
+		if firingSystems[sy.ID] {
+			dto.Status = "unhealthy"
+		}
 		out = append(out, dto)
 	}
 	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"systems": out})

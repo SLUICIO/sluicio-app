@@ -50,6 +50,7 @@ type alertRuleRequest struct {
 	// get the org's playbook without a second lookup.
 	Runbook       string `json:"runbook"`
 	IntegrationID string `json:"integration_id"` // "" = not bound to an integration
+	SystemID      string `json:"system_id"`      // "" = not bound to a system
 	ServiceName   string `json:"service_name"`   // "" = not bound to a service
 	GroupID       string `json:"group_id"`       // "" = org-wide (no owning team)
 	TitleTemplate string `json:"title_template"` // "" = built-in summary
@@ -218,7 +219,7 @@ func canSeeAlertGroup(groupID *uuid.UUID, visible map[uuid.UUID]bool, filter boo
 	return visible[*groupID]
 }
 
-// listAlertRules: GET /api/v1/alert-rules[?service=…][&integration=…]
+// listAlertRules: GET /api/v1/alert-rules[?service=…][&integration=…][&system=…]
 //
 // Optional service/integration filters narrow to the health checks bound
 // to one target (the service/integration detail pages). Team-owned
@@ -233,18 +234,22 @@ func (h *Handlers) listAlertRules(w http.ResponseWriter, r *http.Request) {
 	visible, filter := h.alertVisibleGroups(r)
 	service := strings.TrimSpace(r.URL.Query().Get("service"))
 	integration := strings.TrimSpace(r.URL.Query().Get("integration"))
+	system := strings.TrimSpace(r.URL.Query().Get("system"))
 	out := make([]alerting.AlertRule, 0, len(rules))
 	for _, rule := range rules {
 		if !canSeeAlertGroup(rule.GroupID, visible, filter) {
 			continue
 		}
-		if !h.canSeeAlertTarget(r, rule.ServiceName, rule.IntegrationID) {
+		if !h.canSeeAlertTarget(r, rule.ServiceName, rule.IntegrationID, rule.SystemID) {
 			continue
 		}
 		if service != "" && rule.ServiceName != service {
 			continue
 		}
 		if integration != "" && (rule.IntegrationID == nil || rule.IntegrationID.String() != integration) {
+			continue
+		}
+		if system != "" && (rule.SystemID == nil || rule.SystemID.String() != system) {
 			continue
 		}
 		out = append(out, rule)
@@ -269,7 +274,7 @@ func (h *Handlers) createAlertRule(w http.ResponseWriter, r *http.Request) {
 		httpserver.WriteError(w, http.StatusForbidden, "you can only assign an alert to a team you belong to")
 		return
 	}
-	if !h.requireManageAlertTarget(w, r, rule.ServiceName, rule.IntegrationID) {
+	if !h.requireManageAlertTarget(w, r, rule.ServiceName, rule.IntegrationID, rule.SystemID) {
 		return
 	}
 	created, err := h.Alerts.CreateRule(r.Context(), rule)
@@ -303,7 +308,7 @@ func (h *Handlers) getAlertRule(w http.ResponseWriter, r *http.Request) {
 	// rule exists. Hidden when the rule's team isn't theirs OR (the hard
 	// boundary) its bound service/integration isn't visible to them.
 	visible, filter := h.alertVisibleGroups(r)
-	if !canSeeAlertGroup(rule.GroupID, visible, filter) || !h.canSeeAlertTarget(r, rule.ServiceName, rule.IntegrationID) {
+	if !canSeeAlertGroup(rule.GroupID, visible, filter) || !h.canSeeAlertTarget(r, rule.ServiceName, rule.IntegrationID, rule.SystemID) {
 		httpserver.WriteError(w, http.StatusNotFound, "rule not found")
 		return
 	}
@@ -327,7 +332,7 @@ func (h *Handlers) updateAlertRule(w http.ResponseWriter, r *http.Request) {
 		httpserver.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if !h.requireManageAlertTarget(w, r, rule.ServiceName, rule.IntegrationID) {
+	if !h.requireManageAlertTarget(w, r, rule.ServiceName, rule.IntegrationID, rule.SystemID) {
 		return
 	}
 	// Team access control on the existing rule (can the caller touch
@@ -405,7 +410,7 @@ func (h *Handlers) deleteAlertRule(w http.ResponseWriter, r *http.Request) {
 			httpserver.WriteError(w, http.StatusInternalServerError, "delete failed")
 			return
 		}
-		if !h.requireManageAlertTarget(w, r, existing.ServiceName, existing.IntegrationID) {
+		if !h.requireManageAlertTarget(w, r, existing.ServiceName, existing.IntegrationID, existing.SystemID) {
 			return
 		}
 	}
@@ -447,6 +452,25 @@ func (h *Handlers) buildRule(orgID uuid.UUID, id uuid.UUID, req alertRuleRequest
 			return alerting.AlertRule{}, errors.New("invalid integration_id")
 		}
 		integrationID = &iid
+	}
+	var systemID *uuid.UUID
+	if s := strings.TrimSpace(req.SystemID); s != "" {
+		sid, perr := uuid.Parse(s)
+		if perr != nil {
+			return alerting.AlertRule{}, errors.New("invalid system_id")
+		}
+		systemID = &sid
+	}
+	// The schema tolerates several scopes at once for backwards
+	// compatibility (0009, 0077), and the evaluators resolve a fixed
+	// precedence. But a NEW rule naming two targets is a mistake, not an
+	// intent — the caller would be told it bound to one thing while it
+	// evaluated over another. Reject it rather than silently picking.
+	if systemID != nil && integrationID != nil {
+		return alerting.AlertRule{}, errors.New("a rule binds to a system or an integration, not both")
+	}
+	if systemID != nil && strings.TrimSpace(req.ServiceName) != "" {
+		return alerting.AlertRule{}, errors.New("a rule binds to a system or a service, not both")
 	}
 	var groupID *uuid.UUID
 	if s := strings.TrimSpace(req.GroupID); s != "" {
@@ -507,6 +531,7 @@ func (h *Handlers) buildRule(orgID uuid.UUID, id uuid.UUID, req alertRuleRequest
 		ID:                  id,
 		OrganizationID:      orgID,
 		IntegrationID:       integrationID,
+		SystemID:            systemID,
 		ServiceName:         serviceName,
 		GroupID:             groupID,
 		Name:                req.Name,
@@ -632,6 +657,9 @@ func (h *Handlers) previewAlertRule(w http.ResponseWriter, r *http.Request) {
 		// number the saved rule never produces, which is worse than no
 		// preview: it looks like a rehearsal and is not one.
 		IntegrationID string `json:"integration_id"`
+		// SystemID scopes the preview to the system's member services,
+		// for the same reason IntegrationID does.
+		SystemID string `json:"system_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httpserver.WriteError(w, http.StatusBadRequest, "invalid JSON body")
@@ -654,6 +682,32 @@ func (h *Handlers) previewAlertRule(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case req.ServiceName != "":
 		pf = h.resolveServiceFilter(r, req.ServiceName, []string{req.ServiceName})
+	case req.SystemID != "":
+		id, err := uuid.Parse(req.SystemID)
+		if err != nil {
+			httpserver.WriteError(w, http.StatusBadRequest, "invalid system_id")
+			return
+		}
+		members, mErr := h.Catalog.SystemMemberNames(r.Context(), middleware.OrgID(r), id)
+		if mErr != nil {
+			h.Logger.Warn("alert preview: system members failed", "err", mErr, "system", id)
+			httpserver.WriteError(w, http.StatusInternalServerError, "query failed")
+			return
+		}
+		// Same two guards as the integration arm: a system with no members
+		// must read as no data rather than widening to the whole cell, and
+		// an intersection that empties out is empty ACCESS, not "no filter".
+		if len(members) == 0 {
+			httpserver.WriteJSON(w, http.StatusOK, map[string]any{
+				"value": 0, "samples": 0, "has_data": false, "breached": false,
+				"threshold": req.Spec.Threshold, "window": TimeRange{From: from, To: to}.Window(),
+			})
+			return
+		}
+		pf = h.resolveServiceFilter(r, "", members)
+		if !pf.EmptyAccess && !pf.Blocked && len(pf.ServiceIn) == 0 {
+			pf.EmptyAccess = true
+		}
 	case req.IntegrationID != "":
 		id, err := uuid.Parse(req.IntegrationID)
 		if err != nil {
@@ -784,7 +838,7 @@ func (h *Handlers) listAlertInstances(w http.ResponseWriter, r *http.Request) {
 		if !canSeeAlertGroup(inst.GroupID, visible, filter) {
 			continue
 		}
-		if !h.canSeeAlertTarget(r, inst.ServiceName, inst.IntegrationID) {
+		if !h.canSeeAlertTarget(r, inst.ServiceName, inst.IntegrationID, inst.SystemID) {
 			continue
 		}
 		out = append(out, inst)
@@ -831,7 +885,7 @@ func (h *Handlers) listAlertDeliveries(w http.ResponseWriter, r *http.Request) {
 		if !canSeeAlertGroup(d.GroupID, visible, filter) {
 			continue
 		}
-		if !h.canSeeAlertTarget(r, d.ServiceName, d.IntegrationID) {
+		if !h.canSeeAlertTarget(r, d.ServiceName, d.IntegrationID, d.SystemID) {
 			continue
 		}
 		out = append(out, d)
@@ -1085,22 +1139,29 @@ func (h *Handlers) deleteChannel(w http.ResponseWriter, r *http.Request) {
 // services they manage (or integrations fully within their managed
 // scope); rules with no service/integration target are org-editor-only.
 // Org editors/admins pass untouched.
-func (h *Handlers) requireManageAlertTarget(w http.ResponseWriter, r *http.Request, serviceName string, integrationID *uuid.UUID) bool {
+func (h *Handlers) requireManageAlertTarget(w http.ResponseWriter, r *http.Request, serviceName string, integrationID, systemID *uuid.UUID) bool {
 	if h.AuthMW == nil {
 		return true
 	}
 	if _, restricted := h.managedServiceFilter(r); !restricted {
 		return true
 	}
+	// Order matches the evaluators' resolution precedence, so the scope
+	// a caller is checked against is the scope the rule evaluates over.
 	switch {
-	case serviceName != "":
-		if !h.canManageService(r, serviceName) {
-			httpserver.WriteError(w, http.StatusForbidden, "this rule's service is outside your managed scope")
+	case systemID != nil:
+		if !h.canManageSystem(r, *systemID) {
+			httpserver.WriteError(w, http.StatusForbidden, "this rule's system spans services outside your managed scope")
 			return false
 		}
 	case integrationID != nil:
 		if !h.canManageIntegration(r, *integrationID) {
 			httpserver.WriteError(w, http.StatusForbidden, "this rule's integration spans services outside your managed scope")
+			return false
+		}
+	case serviceName != "":
+		if !h.canManageService(r, serviceName) {
+			httpserver.WriteError(w, http.StatusForbidden, "this rule's service is outside your managed scope")
 			return false
 		}
 	default:
