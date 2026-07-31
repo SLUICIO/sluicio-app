@@ -3,8 +3,15 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.53 — 2026-07-31
+
+- integrations: an integration's numbers must describe the integration (3f91fcd)
+- search: open a trace on the span that actually matched (e396551)
+- search: "any (ok, warn, err)" was filtering to errors only (be8b4d2)
+
 ## v0.11.52 — 2026-07-30
 
+- release v0.11.52 — refresh internal changelog (11887b7)
 - test: follow the reports page behind its new tab strip (e41e3f6)
 - filters: stop crashing on cells that aren't a secure context (56c9ba5)
 - ui: the tab strips had no selected state, and a 402 read as a crash (0431258)
