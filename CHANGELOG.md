@@ -3,9 +3,14 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.54 — 2026-07-31
+
+- health checks: bind one to an integration, not just a service (7d8e5c7)
+- health checks: the split-by preview counted the wrong noun (dd6830c)
+
 ## v0.11.53 — 2026-07-31
 
-- trace drawer: pick the initial span in its own effect (5c3df8f)
+- trace drawer: pick the initial span in its own effect (e9bf1d3)
 - release v0.11.53 — refresh internal changelog (a3a167d)
 - integrations: an integration's numbers must describe the integration (3f91fcd)
 - search: open a trace on the span that actually matched (e396551)
