@@ -3,8 +3,15 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.56 — 2026-08-01
+
+- images: publish arm64 alongside amd64 (c2692c9)
+- systems: a system watched only by its own checks isn't "quiet" (cf73c23)
+- metrics: tell two rules on the same metric apart (3bb3375)
+
 ## v0.11.55 — 2026-07-31
 
+- release v0.11.55 — refresh internal changelog (539a0d6)
 - systems: pick a type from the catalog instead of typing its key (7d3d61a)
 - health checks: bind one to a system (issue #13) (0fefa6f)
 
