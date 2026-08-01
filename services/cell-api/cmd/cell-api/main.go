@@ -703,7 +703,28 @@ func (a metricEvaluatorAdapter) metricScope(ctx context.Context, serviceName str
 			return nil, false, err
 		}
 		if len(svcs) == 0 {
-			return nil, false, nil // no members yet → no data
+			// A system with NO members evaluates on the rule's own
+			// predicate instead of reporting no data.
+			//
+			// System membership is attached by hand, so "no members" is a
+			// deliberate configuration rather than a pending one — and it
+			// is the correct configuration for a common shape: one service
+			// emits the telemetry of several systems, distinguished by
+			// attribute, so no service can honestly be a member of any one
+			// of them. Treating that as no-data meant the checks never
+			// evaluated, never fired, and the system sat on "quiet"
+			// forever while looking configured.
+			//
+			// Integrations keep the strict reading (see below): their
+			// membership is reconciled asynchronously, so an empty set
+			// there usually means "not ready yet", and widening would
+			// produce a number before the answer exists.
+			//
+			// Safe here because a METRIC rule always names a metric —
+			// that is its predicate, with or without attribute filters.
+			// The trace evaluators, which carry no intrinsic narrowing,
+			// deliberately do NOT do this.
+			return nil, true, nil
 		}
 		return svcs, true, nil
 	}
@@ -793,11 +814,13 @@ func (a logCounterAdapter) CountLogs(ctx context.Context, q alerting.LogCountQue
 		if err != nil {
 			return 0, err
 		}
-		if len(svcs) == 0 {
-			// System has no member services yet → nothing to match.
-			return 0, nil
+		// No members → evaluate on the rule's own predicate, as
+		// metricScope does. A log rule always carries a severity floor
+		// (plus any body/attribute filters), so it narrows on its own.
+		// Leaving p.ServiceIn unset is that global scope.
+		if len(svcs) > 0 {
+			p.ServiceIn = svcs
 		}
-		p.ServiceIn = svcs
 	} else if q.IntegrationID != nil {
 		svcs, err := a.catalog.IntegrationServices(ctx, *q.IntegrationID)
 		if err != nil {

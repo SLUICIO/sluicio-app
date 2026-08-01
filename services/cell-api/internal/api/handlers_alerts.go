@@ -694,19 +694,24 @@ func (h *Handlers) previewAlertRule(w http.ResponseWriter, r *http.Request) {
 			httpserver.WriteError(w, http.StatusInternalServerError, "query failed")
 			return
 		}
-		// Same two guards as the integration arm: a system with no members
-		// must read as no data rather than widening to the whole cell, and
-		// an intersection that empties out is empty ACCESS, not "no filter".
 		if len(members) == 0 {
-			httpserver.WriteJSON(w, http.StatusOK, map[string]any{
-				"value": 0, "samples": 0, "has_data": false, "breached": false,
-				"threshold": req.Spec.Threshold, "window": TimeRange{From: from, To: to}.Window(),
-			})
-			return
-		}
-		pf = h.resolveServiceFilter(r, "", members)
-		if !pf.EmptyAccess && !pf.Blocked && len(pf.ServiceIn) == 0 {
-			pf.EmptyAccess = true
+			// No members → the rule's own predicate is the scope, matching
+			// how the evaluator treats a memberless system. Still policy
+			// filtered, so this widens to the caller's VISIBLE services,
+			// never to the cell.
+			//
+			// Integrations deliberately do not do this: their membership
+			// reconciles asynchronously, so empty there means "not ready",
+			// and a preview computed before the answer exists is worse
+			// than no preview.
+			pf = h.resolveServiceFilter(r, "", nil)
+		} else {
+			pf = h.resolveServiceFilter(r, "", members)
+			// An intersection that empties out is empty ACCESS, not "no
+			// filter" — downstream an empty ServiceIn means unscoped.
+			if !pf.EmptyAccess && !pf.Blocked && len(pf.ServiceIn) == 0 {
+				pf.EmptyAccess = true
+			}
 		}
 	case req.IntegrationID != "":
 		id, err := uuid.Parse(req.IntegrationID)

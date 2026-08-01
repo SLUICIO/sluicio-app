@@ -712,6 +712,39 @@ func (s *Store) FiringHealthSystems(ctx context.Context, orgID uuid.UUID) (map[u
 	return out, rows.Err()
 }
 
+// SystemsWithHealthChecks returns the systems that have at least one
+// ENABLED check bound to them, firing or not.
+//
+// Needed because "no member services" and "nothing is being watched" are
+// different states that both used to render as "quiet". A system whose
+// telemetry comes from a service it does not own — one runtime emitting
+// several systems' metrics, told apart by attribute — legitimately has no
+// members, and its checks are the only thing defining its health. Calling
+// that quiet reported it as unmonitored when it was the opposite.
+//
+// Disabled rules are excluded: a check that is switched off is not
+// watching anything, so it must not make a system look supervised.
+func (s *Store) SystemsWithHealthChecks(ctx context.Context, orgID uuid.UUID) (map[uuid.UUID]bool, error) {
+	const q = `
+		SELECT DISTINCT system_id
+		FROM alert_rules
+		WHERE organization_id = $1 AND system_id IS NOT NULL AND enabled`
+	rows, err := s.pool.Query(ctx, q, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("systems with health checks: %w", err)
+	}
+	defer rows.Close()
+	out := map[uuid.UUID]bool{}
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out[id] = true
+	}
+	return out, rows.Err()
+}
+
 // --- notification channels ---------------------------------------------
 
 const channelCols = `id, organization_id, name, kind, config, created_at, updated_at`

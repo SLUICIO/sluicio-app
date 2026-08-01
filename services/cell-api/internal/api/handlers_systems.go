@@ -139,6 +139,17 @@ func (h *Handlers) listSystems(w http.ResponseWriter, r *http.Request) {
 		h.Logger.Warn("firing health systems failed", "err", fsErr)
 		firingSystems = map[uuid.UUID]bool{}
 	}
+	// Systems that are watched at all. Without this, a system whose health
+	// is defined ENTIRELY by its own checks — no members, because one
+	// service emits several systems' telemetry — rolled up over an empty
+	// member list and read "quiet", i.e. unmonitored, when its checks were
+	// passing. Quiet should mean nothing is watching, not that everything
+	// is fine.
+	checkedSystems, csErr := h.Alerts.SystemsWithHealthChecks(r.Context(), middleware.OrgID(r))
+	if csErr != nil {
+		h.Logger.Warn("systems with health checks failed", "err", csErr)
+		checkedSystems = map[uuid.UUID]bool{}
+	}
 	out := make([]systemDTO, 0, len(systems))
 	for _, sy := range systems {
 		vis := make([]string, 0, len(sy.Members))
@@ -157,10 +168,7 @@ func (h *Handlers) listSystems(w http.ResponseWriter, r *http.Request) {
 		}
 		dto := systemToDTO(sy)
 		dto.Members, dto.MemberCount = vis, len(vis)
-		dto.Status = aggregateStatus(statuses)
-		if firingSystems[sy.ID] {
-			dto.Status = "unhealthy"
-		}
+		dto.Status = systemRollupStatus(statuses, checkedSystems[sy.ID], firingSystems[sy.ID])
 		out = append(out, dto)
 	}
 	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"systems": out})
@@ -533,4 +541,28 @@ func (h *Handlers) applySystemTemplateAll(w http.ResponseWriter, r *http.Request
 		"type_key": sy.TypeKey, "members": applied,
 		"created": created, "updated": updated, "skipped": skipped,
 	})
+}
+
+// systemRollupStatus combines a system's member health with the checks
+// bound to the system itself.
+//
+// An enabled check that is not firing is a positive signal, so it lifts
+// "quiet" (nothing is watching) to "ok" (watched, and fine). Without that
+// step a system whose health is defined ENTIRELY by its own checks — no
+// members, because one service emits several systems' telemetry — read as
+// unmonitored while its checks were passing.
+//
+// It does not paper over members: an unhealthy member keeps the system
+// unhealthy whatever its checks say. A FIRING system check outranks
+// everything, which is the point of binding a check to the cluster rather
+// than to one broker.
+func systemRollupStatus(memberStatuses []string, hasChecks, firing bool) string {
+	st := aggregateStatus(memberStatuses)
+	if st == "quiet" && hasChecks {
+		st = "ok"
+	}
+	if firing {
+		st = "unhealthy"
+	}
+	return st
 }

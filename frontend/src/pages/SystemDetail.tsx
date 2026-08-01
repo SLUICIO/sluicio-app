@@ -315,7 +315,24 @@ export default function SystemDetail() {
           the member rollup above: "the cluster is healthy iff consumer
           lag < X" is a statement about the cluster, and should not depend
           on some individual broker also looking unhealthy. */}
-      {canWrite && <HealthChecks scope="system" target={id} window="1h" />}
+      {canWrite && (
+        <>
+          <HealthChecks scope="system" target={id} window="1h" />
+          {/* A memberless system evaluates its checks differently, and
+              that has to be said rather than discovered. It is a normal
+              configuration — one runtime emitting several systems'
+              telemetry, told apart by attribute — but it means a metric
+              check with no attribute filters watches every service the
+              viewer can see, not "this system". */}
+          {members.length === 0 && (
+            <p className="muted" style={{ fontSize: 12, margin: "6px 2px 0" }}>
+              This system has no member services, so its metric and log checks are scoped only by their own
+              filters — a check with no attribute filter watches every service you can see. Attach members above
+              to narrow them. Response-time and traffic checks need members and will not evaluate without them.
+            </p>
+          )}
+        </>
+      )}
 
       {editing && (
         <SystemEditDrawer
