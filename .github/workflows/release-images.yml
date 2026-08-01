@@ -64,7 +64,7 @@ jobs:
         run: echo "ns=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
 
   images:
-    name: Build + push ${{ matrix.image }} (amd64)
+    name: Build + push ${{ matrix.image }} (amd64 + arm64)
     needs: prep
     runs-on: ubuntu-latest
     strategy:
@@ -91,7 +91,17 @@ jobs:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
           push: true
-          platforms: linux/amd64
+          # Both architectures ship as one multi-arch manifest, so
+          # `docker pull` and `helm install` resolve the right one with no
+          # per-arch tags. arm64 matters for Graviton, Ampere and Apple
+          # silicon — where an amd64-only image either refuses to run or
+          # runs under emulation.
+          #
+          # No QEMU set-up step is needed: every Dockerfile's build stage
+          # pins itself to $BUILDPLATFORM and cross-compiles, and no
+          # runtime stage RUNs anything. Adding arm64 here therefore costs
+          # a second set of layers, not a second full build.
+          platforms: linux/amd64,linux/arm64
           # Three tags: the SemVer version, the immutable short SHA, and :latest.
           tags: |
             ${{ env.REGISTRY }}/${{ needs.prep.outputs.ns }}/${{ matrix.image }}:${{ needs.prep.outputs.version }}

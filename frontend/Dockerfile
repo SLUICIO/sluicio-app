@@ -11,7 +11,12 @@
 # (Caddy in deploy/server/) routes /api to cell-api. This image only
 # serves the static SPA.
 
-FROM node:24-bookworm-slim AS build
+# Multi-arch: pinned to the BUILDER's architecture on purpose. The Vite
+# output is plain JS/CSS/HTML with no native code in it, so one build
+# serves every target — running npm under QEMU for arm64 would produce
+# byte-identical output for several times the wall-clock. Only the nginx
+# runtime stage below is per-architecture, and it merely copies files.
+FROM --platform=$BUILDPLATFORM node:24-bookworm-slim AS build
 
 WORKDIR /app
 
