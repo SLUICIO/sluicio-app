@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.57 — 2026-08-02
+
+- errors: say what a failing check watches, and where to edit it (f3ad7fd)
+
 ## v0.11.56 — 2026-08-01
 
+- release v0.11.56 — refresh internal changelog (fac5cfa)
 - images: publish arm64 alongside amd64 (c2692c9)
 - systems: a system watched only by its own checks isn't "quiet" (cf73c23)
 - metrics: tell two rules on the same metric apart (3bb3375)
