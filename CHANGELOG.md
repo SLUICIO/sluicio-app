@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.58 — 2026-08-02
+
+- systems: a firing system check must show up everywhere it matters (bcb7197)
+
 ## v0.11.57 — 2026-08-02
 
+- release v0.11.57 — refresh internal changelog (38c258c)
 - errors: say what a failing check watches, and where to edit it (f3ad7fd)
 
 ## v0.11.56 — 2026-08-01
