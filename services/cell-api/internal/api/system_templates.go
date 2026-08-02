@@ -229,44 +229,44 @@ var monitoringTemplates = []monitoringTemplate{
 		// Two collector-side prerequisites, or half these checks are dead:
 		//   1. paperless_task_status must have its `id` label aggregated away
 		//      (metricstransform, aggregate_labels [status], sum). Raw, it is
-		//      one series per task id — unbounded, and not a count of
+		//      one series per task id - unbounded, and not a count of
 		//      anything. Do NOT use paperless_task_status_info instead: it is
 		//      a label registry the exporter Set(1)s per status string it has
 		//      seen, so every series reads 1 forever.
 		//   2. The Celery worker must not recycle its pool children.
 		//      Paperless hardcodes worker_max_tasks_per_child = 1, so every
-		//      child is killed the moment its task returns — while
+		//      child is killed the moment its task returns - while
 		//      BatchSpanProcessor still holds that task's spans. They die
 		//      with the child, silently, and every trace check below goes
 		//      permanently quiet while ingest looks fine. Paperless does not
 		//      expose the setting, so run the worker with --pool solo (no
 		//      children to recycle) until it is fixed upstream in
-		//      opentelemetry-python. The metric checks are unaffected —
+		//      opentelemetry-python. The metric checks are unaffected -
 		//      which is why both kinds are here.
 		Kind: "paperless-ngx", Label: "Paperless-ngx", System: true,
 		DetectPrefixes: []string{"paperless_"},
 		Checks: []systemCheck{
 			// Ingest outcomes. The trace check names the failing document;
 			// the metric check survives when traces don't.
-			{Name: "Document ingest failed", Description: "A document failed to consume — parser error, unreadable file, or a plugin raising. The trace names the document and the stage.", Signal: "trace_error", TraceThreshold: 1, WindowSeconds: 900, Severity: alerting.SeverityWarning},
+			{Name: "Document ingest failed", Description: "A document failed to consume - parser error, unreadable file, or a plugin raising. The trace names the document and the stage.", Signal: "trace_error", TraceThreshold: 1, WindowSeconds: 900, Severity: alerting.SeverityWarning},
 			{Name: "New ingest failures", Description: "Failed consume tasks recorded by paperless in the window. Overlaps the trace check on purpose: this one still fires if the worker's telemetry pipeline is down.", Metric: "paperless_task_status", Agg: alerting.AggIncrease, Op: alerting.OpGT, Threshold: 0, Attrs: []alerting.AttrFilter{{Key: "status", Op: "eq", Value: "failure"}}, Severity: alerting.SeverityWarning, Unit: "tasks"},
-			{Name: "Slow document ingest", Description: "p95 consume time is high. OCR dominates this — raise the threshold if you routinely ingest large scanned PDFs.", Signal: "trace_latency", ThresholdMs: 60000, WindowSeconds: 900, Severity: alerting.SeverityWarning, Unit: "ms"},
+			{Name: "Slow document ingest", Description: "p95 consume time is high. OCR dominates this - raise the threshold if you routinely ingest large scanned PDFs.", Signal: "trace_latency", ThresholdMs: 60000, WindowSeconds: 900, Severity: alerting.SeverityWarning, Unit: "ms"},
 
 			// Backlog. Neither traces nor the SDK can see these: a document
 			// waiting in the queue has produced no span yet.
-			{Name: "Ingest backlog", Description: "Consume tasks are queued and not draining — the worker is wedged, or intake is outrunning OCR.", Metric: "paperless_task_status", Agg: alerting.AggLast, Op: alerting.OpGT, Threshold: 25, Attrs: []alerting.AttrFilter{{Key: "status", Op: "eq", Value: "pending"}}, Severity: alerting.SeverityWarning, Unit: "tasks", Display: true},
-			{Name: "Documents unfiled", Description: "Documents consumed successfully but still sitting in the inbox. A business backlog, not a fault — tune to your filing habits or disable.", Metric: "paperless_statistics_documents_inbox_count", Agg: alerting.AggLast, Op: alerting.OpGT, Threshold: 100, Severity: alerting.SeverityWarning, Unit: "documents", Display: true},
+			{Name: "Ingest backlog", Description: "Consume tasks are queued and not draining - the worker is wedged, or intake is outrunning OCR.", Metric: "paperless_task_status", Agg: alerting.AggLast, Op: alerting.OpGT, Threshold: 25, Attrs: []alerting.AttrFilter{{Key: "status", Op: "eq", Value: "pending"}}, Severity: alerting.SeverityWarning, Unit: "tasks", Display: true},
+			{Name: "Documents unfiled", Description: "Documents consumed successfully but still sitting in the inbox. A business backlog, not a fault - tune to your filing habits or disable.", Metric: "paperless_statistics_documents_inbox_count", Agg: alerting.AggLast, Op: alerting.OpGT, Threshold: 100, Severity: alerting.SeverityWarning, Unit: "documents", Display: true},
 
 			// Component liveness. 1 = healthy; the exporter reports these
 			// from paperless' own status endpoint.
-			{Name: "Celery worker unhealthy", Description: "Paperless reports its task worker as down — nothing will consume, and no trace will be emitted to tell you so.", Metric: "paperless_status_celery_status", Agg: alerting.AggLast, Op: alerting.OpLT, Threshold: 1, Severity: alerting.SeverityCritical},
+			{Name: "Celery worker unhealthy", Description: "Paperless reports its task worker as down - nothing will consume, and no trace will be emitted to tell you so.", Metric: "paperless_status_celery_status", Agg: alerting.AggLast, Op: alerting.OpLT, Threshold: 1, Severity: alerting.SeverityCritical},
 			{Name: "Redis unhealthy", Description: "The broker paperless queues through is unreachable.", Metric: "paperless_status_redis_status", Agg: alerting.AggLast, Op: alerting.OpLT, Threshold: 1, Severity: alerting.SeverityCritical},
 			{Name: "Database unhealthy", Description: "Paperless cannot reach its database.", Metric: "paperless_status_database_status", Agg: alerting.AggLast, Op: alerting.OpLT, Threshold: 1, Severity: alerting.SeverityCritical},
-			{Name: "Unapplied migrations", Description: "The image was upgraded but migrations have not run — a half-upgraded instance.", Metric: "paperless_status_database_unapplied_migrations", Agg: alerting.AggMax, Op: alerting.OpGT, Threshold: 0, Severity: alerting.SeverityWarning},
+			{Name: "Unapplied migrations", Description: "The image was upgraded but migrations have not run - a half-upgraded instance.", Metric: "paperless_status_database_unapplied_migrations", Agg: alerting.AggMax, Op: alerting.OpGT, Threshold: 0, Severity: alerting.SeverityWarning},
 
 			// Capacity and quality decay.
 			{Name: "Low document storage", Description: "Less than 2 GiB free where documents are stored. Paperless fails ingest hard when this runs out.", Metric: "paperless_status_storage_available_bytes", Agg: alerting.AggMin, Op: alerting.OpLT, Threshold: 2147483648, Severity: alerting.SeverityWarning, Unit: "bytes", Display: true},
-			{Name: "Classifier stale", Description: "The document classifier has not retrained in over a week — auto-tagging quality drifts silently, with no failure anywhere.", Metric: "paperless_status_classifier_last_trained_timestamp_seconds", Agg: alerting.AggAge, Op: alerting.OpGT, Threshold: 604800, Severity: alerting.SeverityWarning, Unit: "seconds"},
+			{Name: "Classifier stale", Description: "The document classifier has not retrained in over a week - auto-tagging quality drifts silently, with no failure anywhere.", Metric: "paperless_status_classifier_last_trained_timestamp_seconds", Agg: alerting.AggAge, Op: alerting.OpGT, Threshold: 604800, Severity: alerting.SeverityWarning, Unit: "seconds"},
 		},
 	},
 	{
