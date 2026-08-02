@@ -162,6 +162,11 @@ func validatePushedRuleSpec(spec *alerting.MetricRuleSpec) error {
 	spec.ForWindow = "5m"
 	spec.Attrs = nil
 	spec.SplitBy = ""
+	// No ClickHouse series behind a pushed check, so there is no "the
+	// metric stopped arriving" to detect. Cleared rather than ignored so
+	// the stored spec never claims a condition nothing evaluates.
+	// (Staleness of the pushed reading itself is a separate idea.)
+	spec.FireOnNoData = false
 	return nil
 }
 

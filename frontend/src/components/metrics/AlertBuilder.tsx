@@ -99,6 +99,7 @@ export default function AlertBuilder({
   const [threshold, setThreshold] = useState<number>(50);
   const [forWindow, setForWindow] = useState("5m");
   const [splitBy, setSplitBy] = useState("");
+  const [fireOnNoData, setFireOnNoData] = useState(false);
   const [attrKeys, setAttrKeys] = useState<string[]>([]);
   const [severity, setSeverity] = useState<AlertSeverity>("warning");
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -138,8 +139,8 @@ export default function AlertBuilder({
   };
 
   const spec: MetricRuleSpec = useMemo(
-    () => ({ metric_name: metricName, aggregation: agg, operator: op, threshold, for_window: forWindow, attrs, split_by: splitBy || undefined }),
-    [metricName, agg, op, threshold, forWindow, attrs, splitBy],
+    () => ({ metric_name: metricName, aggregation: agg, operator: op, threshold, for_window: forWindow, attrs, split_by: splitBy || undefined, fire_on_no_data: fireOnNoData || undefined }),
+    [metricName, agg, op, threshold, forWindow, attrs, splitBy, fireOnNoData],
   );
 
   const refreshRules = useCallback(() => {
@@ -402,6 +403,25 @@ export default function AlertBuilder({
             {splitBy
               ? `Each distinct ${splitBy} is checked on its own; the alert lists every ${splitBy} that breaches and how many.`
               : "Optional — evaluate each value of an attribute (e.g. queue_name) separately so the alert shows which ones are unhealthy."}
+          </span>
+        </div>
+
+        {/* no-data: silence as a firing condition, for probes and
+            heartbeats where a series that stops IS the incident. */}
+        <div className="m-field">
+          <label className="m-field-label">No data</label>
+          <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13, cursor: "pointer" }}>
+            <input
+              type="checkbox"
+              checked={fireOnNoData}
+              onChange={(e) => setFireOnNoData(e.target.checked)}
+            />
+            Also alert if this metric stops reporting
+          </label>
+          <span className="muted" style={{ fontSize: 11.5 }}>
+            {fireOnNoData
+              ? "A window with no data at all counts as breaching. Starts watching once the rule has seen data at least once, so saving it before the exporter exists won't alert."
+              : "Optional — by default silence means \u201cnothing to report\u201d and only a measured value can breach."}
           </span>
         </div>
 

@@ -351,6 +351,9 @@ function HealthCheckEditor({
   const [op, setOp] = useState<AlertOperator>(rule?.spec.operator ?? "gt");
   const [threshold, setThreshold] = useState(rule?.spec.threshold ?? 100);
   const [forWindow, setForWindow] = useState(rule?.spec.for_window || "5m");
+  // "Also alert if the metric stops reporting" — off unless the saved
+  // rule asked for it, since silence is normal for most metrics.
+  const [fireOnNoData, setFireOnNoData] = useState(rule?.spec.fire_on_no_data ?? false);
   const [severity, setSeverity] = useState<AlertSeverity>(rule?.severity ?? "critical");
   // "Show on service page": surface the latest reading as a value tile.
   const [displayOnService, setDisplayOnService] = useState(rule?.display_on_service ?? false);
@@ -390,8 +393,9 @@ function HealthCheckEditor({
       threshold,
       for_window: forWindow,
       attrs: attrs.map((a) => ({ key: a.key, op: a.op, value: a.value })),
+      fire_on_no_data: fireOnNoData,
     }),
-    [metric, agg, op, threshold, forWindow, attrs],
+    [metric, agg, op, threshold, forWindow, attrs, fireOnNoData],
   );
 
   const debounce = useRef<number | undefined>(undefined);
@@ -598,9 +602,34 @@ function HealthCheckEditor({
         </div>
       )}
 
+      {!pushed && metric && (
+        <div className="m-field">
+          <label className="m-field-label">No data</label>
+          <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13, cursor: "pointer" }}>
+            <input
+              type="checkbox"
+              checked={fireOnNoData}
+              onChange={(e) => setFireOnNoData(e.target.checked)}
+            />
+            Also alert if this metric stops reporting
+          </label>
+          <p className="muted" style={{ fontSize: 12, margin: "4px 0 0" }}>
+            {fireOnNoData
+              ? "A window with no data at all counts as unhealthy — for probes and heartbeats, where silence means nobody is checking any more. Starts watching once the check has seen data at least once, so saving this before the exporter exists won't alert."
+              : "Silence is treated as \u201cnothing to report\u201d: the check only fires on a measured value that breaches the threshold."}
+          </p>
+        </div>
+      )}
+
       {!pushed && metric && preview && (
         !preview.has_data ? (
-          <div className="m-preview ok"><span className="m-preview-pip" /> No data for this metric/scope in the window.</div>
+          <div className={`m-preview ${fireOnNoData ? "breach" : "ok"}`}>
+            <span className="m-preview-pip" />
+            <span>
+              No data for this metric/scope in the window.
+              {fireOnNoData ? " Once this check has seen data, that would make it unhealthy." : ""}
+            </span>
+          </div>
         ) : preview.breached ? (
           <div className="m-preview breach">
             <span className="m-preview-pip" />

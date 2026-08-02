@@ -445,7 +445,21 @@ func (e *Engine) evaluateRule(ctx context.Context, rule AlertRule) {
 			e.log.Warn("alert eval: record reading failed", "rule", rule.ID, "err", err)
 		}
 	}
-	breached := samples > 0 && EvaluateBreach(rule.Spec.Operator, value, rule.Spec.Threshold)
+	// everReported arms the no-data condition, and costs a query — so
+	// only ask when the answer can change the outcome.
+	everReported := false
+	if samples == 0 && rule.Spec.FireOnNoData {
+		reading, err := e.store.LatestReading(ctx, rule.ID)
+		if err != nil {
+			// Failing closed here would fire a no-data alert BECAUSE the
+			// database hiccupped, which is the one false page this
+			// feature must not produce.
+			e.log.Warn("alert eval: latest reading failed; skipping no-data check", "rule", rule.ID, "err", err)
+			return
+		}
+		everReported = reading != nil
+	}
+	outcome := DecideMetric(rule.Spec, samples, value, everReported)
 
 	active, err := e.store.ActiveInstance(ctx, rule.ID)
 	if err != nil {
@@ -453,11 +467,20 @@ func (e *Engine) evaluateRule(ctx context.Context, rule AlertRule) {
 		return
 	}
 
+	summaryFor := func(state string) string {
+		if outcome == OutcomeNoData {
+			return noDataSummary(rule)
+		}
+		return ruleSummary(rule, value, state)
+	}
+
 	switch {
-	case breached && active == nil:
+	case outcome.Firing() && active == nil:
 		labels := ruleLabels(rule, value)
-		summary := ruleSummary(rule, value, "firing")
-		inst, err := e.store.OpenInstance(ctx, rule.ID, "all", labels, summary)
+		if outcome == OutcomeNoData {
+			markNoData(labels)
+		}
+		inst, err := e.store.OpenInstance(ctx, rule.ID, "all", labels, summaryFor("firing"))
 		if err != nil {
 			e.log.Error("alert eval: open instance failed", "rule", rule.ID, "err", err)
 			return
@@ -465,14 +488,52 @@ func (e *Engine) evaluateRule(ctx context.Context, rule AlertRule) {
 		if err := e.enqueueFiring(ctx, inst.ID, rule); err != nil {
 			e.log.Error("alert eval: enqueue failed", "rule", rule.ID, "err", err)
 		}
-		e.log.Info("alert firing", "rule", rule.Name, "value", value, "threshold", rule.Spec.Threshold, "channels", len(rule.ChannelIDs))
-	case breached && active != nil:
-		if err := e.store.TouchInstance(ctx, active.ID); err != nil {
-			e.log.Error("alert eval: touch failed", "rule", rule.ID, "err", err)
+		e.log.Info("alert firing", "rule", rule.Name, "outcome", outcome, "value", value, "threshold", rule.Spec.Threshold, "channels", len(rule.ChannelIDs))
+	case outcome.Firing() && active != nil:
+		// A rule can cross between "breaching" and "stopped reporting"
+		// while its alert stays open. Refreshing keeps the summary
+		// describing what is actually wrong now, rather than whichever
+		// condition happened to open it.
+		labels := ruleLabels(rule, value)
+		if outcome == OutcomeNoData {
+			markNoData(labels)
 		}
-	case !breached && active != nil:
-		e.resolveOrHold(ctx, active, rule, ruleSummary(rule, value, "resolved"), "metric")
+		if err := e.store.RefreshInstance(ctx, active.ID, labels, summaryFor("firing")); err != nil {
+			e.log.Error("alert eval: refresh failed", "rule", rule.ID, "err", err)
+		}
+	case !outcome.Firing() && active != nil:
+		// An unknown outcome resolves, as it always has — but it must not
+		// claim to have measured a recovery it never saw.
+		resolution := ruleSummary(rule, value, "resolved")
+		if outcome == OutcomeUnknown {
+			resolution = fmt.Sprintf("%s — %s stopped reporting; no longer evaluated",
+				rule.Name, rule.Spec.MetricName)
+		}
+		e.resolveOrHold(ctx, active, rule, resolution, "metric")
 	}
+}
+
+// markNoData tags an alert's labels as a no-data firing.
+//
+// It also blanks the numeric value, because ruleLabels fills it from the
+// aggregate — which is 0 when nothing was measured. A notification
+// rendering "value: 0" would state a reading that was never taken, and
+// 0 is a plausible-looking number for most metrics, so the reader has no
+// way to tell it apart from a real one.
+func markNoData(labels map[string]string) {
+	labels["condition"] = string(OutcomeNoData)
+	// Kept as a key rather than deleted: templates may reference it, and
+	// notification variable paths are additive-only.
+	labels["value"] = "n/a"
+}
+
+// noDataSummary words a no-data firing. It deliberately quotes no value
+// and no threshold: nothing was measured, so a comparison would be a
+// fabrication, and the reader needs to know the difference between "the
+// number is bad" and "there is no number".
+func noDataSummary(rule AlertRule) string {
+	return fmt.Sprintf("%s — %s stopped reporting (no data for %s)",
+		rule.Name, rule.Spec.MetricName, rule.Spec.ForWindowDuration())
 }
 
 // evaluatePushedOnce evaluates every enabled pushed-value rule against
@@ -568,12 +629,31 @@ func (e *Engine) evaluateSplitRule(ctx context.Context, rule AlertRule) {
 		return
 	}
 	var breaching []MetricGroup
+	var totalSamples uint64
 	for _, g := range groups {
+		totalSamples += g.Samples
 		if g.Samples > 0 && EvaluateBreach(rule.Spec.Operator, g.Value, rule.Spec.Threshold) {
 			breaching = append(breaching, g)
 		}
 	}
 	breached := len(breaching) > 0
+
+	// No-data on a split rule means the metric went silent ENTIRELY.
+	// A single split value disappearing cannot be detected — there is no
+	// record of which values are meant to exist, only which ones reported
+	// — so this catches the collector dying, not one queue going away.
+	noData := false
+	if totalSamples == 0 && rule.Spec.FireOnNoData {
+		reading, err := e.store.LatestReading(ctx, rule.ID)
+		if err != nil {
+			e.log.Warn("alert eval: latest reading failed; skipping no-data check", "rule", rule.ID, "err", err)
+			return
+		}
+		noData = reading != nil
+	}
+	if noData {
+		breached = true
+	}
 
 	// Persist a reading for "show on service page" — the worst (highest)
 	// group value — so a split-by check's value tile isn't perpetually empty
@@ -603,6 +683,10 @@ func (e *Engine) evaluateSplitRule(ctx context.Context, rule AlertRule) {
 	case breached && active == nil:
 		labels := splitRuleLabels(rule, breaching)
 		summary := splitRuleSummary(rule, breaching, "firing")
+		if noData {
+			markNoData(labels)
+			summary = noDataSummary(rule)
+		}
 		inst, err := e.store.OpenInstance(ctx, rule.ID, "all", labels, summary)
 		if err != nil {
 			e.log.Error("alert eval: open instance failed", "rule", rule.ID, "err", err)
@@ -617,6 +701,10 @@ func (e *Engine) evaluateSplitRule(ctx context.Context, rule AlertRule) {
 		// instance stays open — refresh the stored breakdown each tick.
 		labels := splitRuleLabels(rule, breaching)
 		summary := splitRuleSummary(rule, breaching, "firing")
+		if noData {
+			markNoData(labels)
+			summary = noDataSummary(rule)
+		}
 		if err := e.store.RefreshInstance(ctx, active.ID, labels, summary); err != nil {
 			e.log.Error("alert eval: refresh failed", "rule", rule.ID, "err", err)
 		}

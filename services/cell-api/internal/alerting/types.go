@@ -155,6 +155,17 @@ type MetricRuleSpec struct {
 	// "DLQ depth > 0 split by queue_name" → the alert lists each queue
 	// that's actually backed up). "" = no split (single aggregate).
 	SplitBy string `json:"split_by,omitempty"`
+	// FireOnNoData makes the ABSENCE of data a firing condition: the rule
+	// alerts when the metric produced no points over the window at all.
+	//
+	// Off by default, and deliberately opt-in — plenty of metrics report
+	// only when something happens, and firing on their silence would page
+	// constantly. It exists for the metrics whose whole job is to keep
+	// reporting: a synthetic HTTP probe that stops arriving means nobody
+	// is checking the endpoint, which the threshold alone cannot say.
+	//
+	// Armed by the rule's first reading; see DecideMetric.
+	FireOnNoData bool `json:"fire_on_no_data,omitempty"`
 }
 
 // MetricGroup is one (attribute value → aggregate) row when a rule is

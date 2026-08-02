@@ -1479,6 +1479,11 @@ export interface MetricRuleSpec {
   // own and the firing enumerates every breaching value (e.g. "DLQ depth
   // > 0 split by queue_name" → the alert lists each backed-up queue).
   split_by?: string;
+  // fire_on_no_data makes the ABSENCE of data a firing condition: the
+  // rule alerts when the metric reported nothing over the window. Opt-in,
+  // and armed by the rule's first reading — a check saved before its
+  // exporter exists must not page immediately.
+  fire_on_no_data?: boolean;
 }
 
 // LogRuleSpec is the rule_spec for a log-signal rule: fire when the
