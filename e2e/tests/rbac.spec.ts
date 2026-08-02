@@ -764,8 +764,14 @@ test.describe("RBAC — per-signal combinations (EE)", () => {
   test.describe.configure({ mode: "serial" });
 
   const MX_PASSWORD = "e2e-metrics-viewer-pw1";
-  // Discovered per run: a service that actually emits metrics (seeded
-  // cells differ in which services carry which signals).
+  // Discovered per run: a service that emits metrics AND messages
+  // (seeded cells differ in which services carry which signals).
+  //
+  // Both signals, not just metrics. Each test here grants ONE signal and
+  // asserts the others come back empty — which only proves anything if
+  // the service actually has the others to withhold. Picking on metrics
+  // alone also made the messages-only test assert >0 messages on a
+  // service that had none, which is a fixture mismatch, not a finding.
   let MX_SERVICE = "";
 
   test.beforeEach(async ({ page }) => {
@@ -777,12 +783,18 @@ test.describe("RBAC — per-signal combinations (EE)", () => {
       const cat = await (
         await page.request.get(`/api/v1/metric-catalog?range=24h&service=${encodeURIComponent(s.service_name)}`)
       ).json();
-      if ((cat.metrics ?? []).length > 0) {
+      if ((cat.metrics ?? []).length === 0) continue;
+      const msgs = await (
+        await page.request.post("/api/v1/messages/search?range=24h", {
+          data: { filters: [{ field: "service", op: "is", value: s.service_name }], limit: 1 },
+        })
+      ).json();
+      if ((msgs.results ?? []).length > 0) {
         MX_SERVICE = s.service_name;
         break;
       }
     }
-    test.skip(!MX_SERVICE, "cell has no service with metrics");
+    test.skip(!MX_SERVICE, "cell has no service carrying both metrics and messages");
   });
 
   // Distinct identity per combination — the resolver memoizes per-signal
