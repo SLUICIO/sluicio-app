@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.64 — 2026-08-02
+
+- alerts: let a metric check fire when the metric goes silent (dd28988)
+
 ## v0.11.63 — 2026-08-02
 
+- release v0.11.63 — refresh internal changelog (7379b4e)
 - dashboards: put what is broken at the top (c9a97ef)
 
 ## v0.11.62 — 2026-08-02
