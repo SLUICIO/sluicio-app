@@ -429,6 +429,23 @@ function CheckRow({
           {"firing "}
           {formatRelative(check.started_at)}
         </div>
+        {/* The distinguishing detail. Checks on one metric default to the
+            same name, so name + condition alone render three identical
+            rows; the attribute filters are what actually differ. */}
+        {(check.attrs ?? []).length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 3 }}>
+            {(check.attrs ?? []).map((a) => (
+              <span
+                key={`${a.key}${a.op}${a.value}`}
+                className="badge mono"
+                style={{ fontSize: 10.5 }}
+                title="Attribute filter — this check only watches series matching it"
+              >
+                {a.key} {a.op === "eq" ? "=" : a.op} {a.value}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
       {check.handled_at && (
         <span className="m-rule-badge" title={`Acknowledged ${formatRelative(check.handled_at)}`}>
@@ -436,6 +453,13 @@ function CheckRow({
         </span>
       )}
       <span className={`m-rule-badge sev-${check.severity}`}>{check.severity}</span>
+      <Link
+        to={editHref(check)}
+        className="m-ex-tgt"
+        title="Open where this check is defined, to edit or disable it"
+      >
+        edit
+      </Link>
       {canWrite && (
         <AlertInstanceActions
           instanceId={check.id}
@@ -514,7 +538,39 @@ function OpenErrorRow({
 }
 
 // The entity a failing check guards, linked to its detail page.
+// editHref is where a check is actually edited: the owning entity's page,
+// which is the only place its editor lives. An unbound rule has no owning
+// entity, so it goes to Alerts, where org-wide rules are managed.
+//
+// Worth having as its own affordance rather than relying on the target
+// link: "where do I change this?" was not answerable from this page, and
+// the target reads as provenance, not as an action.
+function editHref(check: FailingCheck): string {
+  if (check.target_kind === "system" && check.system_id) return `/systems/${check.system_id}`;
+  if (check.target_kind === "integration" && check.integration_id) {
+    return `/integrations/${check.integration_id}/settings`;
+  }
+  if (check.target_kind === "service" && check.service_name) {
+    return `/services/${encodeURIComponent(check.service_name)}?tab=health`;
+  }
+  return "/alerts";
+}
+
+// Target names what a failing check governs, and links to where it can be
+// edited. "Org-wide" is reserved for a check bound to nothing — before
+// systems were handled here, a system-bound check landed on that label
+// and looked unowned.
 function Target({ check }: { check: FailingCheck }) {
+  if (check.target_kind === "system" && check.system_id) {
+    return <Link to={`/systems/${check.system_id}`}>{check.system_name || "system"}</Link>;
+  }
+  if (check.target_kind === "integration" && check.integration_id) {
+    return (
+      <Link to={`/integrations/${check.integration_id}/settings`}>
+        {check.integration_name || "integration"}
+      </Link>
+    );
+  }
   if (check.target_kind === "service" && check.service_name) {
     return (
       <Link to={`/services/${encodeURIComponent(check.service_name)}`}>
@@ -522,14 +578,14 @@ function Target({ check }: { check: FailingCheck }) {
       </Link>
     );
   }
-  if (check.target_kind === "integration" && check.integration_id) {
-    return (
-      <Link to={`/integrations/${check.integration_id}`}>
-        {check.integration_name || "integration"}
-      </Link>
-    );
-  }
-  return <span className="muted">Org-wide</span>;
+  // Genuinely unbound: it notifies but governs no entity's health, so
+  // there is no owning page to send the reader to. The Alerts page is
+  // where such a rule is managed.
+  return (
+    <Link to="/alerts" className="muted" title="Bound to nothing — notifies only. Manage it on the Alerts page.">
+      Org-wide
+    </Link>
+  );
 }
 
 function Tile({

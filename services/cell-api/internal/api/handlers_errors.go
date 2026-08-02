@@ -37,10 +37,29 @@ type FailingCheck struct {
 	StartedAt       time.Time         `json:"started_at"`
 	HandledAt       *time.Time        `json:"handled_at,omitempty"`
 	Summary         string            `json:"summary,omitempty"`
-	TargetKind      string            `json:"target_kind"` // "service" | "integration" | "global"
+	TargetKind      string            `json:"target_kind"` // "service" | "integration" | "system" | "global"
 	ServiceName     string            `json:"service_name,omitempty"`
 	IntegrationID   *uuid.UUID        `json:"integration_id,omitempty"`
 	IntegrationName string            `json:"integration_name,omitempty"`
+	SystemID        *uuid.UUID        `json:"system_id,omitempty"`
+	SystemName      string            `json:"system_name,omitempty"`
+	// Attrs are the rule's attribute filters. They travel because this
+	// feed lists checks from across the org, where several can share a
+	// rule NAME — new checks default to "<metric> alert" — and differ
+	// only by what they filter on. Without them the rows are
+	// indistinguishable and there is no way to tell which to act on.
+	//
+	// The condition sentence deliberately does NOT travel: the frontend
+	// already renders it from the rule via alertCondition(), and adding a
+	// second renderer here, in another language, is how the two drift.
+	Attrs []ruleAttrWire `json:"attrs,omitempty"`
+}
+
+// ruleAttrWire is one attribute predicate on a failing check.
+type ruleAttrWire struct {
+	Key   string `json:"key"`
+	Op    string `json:"op"`
+	Value string `json:"value"`
 }
 
 // OpenServiceError is a persisted, unacknowledged error on the feed: a
@@ -82,6 +101,26 @@ func (h *Handlers) failingChecks(r *http.Request) ([]FailingCheck, error) {
 			intNames[in.ID] = in.Name
 		}
 	}
+	// Same for systems, so a system-bound check can name its system
+	// rather than falling through to "org-wide".
+	sysNames := map[uuid.UUID]string{}
+	if syss, err := h.Catalog.ListSystems(r.Context(), orgID); err != nil {
+		h.Logger.Warn("failing checks: system name lookup failed", "err", err)
+	} else {
+		for _, sy := range syss {
+			sysNames[sy.ID] = sy.Name
+		}
+	}
+	// Rule bodies, for the condition sentence + attribute filters. One
+	// lookup, indexed by id.
+	rulesByID := map[uuid.UUID]alerting.AlertRule{}
+	if rules, err := h.Alerts.ListRules(r.Context(), orgID); err != nil {
+		h.Logger.Warn("failing checks: rule lookup failed", "err", err)
+	} else {
+		for _, ru := range rules {
+			rulesByID[ru.ID] = ru
+		}
+	}
 	// Hide checks owned by teams the caller isn't a member of (org admins
 	// see all) — same access model as the Alerts page — AND, the hard
 	// security boundary, hide service/integration-bound checks whose
@@ -106,15 +145,29 @@ func (h *Handlers) failingChecks(r *http.Request) ([]FailingCheck, error) {
 			Summary:     fi.Summary,
 			ServiceName: fi.ServiceName,
 		}
+		// Precedence matches the evaluators (system → integration →
+		// service), so the feed names the scope the check actually runs
+		// over. Before systems were added here, a system-bound check fell
+		// through to "global" and was reported as org-wide — the one
+		// label that means "bound to nothing".
 		switch {
-		case fi.ServiceName != "":
-			fc.TargetKind = "service"
+		case fi.SystemID != nil:
+			fc.TargetKind = "system"
+			fc.SystemID = fi.SystemID
+			fc.SystemName = sysNames[*fi.SystemID]
 		case fi.IntegrationID != nil:
 			fc.TargetKind = "integration"
 			fc.IntegrationID = fi.IntegrationID
 			fc.IntegrationName = intNames[*fi.IntegrationID]
+		case fi.ServiceName != "":
+			fc.TargetKind = "service"
 		default:
 			fc.TargetKind = "global"
+		}
+		if ru, ok := rulesByID[fi.RuleID]; ok {
+			for _, a := range ru.Spec.Attrs {
+				fc.Attrs = append(fc.Attrs, ruleAttrWire{Key: a.Key, Op: a.Op, Value: a.Value})
+			}
 		}
 		checks = append(checks, fc)
 	}

@@ -136,10 +136,16 @@ export interface FailingCheck {
   started_at: string;
   handled_at?: string;
   summary?: string;
-  target_kind: "service" | "integration" | "global";
+  target_kind: "service" | "integration" | "system" | "global";
   service_name?: string;
   integration_id?: string;
   integration_name?: string;
+  system_id?: string;
+  system_name?: string;
+  // The rule's attribute filters. Several checks on one metric share the
+  // default name "<metric> alert" and differ only by these, so without
+  // them the rows on the Errors feed are indistinguishable.
+  attrs?: RuleAttrFilter[];
 }
 
 // OpenServiceError — a persisted, unacknowledged error: a service that has
