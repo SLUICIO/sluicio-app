@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.62 — 2026-08-02
+
+- e2e: stop the protocol spec leaking an integration on every run (3b62522)
+
 ## v0.11.61 — 2026-08-02
 
+- release v0.11.61 — refresh internal changelog (b41018e)
 - system types: hyphens instead of em dashes in the Paperless-ngx entry (508c5e0)
 - system types: link the published Paperless-ngx docs page (fc9f3bf)
 - system types: name the real cause of the Paperless-ngx trace blind spot (661ba6c)
