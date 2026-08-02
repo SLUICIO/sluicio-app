@@ -12,9 +12,10 @@
 //   6. Log out
 //   7. Log in as userA (completing the forced password change if shown)
 //   8. Verify userA can see integration ABC — and nothing else
-import { test, expect } from "@playwright/test";
-import { logIn } from "./fixtures";
+import { test, expect, request as pwRequest } from "@playwright/test";
+import { ADMIN_EMAIL, ADMIN_PASSWORD, logIn } from "./fixtures";
 
+const BASE_URL = process.env.E2E_BASE_URL || "http://localhost:5173";
 const STAMP = Date.now().toString(36);
 const INTEG = `ABC-${STAMP}`;
 const GROUP = `groupA-${STAMP}`;
@@ -111,4 +112,39 @@ test("protocol: group-granted visibility of one integration", async ({ page }) =
   // 8. userA sees integration ABC — and only what the group granted.
   await page.goto("/integrations");
   await expect(page.getByRole("link", { name: INTEG })).toBeVisible({ timeout: 15_000 });
+});
+
+// The protocol above is deliberately driven entirely through the UI, but
+// tidying up afterwards is not part of the protocol — so this uses the
+// API, which is faster and cannot fail the test by way of a changed form.
+//
+// It has to run. The names are stamped, so every run used to leave a new
+// integration, group and user behind forever. That is what made the cell
+// grow without bound, and integration count is not free: /integrations
+// prices per-integration traffic queries, so other specs polling that
+// list got slower every run until they timed out. `messages-filter-ui`
+// had its budget raised 90s → 180s → 300s chasing exactly this, and was
+// still dying at 300s.
+test.afterAll(async () => {
+  const admin = await pwRequest.newContext({ baseURL: BASE_URL });
+  try {
+    await admin.post("/api/v1/auth/login", { data: { email: ADMIN_EMAIL, password: ADMIN_PASSWORD } });
+
+    const integrations = (await (await admin.get("/api/v1/integrations?range=30d")).json()).integrations ?? [];
+    for (const i of integrations as { id: string; name: string }[]) {
+      if (i.name === INTEG) await admin.delete(`/api/v1/integrations/${i.id}`);
+    }
+    // Group before user: membership rows hang off the group, and dropping
+    // the group first leaves nothing pointing at the user.
+    const groups = (await (await admin.get("/api/v1/settings/groups")).json()).groups ?? [];
+    for (const g of groups as { id: string; name: string }[]) {
+      if (g.name === GROUP) await admin.delete(`/api/v1/settings/groups/${g.id}`);
+    }
+    const members = (await (await admin.get("/api/v1/settings/members")).json()).members ?? [];
+    for (const m of members as { user: { id: string; email: string } }[]) {
+      if (m.user?.email === USER_EMAIL) await admin.delete(`/api/v1/settings/members/${m.user.id}`);
+    }
+  } finally {
+    await admin.dispose();
+  }
 });

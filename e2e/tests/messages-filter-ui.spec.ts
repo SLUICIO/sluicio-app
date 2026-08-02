@@ -66,13 +66,19 @@ test("error-type list + integration↔service cross-narrowing on /search", async
   // flakiness but is really arithmetic: raise this if either poll grows.
   //
   // 180s was still not enough. The first poll lists EVERY integration on
-  // the cell, and a suite run leaves ~85 behind, so on a long-lived
-  // throwaway stack that call grows without bound while the rest of the
-  // suite competes for the same cell. Alone this test finishes in ~3s;
-  // under a full parallel run it spent the entire budget and died in its
-  // cleanup. The poll deliberately uses the LIST endpoint because that
-  // is the response cross-narrowing consumes, so the cost is inherent
-  // and the budget has to cover it.
+  // the cell, and a suite run used to leave one behind PERMANENTLY —
+  // protocol-group-visibility created a stamped integration through the
+  // UI and never removed it — so on a long-lived throwaway stack that
+  // call grew without bound while the rest of the suite competed for the
+  // same cell. Alone this test finishes in ~3s; under a full parallel
+  // run it spent the entire budget and died in its cleanup.
+  //
+  // That leak is fixed, and the count is now flat across runs. The
+  // budget stays generous because the poll deliberately uses the LIST
+  // endpoint — that is the response cross-narrowing consumes — so its
+  // cost still tracks however many integrations a cell legitimately has.
+  // If it ever needs raising AGAIN, look for a new leak first rather
+  // than adding another minute.
   test.setTimeout(300_000);
 
   // Fail on any uncaught exception during the filter flow.
