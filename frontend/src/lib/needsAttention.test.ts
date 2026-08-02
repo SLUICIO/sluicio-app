@@ -6,8 +6,8 @@
 // Unhealthy must outrank error volume.
 
 import { describe, expect, it } from "vitest";
-import { pickNeedsAttention } from "./needsAttention";
-import type { Integration, ServiceStatus } from "../api/types";
+import { pickAttentionTarget, pickNeedsAttention } from "./needsAttention";
+import type { Integration, ServiceStatus, System } from "../api/types";
 
 function integ(
   name: string,
@@ -59,5 +59,35 @@ describe("pickNeedsAttention", () => {
     const silent = integ("Silent-fail", "unhealthy", 0, 1);
     const ok = integ("Ok", "ok", 0, 0);
     expect(pickNeedsAttention([ok, silent])?.name).toBe("Silent-fail");
+  });
+});
+
+describe("pickAttentionTarget", () => {
+  const sys = (over: Partial<System>): System =>
+    ({ id: "s1", name: "Sluicio Web", type_key: "", description: "", members: [], member_count: 0, ...over }) as System;
+
+  it("surfaces an unhealthy SYSTEM when no integration is in trouble", () => {
+    // The reported bug: a cell whose only trouble was unhealthy systems
+    // showed "All clear" beside a tile reading "3 of 3 unhealthy".
+    const got = pickAttentionTarget([], [sys({ status: "unhealthy" })]);
+    expect(got?.kind).toBe("system");
+    expect(got?.name).toBe("Sluicio Web");
+    expect(got?.href).toBe("/systems/s1");
+  });
+
+  it("still says all clear when nothing is wrong", () => {
+    expect(pickAttentionTarget([], [sys({ status: "ok" })])).toBeUndefined();
+    expect(pickAttentionTarget([], [sys({ status: "quiet" })])).toBeUndefined();
+    expect(pickAttentionTarget([], [])).toBeUndefined();
+  });
+
+  it("prefers the more severe side", () => {
+    const healthyIsh = { id: "i1", name: "Orders", status: "errors" } as unknown as Integration;
+    // System is unhealthy (2) vs integration "errors" (1) — system wins.
+    expect(pickAttentionTarget([healthyIsh], [sys({ status: "unhealthy" })])?.kind).toBe("system");
+    // Equal severity: the integration wins, since it carries counts the
+    // reader can act on.
+    const bad = { id: "i2", name: "Billing", status: "unhealthy" } as unknown as Integration;
+    expect(pickAttentionTarget([bad], [sys({ status: "unhealthy" })])?.kind).toBe("integration");
   });
 });

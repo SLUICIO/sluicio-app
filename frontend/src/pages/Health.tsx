@@ -49,7 +49,7 @@ import { systemKindLabel } from "../lib/systemKinds";
 import SearchableSelect from "../components/SearchableSelect";
 import OnboardingGuide from "../components/OnboardingGuide";
 import { formatNumber } from "../lib/format";
-import { pickNeedsAttention } from "../lib/needsAttention";
+import { pickAttentionTarget } from "../lib/needsAttention";
 import { usePageTitle } from "../lib/usePageTitle";
 import { useTimeWindow } from "../lib/useTimeWindow";
 
@@ -262,7 +262,13 @@ export default function Health() {
     return m;
   }, [dashboards, integrations]);
 
-  const needsAttention = useMemo(() => pickNeedsAttention(integrations ?? []), [integrations]);
+  // Across integrations AND systems: a cell whose only trouble was three
+  // unhealthy systems used to read "All clear" right beside a tile
+  // saying "3 of 3 unhealthy".
+  const needsAttention = useMemo(
+    () => pickAttentionTarget(integrations ?? [], systemEntities ?? []),
+    [integrations, systemEntities],
+  );
 
   // ── edit handlers ───────────────────────────────────────────────
 
@@ -646,11 +652,17 @@ export default function Health() {
                 needsAttention ? (
                   <>
                     <div style={{ color: "var(--ink)" }}>
-                      {needsAttention.error_trace_count ?? 0} error traces ·{" "}
-                      {needsAttention.unhealthy_count ?? 0} unhealthy services
+                      {needsAttention.kind === "system" ? (
+                        <>system · a bound health check is firing</>
+                      ) : (
+                        <>
+                          {needsAttention.errorTraceCount} error traces ·{" "}
+                          {needsAttention.unhealthyCount} unhealthy services
+                        </>
+                      )}
                     </div>
                     <Link
-                      to={`/integrations/${needsAttention.id}`}
+                      to={needsAttention.href}
                       className="mt-2 inline-block text-sm font-medium underline-offset-2 hover:underline"
                       style={{ color: "var(--primary)" }}
                     >

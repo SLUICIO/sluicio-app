@@ -219,15 +219,36 @@ func (h *Handlers) getSystem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	members := make([]ServiceSummary, 0, len(sy.Members))
+	statuses := make([]string, 0, len(sy.Members))
 	for _, s := range summaries {
 		if _, ok := memberSet[s.ServiceName]; ok {
 			members = append(members, s)
+			statuses = append(statuses, s.Status)
 		}
 	}
+	// The detail view returned NO status at all, so the page fell back to
+	// "quiet" while the list — computing it properly — said unhealthy. Two
+	// pages about the same system disagreeing is worse than either being
+	// wrong on its own: there is no way to tell which to believe.
+	//
+	// Same rollup as listSystems, deliberately via the shared function so
+	// the two cannot drift again.
+	firingSystems, fsErr := h.Alerts.FiringHealthSystems(r.Context(), orgID)
+	if fsErr != nil {
+		h.Logger.Warn("get system: firing health systems failed", "err", fsErr)
+		firingSystems = map[uuid.UUID]bool{}
+	}
+	checkedSystems, csErr := h.Alerts.SystemsWithHealthChecks(r.Context(), orgID)
+	if csErr != nil {
+		h.Logger.Warn("get system: systems with health checks failed", "err", csErr)
+		checkedSystems = map[uuid.UUID]bool{}
+	}
+	dto := systemWithBadge(sy)
+	dto.Status = systemRollupStatus(statuses, checkedSystems[id], firingSystems[id])
 	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
 		"window":     tr.Window(),
 		"can_manage": h.canManageSystem(r, id),
-		"system":     systemWithBadge(sy),
+		"system":     dto,
 		"members":    members,
 	})
 }

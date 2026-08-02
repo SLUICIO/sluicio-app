@@ -23,6 +23,7 @@ import type {
   ServiceSummary,
 } from "../api/types";
 import { formatNumber, formatRelative } from "../lib/format";
+import { bucketChecks } from "../lib/checkBuckets";
 import { systemKindLabel } from "../lib/systemKinds";
 import { usePageTitle } from "../lib/usePageTitle";
 import { useTimeWindow } from "../lib/useTimeWindow";
@@ -76,17 +77,13 @@ export default function StuckMessages() {
 
   // Index the raw lists by service so each service block can pull its own
   // failing checks + unacknowledged error in one lookup.
-  const checksByService = useMemo(() => {
-    const m = new Map<string, FailingCheck[]>();
-    for (const c of checks) {
-      if (c.target_kind === "service" && c.service_name) {
-        const arr = m.get(c.service_name) ?? [];
-        arr.push(c);
-        m.set(c.service_name, arr);
-      }
-    }
-    return m;
-  }, [checks]);
+  // One place decides where a check belongs, and it is total: anything
+  // it cannot place lands in `global` rather than disappearing. The page
+  // shows a COUNT from the API and rows from these buckets, so a check
+  // that matched no bucket used to render as "3 failing" above an empty
+  // list. See lib/checkBuckets.
+  const buckets = useMemo(() => bucketChecks(checks), [checks]);
+  const checksByService = buckets.byService;
 
   const openByService = useMemo(() => {
     const m = new Map<string, OpenServiceError>();
@@ -131,20 +128,27 @@ export default function StuckMessages() {
 
     // Integration-bound checks: surface the integration even if no member
     // service is independently in trouble, and attach the check to it.
-    for (const c of checks) {
-      if (c.target_kind === "integration" && c.integration_id) {
-        const g =
-          integrations.get(c.integration_id) ?? {
-            ref: { id: c.integration_id, slug: "", name: c.integration_name || "integration" },
-            serviceNames: [],
-            checks: [],
-          };
-        g.checks.push(c);
-        integrations.set(c.integration_id, g);
-      }
+    for (const [id, list] of buckets.byIntegration) {
+      const g =
+        integrations.get(id) ?? {
+          ref: { id, slug: "", name: list[0]?.integration_name || "integration" },
+          serviceNames: [],
+          checks: [],
+        };
+      g.checks.push(...list);
+      integrations.set(id, g);
     }
 
-    const globalChecks = checks.filter((c) => c.target_kind === "global");
+    // System-bound checks get their own group. They used to be labelled
+    // "global" and so appeared under Org-wide; when they gained their own
+    // target kind they briefly had nowhere to go at all.
+    const systemChecks = [...buckets.bySystem.entries()].map(([id, list]) => ({
+      id,
+      name: list[0]?.system_name || "system",
+      checks: list,
+    }));
+
+    const globalChecks = buckets.global;
 
     const byName = (a: string, b: string) => a.localeCompare(b);
     systemNames.sort(byName);
@@ -162,8 +166,9 @@ export default function StuckMessages() {
       integrationGroups,
       otherNames,
       globalChecks,
+      systemChecks,
     };
-  }, [services, checks, checksByService, openByService]);
+  }, [services, buckets, checksByService, openByService]);
 
   const allClear =
     !loading &&
@@ -258,6 +263,33 @@ export default function StuckMessages() {
           </div>
           <div style={{ padding: "4px 16px 8px" }}>
             {grouped.otherNames.map(renderBlock)}
+          </div>
+        </div>
+      )}
+
+      {grouped.systemChecks.length > 0 && (
+        <div className="card">
+          <div className="card__header">
+            System checks · {grouped.systemChecks.reduce((n, g) => n + g.checks.length, 0)}
+          </div>
+          <div className="m-existing" style={{ padding: "8px 12px 12px" }}>
+            {grouped.systemChecks.map((g) => (
+              <div key={g.id}>
+                <div className="muted" style={{ fontSize: 12, margin: "6px 2px 2px" }}>
+                  <Link to={`/systems/${g.id}`}>{g.name}</Link>
+                </div>
+                {g.checks.map((c) => (
+                  <CheckRow
+                    key={c.id}
+                    check={c}
+                    canWrite={orgWrite}
+                    onChanged={refresh}
+                    onError={setError}
+                    showTarget={false}
+                  />
+                ))}
+              </div>
+            ))}
           </div>
         </div>
       )}
