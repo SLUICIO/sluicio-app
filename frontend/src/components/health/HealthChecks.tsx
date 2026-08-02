@@ -22,6 +22,7 @@ import SearchableSelect from "../SearchableSelect";
 import { EditDrawer } from "../primitives";
 import AttributeSuggest from "../logs/AttributeSuggest";
 import FilterChip from "../logs/FilterChip";
+import { AGG_LABELS, ALERT_AGGREGATIONS } from "../../lib/aggregations";
 import { alertCondition, alertSignalLabel } from "../../lib/alertRule";
 
 // CheckScope is what a health check governs. All three are first-class
@@ -73,7 +74,6 @@ const SEV_FLOORS: { label: string; value: number }[] = [
   { label: "Fatal", value: 21 },
 ];
 
-const AGGS: AlertAggregation[] = ["max", "avg", "min", "sum", "p95", "increase", "rate"];
 const OPS: { op: AlertOperator; glyph: string }[] = [
   { op: "gt", glyph: ">" },
   { op: "gte", glyph: "≥" },
@@ -582,7 +582,7 @@ function HealthCheckEditor({
         <div className="m-rule-sentence">
           <span className="m-rs-prose">When</span>
           <select className="m-rs-sel" value={agg} onChange={(e) => setAgg(e.target.value as AlertAggregation)}>
-            {AGGS.map((a) => <option key={a} value={a}>{a}</option>)}
+            {ALERT_AGGREGATIONS.map((a) => <option key={a} value={a}>{AGG_LABELS[a]}</option>)}
           </select>
           <span className="m-rs-prose">of</span>
           <span className="m-rs-metric mono">{metric || "metric"}</span>

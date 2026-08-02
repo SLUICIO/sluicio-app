@@ -221,13 +221,9 @@ export default function Health() {
       .map((i) => ({ name: i.systemName ?? "", summary: byName.get(i.systemName ?? "") }));
   }, [visibleSource, systems]);
 
-  const addSystem = useCallback((name: string) => {
-    setDraft((d) => {
-      if (!d) return d;
-      if (d.items.some((i) => i.entityKind === "system" && i.systemName === name)) return d;
-      return { ...d, items: [...d.items, synthesizeSystemItem(name, d.items.length)] };
-    });
-  }, []);
+  // No addSystem counterpart: service cards can no longer be CREATED
+  // (a board holds integrations and systems), but the ones already on
+  // boards must stay removable.
   const removeSystem = useCallback((name: string) => {
     setDraft((d) =>
       d ? { ...d, items: d.items.filter((i) => !(i.entityKind === "system" && i.systemName === name)) } : d,
@@ -767,13 +763,10 @@ export default function Health() {
               draft={draft}
               integrations={integrations}
               cards={cards}
-              systems={systems}
-              pinnedSystems={systemCards.map((s) => s.name)}
               systemEntities={systemEntities}
               pinnedSystemEntities={systemEntityCards.map((s) => s.id)}
               onChange={updateDraft}
               onAddCard={addCard}
-              onAddSystem={addSystem}
               onAddSystemEntity={addSystemEntity}
             />
           )}
@@ -842,7 +835,11 @@ export default function Health() {
               {systemCards.length > 0 && (
                 <div className="mt-3">
                   <div className="muted" style={{ fontSize: 13, fontWeight: 600, margin: "8px 0 6px" }}>
-                    {systemEntityCards.length > 0 ? "System services" : "Systems"}
+                    {/* Always distinct from "Systems" above: these are
+                        SERVICES flagged is_system, pinned before the
+                        editor stopped offering them. Calling both strips
+                        "Systems" is what made the old picker confusing. */}
+                    System services
                   </div>
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
                     {systemCards.map((sc) => (
@@ -929,13 +926,10 @@ interface EditorBarProps {
   draft: Dashboard;
   integrations: Integration[];
   cards: ComposedCard[];
-  systems: ServiceSummary[];
-  pinnedSystems: string[];
   systemEntities: System[];
   pinnedSystemEntities: string[];
   onChange: (patch: Partial<Dashboard>) => void;
   onAddCard: (integrationId: string) => void;
-  onAddSystem: (name: string) => void;
   onAddSystemEntity: (id: string) => void;
 }
 
@@ -943,13 +937,10 @@ function DashboardEditorBar({
   draft,
   integrations,
   cards,
-  systems,
-  pinnedSystems,
   systemEntities,
   pinnedSystemEntities,
   onChange,
   onAddCard,
-  onAddSystem,
   onAddSystemEntity,
 }: EditorBarProps) {
   // Integrations not already in the visible card list — candidates for
@@ -957,13 +948,12 @@ function DashboardEditorBar({
   // integration is already visible).
   const visible = new Set(cards.map((c) => c.integration.id));
   const candidates = integrations.filter((i) => !visible.has(i.id));
-  // Systems not already pinned — candidates for the "+ add system" picker.
-  const pinned = new Set(pinnedSystems);
-  const systemCandidates = systems.filter((s) => !pinned.has(s.service_name));
-  // System ENTITIES not already pinned. Kept as its own picker rather
-  // than merged with the one above: the two lists can hold entries with
-  // the same label meaning different things, and merging them would make
-  // the user guess which one they picked.
+  // Systems not already pinned. Only entities are offered: a board holds
+  // integrations and systems, not individual services. The older picker
+  // listed services flagged is_system under the label "add system",
+  // which was both wrong and off-model for an integration-centric
+  // product. Cards created by it still render and can still be removed —
+  // see the "System services" strip — but no new ones can be made.
   const pinnedEnt = new Set(pinnedSystemEntities);
   const entityCandidates = systemEntities.filter((s) => !pinnedEnt.has(s.id));
 
@@ -1029,33 +1019,11 @@ function DashboardEditorBar({
         </label>
       )}
 
-      {systemCandidates.length > 0 && (
+      {entityCandidates.length > 0 && (
         <label
           className={`flex items-center gap-2 text-sm text-muted${candidates.length > 0 ? "" : " ml-auto"}`}
         >
           add system
-          <SearchableSelect
-            value=""
-            onChange={(name) => {
-              if (name) onAddSystem(name);
-            }}
-            options={systemCandidates.map((s) => s.service_name)}
-            labelFor={(name) => {
-              const s = systemCandidates.find((c) => c.service_name === name);
-              return s ? `${name} · ${systemKindLabel(s.system_kind)}` : name;
-            }}
-            allLabel="choose system…"
-            placeholder="Filter systems…"
-            align="right"
-          />
-        </label>
-      )}
-
-      {entityCandidates.length > 0 && (
-        <label
-          className={`flex items-center gap-2 text-sm text-muted${candidates.length > 0 || systemCandidates.length > 0 ? "" : " ml-auto"}`}
-        >
-          add system entity
           <SearchableSelect
             value=""
             onChange={(id) => {
@@ -1394,21 +1362,26 @@ function SystemEntityCard({
   const isErrored = pip === "err";
   return (
     <div className="relative">
-      <button
-        type="button"
-        aria-label="Remove from dashboard"
-        title="Remove from dashboard"
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          onRemove();
-        }}
-        disabled={busy}
-        className="absolute right-2 top-2 z-10 inline-flex h-6 w-6 items-center justify-center rounded-full text-sm leading-none opacity-40 transition-opacity hover:opacity-100"
-        style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--muted)" }}
-      >
-        ×
-      </button>
+      {/* Edit-mode only, same rule as the integration card: outside edit
+          mode this only mutates a draft that is not being rendered, so
+          it looks broken — the card stays put and nothing is saved. */}
+      {editing && (
+        <button
+          type="button"
+          aria-label="Remove from dashboard"
+          title="Remove from dashboard"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onRemove();
+          }}
+          disabled={busy}
+          className="absolute right-2 top-2 z-10 inline-flex h-6 w-6 items-center justify-center rounded-full text-sm leading-none opacity-40 transition-opacity hover:opacity-100"
+          style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--muted)" }}
+        >
+          ×
+        </button>
+      )}
       <Link
         to={`/systems/${encodeURIComponent(id)}`}
         className="group block rounded-xl border p-4 shadow-sm transition-colors hover:border-border-strong"
@@ -1445,25 +1418,6 @@ function SystemEntityCard({
             <div className="font-medium tabular-nums">{formatNumber(system?.member_count ?? 0)}</div>
           </div>
         </div>
-        {editing && (
-          <div
-            className="mt-3 flex items-center justify-end gap-2 border-t pt-3 text-xs text-muted"
-            style={{ borderColor: "var(--border)" }}
-          >
-            <button
-              type="button"
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                onRemove();
-              }}
-              className="rounded-md border px-2 py-0.5"
-              style={{ borderColor: "var(--border)", color: "var(--err)" }}
-            >
-              remove
-            </button>
-          </div>
-        )}
       </Link>
     </div>
   );
@@ -1512,25 +1466,6 @@ function SystemCard({
           </div>
         </div>
       </div>
-      {editing && (
-        <div
-          className="mt-3 flex items-center justify-end gap-2 border-t pt-3 text-xs text-muted"
-          style={{ borderColor: "var(--border)" }}
-        >
-          <button
-            type="button"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              onRemove();
-            }}
-            className="rounded-md border px-2 py-0.5"
-            style={{ borderColor: "var(--border)", color: "var(--err)" }}
-          >
-            remove
-          </button>
-        </div>
-      )}
     </>
   );
   const sharedStyle = {
@@ -1560,7 +1495,7 @@ function SystemCard({
 
   return (
     <div className="relative">
-      {removeButton}
+      {editing && removeButton}
       <Link
         to={`/services/${encodeURIComponent(name)}`}
         className="group block rounded-xl border p-4 shadow-sm transition-colors hover:border-border-strong"
@@ -1755,19 +1690,6 @@ function synthesizeItem(
     entityKind: "integration",
     integrationId,
     widgetType,
-    position,
-    createdAt: new Date().toISOString(),
-  };
-}
-
-// synthesizeSystemItem builds a draft-only system DashboardItem.
-function synthesizeSystemItem(systemName: string, position: number): DashboardItem {
-  return {
-    id: `draft-sys-${systemName}`,
-    entityKind: "system",
-    integrationId: "",
-    systemName,
-    widgetType: "system_health",
     position,
     createdAt: new Date().toISOString(),
   };

@@ -11,6 +11,7 @@ import { Link } from "react-router-dom";
 import { api } from "../../api/client";
 import SearchableSelect from "../SearchableSelect";
 import { displayUnit } from "../../lib/format";
+import { AGG_LABELS, ALERT_AGGREGATIONS } from "../../lib/aggregations";
 import { defaultRuleName } from "../../lib/ruleName";
 import AlertNotificationContent from "./AlertNotificationContent";
 import type {
@@ -26,22 +27,7 @@ import type {
   RuleAttrFilter,
 } from "../../api/types";
 
-const AGGS: AlertAggregation[] = ["last", "max", "avg", "min", "sum", "p95", "increase", "rate", "age"];
 // Friendly dropdown labels; the wire value stays the short form.
-const AGG_LABELS: Record<AlertAggregation, string> = {
-  last: "last value",
-  max: "max",
-  avg: "avg",
-  min: "min",
-  sum: "sum",
-  p95: "p95",
-  increase: "increase (counter Δ)",
-  rate: "rate (per sec)",
-  // "age" treats the metric's value as a Unix timestamp and thresholds
-  // now − value in SECONDS — e.g. "file.mtime age > 3600" = file untouched
-  // for over an hour. Pair with gt for a staleness health check.
-  age: "age / time since (sec)",
-};
 const OPS: { op: AlertOperator; glyph: string }[] = [
   { op: "gt", glyph: ">" },
   { op: "gte", glyph: "≥" },
@@ -298,7 +284,7 @@ export default function AlertBuilder({
         <div className="m-rule-sentence">
           <span className="m-rs-prose">When</span>
           <select className="m-rs-sel" value={agg} onChange={(e) => setAgg(e.target.value as AlertAggregation)}>
-            {AGGS.map((a) => (
+            {ALERT_AGGREGATIONS.map((a) => (
               <option key={a} value={a}>{AGG_LABELS[a]}</option>
             ))}
           </select>
