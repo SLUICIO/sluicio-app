@@ -3,8 +3,15 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.61 — 2026-08-02
+
+- system types: hyphens instead of em dashes in the Paperless-ngx entry (508c5e0)
+- system types: link the published Paperless-ngx docs page (fc9f3bf)
+- system types: name the real cause of the Paperless-ngx trace blind spot (661ba6c)
+
 ## v0.11.60 — 2026-08-02
 
+- release v0.11.60 — refresh internal changelog (3eb6407)
 - e2e: stop the dashboard system tests racing the page's systems fetch (567f2a3)
 - release v0.11.60 — refresh internal changelog (8908c8b)
 - e2e: give the dashboard system tests their own board and system (8118525)
