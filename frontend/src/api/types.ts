@@ -1183,7 +1183,10 @@ export type DashboardWidgetType =
   | "latency_p95"
   | "system_health";
 
-export type DashboardEntityKind = "integration" | "system";
+// "system" is the ORIGINAL card: a service flagged is_system, keyed by
+// name. "system_entity" is a row in `systems` — members plus its own
+// health checks — keyed by id. Two different objects, so two kinds.
+export type DashboardEntityKind = "integration" | "system" | "system_entity";
 
 // Picker labels — kept beside the type so adding a new widget is a
 // one-place change in the UI. system_health is omitted here: it's not an
@@ -1209,6 +1212,7 @@ export interface DashboardItem {
   entityKind: DashboardEntityKind;
   integrationId: string;
   systemName?: string;
+  systemId?: string;
   widgetType: DashboardWidgetType;
   position: number;
   createdAt: string;
@@ -1239,6 +1243,7 @@ export interface DashboardItemRequest {
   entityKind?: DashboardEntityKind;
   integrationId?: string;
   systemName?: string;
+  systemId?: string;
   widgetType: DashboardWidgetType;
   position: number;
 }

@@ -25,6 +25,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
+import { materializeItems, toItemRequest } from "../lib/dashboardItems";
 import { useAccess } from "../lib/useAccess";
 import { useCurrentUser } from "../lib/useCurrentUser";
 import {
@@ -240,6 +241,34 @@ export default function Health() {
   const [systemEntities, setSystemEntities] = useState<System[]>([]);
   useEffect(() => {
     api.listSystems().then((r) => setSystemEntities(r.systems ?? [])).catch(() => setSystemEntities([]));
+  }, []);
+
+  // Systems pinned as ENTITIES — keyed by id, and carrying the server's
+  // rollup status, which already folds in the checks bound to the system
+  // itself. An id with no matching entity means it was deleted; the card
+  // renders as unknown rather than disappearing, so it stays removable.
+  const systemEntityCards = useMemo(() => {
+    const byId = new Map(systemEntities.map((s) => [s.id, s] as const));
+    return (visibleSource?.items ?? [])
+      .filter((i) => i.entityKind === "system_entity" && i.systemId)
+      .slice()
+      .sort((a, b) => a.position - b.position)
+      .map((i) => ({ id: i.systemId as string, system: byId.get(i.systemId as string) }));
+  }, [visibleSource, systemEntities]);
+
+  const addSystemEntity = useCallback((id: string) => {
+    setDraft((d) => {
+      if (!d) return d;
+      if (d.items.some((i) => i.entityKind === "system_entity" && i.systemId === id)) return d;
+      return { ...d, items: [...d.items, synthesizeSystemEntityItem(id, d.items.length)] };
+    });
+  }, []);
+  const removeSystemEntity = useCallback((id: string) => {
+    setDraft((d) =>
+      d
+        ? { ...d, items: d.items.filter((i) => !(i.entityKind === "system_entity" && i.systemId === id)) }
+        : d,
+    );
   }, []);
   const sysSummary = useMemo(() => summariseSystems(systemEntities), [systemEntities]);
 
@@ -740,9 +769,12 @@ export default function Health() {
               cards={cards}
               systems={systems}
               pinnedSystems={systemCards.map((s) => s.name)}
+              systemEntities={systemEntities}
+              pinnedSystemEntities={systemEntityCards.map((s) => s.id)}
               onChange={updateDraft}
               onAddCard={addCard}
               onAddSystem={addSystem}
+              onAddSystemEntity={addSystemEntity}
             />
           )}
 
@@ -757,7 +789,7 @@ export default function Health() {
           )}
 
           {/* Cards */}
-          {cards.length === 0 && systemCards.length === 0 ? (
+          {cards.length === 0 && systemCards.length === 0 && systemEntityCards.length === 0 ? (
             <div className="placeholder mt-3">
               {integrations.length === 0 ? (
                 <>
@@ -790,9 +822,28 @@ export default function Health() {
                   ))}
                 </div>
               )}
-              {systemCards.length > 0 && (
+              {systemEntityCards.length > 0 && (
                 <div className="mt-3">
                   <div className="muted" style={{ fontSize: 13, fontWeight: 600, margin: "8px 0 6px" }}>Systems</div>
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                    {systemEntityCards.map((sc) => (
+                      <SystemEntityCard
+                        key={sc.id}
+                        id={sc.id}
+                        system={sc.system}
+                        editing={editing}
+                        onRemove={() => removeSystemEntity(sc.id)}
+                        busy={saving}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+              {systemCards.length > 0 && (
+                <div className="mt-3">
+                  <div className="muted" style={{ fontSize: 13, fontWeight: 600, margin: "8px 0 6px" }}>
+                    {systemEntityCards.length > 0 ? "System services" : "Systems"}
+                  </div>
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
                     {systemCards.map((sc) => (
                       <SystemCard
@@ -880,9 +931,12 @@ interface EditorBarProps {
   cards: ComposedCard[];
   systems: ServiceSummary[];
   pinnedSystems: string[];
+  systemEntities: System[];
+  pinnedSystemEntities: string[];
   onChange: (patch: Partial<Dashboard>) => void;
   onAddCard: (integrationId: string) => void;
   onAddSystem: (name: string) => void;
+  onAddSystemEntity: (id: string) => void;
 }
 
 function DashboardEditorBar({
@@ -891,9 +945,12 @@ function DashboardEditorBar({
   cards,
   systems,
   pinnedSystems,
+  systemEntities,
+  pinnedSystemEntities,
   onChange,
   onAddCard,
   onAddSystem,
+  onAddSystemEntity,
 }: EditorBarProps) {
   // Integrations not already in the visible card list — candidates for
   // the "+ add integration" picker. In auto mode this is empty (every
@@ -903,6 +960,12 @@ function DashboardEditorBar({
   // Systems not already pinned — candidates for the "+ add system" picker.
   const pinned = new Set(pinnedSystems);
   const systemCandidates = systems.filter((s) => !pinned.has(s.service_name));
+  // System ENTITIES not already pinned. Kept as its own picker rather
+  // than merged with the one above: the two lists can hold entries with
+  // the same label meaning different things, and merging them would make
+  // the user guess which one they picked.
+  const pinnedEnt = new Set(pinnedSystemEntities);
+  const entityCandidates = systemEntities.filter((s) => !pinnedEnt.has(s.id));
 
   return (
     <div
@@ -980,6 +1043,29 @@ function DashboardEditorBar({
             labelFor={(name) => {
               const s = systemCandidates.find((c) => c.service_name === name);
               return s ? `${name} · ${systemKindLabel(s.system_kind)}` : name;
+            }}
+            allLabel="choose system…"
+            placeholder="Filter systems…"
+            align="right"
+          />
+        </label>
+      )}
+
+      {entityCandidates.length > 0 && (
+        <label
+          className={`flex items-center gap-2 text-sm text-muted${candidates.length > 0 || systemCandidates.length > 0 ? "" : " ml-auto"}`}
+        >
+          add system entity
+          <SearchableSelect
+            value=""
+            onChange={(id) => {
+              if (id) onAddSystemEntity(id);
+            }}
+            options={entityCandidates.map((s) => s.id)}
+            labelFor={(id) => {
+              const s = entityCandidates.find((c) => c.id === id);
+              if (!s) return id;
+              return s.member_count > 0 ? `${s.name} · ${s.member_count} services` : s.name;
             }}
             allLabel="choose system…"
             placeholder="Filter systems…"
@@ -1287,6 +1373,102 @@ function systemPip(status: string | undefined): PipKind {
 // SystemCard is the dashboard widget for a pinned system: status pip + name +
 // kind badge + error count, linking to the service. summary is undefined when
 // the system isn't in the current window's systems list (shown as unknown).
+// SystemEntityCard renders a pinned row from `systems`: the server's
+// rollup status (which already folds in checks bound to the system
+// itself — recomputing it client-side is how three other surfaces came
+// to call a system with a firing check "quiet"), plus its member count.
+function SystemEntityCard({
+  id,
+  system,
+  editing,
+  busy,
+  onRemove,
+}: {
+  id: string;
+  system?: System;
+  editing: boolean;
+  busy: boolean;
+  onRemove: () => void;
+}) {
+  const pip = systemPip(system?.status);
+  const isErrored = pip === "err";
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        aria-label="Remove from dashboard"
+        title="Remove from dashboard"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onRemove();
+        }}
+        disabled={busy}
+        className="absolute right-2 top-2 z-10 inline-flex h-6 w-6 items-center justify-center rounded-full text-sm leading-none opacity-40 transition-opacity hover:opacity-100"
+        style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--muted)" }}
+      >
+        ×
+      </button>
+      <Link
+        to={`/systems/${encodeURIComponent(id)}`}
+        className="group block rounded-xl border p-4 shadow-sm transition-colors hover:border-border-strong"
+        style={{
+          borderColor: "var(--border)",
+          background: "var(--surface-2)",
+          color: "var(--ink)",
+          borderLeft: isErrored ? "4px solid var(--err)" : undefined,
+        }}
+      >
+        <div className="min-w-0 pr-7">
+          <div className="flex items-center gap-2">
+            <StatusPip kind={pip} />
+            <span className="truncate text-base font-semibold text-foreground">
+              {system?.name ?? "(deleted system)"}
+            </span>
+          </div>
+          <div className="mt-0.5 text-xs">
+            {system ? (
+              <span className="badge-brand">⚙ {system.type_key}</span>
+            ) : (
+              // Kept visible on purpose: an invisible card cannot be removed.
+              <span className="text-muted">no longer exists</span>
+            )}
+          </div>
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+          <div>
+            <div className="text-[11px] uppercase tracking-wide text-muted">status</div>
+            <div className="font-medium">{system?.status ?? "unknown"}</div>
+          </div>
+          <div>
+            <div className="text-[11px] uppercase tracking-wide text-muted">services</div>
+            <div className="font-medium tabular-nums">{formatNumber(system?.member_count ?? 0)}</div>
+          </div>
+        </div>
+        {editing && (
+          <div
+            className="mt-3 flex items-center justify-end gap-2 border-t pt-3 text-xs text-muted"
+            style={{ borderColor: "var(--border)" }}
+          >
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onRemove();
+              }}
+              className="rounded-md border px-2 py-0.5"
+              style={{ borderColor: "var(--border)", color: "var(--err)" }}
+            >
+              remove
+            </button>
+          </div>
+        )}
+      </Link>
+    </div>
+  );
+}
+
 function SystemCard({
   name,
   summary,
@@ -1591,70 +1773,16 @@ function synthesizeSystemItem(systemName: string, position: number): DashboardIt
   };
 }
 
-// materializeItems turns a dashboard into an explicit list of items
-// representing every card the renderer would currently show. Used by
-// the remove flows: in auto-include-all mode, items[] holds only the
-// per-card widget *overrides* — filtering items[] then flipping to
-// manual mode would drop every non-overridden card. Materializing
-// first guarantees that "remove one" is what the user sees.
-function materializeItems(
-  dashboard: Dashboard,
-  integrations: Integration[],
-): DashboardItem[] {
-  if (!dashboard.autoIncludeAll) {
-    // Manual mode: items[] is already the source of truth.
-    return [...dashboard.items];
-  }
-  const overrideById = new Map(
-    dashboard.items.map((i) => [i.integrationId, i] as const),
-  );
-  // composeCards puts overrides first (in declared position) then
-  // every remaining integration by traffic. Mirror that ordering here
-  // so the persisted manual list keeps the same on-screen order.
-  const overrides = dashboard.items
-    .slice()
-    .sort((a, b) => a.position - b.position)
-    .map((i) => i.integrationId);
-  const overrideSet = new Set(overrides);
-  const rest = integrations
-    .filter((i) => !overrideSet.has(i.id))
-    .sort((a, b) => (b.trace_count ?? 0) - (a.trace_count ?? 0))
-    .map((i) => i.id);
-  const byId = new Map(integrations.map((i) => [i.id, i] as const));
-  const ordered = [...overrides, ...rest].filter((id) => byId.has(id));
-  const integrationItems: DashboardItem[] = ordered.map((id, idx) => {
-    const existing = overrideById.get(id);
-    return {
-      id: existing?.id ?? `draft-${id}`,
-      entityKind: "integration",
-      integrationId: id,
-      widgetType: existing?.widgetType ?? dashboard.defaultWidgetType,
-      position: existing?.position ?? idx,
-      createdAt: existing?.createdAt ?? new Date().toISOString(),
-    };
-  });
-  // System items live in items[] too but aren't part of the auto-include
-  // expansion — carry them through untouched.
-  const systemItems = dashboard.items.filter((i) => i.entityKind === "system");
-  return [...integrationItems, ...systemItems];
-}
-
-// toItemRequest maps a (possibly draft) DashboardItem to the write shape,
-// emitting the integration or system form by entityKind.
-function toItemRequest(i: DashboardItem, idx: number): DashboardItemRequest {
-  if (i.entityKind === "system") {
-    return {
-      entityKind: "system",
-      systemName: i.systemName,
-      widgetType: "system_health",
-      position: i.position ?? idx,
-    };
-  }
+// synthesizeSystemEntityItem builds a draft-only system-entity item.
+function synthesizeSystemEntityItem(systemId: string, position: number): DashboardItem {
   return {
-    entityKind: "integration",
-    integrationId: i.integrationId,
-    widgetType: i.widgetType,
-    position: i.position ?? idx,
+    id: `draft-sysent-${systemId}`,
+    entityKind: "system_entity",
+    integrationId: "",
+    systemId,
+    widgetType: "system_health",
+    position,
+    createdAt: new Date().toISOString(),
   };
 }
 

@@ -35,7 +35,7 @@ const dashboardCols = `id, organization_id, owner_user_id, name,
 	group_id, created_at, updated_at`
 
 // itemCols mirrors dashboardCols for the items table.
-const itemCols = `id, dashboard_id, entity_kind, integration_id, system_name, widget_type, position, created_at`
+const itemCols = `id, dashboard_id, entity_kind, integration_id, system_name, system_id, widget_type, position, created_at`
 
 // List returns every dashboard visible to the given org, ordered by
 // position then created_at. Items are populated in one extra round trip
@@ -144,7 +144,7 @@ func (s *Store) Create(ctx context.Context, orgID uuid.UUID, ownerUserID *uuid.U
 		return Dashboard{}, fmt.Errorf("insert dashboard: %w", err)
 	}
 
-	if err := insertItems(ctx, tx, d.ID, req.Items); err != nil {
+	if err := insertItems(ctx, tx, orgID, d.ID, req.Items); err != nil {
 		return Dashboard{}, err
 	}
 
@@ -201,7 +201,7 @@ func (s *Store) Update(ctx context.Context, orgID, id uuid.UUID, ownerUserID *uu
 		return Dashboard{}, fmt.Errorf("update dashboard: %w", err)
 	}
 
-	if err := replaceItems(ctx, tx, d.ID, req.Items); err != nil {
+	if err := replaceItems(ctx, tx, orgID, d.ID, req.Items); err != nil {
 		return Dashboard{}, err
 	}
 
@@ -253,11 +253,38 @@ func clearDefaults(ctx context.Context, tx pgx.Tx, orgID uuid.UUID, ownerUserID 
 	return nil
 }
 
-func insertItems(ctx context.Context, tx pgx.Tx, dashboardID uuid.UUID, items []ItemRequest) error {
+func insertItems(ctx context.Context, tx pgx.Tx, orgID, dashboardID uuid.UUID, items []ItemRequest) error {
 	for _, it := range items {
 		kind := it.EntityKind
 		if kind == "" {
 			kind = EntityIntegration
+		}
+		if kind == EntitySystemEntity {
+			sid, err := uuid.Parse(strings.TrimSpace(it.SystemID))
+			if err != nil {
+				return errInvalid("system_entity item requires a valid systemId")
+			}
+			// The FK only proves the system exists SOMEWHERE. Checking the
+			// org too keeps a pinned id from another tenant out of the table
+			// — it would render as a permanently blank card, since the page
+			// resolves systems from its own org-scoped list.
+			var ok bool
+			if err := tx.QueryRow(ctx,
+				`SELECT EXISTS (SELECT 1 FROM systems WHERE id = $1 AND org_id = $2)`,
+				sid, orgID,
+			).Scan(&ok); err != nil {
+				return fmt.Errorf("check system org: %w", err)
+			}
+			if !ok {
+				return errInvalid("unknown systemId")
+			}
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO dashboard_items (dashboard_id, entity_kind, system_id, widget_type, position)
+				VALUES ($1, 'system_entity', $2, 'system_health', $3)
+			`, dashboardID, sid, it.Position); err != nil {
+				return fmt.Errorf("insert system entity item: %w", err)
+			}
+			continue
 		}
 		if kind == EntitySystem {
 			name := strings.TrimSpace(it.SystemName)
@@ -293,13 +320,13 @@ func insertItems(ctx context.Context, tx pgx.Tx, dashboardID uuid.UUID, items []
 // replaceItems is a full replace: drop every item then re-insert the new set.
 // Update semantics are already "swap the whole list", and a clean replace keeps
 // the polymorphic (integration|system) insert simple. Runs in the caller's tx.
-func replaceItems(ctx context.Context, tx pgx.Tx, dashboardID uuid.UUID, items []ItemRequest) error {
+func replaceItems(ctx context.Context, tx pgx.Tx, orgID, dashboardID uuid.UUID, items []ItemRequest) error {
 	if _, err := tx.Exec(ctx,
 		`DELETE FROM dashboard_items WHERE dashboard_id = $1`, dashboardID,
 	); err != nil {
 		return fmt.Errorf("clear dashboard items: %w", err)
 	}
-	return insertItems(ctx, tx, dashboardID, items)
+	return insertItems(ctx, tx, orgID, dashboardID, items)
 }
 
 func itemsInTx(ctx context.Context, tx pgx.Tx, dashboardID uuid.UUID) ([]Item, error) {
@@ -346,11 +373,12 @@ func (s *Store) itemsForDashboards(ctx context.Context, ids []uuid.UUID) (map[uu
 			entityKind    string
 			integrationID *uuid.UUID
 			systemName    *string
+			systemID      *uuid.UUID
 			widgetType    string
 			position      int
 			createdAt     time.Time
 		)
-		if err := rows.Scan(&id, &dashID, &entityKind, &integrationID, &systemName, &widgetType, &position, &createdAt); err != nil {
+		if err := rows.Scan(&id, &dashID, &entityKind, &integrationID, &systemName, &systemID, &widgetType, &position, &createdAt); err != nil {
 			return nil, err
 		}
 		item := Item{
@@ -366,6 +394,7 @@ func (s *Store) itemsForDashboards(ctx context.Context, ids []uuid.UUID) (map[uu
 		if systemName != nil {
 			item.SystemName = *systemName
 		}
+		item.SystemID = systemID
 		out[dashID] = append(out[dashID], item)
 	}
 	return out, rows.Err()
@@ -409,10 +438,11 @@ func scanItem(s scanner) (Item, error) {
 		entityKind    string
 		integrationID *uuid.UUID
 		systemName    *string
+		systemID      *uuid.UUID
 		widgetType    string
 		createdAt     time.Time
 	)
-	if err := s.Scan(&it.ID, &dashboardID, &entityKind, &integrationID, &systemName, &widgetType, &it.Position, &createdAt); err != nil {
+	if err := s.Scan(&it.ID, &dashboardID, &entityKind, &integrationID, &systemName, &systemID, &widgetType, &it.Position, &createdAt); err != nil {
 		return Item{}, err
 	}
 	it.EntityKind = EntityKind(entityKind)
@@ -422,6 +452,7 @@ func scanItem(s scanner) (Item, error) {
 	if systemName != nil {
 		it.SystemName = *systemName
 	}
+	it.SystemID = systemID
 	it.WidgetType = WidgetType(widgetType)
 	it.CreatedAt = createdAt
 	return it, nil

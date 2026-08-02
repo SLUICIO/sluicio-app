@@ -53,7 +53,17 @@ type EntityKind string
 
 const (
 	EntityIntegration EntityKind = "integration"
-	EntitySystem      EntityKind = "system"
+	// EntitySystem is the ORIGINAL system card (0045): a service flagged
+	// is_system, referenced by name.
+	EntitySystem EntityKind = "system"
+	// EntitySystemEntity is a row in `systems` — an entity with members
+	// and its own health checks, referenced by id.
+	//
+	// Deliberately a separate kind rather than a reinterpretation of
+	// EntitySystem: a flagged service and a system entity are different
+	// objects, and an existing card cannot be mapped onto an entity
+	// without guessing which one (it may belong to none).
+	EntitySystemEntity EntityKind = "system_entity"
 )
 
 // IsValidWidgetType reports whether s is a known integration widget.
@@ -104,6 +114,7 @@ type Item struct {
 	EntityKind    EntityKind `json:"entityKind"`
 	IntegrationID uuid.UUID  `json:"integrationId"`
 	SystemName    string     `json:"systemName,omitempty"`
+	SystemID      *uuid.UUID `json:"systemId,omitempty"`
 	WidgetType    WidgetType `json:"widgetType"`
 	Position      int        `json:"position"`
 	CreatedAt     time.Time  `json:"createdAt"`
@@ -146,6 +157,7 @@ type ItemRequest struct {
 	EntityKind    EntityKind `json:"entityKind"`
 	IntegrationID string     `json:"integrationId"`
 	SystemName    string     `json:"systemName"`
+	SystemID      string     `json:"systemId"`
 	WidgetType    WidgetType `json:"widgetType"`
 	Position      int        `json:"position"`
 }
@@ -182,13 +194,31 @@ func (r UpdateRequest) Validate() error {
 
 // Validate checks the item is well-formed in isolation. EntityKind defaults
 // to "integration"; a system item needs a non-empty systemName and uses the
-// system_health widget.
+// system_health widget; a system_entity item needs a systemId instead.
+//
+// Each kind also rejects the OTHER kinds' target fields. That mirrors the
+// chk_dashboard_item_shape constraint, so a malformed payload comes back
+// as a 400 naming the field rather than as an opaque constraint violation
+// from Postgres.
 func (i ItemRequest) Validate() error {
 	kind := i.EntityKind
 	if kind == "" {
 		kind = EntityIntegration
 	}
 	switch kind {
+	case EntitySystemEntity:
+		if _, err := uuid.Parse(strings.TrimSpace(i.SystemID)); err != nil {
+			return errInvalid("system_entity item requires a valid systemId")
+		}
+		if i.IntegrationID != "" {
+			return errInvalid("system_entity item must not set integrationId")
+		}
+		if i.SystemName != "" {
+			return errInvalid("system_entity item must not set systemName")
+		}
+		if i.WidgetType != "" && i.WidgetType != WidgetSystemHealth {
+			return errInvalid("system_entity item must use the system_health widget")
+		}
 	case EntitySystem:
 		if strings.TrimSpace(i.SystemName) == "" {
 			return errInvalid("system item requires systemName")
@@ -196,12 +226,18 @@ func (i ItemRequest) Validate() error {
 		if i.IntegrationID != "" {
 			return errInvalid("system item must not set integrationId")
 		}
+		if i.SystemID != "" {
+			return errInvalid("system item must not set systemId")
+		}
 		if i.WidgetType != "" && i.WidgetType != WidgetSystemHealth {
 			return errInvalid("system item must use the system_health widget")
 		}
 	case EntityIntegration:
 		if _, err := uuid.Parse(i.IntegrationID); err != nil {
 			return errInvalid("integrationId must be a UUID")
+		}
+		if i.SystemID != "" {
+			return errInvalid("integration item must not set systemId")
 		}
 		wt := i.WidgetType
 		if wt == "" {
