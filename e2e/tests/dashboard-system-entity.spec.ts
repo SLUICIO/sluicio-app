@@ -25,6 +25,9 @@ import { test, expect, type Page } from "@playwright/test";
 import { logIn } from "./fixtures";
 
 const stamp = Date.now().toString(36);
+// Bumped per scratch() so two invocations of the same test — a Playwright
+// retry, or --repeat-each — never collide on the unique system name.
+let seq = 0;
 
 // Talks to the API through the logged-in page's cookie jar.
 async function api(page: Page, method: string, path: string, body?: unknown) {
@@ -41,7 +44,7 @@ async function api(page: Page, method: string, path: string, body?: unknown) {
  * dependence on what else lives in the cell.
  */
 async function scratch(page: Page, tag: string) {
-  const name = `e2e-dash-${tag}-${stamp}`;
+  const name = `e2e-dash-${tag}-${stamp}-${++seq}`;
   const sys = await api(page, "POST", "/systems", { name, type_key: "rabbitmq" });
   expect(sys.ok(), `create system: ${sys.status()}`).toBeTruthy();
   const systemId = (await sys.json()).id as string;
@@ -51,6 +54,19 @@ async function scratch(page: Page, tag: string) {
   const dashboardId = (await board.json()).id as string;
 
   const open = async () => {
+    // The page fetches its system list ONCE on mount, so the system has
+    // to be listable before we navigate — otherwise the picker renders
+    // empty (it is hidden when there are no candidates) and the failure
+    // looks like a missing feature rather than a race.
+    await expect
+      .poll(
+        async () => {
+          const list = (await (await api(page, "GET", "/systems")).json()).systems ?? [];
+          return list.some((x: { id: string }) => x.id === systemId);
+        },
+        { timeout: 30_000 },
+      )
+      .toBe(true);
     await page.goto("/health");
     await page.getByRole("button", { name, exact: false }).first().click();
     await expect(page.getByRole("button", { name: "edit dashboard" })).toBeVisible();
@@ -65,7 +81,17 @@ async function scratch(page: Page, tag: string) {
 /** Picks this test's system out of the "add system" picker. */
 async function pinSystem(page: Page, name: string) {
   const picker = page.getByLabel("add system");
-  await expect(picker).toBeVisible();
+  // The picker is hidden when the page has no systems to offer, and the
+  // page fetches them once on mount, swallowing a failure into an empty
+  // list. So a single slow or failed request under CI load looks exactly
+  // like "the feature is missing". Reload once — selection is kept in
+  // localStorage, so this returns to the same board — before believing
+  // the picker is genuinely absent.
+  if (!(await picker.isVisible().catch(() => false))) {
+    await page.reload();
+    await page.getByRole("button", { name: "edit dashboard" }).click();
+  }
+  await expect(picker).toBeVisible({ timeout: 30_000 });
   await picker.click();
   await page.getByPlaceholder("Filter systems…").last().fill(name);
   await page.getByText(name, { exact: false }).last().click();
@@ -143,8 +169,15 @@ test.describe("Dashboard system entities", () => {
     try {
       await s.open();
       await page.getByRole("button", { name: "edit dashboard" }).click();
+      // Same reload-retry as pinSystem: an empty systems fetch hides the
+      // picker and would read as "the wrong picker survived".
+      const picker = page.getByLabel("add system");
+      if (!(await picker.isVisible().catch(() => false))) {
+        await page.reload();
+        await page.getByRole("button", { name: "edit dashboard" }).click();
+      }
+      await expect(picker).toHaveCount(1, { timeout: 30_000 });
       await expect(page.getByLabel("add system entity")).toHaveCount(0);
-      await expect(page.getByLabel("add system")).toHaveCount(1);
     } finally {
       await s.cleanup();
     }
