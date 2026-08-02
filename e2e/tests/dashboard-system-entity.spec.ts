@@ -183,6 +183,92 @@ test.describe("Dashboard system entities", () => {
     }
   });
 
+  test("cards are ordered by health, not by the order they were pinned", async ({ page }) => {
+    // Asserts SORTEDNESS of what is on screen — worst health first, name
+    // within a health state — rather than one expected sequence. The
+    // health ladder itself is covered by src/lib/healthOrder.test.ts;
+    // what this adds is that the page actually applies it, which pinning
+    // the three in reverse alphabetical order makes unmistakable.
+    await logIn(page);
+    const board = await api(page, "POST", "/dashboards", {
+      name: `e2e-dash-order-${stamp}-${++seq}`,
+      autoIncludeAll: false,
+    });
+    const dashboardId = (await board.json()).id as string;
+    const boardName = `e2e-dash-order-${stamp}-${seq}`;
+    const made: { id: string; name: string }[] = [];
+    try {
+      // Created and pinned in REVERSE alphabetical order.
+      for (const suffix of ["zulu", "mike", "alpha"]) {
+        const name = `e2e-order-${suffix}-${stamp}`;
+        const r = await api(page, "POST", "/systems", { name, type_key: "rabbitmq" });
+        expect(r.ok(), `create ${name}: ${r.status()}`).toBeTruthy();
+        made.push({ id: (await r.json()).id as string, name });
+      }
+      const put = await api(page, "PUT", `/dashboards/${dashboardId}`, {
+        name: boardName,
+        isDefault: false,
+        autoIncludeAll: false,
+        defaultWidgetType: "traffic_sparkline",
+        position: 0,
+        items: made.map((m, idx) => ({
+          entityKind: "system_entity",
+          systemId: m.id,
+          widgetType: "system_health",
+          position: idx,
+        })),
+      });
+      expect(put.ok(), `pin systems: ${put.status()}`).toBeTruthy();
+
+      await page.goto("/health");
+      await page.getByRole("button", { name: boardName, exact: false }).first().click();
+      // Cards paint from items[] before the page's systems list resolves,
+      // and until it does every card has neither a name nor a status — so
+      // they all compare equal and a stable sort leaves them in pin order.
+      // Waiting for every NAME to appear is waiting for that list, which
+      // is what the ordering is computed from.
+      for (const m of made) {
+        await expect(page.getByText(m.name, { exact: false }).first()).toBeVisible({
+          timeout: 30_000,
+        });
+      }
+
+      // Read the status off each rendered card rather than re-fetching
+      // it. A freshly created system's rollup settles asynchronously, so
+      // a second API call can report a different status than the one the
+      // page sorted on — comparing across those two instants fails on
+      // timing, not on ordering. Everything below comes from one paint.
+      const cards = await page.locator("a[href^='/systems/']").evaluateAll((els) =>
+        els.map((e) => ({
+          href: (e as HTMLAnchorElement).getAttribute("href") ?? "",
+          text: (e as HTMLElement).innerText,
+        })),
+      );
+      const rank = (st: string | undefined) =>
+        ({ unhealthy: 0, errors: 1, ok: 2, quiet: 3 })[st ?? ""] ?? 4;
+      const mine = cards
+        .map((c) => {
+          const m = made.find((x) => c.href === `/systems/${x.id}`);
+          if (!m) return null;
+          return { name: m.name, status: /status\s+(\w+)/i.exec(c.text)?.[1]?.toLowerCase() };
+        })
+        .filter((x): x is { name: string; status?: string } => Boolean(x));
+      expect(mine).toHaveLength(made.length);
+
+      // The invariant: worst health first, name within a health state.
+      const sorted = [...mine].sort(
+        (x, y) => rank(x.status) - rank(y.status) || x.name.localeCompare(y.name),
+      );
+      expect(mine.map((c) => c.name)).toEqual(sorted.map((c) => c.name));
+      // And it is genuinely a sort: pin order was the reverse of the
+      // alphabetical tiebreak, so replaying it could not produce this.
+      expect(mine.map((c) => c.name)).not.toEqual(made.map((m) => m.name));
+    } finally {
+      await api(page, "DELETE", `/dashboards/${dashboardId}`);
+      for (const m of made) await api(page, "DELETE", `/systems/${m.id}`);
+    }
+  });
+
   test("the server refuses a system from another org", async ({ page }) => {
     // The FK alone only proves the system exists somewhere. A random
     // UUID stands in for another tenant's id: both must be refused, or

@@ -26,6 +26,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import { materializeItems, toItemRequest } from "../lib/dashboardItems";
+import { byHealthThenName } from "../lib/healthOrder";
 import { useAccess } from "../lib/useAccess";
 import { useCurrentUser } from "../lib/useCurrentUser";
 import {
@@ -216,9 +217,8 @@ export default function Health() {
     const byName = new Map(systems.map((s) => [s.service_name, s] as const));
     return (visibleSource?.items ?? [])
       .filter((i) => i.entityKind === "system")
-      .slice()
-      .sort((a, b) => a.position - b.position)
-      .map((i) => ({ name: i.systemName ?? "", summary: byName.get(i.systemName ?? "") }));
+      .map((i) => ({ name: i.systemName ?? "", summary: byName.get(i.systemName ?? "") }))
+      .sort(byHealthThenName((c) => c.summary?.status, (c) => c.name));
   }, [visibleSource, systems]);
 
   // No addSystem counterpart: service cards can no longer be CREATED
@@ -247,9 +247,8 @@ export default function Health() {
     const byId = new Map(systemEntities.map((s) => [s.id, s] as const));
     return (visibleSource?.items ?? [])
       .filter((i) => i.entityKind === "system_entity" && i.systemId)
-      .slice()
-      .sort((a, b) => a.position - b.position)
-      .map((i) => ({ id: i.systemId as string, system: byId.get(i.systemId as string) }));
+      .map((i) => ({ id: i.systemId as string, system: byId.get(i.systemId as string) }))
+      .sort(byHealthThenName((c) => c.system?.status, (c) => c.system?.name ?? c.id));
   }, [visibleSource, systemEntities]);
 
   const addSystemEntity = useCallback((id: string) => {
@@ -1632,11 +1631,15 @@ function composeCards(
 ): ComposedCard[] {
   const byId = new Map(integrations.map((i) => [i.id, i] as const));
 
+  // Every branch below builds the card list, then hands it to one
+  // ordering: worst health first, name as the tiebreak. Traffic volume
+  // used to decide this, which buried a broken integration under the
+  // busy healthy ones.
+  const ordered = (cards: ComposedCard[]) =>
+    cards.sort(byHealthThenName((c) => c.integration.status, (c) => c.integration.name));
+
   if (!dashboard) {
-    return integrations
-      .slice()
-      .sort((a, b) => (b.trace_count ?? 0) - (a.trace_count ?? 0))
-      .map((i) => ({ integration: i, widget: "traffic_sparkline" }));
+    return ordered(integrations.map((i) => ({ integration: i, widget: "traffic_sparkline" })));
   }
 
   const itemByIntegration = new Map(
@@ -1644,38 +1647,27 @@ function composeCards(
   );
 
   if (dashboard.autoIncludeAll) {
-    // Items first (in declared order), then the rest by traffic.
-    const inItems = dashboard.items
-      .slice()
-      .sort((a, b) => a.position - b.position)
-      .map((i) => byId.get(i.integrationId))
-      .filter((i): i is Integration => Boolean(i))
-      .map((i) => ({
+    // Every integration in the org; items[] only says which widget each
+    // one uses. There is no "pinned" affordance in this mode, so the old
+    // items-first split was invisible to the reader — health decides.
+    return ordered(
+      integrations.map((i) => ({
         integration: i,
-        widget:
-          itemByIntegration.get(i.id)?.widgetType ?? dashboard.defaultWidgetType,
-      }));
-    const itemIds = new Set(dashboard.items.map((i) => i.integrationId));
-    const rest = integrations
-      .filter((i) => !itemIds.has(i.id))
-      .sort((a, b) => (b.trace_count ?? 0) - (a.trace_count ?? 0))
-      .map((i) => ({
-        integration: i,
-        widget: dashboard.defaultWidgetType,
-      }));
-    return [...inItems, ...rest];
+        widget: itemByIntegration.get(i.id)?.widgetType ?? dashboard.defaultWidgetType,
+      })),
+    );
   }
 
   // Manual mode: only items[].
-  return dashboard.items
-    .slice()
-    .sort((a, b) => a.position - b.position)
-    .map((i) => {
-      const it = byId.get(i.integrationId);
-      if (!it) return null;
-      return { integration: it, widget: i.widgetType };
-    })
-    .filter((c): c is ComposedCard => Boolean(c));
+  return ordered(
+    dashboard.items
+      .map((i) => {
+        const it = byId.get(i.integrationId);
+        if (!it) return null;
+        return { integration: it, widget: i.widgetType };
+      })
+      .filter((c): c is ComposedCard => Boolean(c)),
+  );
 }
 
 // synthesizeItem builds a draft-only DashboardItem for in-memory edits.
