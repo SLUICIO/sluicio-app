@@ -22,6 +22,7 @@ export const SYSTEM_KINDS: { value: string; label: string }[] = [
   { value: "mysql", label: "MySQL" },
   { value: "mongodb", label: "MongoDB" },
   { value: "elasticsearch", label: "Elasticsearch" },
+  { value: "paperless-ngx", label: "Paperless-ngx" },
   { value: "other", label: "Other" },
 ];
 
@@ -45,6 +46,7 @@ export const TEMPLATE_KINDS = new Set([
   "nats",
   "debezium",
   "wso2-apim",
+  "paperless-ngx",
 ]);
 
 export function hasSystemTemplate(kind: string | undefined): boolean {
