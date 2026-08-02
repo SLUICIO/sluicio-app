@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.63 — 2026-08-02
+
+- dashboards: put what is broken at the top (c9a97ef)
+
 ## v0.11.62 — 2026-08-02
 
+- release v0.11.62 — refresh internal changelog (fa90a5c)
 - e2e: stop the protocol spec leaking an integration on every run (3b62522)
 
 ## v0.11.61 — 2026-08-02
