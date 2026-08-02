@@ -233,10 +233,16 @@ var monitoringTemplates = []monitoringTemplate{
 		//      anything. Do NOT use paperless_task_status_info instead: it is
 		//      a label registry the exporter Set(1)s per status string it has
 		//      seen, so every series reads 1 forever.
-		//   2. The Celery worker must not use the default prefork pool.
-		//      Prefork children export no telemetry at all, so every trace
-		//      check below goes permanently silent while ingest looks fine.
-		//      The metric checks still work — which is why both are here.
+		//   2. The Celery worker must not recycle its pool children.
+		//      Paperless hardcodes worker_max_tasks_per_child = 1, so every
+		//      child is killed the moment its task returns — while
+		//      BatchSpanProcessor still holds that task's spans. They die
+		//      with the child, silently, and every trace check below goes
+		//      permanently quiet while ingest looks fine. Paperless does not
+		//      expose the setting, so run the worker with --pool solo (no
+		//      children to recycle) until it is fixed upstream in
+		//      opentelemetry-python. The metric checks are unaffected —
+		//      which is why both kinds are here.
 		Kind: "paperless-ngx", Label: "Paperless-ngx", System: true,
 		DetectPrefixes: []string{"paperless_"},
 		Checks: []systemCheck{
