@@ -5,6 +5,8 @@ _Internal: not shown anywhere in the Sluicio product._
 
 ## v0.11.60 — 2026-08-02
 
+- e2e: give the dashboard system tests their own board and system (8118525)
+- release v0.11.60 — refresh internal changelog (2c5e407)
 - system types: recognise Paperless-ngx (2c93d2f)
 - dashboards: a board holds integrations and systems, not services (b839269)
 
