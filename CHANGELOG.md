@@ -3,8 +3,15 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.59 — 2026-08-02
+
+- e2e: pick an rbac fixture service that has the signals it withholds (4c40d31)
+- dashboards: pin a system, not just a service (3d1b0ba)
+- systems: trust the server's health, and stop minting identical names (049d84d)
+
 ## v0.11.58 — 2026-08-02
 
+- release v0.11.58 — refresh internal changelog (a67aabb)
 - systems: a firing system check must show up everywhere it matters (bcb7197)
 
 ## v0.11.57 — 2026-08-02
