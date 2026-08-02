@@ -2429,7 +2429,11 @@ export interface System {
   description: string;
   members: string[];
   member_count: number;
-  status?: string; // rollup of member health: ok/errors/unhealthy/quiet
+  // Health as the SERVER computes it: member rollup folded together with
+  // the checks bound to the system itself. Prefer it over recomputing —
+  // a client cannot see system-bound checks and will call a system with a
+  // firing check "quiet".
+  status?: string; // ok / errors / unhealthy / quiet
   badge_public?: boolean; // public status-badge opt-in (detail response)
 }
 

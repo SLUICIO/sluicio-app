@@ -11,6 +11,7 @@ import { Link } from "react-router-dom";
 import { api } from "../../api/client";
 import SearchableSelect from "../SearchableSelect";
 import { displayUnit } from "../../lib/format";
+import { defaultRuleName } from "../../lib/ruleName";
 import AlertNotificationContent from "./AlertNotificationContent";
 import type {
   AlertAggregation,
@@ -102,7 +103,11 @@ export default function AlertBuilder({
   const [bodyTpl, setBodyTpl] = useState("");
   const [notif, setNotif] = useState<NotificationContent>({});
   const [existing, setExisting] = useState<AlertRule[]>([]);
-  const [name, setName] = useState(`${metricName} alert`);
+  const [name, setName] = useState(() => defaultRuleName(metricName, attrs));
+  // Once the user types a name, stop steering it. Until then the name
+  // tracks the filters, so adjusting a filter before saving updates it
+  // rather than leaving a name that describes the wrong scope.
+  const [nameEdited, setNameEdited] = useState(false);
   const [agg, setAgg] = useState<AlertAggregation>("max");
   const [op, setOp] = useState<AlertOperator>("gt");
   const [threshold, setThreshold] = useState<number>(50);
@@ -161,7 +166,7 @@ export default function AlertBuilder({
   // Channels + the metric's emitting services + existing rules; reset on
   // metric change.
   useEffect(() => {
-    setName(`${metricName} alert`);
+    setNameEdited(false);
     setHealthService(defaultService ?? "");
     setHealthIntegration("");
     setHealthSystem("");
@@ -207,6 +212,14 @@ export default function AlertBuilder({
     refreshRules();
   }, [metricName, refreshRules, defaultService]);
 
+  // The name the filters imply. A plain string, so it is a stable
+  // effect dependency — depending on the attrs ARRAY would re-run on
+  // every parent render and stamp over what the user was typing.
+  const autoName = useMemo(() => defaultRuleName(metricName, attrs), [metricName, attrs]);
+  useEffect(() => {
+    if (!nameEdited) setName(autoName);
+  }, [autoName, nameEdited]);
+
   // Live would-fire preview, debounced as the rule changes.
   const debounce = useRef<number | undefined>(undefined);
   useEffect(() => {
@@ -239,7 +252,7 @@ export default function AlertBuilder({
     setError(null);
     try {
       await api.createAlertRule({
-        name: name.trim() || `${metricName} alert`,
+        name: name.trim() || defaultRuleName(metricName, attrs),
         severity,
         enabled: true,
         channel_ids: [...selected],
@@ -533,7 +546,10 @@ export default function AlertBuilder({
             className="search__input"
             style={{ fontSize: 13 }}
             value={name}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(e) => {
+              setNameEdited(true);
+              setName(e.target.value);
+            }}
           />
         </div>
 

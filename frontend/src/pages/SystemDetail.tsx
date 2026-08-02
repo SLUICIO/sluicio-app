@@ -112,14 +112,23 @@ export default function SystemDetail() {
       .sort((a, b) => (rank[b.rule.severity] ?? 0) - (rank[a.rule.severity] ?? 0));
   }, [rules, instances, memberNames]);
 
-  // Rollup health: worst of the members' statuses.
+  // Health comes from the SERVER, which folds together member health and
+  // the checks bound to the system itself. This page used to recompute it
+  // from members alone and so reported "quiet" for a system whose own
+  // check was firing — while the systems list, using the server's answer,
+  // said unhealthy. Two pages about one system, opposite conclusions.
+  //
+  // The local rollup survives only as a fallback for a cell that predates
+  // the server sending a status; it cannot see system-bound checks, which
+  // is exactly why it was wrong.
   const rollup = useMemo(() => {
+    if (system?.status) return system.status;
     if (members.length === 0) return "quiet";
     if (members.some((m) => m.status === "unhealthy")) return "unhealthy";
     if (members.some((m) => m.status === "errors")) return "errors";
     if (members.some((m) => m.status === "ok")) return "ok";
     return "quiet";
-  }, [members]);
+  }, [system, members]);
 
   const applyChecks = async () => {
     if (!system) return;
