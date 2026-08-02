@@ -43,9 +43,7 @@ var systemTypeDocsPages = map[string]bool{
 	"debezium":         true,
 	"otel-collector":   true,
 	"dotnet-service":   true,
-	// false until the page is published in sluicio-docs. A missing link is
-	// honest; a confident link to a 404 during an incident is not.
-	"paperless-ngx": false,
+	"paperless-ngx":    true,
 }
 
 // docsURLForSystemType returns the reference page for a type key, or ""
