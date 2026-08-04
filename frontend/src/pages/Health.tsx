@@ -26,6 +26,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import { materializeItems, toItemRequest } from "../lib/dashboardItems";
+import { orderDashboards, pickActiveDashboard } from "../lib/dashboardPick";
 import { byHealthThenName } from "../lib/healthOrder";
 import { useAccess } from "../lib/useAccess";
 import { useCurrentUser } from "../lib/useCurrentUser";
@@ -147,8 +148,9 @@ export default function Health() {
     loadDashboards();
   }, [loadDashboards]);
 
-  // Pick the active dashboard once both lists have loaded. Preference
-  // order: localStorage last-used > server isDefault > first by position.
+  // Pick the active dashboard once both lists have loaded. The default
+  // wins; last-used is the fallback when there is no default. See
+  // lib/dashboardPick.ts for why that order and not the reverse.
   useEffect(() => {
     if (dashboards === null) return;
     if (dashboards.length === 0) {
@@ -160,15 +162,14 @@ export default function Health() {
       typeof window !== "undefined"
         ? window.localStorage.getItem(LAST_DASHBOARD_KEY)
         : null;
-    const remembered_match = remembered
-      ? dashboards.find((d) => d.id === remembered)
-      : undefined;
-    const next =
-      remembered_match ??
-      dashboards.find((d) => d.isDefault) ??
-      dashboards[0];
-    setActiveId(next.id);
+    const next = pickActiveDashboard(dashboards, remembered);
+    if (next) setActiveId(next.id);
   }, [dashboards, activeId]);
+
+  // Tab order: the default leads, then the server's order. Derived
+  // rather than sorted on load so a rename or a default-flag change
+  // reorders the strip without a refetch.
+  const orderedDashboards = useMemo(() => orderDashboards(dashboards ?? []), [dashboards]);
 
   // Persist the user's selection so refreshes don't jump around.
   useEffect(() => {
@@ -705,7 +706,7 @@ export default function Health() {
           {/* Dashboard picker + edit controls */}
           <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
             <DashboardTabs
-              dashboards={dashboards ?? []}
+              dashboards={orderedDashboards}
               activeId={activeId}
               statusByDashboard={statusByDashboard}
               onSelect={setActiveId}
