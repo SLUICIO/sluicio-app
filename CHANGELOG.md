@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.67 — 2026-08-04
+
+- health checks: colour a check by its state, and refresh the page it changes (97ec502)
+
 ## v0.11.66 — 2026-08-04
 
+- release v0.11.66 — refresh internal changelog (ac8f930)
 - e2e: fix two test budgets my own specs broke (764e689)
 - release v0.11.66 — refresh internal changelog (8b8dc2d)
 - dashboards: make "my default" actually decide where you land (1a604eb)
