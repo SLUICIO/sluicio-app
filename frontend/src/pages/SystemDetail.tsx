@@ -326,7 +326,15 @@ export default function SystemDetail() {
           on some individual broker also looking unhealthy. */}
       {canWrite && (
         <>
-          <HealthChecks scope="system" target={id} window="1h" />
+          <HealthChecks
+            scope="system"
+            target={id}
+            window="1h"
+            // A check change moves the system's rollup, and the status
+            // shown here comes from the server. Without this the page
+            // kept its load-time status until a browser refresh.
+            onChanged={reload}
+          />
           {/* A memberless system evaluates its checks differently, and
               that has to be said rather than discovered. It is a normal
               configuration — one runtime emitting several systems'

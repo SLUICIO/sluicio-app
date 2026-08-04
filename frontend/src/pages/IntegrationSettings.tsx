@@ -287,7 +287,15 @@ export default function IntegrationSettings() {
           evaluator already honours it — this component was simply never
           mounted with scope="integration", so the only way to create one
           was the failed-trace drawer on the Errors breakdown. */}
-      {canWrite && <HealthChecks scope="integration" target={id} window={windowVal} reloadKey={healthReloadKey} />}
+      {canWrite && <HealthChecks
+          scope="integration"
+          target={id}
+          window={windowVal}
+          reloadKey={healthReloadKey}
+          // Re-reads the integration so its health pill reflects the
+          // check that was just added, edited or removed.
+          onChanged={refresh}
+        />}
 
       <IntegrationAlertRules
         rules={alertRules}

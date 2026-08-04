@@ -118,11 +118,30 @@ function ResolveModeField({ value, onChange }: { value: ResolveMode; onChange: (
   );
 }
 
+/**
+ * The class for a check row's coloured spine.
+ *
+ * severity answers "how bad would this be if it fired"; it is a property
+ * of the CONFIGURATION. Painting the row with it made every check look
+ * permanently angry — a critical check that has never fired is not an
+ * incident, it is a healthy check with a serious threshold.
+ *
+ * So severity only colours a row that is actually firing. Otherwise the
+ * row shows its real state: healthy, or idle when nothing is being
+ * asserted (disabled).
+ */
+export function barStateClass(rule: { severity: string; enabled: boolean }, isFiring: boolean): string {
+  if (!rule.enabled) return "state-idle";
+  if (!isFiring) return "state-ok";
+  return `sev-${rule.severity}`;
+}
+
 export default function HealthChecks({
   scope,
   target,
   window: win,
   reloadKey,
+  onChanged,
 }: {
   scope: CheckScope;
   target: string;
@@ -130,8 +149,18 @@ export default function HealthChecks({
   // Bump to force a re-fetch when checks change outside this component
   // (e.g. a monitoring template is applied on the parent edit screen).
   reloadKey?: number;
+  // Called after any change that can move the parent's health: adding,
+  // editing, deleting or toggling a check. Without it the page keeps
+  // showing the status it loaded with, and only a browser refresh made
+  // the new state appear.
+  onChanged?: () => void;
 }) {
   const [rules, setRules] = useState<AlertRule[]>([]);
+  // Which checks are firing RIGHT NOW. The rules list carries a check's
+  // configured severity, which is what it would be worth if it fired —
+  // not whether it has. Colouring by severity alone painted every row
+  // amber or red permanently.
+  const [firing, setFiring] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   // editing = an existing rule (PUT); creating = a new rule of a kind (POST).
   const [editing, setEditing] = useState<AlertRule | null>(null);
@@ -146,6 +175,22 @@ export default function HealthChecks({
       .then((r) => setRules(r.rules ?? []))
       .catch(() => setRules([]))
       .finally(() => setLoading(false));
+    // Firing state is a separate feed and deliberately not awaited: a
+    // slow or failed instances call must not stop the checks rendering.
+    // An empty set just means "nothing known to be firing", which is the
+    // honest reading of no data.
+    api
+      .listAlertInstances()
+      .then((r) =>
+        setFiring(
+          new Set(
+            (r.instances ?? [])
+              .filter((i) => i.state === "firing")
+              .map((i) => i.alert_rule_id),
+          ),
+        ),
+      )
+      .catch(() => setFiring(new Set()));
   }, [scope, target]);
 
   useEffect(() => {
@@ -157,6 +202,7 @@ export default function HealthChecks({
     try {
       await api.deleteAlertRule(id);
       refresh();
+      onChanged?.();
     } catch (e) {
       setError(String((e as Error).message ?? e));
     }
@@ -198,6 +244,7 @@ export default function HealthChecks({
   const onSaved = () => {
     closeDrawer();
     refresh();
+    onChanged?.();
   };
 
   // Pushed-source checks only make sense on a service, but every check
@@ -277,7 +324,7 @@ export default function HealthChecks({
             <div className="m-existing">
               {rules.map((rule) => (
                 <div key={rule.id} className="m-existing-row">
-                  <div className={`m-ex-bar sev-${rule.severity}`} />
+                  <div className={`m-ex-bar ${barStateClass(rule, firing.has(rule.id))}`} />
                   <div className="m-ex-mid">
                     <div className="m-ex-name">
                       {rule.name}
