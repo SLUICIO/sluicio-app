@@ -3,8 +3,15 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.66 — 2026-08-04
+
+- dashboards: make "my default" actually decide where you land (1a604eb)
+- integrations: keep the tags visible on every tab (2ce3da2)
+- integrations: clone an integration under a new name (b689404)
+
 ## v0.11.65 — 2026-08-04
 
+- release v0.11.65 — refresh internal changelog (fe70fa1)
 - health checks: stop the card clipping its own add-check menu (c94cc0a)
 
 ## v0.11.64 — 2026-08-02
