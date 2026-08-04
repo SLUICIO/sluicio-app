@@ -7,6 +7,7 @@
 // reuse the alert engine (alert_rules.service_name / integration_id).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { api } from "../../api/client";
 import type {
   AlertAggregation,
@@ -20,6 +21,7 @@ import type {
 } from "../../api/types";
 import SearchableSelect from "../SearchableSelect";
 import { EditDrawer } from "../primitives";
+import { anchorTransform, useAnchoredPosition } from "../primitives/useAnchoredPosition";
 import AttributeSuggest from "../logs/AttributeSuggest";
 import FilterChip from "../logs/FilterChip";
 import { AGG_LABELS, ALERT_AGGREGATIONS } from "../../lib/aggregations";
@@ -160,6 +162,32 @@ export default function HealthChecks({
     }
   };
 
+  // The add-check menu is portaled to <body>: `.card` sets overflow
+  // hidden for its rounded corners, which clipped the menu at the card's
+  // edge and hid its last option entirely.
+  const addBtnRef = useRef<HTMLButtonElement | null>(null);
+  const addMenuRef = useRef<HTMLDivElement | null>(null);
+  const addCoords = useAnchoredPosition(addBtnRef, addOpen, { align: "right", minWidth: 200 });
+
+  useEffect(() => {
+    if (!addOpen) return;
+    const onPointer = (e: MouseEvent) => {
+      const t = e.target as Node;
+      // Portaled, so it is not inside the button's subtree — test both.
+      if (addBtnRef.current?.contains(t) || addMenuRef.current?.contains(t)) return;
+      setAddOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setAddOpen(false);
+    };
+    document.addEventListener("mousedown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [addOpen]);
+
   const drawerOpen = editing != null || creating != null;
   const kind: CheckKind = editing ? editorKindOf(editing) : creating ?? "metric";
   const closeDrawer = () => {
@@ -186,16 +214,33 @@ export default function HealthChecks({
         <span>Health checks{rules.length > 0 ? ` · ${rules.length}` : ""}</span>
         {!drawerOpen && (
           <div style={{ position: "relative" }}>
-            <button className="btn btn--sm" type="button" onClick={() => setAddOpen((o) => !o)} aria-expanded={addOpen}>
+            <button
+              ref={addBtnRef}
+              className="btn btn--sm"
+              type="button"
+              onClick={() => setAddOpen((o) => !o)}
+              aria-expanded={addOpen}
+              aria-haspopup="menu"
+            >
               + Add health check
             </button>
-            {addOpen && (
+            {addOpen && addCoords && createPortal(
               <div
+                ref={addMenuRef}
                 role="menu"
                 style={{
-                  position: "absolute", right: 0, top: "calc(100% + 4px)", zIndex: 20,
+                  position: "fixed",
+                  top: addCoords.top,
+                  left: addCoords.left,
+                  transform: anchorTransform(addCoords, "right"),
+                  // Above .edit-drawer-root (z 2000), matching SearchableSelect,
+                  // so the menu is usable from inside an edit drawer too.
+                  zIndex: 2100,
+                  maxHeight: addCoords.maxHeight,
+                  overflowY: "auto",
                   background: "var(--surface-2)", border: "1px solid var(--border)",
-                  borderRadius: 8, padding: 4, minWidth: 200, boxShadow: "0 6px 24px rgba(0,0,0,0.18)",
+                  borderRadius: 8, padding: 4, minWidth: addCoords.minWidth,
+                  boxShadow: "0 6px 24px rgba(0,0,0,0.18)",
                   display: "flex", flexDirection: "column", gap: 2,
                 }}
               >
@@ -203,6 +248,7 @@ export default function HealthChecks({
                   <button
                     key={t.kind}
                     type="button"
+                    role="menuitem"
                     className="btn btn--sm"
                     style={{ justifyContent: "flex-start", background: "transparent", border: "none", textAlign: "left" }}
                     onClick={() => { setCreating(t.kind); setEditing(null); setAddOpen(false); }}
@@ -210,7 +256,8 @@ export default function HealthChecks({
                     {t.label}
                   </button>
                 ))}
-              </div>
+              </div>,
+              document.body,
             )}
           </div>
         )}
