@@ -98,6 +98,13 @@ async function pinSystem(page: Page, name: string) {
 }
 
 test.describe("Dashboard system entities", () => {
+  // The helpers below wait up to 30s for the system to be listable and
+  // another 30s for the picker, which does not fit inside Playwright's
+  // 30s default — the sum has to be smaller than the budget or the test
+  // dies mid-wait. Never bites locally, where both resolve instantly;
+  // killed two of these on a loaded CI runner.
+  test.describe.configure({ timeout: 120_000 });
+
   test("a pinned system survives a save and reload", async ({ page }) => {
     await logIn(page);
     const s = await scratch(page, "pin");

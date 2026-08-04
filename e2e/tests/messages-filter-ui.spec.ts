@@ -126,7 +126,15 @@ test("error-type list + integration↔service cross-narrowing on /search", async
     await expect
       .poll(
         async () => {
-          const list = (await (await admin.get("/api/v1/integrations?range=30d")).json()).integrations ?? [];
+          // range=1h, not 30d: this poll only needs to know that the two
+          // probes carry their member service, and membership comes from
+          // the PERSISTED catalog, which does not depend on the window.
+          // The window only adds freshly-matched services on top. The
+          // range does drive per-integration traffic queries though, so
+          // 30d made the readiness check scale with both the integration
+          // count AND a month of telemetry — the cost that kept eating
+          // this test's budget on CI.
+          const list = (await (await admin.get("/api/v1/integrations?range=1h")).json()).integrations ?? [];
           const withMembers = list.filter(
             (i: { id: string; services?: string[] }) => (i.id === a || i.id === b) && (i.services ?? []).length > 0,
           );
