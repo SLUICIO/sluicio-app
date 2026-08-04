@@ -418,6 +418,15 @@ export const api = {
   deleteIntegration: (id: string) =>
     del(`/integrations/${encodeURIComponent(id)}`),
 
+  // copied_group_access reports whether the clone reproduced the source's
+  // team grants — an editor's clone does not, and the UI has to say so
+  // rather than let someone assume the scoping came along.
+  cloneIntegration: (id: string, body: { name: string; slug: string }) =>
+    post<{ integration: Integration; copied_group_access: boolean }>(
+      `/integrations/${encodeURIComponent(id)}/clone`,
+      body,
+    ),
+
   addMatcher: (id: string, body: { operator: string; value: string; attribute?: string; match_group?: number }) =>
     post<Matcher>(`/integrations/${encodeURIComponent(id)}/matchers`, body),
 

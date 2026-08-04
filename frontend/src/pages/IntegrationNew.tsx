@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: FSL-1.1-Apache-2.0
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { slugify } from "../lib/slugify";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import type { CreateTagRequest, MetadataField, Tag } from "../api/types";
@@ -12,15 +13,6 @@ import { usePageTitle } from "../lib/usePageTitle";
 import { useTimeWindow } from "../lib/useTimeWindow";
 
 const SERVICE_NAME_ATTR = "service.name";
-
-// Derive a URL-safe slug from a free-text name: lowercase, non-alphanumerics
-// collapse to single dashes, trimmed. Matches the slug input's [a-z0-9-]+.
-function slugify(s: string): string {
-  return s
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
 
 export default function IntegrationNew() {
   usePageTitle("New integration");

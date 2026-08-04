@@ -1275,3 +1275,92 @@ func (h *Handlers) matchServices(
 	}
 	return out
 }
+
+// cloneIntegrationRequest is the body of POST /integrations/{id}/clone.
+// Only the new identity is accepted: WHAT gets copied is decided by the
+// caller's authority, never by the request (see integrations.PlanClone).
+type cloneIntegrationRequest struct {
+	Name string `json:"name"`
+	Slug string `json:"slug"`
+}
+
+// cloneIntegration duplicates an integration under a new name.
+//
+// The route is already gated on writeAnywhere (creating an integration)
+// and requireManageIntegration (the SOURCE must be fully within the
+// caller's managed scope — canSeeIntegration is not enough, since that
+// passes on a single visible member of an otherwise out-of-scope set).
+//
+// Two more checks happen here:
+//
+//   - matcher containment, exactly as on create. The clone carries the
+//     source's matchers, and a scoped editor must not end up owning an
+//     integration whose matchers reach services they cannot manage.
+//     requireManageIntegration vets the source's CURRENT members; this
+//     vets what the matchers would claim, which is not the same set.
+//   - admin, before group access policies are reproduced.
+func (h *Handlers) cloneIntegration(w http.ResponseWriter, r *http.Request) {
+	srcID, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid integration id")
+		return
+	}
+	var req cloneIntegrationRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	req.Name = strings.TrimSpace(req.Name)
+	req.Slug = strings.TrimSpace(req.Slug)
+	if req.Name == "" || req.Slug == "" {
+		httpserver.WriteError(w, http.StatusBadRequest, "name and slug are required")
+		return
+	}
+
+	orgID := middleware.OrgID(r)
+	src, err := h.Integrations.Get(r.Context(), orgID, srcID)
+	if err != nil {
+		if errors.Is(err, integrations.ErrNotFound) {
+			httpserver.WriteError(w, http.StatusNotFound, "integration not found")
+			return
+		}
+		h.Logger.Error("clone: load source failed", "err", err)
+		httpserver.WriteError(w, http.StatusInternalServerError, "query failed")
+		return
+	}
+	if ok, why := h.matcherContainmentOK(r, src.Matchers); !ok {
+		httpserver.WriteError(w, http.StatusForbidden, why)
+		return
+	}
+
+	scope := integrations.PlanClone(middleware.Principal(r).ReadRole().CanAdmin())
+	out, err := h.Integrations.Clone(r.Context(), orgID, srcID, integrations.CloneOptions{
+		Name: req.Name, Slug: req.Slug, Scope: scope,
+	})
+	if err != nil {
+		if integrations.IsValidationError(err) {
+			httpserver.WriteError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if errors.Is(err, integrations.ErrSourceNotFound) {
+			httpserver.WriteError(w, http.StatusNotFound, "integration not found")
+			return
+		}
+		h.Logger.Error("clone integration failed", "err", err, "source", srcID)
+		httpserver.WriteError(w, http.StatusInternalServerError, "clone failed")
+		return
+	}
+
+	// Records what the clone CARRIED, not just that it happened: whether
+	// an access grant was reproduced is the part an auditor needs.
+	h.recordAudit(r, "integration.cloned", "integration", out.ID.String(), map[string]any{
+		"source_id": srcID.String(), "name": out.Name, "slug": out.Slug,
+		"copied_group_access": scope.GroupAccess, "copied_health_checks": scope.HealthChecks,
+	})
+	httpserver.WriteJSON(w, http.StatusCreated, map[string]any{
+		"integration": out,
+		// Told plainly rather than left for the user to discover: an
+		// editor's clone is not access-scoped the way the source was.
+		"copied_group_access": scope.GroupAccess,
+	})
+}

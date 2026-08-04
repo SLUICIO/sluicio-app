@@ -951,6 +951,11 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	// dashboards + alerts). Viewers are read-only.
 	if h.AuthMW != nil {
 		mux.HandleFunc("POST /api/v1/integrations", h.writeAnywhere(h.createIntegration))
+		// Cloning is a create whose content comes from an existing row, so
+		// it needs BOTH gates: the right to create, and full manage rights
+		// over the source (canSee passes on one visible member).
+		mux.HandleFunc("POST /api/v1/integrations/{id}/clone",
+			h.writeAnywhere(h.requireManageIntegration(h.cloneIntegration)))
 		mux.HandleFunc("PUT /api/v1/integrations/{id}", h.writeAnywhere(h.requireManageIntegration(h.updateIntegration)))
 		mux.HandleFunc("DELETE /api/v1/integrations/{id}", h.writeAnywhere(h.requireManageIntegration(h.deleteIntegration)))
 		mux.HandleFunc("POST /api/v1/integrations/{id}/matchers", h.writeAnywhere(h.requireManageIntegration(h.addMatcher)))
@@ -958,6 +963,7 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 		mux.HandleFunc("DELETE /api/v1/integrations/{id}/services/{name}", h.writeAnywhere(h.requireManageIntegration(h.removeServiceFromIntegration)))
 	} else {
 		mux.HandleFunc("POST /api/v1/integrations", h.createIntegration)
+		mux.HandleFunc("POST /api/v1/integrations/{id}/clone", h.cloneIntegration)
 		mux.HandleFunc("PUT /api/v1/integrations/{id}", h.updateIntegration)
 		mux.HandleFunc("DELETE /api/v1/integrations/{id}", h.deleteIntegration)
 		mux.HandleFunc("POST /api/v1/integrations/{id}/matchers", h.addMatcher)
