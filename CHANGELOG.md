@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.70 — 2026-08-05
+
+- search: stop the saved-views load discarding a filter you just added (b5feeb1)
+
 ## v0.11.69 — 2026-08-05
 
+- release v0.11.69 — refresh internal changelog (5c283b4)
 - e2e: halve the filter test's budget, and stop it racing a vanishing row (b34e4d8)
 
 ## v0.11.68 — 2026-08-05
