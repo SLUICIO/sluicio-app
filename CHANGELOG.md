@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.72 — 2026-08-05
+
+- integrations: keep Edit on every tab, and let the Errors tab edit a check (0600de5)
+
 ## v0.11.71 — 2026-08-05
 
+- release v0.11.71 — refresh internal changelog (419316e)
 - alerts: count an integration's OWN traffic in the low-traffic check (21775da)
 
 ## v0.11.70 — 2026-08-05
