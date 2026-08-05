@@ -37,6 +37,30 @@ import { logIn } from "./fixtures";
  * Errors are read when the wait fails, not when it starts, so one thrown
  * during the wait is still reported.
  */
+/**
+ * Adds a filter row and opens its attribute picker, tolerating the row
+ * being swept away before it can be touched.
+ *
+ * A freshly added row is a bare "payload" with no fieldPath, and
+ * writeFiltersToParams does not serialize those — so when the URL
+ * round-trip lands it re-renders the list WITHOUT the new row. The row
+ * therefore exists, is visible, and can still be gone a moment later:
+ * under a full parallel run the click on it timed out at 15s having
+ * watched it disappear, one line after an assertion that it was there.
+ *
+ * Retrying the add (not just the click) is the only thing that helps —
+ * once the row is dropped, waiting longer will not bring it back.
+ */
+async function addFilterRowAndOpenAttribute(page: Page, crashes: string[]) {
+  await expect(async () => {
+    await page.getByRole("button", { name: "+ add a filter" }).click();
+    await expectFilterRow(page, crashes);
+    // Short timeout: this is the racy step, and failing quickly is what
+    // lets the whole block retry from the add.
+    await page.getByRole("button", { name: /attribute/ }).last().click({ timeout: 3_000 });
+  }).toPass({ timeout: 30_000 });
+}
+
 async function expectFilterRow(page: Page, crashes: string[]) {
   try {
     await expect(page.getByRole("button", { name: /attribute/ }).last()).toBeVisible();
@@ -66,9 +90,11 @@ test("adding a filter works without crypto.randomUUID — the non-secure-context
   ).toBe("undefined");
 
   await page.goto("/search?s=any");
-  await page.getByRole("button", { name: "+ add a filter" }).click();
-  // The row must actually render — not merely fail to throw.
-  await expectFilterRow(page, crashes);
+  // The row must actually render AND be usable — not merely fail to
+  // throw. Shares the retry helper because the same URL round-trip can
+  // sweep a fresh row away here too; without it this test failed the
+  // same way, one run in three under load.
+  await addFilterRowAndOpenAttribute(page, crashes);
   expect(crashes, `adding a filter threw: ${crashes.join(" | ")}`).toEqual([]);
   // This deliberately does NOT click twice to assert two rows. A fresh
   // row is a bare "payload" with no fieldPath, and writeFiltersToParams
@@ -81,27 +107,25 @@ test("adding a filter works without crypto.randomUUID — the non-secure-context
 
 test("error-type list + integration↔service cross-narrowing on /search", async ({ page }) => {
   // The budget must exceed what this test is ALLOWED to spend waiting.
-  // Two polls below wait up to 60s and 45s for data that resolves
-  // asynchronously on a cold cell — 105s — so a 90s test timeout meant
-  // the test could not pass on any cell slow enough to need them. It
-  // survived on warm cells and died on busy ones, which reads as
-  // flakiness but is really arithmetic: raise this if either poll grows.
+  // The two polls below are the only long waits left: 60s for catalog
+  // membership and 45s for the fields catalog, both genuinely async on a
+  // cold cell. Everything else now fails fast — a stuck click hits the
+  // suite-wide 15s actionTimeout and an unmet assertion the 10s expect
+  // timeout — so the floor is 105s of permitted polling plus a few
+  // seconds of real work. 150s clears that with room to spare.
   //
-  // 180s was still not enough. The first poll lists EVERY integration on
-  // the cell, and a suite run used to leave one behind PERMANENTLY —
-  // protocol-group-visibility created a stamped integration through the
-  // UI and never removed it — so on a long-lived throwaway stack that
-  // call grew without bound while the rest of the suite competed for the
-  // same cell. Alone this test finishes in ~3s; under a full parallel
-  // run it spent the entire budget and died in its cleanup.
+  // It was 300s, by way of 90s and 180s, each raise chasing a number
+  // rather than a cause. The cause turned out to be that clicks had no
+  // timeout at all: a control that never appeared consumed the entire
+  // budget in silence and surfaced as a timeout somewhere unrelated,
+  // usually the cleanup in `finally`. Instrumented, the whole body runs
+  // in ~1.2s under a full parallel run and 822ms alone — it was never
+  // slow, and the budget was never the problem.
   //
-  // That leak is fixed, and the count is now flat across runs. The
-  // budget stays generous because the poll deliberately uses the LIST
-  // endpoint — that is the response cross-narrowing consumes — so its
-  // cost still tracks however many integrations a cell legitimately has.
-  // If it ever needs raising AGAIN, look for a new leak first rather
-  // than adding another minute.
-  test.setTimeout(300_000);
+  // So if this needs raising again, do not. Either a poll's budget grew,
+  // in which case adjust the arithmetic here deliberately, or something
+  // is hanging — and a hang now names its own locator.
+  test.setTimeout(150_000);
 
   // Fail on any uncaught exception during the filter flow.
   //
@@ -187,9 +211,7 @@ test("error-type list + integration↔service cross-narrowing on /search", async
     await page.goto("/search?s=any&range=24h");
     await expect(page.getByRole("button", { name: "+ add a filter" })).toBeVisible();
     // Add a filter row → defaults to payload; switch it to error type.
-    await page.getByRole("button", { name: "+ add a filter" }).click();
-    await expectFilterRow(page, crashes);
-    await page.getByRole("button", { name: /attribute/ }).last().click();
+    await addFilterRowAndOpenAttribute(page, crashes);
     await page.getByRole("button", { name: "error type", exact: true }).click();
     // Open the value pill → the observed error-type list must render.
     await page.getByRole("button", { name: /—/ }).last().click();
@@ -203,8 +225,7 @@ test("error-type list + integration↔service cross-narrowing on /search", async
     await page.getByRole("button", { name: `Probe A ${stamp}` }).click();
 
     // Add a service row: the picker must offer ONLY Probe A's member.
-    await page.getByRole("button", { name: "+ add a filter" }).click();
-    await page.getByRole("button", { name: /attribute/ }).last().click();
+    await addFilterRowAndOpenAttribute(page, crashes);
     await page.getByRole("button", { name: "service", exact: true }).click();
     await page.getByRole("button", { name: /—/ }).last().click();
     await expect(page.getByRole("button", { name: "order-api" })).toBeVisible();
