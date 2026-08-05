@@ -78,17 +78,23 @@ async function scratch(page: Page, tag: string) {
   return { name, systemId, dashboardId, open, cleanup };
 }
 
-/** Picks this test's system out of the "add system" picker. */
-async function pinSystem(page: Page, name: string) {
+/**
+ * Picks this test's system out of the "add system" picker.
+ *
+ * reopen re-selects the scratch dashboard, because reloading does NOT
+ * come back to it: the default dashboard now wins the landing pick, so a
+ * reload lands on the org default and this board's picker is nowhere to
+ * be seen. That used to work by accident, when last-used decided.
+ */
+async function pinSystem(page: Page, name: string, reopen: () => Promise<void>) {
   const picker = page.getByLabel("add system");
   // The picker is hidden when the page has no systems to offer, and the
   // page fetches them once on mount, swallowing a failure into an empty
   // list. So a single slow or failed request under CI load looks exactly
-  // like "the feature is missing". Reload once — selection is kept in
-  // localStorage, so this returns to the same board — before believing
-  // the picker is genuinely absent.
+  // like "the feature is missing" — reload and re-select before
+  // believing the picker is genuinely absent.
   if (!(await picker.isVisible().catch(() => false))) {
-    await page.reload();
+    await reopen();
     await page.getByRole("button", { name: "edit dashboard" }).click();
   }
   await expect(picker).toBeVisible({ timeout: 30_000 });
@@ -111,7 +117,7 @@ test.describe("Dashboard system entities", () => {
     try {
       await s.open();
       await page.getByRole("button", { name: "edit dashboard" }).click();
-      await pinSystem(page, s.name);
+      await pinSystem(page, s.name, s.open);
 
       // Present in the draft before saving — proves the picker wired up.
       await expect(page.locator(`a[href="/systems/${s.systemId}"]`).first()).toBeVisible();
@@ -123,7 +129,12 @@ test.describe("Dashboard system entities", () => {
       // only ever lived in local state passes every check above. It also
       // links to the system entity, not to a service of the same name —
       // the two routes are what distinguish the card kinds.
-      await page.reload();
+      //
+      // Re-open rather than reload: a reload lands on the org's DEFAULT
+      // dashboard, not this one, so it would assert against the wrong
+      // board. On a cell with no default set the two happen to coincide,
+      // which is why a plain reload passed locally and failed in CI.
+      await s.open();
       await expect(page.locator(`a[href="/systems/${s.systemId}"]`).first()).toBeVisible();
 
       // Removing it must also persist, or the card is unpinnable.
@@ -131,7 +142,7 @@ test.describe("Dashboard system entities", () => {
       await page.getByRole("button", { name: "Remove from dashboard" }).first().click();
       await page.getByRole("button", { name: "save" }).click();
       await expect(page.getByRole("button", { name: "edit dashboard" })).toBeVisible();
-      await page.reload();
+      await s.open();
       await expect(page.locator(`a[href="/systems/${s.systemId}"]`)).toHaveCount(0);
     } finally {
       await s.cleanup();
@@ -148,7 +159,7 @@ test.describe("Dashboard system entities", () => {
     try {
       await s.open();
       await page.getByRole("button", { name: "edit dashboard" }).click();
-      await pinSystem(page, s.name);
+      await pinSystem(page, s.name, s.open);
       await page.getByRole("button", { name: "save" }).click();
 
       // Back in view mode, with a system card definitely on the board.
@@ -176,11 +187,12 @@ test.describe("Dashboard system entities", () => {
     try {
       await s.open();
       await page.getByRole("button", { name: "edit dashboard" }).click();
-      // Same reload-retry as pinSystem: an empty systems fetch hides the
-      // picker and would read as "the wrong picker survived".
+      // Same retry as pinSystem, and the same reason it re-selects the
+      // board rather than reloading: the default dashboard wins the
+      // landing pick, so a reload does not come back here.
       const picker = page.getByLabel("add system");
       if (!(await picker.isVisible().catch(() => false))) {
-        await page.reload();
+        await s.open();
         await page.getByRole("button", { name: "edit dashboard" }).click();
       }
       await expect(picker).toHaveCount(1, { timeout: 30_000 });
