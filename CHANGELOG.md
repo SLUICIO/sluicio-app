@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.74 — 2026-08-05
+
+- errors: right-align the acknowledge button on an expanded error row (52b12ca)
+
 ## v0.11.73 — 2026-08-05
 
+- release v0.11.73 — refresh internal changelog (ab366d9)
 - errors: update the nav count immediately, and stop promising silence (ebeb4dc)
 
 ## v0.11.72 — 2026-08-05
