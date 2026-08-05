@@ -719,6 +719,41 @@ func (h *Handlers) canSeeAlertTarget(r *http.Request, serviceName string, integr
 // or service.name = order-gateway) into a ClickHouse attribute predicate. A
 // service.name matcher carries Key "service.name", which attrClauseIn compiles
 // against the indexed ServiceName column — so it scopes a rule to its service.
+// AttrGroupsFromMatchers turns an integration's matchers into the DNF
+// predicate its telemetry queries carry: a list of groups (by
+// match_group), each a list of filters ANDed together.
+//
+// Exported because the ALERT EVALUATORS need the identical predicate.
+// An integration is not just its member services — service.name decides
+// MEMBERSHIP, and every other matcher is a row-level predicate narrowing
+// which of that service's traces belong to it. Two integrations can share
+// one service and own disjoint slices of its traffic, which is exactly
+// the shape a Node-RED cell has: one service, one integration per flow.
+//
+// A check that counts by member service alone therefore sees the OTHER
+// flow's traffic and calls the silent one healthy. That is how a
+// low-traffic check on an integration with zero traces of its own stayed
+// quiet while a sibling integration on the same service was busy.
+func AttrGroupsFromMatchers(matchers []integrations.Matcher) [][]store.LogAttrFilter {
+	byGroup := map[int][]store.LogAttrFilter{}
+	order := make([]int, 0)
+	for _, m := range matchers {
+		if _, ok := byGroup[m.MatchGroup]; !ok {
+			order = append(order, m.MatchGroup)
+		}
+		byGroup[m.MatchGroup] = append(byGroup[m.MatchGroup], attrFilterFromMatcher(m))
+	}
+	if len(order) == 0 {
+		return nil
+	}
+	sort.Ints(order)
+	out := make([][]store.LogAttrFilter, 0, len(order))
+	for _, g := range order {
+		out = append(out, byGroup[g])
+	}
+	return out
+}
+
 func attrFilterFromMatcher(m integrations.Matcher) store.LogAttrFilter {
 	op := store.AttrOpEq
 	switch m.Operator {
@@ -753,23 +788,7 @@ func (h *Handlers) integrationGroups(ctx context.Context, integrationID uuid.UUI
 		h.Logger.Warn("integration groups: load matchers failed", "err", err, "integration", integrationID)
 		return nil
 	}
-	byGroup := map[int][]store.LogAttrFilter{}
-	order := make([]int, 0)
-	for _, m := range matchers {
-		if _, ok := byGroup[m.MatchGroup]; !ok {
-			order = append(order, m.MatchGroup)
-		}
-		byGroup[m.MatchGroup] = append(byGroup[m.MatchGroup], attrFilterFromMatcher(m))
-	}
-	if len(order) == 0 {
-		return nil
-	}
-	sort.Ints(order)
-	out := make([][]store.LogAttrFilter, 0, len(order))
-	for _, g := range order {
-		out = append(out, byGroup[g])
-	}
-	return out
+	return AttrGroupsFromMatchers(matchers)
 }
 
 // resolveFacets applies a service's manual overrides to its

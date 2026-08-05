@@ -1008,6 +1008,10 @@ func (a traceVolumeEvaluatorAdapter) TotalTraces(ctx context.Context, q alerting
 		if err != nil {
 			return 0, false, err
 		}
+		ms, err := a.integs.MatchersForIntegration(ctx, *q.IntegrationID)
+		if err != nil {
+			return 0, false, err
+		}
 		if len(svcs) == 0 {
 			// No members. That is only "nothing to watch" if nothing was
 			// ever asked for — an integration WITH matchers has declared
@@ -1015,13 +1019,16 @@ func (a traceVolumeEvaluatorAdapter) TotalTraces(ctx context.Context, q alerting
 			// is exactly the breach a low-traffic check exists to report.
 			// Skipping here made the dead-man's-switch silent precisely
 			// when the thing it guards had gone completely quiet.
-			ms, err := a.integs.MatchersForIntegration(ctx, *q.IntegrationID)
-			if err != nil {
-				return 0, false, err
-			}
 			return 0, len(ms) > 0, nil
 		}
-		total, _, err := a.s.DistinctTraceCounts(ctx, svcs, q.From, q.To, nil)
+		// Count the integration's OWN slice, not the whole service's
+		// traffic. service.name decides membership; every other matcher
+		// narrows which of that service's traces belong here. Counting by
+		// member service alone let a busy sibling integration on the same
+		// service keep a silent one looking healthy — a Node-RED cell is
+		// one service with an integration per flow, so this is the normal
+		// shape, not an edge case.
+		total, _, err := a.s.DistinctTraceCounts(ctx, svcs, q.From, q.To, api.AttrGroupsFromMatchers(ms))
 		return total, true, err
 	}
 	// A named service is always in scope, even with no traffic — that is
