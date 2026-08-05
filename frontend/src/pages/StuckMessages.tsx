@@ -11,6 +11,7 @@
 // the "clear errors" acknowledgements.
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { errorCountsChanged } from "../lib/errorCountsChanged";
 import { checkEditHref } from "../lib/checkEditHref";
 import { Link } from "react-router-dom";
 import { useTraceHref } from "../lib/traceHref";
@@ -56,7 +57,13 @@ export default function StuckMessages() {
     setError(null);
     api
       .errorsFeed(windowVal)
-      .then(setData)
+      .then((r) => {
+        setData(r);
+        // Keep the nav pill in step with what this page is showing —
+        // including a check that cleared on its own since the pill's last
+        // poll. Free: this is the same response the pill would fetch.
+        errorCountsChanged(r.counts?.failing_checks ?? 0);
+      })
       .catch((e) => setError(String(e.message ?? e)))
       .finally(() => setLoading(false));
   }, [windowVal]);

@@ -25,6 +25,7 @@
 import { ReactNode, useEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api/client";
+import { onErrorCountsChanged } from "../lib/errorCountsChanged";
 import type { GlobalSearchGroup, Organization, OrganizationMembership } from "../api/types";
 import { switchToOrg } from "../lib/activeOrg";
 import { BreadcrumbProvider, useBreadcrumbLeafValue, useBreadcrumbTrailValue, type Crumb } from "../lib/breadcrumb";
@@ -885,8 +886,17 @@ function SideNav() {
         .catch(() => {});
     load();
     const t = setInterval(load, 60_000);
+    // The poll keeps the pill honest as checks fire and clear on their
+    // own; this makes the ACTOR's own change land immediately.
+    const off = onErrorCountsChanged((n) => {
+      // A caller that already fetched the feed hands the number over, so
+      // the pill matches the page without a second request.
+      if (typeof n === "number") setFailingChecks(n);
+      else load();
+    });
     return () => {
       cancelled = true;
+      off();
       clearInterval(t);
     };
   }, []);

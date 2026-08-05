@@ -10,6 +10,7 @@
 // this page manages their lifecycle and the channels they route to.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { errorCountsChanged } from "../lib/errorCountsChanged";
 import type { Dispatch, SetStateAction } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
@@ -103,13 +104,17 @@ export default function Alerts() {
       const prompt =
         action === "acknowledge"
           ? "Acknowledge this alert? It stays open but stops sending notifications while it's being worked on."
-          : "Resolve this alert? It closes the alert and won't re-notify while the underlying condition persists.";
+          : "Resolve this alert? It closes the alert now, but the check keeps evaluating — if the condition is still breaching it will open again, and notify again, on the next evaluation. To stop notifications while you work on it, acknowledge instead.";
       if (!window.confirm(prompt)) return;
       setActing(id);
       try {
         if (action === "acknowledge") await api.acknowledgeAlertInstance(id);
         else await api.resolveAlertInstance(id);
         load();
+        // Same nudge the shared AlertInstanceActions sends: this page has
+        // its own copy of the mutation, so it needs its own call or the
+        // nav pill goes stale only when acting from here.
+        errorCountsChanged();
       } catch (e) {
         setError(String((e as Error).message ?? e));
       } finally {

@@ -134,8 +134,19 @@ func (s *Store) AcknowledgeInstance(ctx context.Context, orgID, instanceID uuid.
 }
 
 // ResolveInstanceManual closes an instance on user request (state ->
-// resolved), stamping handled_at too so the engine treats it as handled
-// and won't re-notify while the underlying condition persists. Org-scoped.
+// resolved), stamping handled_at so a LATER recovery does not send a
+// "resolved" notification for something the operator closed by hand.
+//
+// It does NOT silence a condition that is still breaching. handled_at is
+// only read by resolveOrHold, which runs when an OPEN instance sees its
+// condition clear; with no open instance the next evaluation opens a
+// fresh one and notifies. That is deliberate — a check that is still
+// failing must not look healthy — but this comment used to claim the
+// opposite, and the confirm dialog repeated the claim to users who then
+// watched the alert come straight back. Acknowledge is the action that
+// stops notifications while the condition persists.
+//
+// Org-scoped.
 func (s *Store) ResolveInstanceManual(ctx context.Context, orgID, instanceID uuid.UUID) error {
 	_, err := s.pool.Exec(ctx, `
 		UPDATE alert_instances i
