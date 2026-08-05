@@ -29,6 +29,22 @@ export default defineConfig({
   expect: { timeout: 10_000 },
   use: {
     baseURL,
+    // A click or fill waits for its target to become actionable, and
+    // without this it is bounded ONLY by the test timeout. So an element
+    // that never appears did not fail the click — it silently consumed
+    // the test's entire budget and then surfaced as "timeout exceeded"
+    // at whatever await happened to be pending when the clock ran out,
+    // usually a cleanup call in `finally`. Every such failure named the
+    // wrong line and said nothing about the missing element.
+    //
+    // messages-filter-ui is where this hurt: a 300s budget, raised twice
+    // while chasing it, spent entirely inside one silent click. With a
+    // cap, the same hang fails in seconds and the message names the
+    // locator it was waiting for.
+    //
+    // 15s is well above any legitimate wait on a loaded runner — the
+    // whole of that test's body takes ~1.2s locally under full load.
+    actionTimeout: 15_000,
     // Artefacts only for failures — keeps the happy path fast.
     trace: "on-first-retry",
     screenshot: "only-on-failure",
