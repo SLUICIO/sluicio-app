@@ -563,16 +563,33 @@ function OpenErrorRow({
           {formatRelative(err.first_error_at)}
         </div>
       </div>
-      {err.sample_trace_id && (
-        <Link className="m-ex-tgt" to={traceHref(err.sample_trace_id)}>
-          view trace →
-        </Link>
-      )}
-      {canWrite && (
-        <button type="button" className="btn btn--sm" disabled={busy} onClick={acknowledge}>
-          Acknowledge
-        </button>
-      )}
+      {/* .m-existing-row is a FIXED five-column grid, and this row has
+          fewer controls than the check rows beside it — so its trailing
+          buttons landed in column three with two empty columns after
+          them, sitting well left of everything else in the box. Spanning
+          to the last column and ending the content keeps every row's
+          actions on the same right edge, whatever each row happens to
+          carry. */}
+      <div
+        style={{
+          gridColumn: "3 / -1",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "flex-end",
+          gap: 10,
+        }}
+      >
+        {err.sample_trace_id && (
+          <Link className="m-ex-tgt" to={traceHref(err.sample_trace_id)}>
+            view trace →
+          </Link>
+        )}
+        {canWrite && (
+          <button type="button" className="btn btn--sm" disabled={busy} onClick={acknowledge}>
+            Acknowledge
+          </button>
+        )}
+      </div>
     </div>
   );
 }
