@@ -11,6 +11,12 @@
 import { test, expect } from "@playwright/test";
 import { logIn } from "./fixtures";
 
+// Names carry the suite's "E2E " prefix on purpose: rbac.spec filters
+// integrations by that pattern before picking a fixture, precisely so it
+// cannot grab one that another spec deletes milliseconds later. These
+// are created and destroyed mid-run, so they must be excluded — without
+// the prefix they read as stable seed data and two rbac tests picked
+// them, then failed when the clone spec cleaned up underneath.
 const stamp = Date.now().toString(36);
 
 test.describe("Integration clone", () => {
@@ -19,7 +25,7 @@ test.describe("Integration clone", () => {
     const src = await page.request.post("/api/v1/integrations", {
       data: {
         slug: `clone-src-${stamp}`,
-        name: `Clone Source ${stamp}`,
+        name: `E2E Clone Source ${stamp}`,
         description: "the original",
         matchers: [{ operator: "equals", value: "payment-service" }],
       },
@@ -46,7 +52,7 @@ test.describe("Integration clone", () => {
       expect(rule.ok(), `create check: ${rule.status()}`).toBeTruthy();
 
       const res = await page.request.post(`/api/v1/integrations/${srcId}/clone`, {
-        data: { name: `Clone Copy ${stamp}`, slug: `clone-copy-${stamp}` },
+        data: { name: `E2E Clone Copy ${stamp}`, slug: `clone-copy-${stamp}` },
       });
       expect(res.status(), await res.text()).toBe(201);
       const body = await res.json();
@@ -54,7 +60,7 @@ test.describe("Integration clone", () => {
       made.push(newId);
 
       expect(newId).not.toBe(srcId);
-      expect(body.integration.name).toBe(`Clone Copy ${stamp}`);
+      expect(body.integration.name).toBe(`E2E Clone Copy ${stamp}`);
       expect(body.integration.description).toBe("the original");
 
       const clone = await (await page.request.get(`/api/v1/integrations/${newId}`)).json();
@@ -77,7 +83,7 @@ test.describe("Integration clone", () => {
   test("refuses a slug that is already taken", async ({ page }) => {
     await logIn(page);
     const src = await page.request.post("/api/v1/integrations", {
-      data: { slug: `clone-dup-${stamp}`, name: `Clone Dup ${stamp}`, matchers: [] },
+      data: { slug: `clone-dup-${stamp}`, name: `E2E Clone Dup ${stamp}`, matchers: [] },
     });
     const srcId = (await src.json()).integration.id as string;
     try {
@@ -98,13 +104,13 @@ test.describe("Integration clone", () => {
     // tests on PlanClone, which do not need a second identity.
     await logIn(page);
     const src = await page.request.post("/api/v1/integrations", {
-      data: { slug: `clone-acl-${stamp}`, name: `Clone ACL ${stamp}`, matchers: [] },
+      data: { slug: `clone-acl-${stamp}`, name: `E2E Clone ACL ${stamp}`, matchers: [] },
     });
     const srcId = (await src.json()).integration.id as string;
     const made = [srcId];
     try {
       const res = await page.request.post(`/api/v1/integrations/${srcId}/clone`, {
-        data: { name: `Clone ACL copy ${stamp}`, slug: `clone-acl-copy-${stamp}` },
+        data: { name: `E2E Clone ACL copy ${stamp}`, slug: `clone-acl-copy-${stamp}` },
       });
       expect(res.status()).toBe(201);
       const body = await res.json();

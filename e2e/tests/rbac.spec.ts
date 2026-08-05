@@ -40,6 +40,36 @@ function stableIntegrations<T extends { name: string }>(integs: T[]): T[] {
   return integs.filter((i) => !EPHEMERAL_NAME.test(i.name));
 }
 
+/**
+ * An integration that genuinely has a member service, created for the
+ * caller and returned with a cleanup.
+ *
+ * Both visibility tests below need one: an integration is visible to a
+ * scoped viewer THROUGH its member services, so granting access to one
+ * with no members grants access to nothing and the assertion cannot
+ * pass. They used to find such an integration lying around, because
+ * another spec leaked one on every run. That leak is fixed, so the
+ * fixture has to be made deliberately rather than scavenged.
+ */
+async function makeIntegrationWithMember(admin: APIRequestContext, tag: string) {
+  const svcs = (await (await admin.get("/api/v1/services?range=7d")).json()).services ?? [];
+  const svc = (svcs as { service_name: string }[])[0]?.service_name;
+  const stamp = `${tag}-${Date.now().toString(36)}`;
+  if (!svc) return { id: "", cleanup: async () => {} };
+  const res = await admin.post("/api/v1/integrations", {
+    data: {
+      slug: `rbac-fix-${stamp}`,
+      // Deliberately NOT the "E2E " prefix: stableIntegrations filters
+      // that out, and this one has to survive being picked.
+      name: `RBAC fixture ${stamp}`,
+      matchers: [{ operator: "equals", value: svc }],
+    },
+  });
+  if (!res.ok()) return { id: "", cleanup: async () => {} };
+  const id = (await res.json()).integration.id as string;
+  return { id, cleanup: async () => { await admin.delete(`/api/v1/integrations/${id}`); } };
+}
+
 test.describe("RBAC — viewer restrictions", () => {
   test.beforeEach(async ({ page }) => {
     await logIn(page); // admin
@@ -133,18 +163,26 @@ test.describe("RBAC — attach groups to integrations & systems (CE)", () => {
     await logIn(page); // admin
   });
 
+  // Cleared by the afterEach below so the fixture never outlives its test.
+  let attachCleanup: (() => Promise<void>) | null = null;
+  test.afterEach(async () => {
+    if (attachCleanup) await attachCleanup();
+    attachCleanup = null;
+  });
+
   test("attaching a group to an integration grants members view of it + its services", async ({ page, browser }) => {
     const admin = page.request;
     const gid = await resetAttachGroup(admin);
     const uid = await ensureAttachViewer(admin);
     await admin.post(`/api/v1/settings/groups/${gid}/members`, { data: { user_id: uid, role: "viewer" } });
 
-    // Pick a real integration that has at least one member service.
-    const integs = stableIntegrations(
-      (await (await admin.get("/api/v1/integrations?range=30d")).json()).integrations ?? [],
-    );
-    const target = integs.find((i: { services?: unknown[] }) => (i.services ?? []).length > 0) ?? integs[0];
-    test.skip(!target, "cell has no integrations");
+    // An integration with a real member service, made for this test —
+    // visibility flows through members, so one without them grants
+    // nothing and the assertion below could never pass.
+    const fixture = await makeIntegrationWithMember(admin, "attach");
+    test.skip(!fixture.id, "cell has no services to build an integration from");
+    attachCleanup = fixture.cleanup;
+    const target = { id: fixture.id };
 
     // Attach → viewer sees the integration; detach → viewer sees nothing.
     expect((await admin.put(`/api/v1/integrations/${target.id}/groups`, { data: { group_ids: [gid] } })).ok()).toBeTruthy();
@@ -455,13 +493,18 @@ test.describe("RBAC — resource sharing (EE)", () => {
     if (!add.ok() && add.status() !== 409) throw new Error(`provision: ${add.status()}`);
   });
 
+  let shareCleanup: (() => Promise<void>) | null = null;
+  test.afterEach(async () => {
+    if (shareCleanup) await shareCleanup();
+    shareCleanup = null;
+  });
+
   test("share → grantee sees the integration view-only; digest lists it; revoke removes it", async ({ page, browser }) => {
     const admin = page.request;
-    const integs = stableIntegrations(
-      (await (await admin.get("/api/v1/integrations?range=30d")).json()).integrations ?? [],
-    );
-    const target = integs[0];
-    test.skip(!target, "cell has no integrations");
+    const fixture = await makeIntegrationWithMember(admin, "share");
+    test.skip(!fixture.id, "cell has no services to build an integration from");
+    shareCleanup = fixture.cleanup;
+    const target = { id: fixture.id };
 
     // Clean any prior share for idempotency, then share to the user.
     const existing = (await (await admin.get(`/api/v1/integrations/${target.id}/shares`)).json()).shares ?? [];
