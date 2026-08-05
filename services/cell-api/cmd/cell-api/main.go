@@ -290,7 +290,7 @@ func main() {
 	alertEngine.SetLatencyEvaluator(traceLatencyEvaluatorAdapter{chStore, catalogStore, integrations.DefaultOrgID})
 	// Trace-volume rules ("fewer than X traces") read the same service set,
 	// then count distinct traces — zero counts as below (dead-man's-switch).
-	alertEngine.SetVolumeEvaluator(traceVolumeEvaluatorAdapter{chStore, catalogStore, integrations.DefaultOrgID})
+	alertEngine.SetVolumeEvaluator(traceVolumeEvaluatorAdapter{chStore, catalogStore, integrationStore, integrations.DefaultOrgID})
 	go alertEngine.Run(bgCtx)
 
 	// Error notifier: sends one notification when a service's unacknowledged
@@ -977,6 +977,13 @@ func (a traceLatencyEvaluatorAdapter) TraceLatencyMs(ctx context.Context, q aler
 type traceVolumeEvaluatorAdapter struct {
 	s       *store.Store
 	catalog *catalog.Store
+	// integs resolves an integration's MATCHERS, which is a different
+	// question from its members: matchers are what the user declared
+	// should be watched, members are what has actually reported. A
+	// low-traffic check on an integration whose services have all gone
+	// silent — or never spoke at all — must still fire, and members
+	// alone cannot tell that apart from "nothing was ever declared".
+	integs  *integrations.Store
 	// orgID scopes system membership lookups — SystemMemberNames is
 	// org-qualified, and a scope resolver must not be the one place that
 	// forgets which tenant it is answering for.
@@ -1002,7 +1009,17 @@ func (a traceVolumeEvaluatorAdapter) TotalTraces(ctx context.Context, q alerting
 			return 0, false, err
 		}
 		if len(svcs) == 0 {
-			return 0, false, nil
+			// No members. That is only "nothing to watch" if nothing was
+			// ever asked for — an integration WITH matchers has declared
+			// what it expects, and zero traffic against that declaration
+			// is exactly the breach a low-traffic check exists to report.
+			// Skipping here made the dead-man's-switch silent precisely
+			// when the thing it guards had gone completely quiet.
+			ms, err := a.integs.MatchersForIntegration(ctx, *q.IntegrationID)
+			if err != nil {
+				return 0, false, err
+			}
+			return 0, len(ms) > 0, nil
 		}
 		total, _, err := a.s.DistinctTraceCounts(ctx, svcs, q.From, q.To, nil)
 		return total, true, err
