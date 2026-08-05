@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.75 — 2026-08-05
+
+- mail: bound the SMTP send, give the test button feedback, add a Message-ID (0a9429a)
+
 ## v0.11.74 — 2026-08-05
 
+- release v0.11.74 — refresh internal changelog (b019c4c)
 - errors: right-align the acknowledge button on an expanded error row (52b12ca)
 
 ## v0.11.73 — 2026-08-05
