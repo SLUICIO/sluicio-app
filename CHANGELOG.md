@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.71 — 2026-08-05
+
+- alerts: count an integration's OWN traffic in the low-traffic check (21775da)
+
 ## v0.11.70 — 2026-08-05
 
+- release v0.11.70 — refresh internal changelog (87225fa)
 - search: stop the saved-views load discarding a filter you just added (b5feeb1)
 
 ## v0.11.69 — 2026-08-05
