@@ -128,6 +128,18 @@ export default function Search() {
   const [views, setViews] = useState<SavedView[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [draftFilters, setDraftFilters] = useState<Filter[]>([]);
+  // Whether the user has touched the filter editor yet.
+  //
+  // The saved-views fetch below seeds the draft when it resolves, and a
+  // fetch is not instant: click "+ add a filter" before it lands and the
+  // seed overwrites the row you just added, so it silently disappears.
+  // A ref, not state — this must be readable inside the fetch callback
+  // without re-running it, and it changes nothing that renders.
+  const userEditedFilters = useRef(false);
+  const changeFilters = useCallback((next: Filter[]) => {
+    userEditedFilters.current = true;
+    setDraftFilters(next);
+  }, []);
 
   const [results, setResults] = useState<TraceSearchResult[]>([]);
   // The clicked message opens in a right-side trace blade (like the
@@ -176,6 +188,20 @@ export default function Search() {
       .then((r) => {
         if (cancelled) return;
         const mapped = (r.views ?? []).map(viewFromWire);
+
+        // The user got here first — their edits win. Populate the rail so
+        // saved views are still reachable, but keep whatever they have
+        // been typing, on a draft of its own.
+        if (userEditedFilters.current) {
+          // Nothing has set activeId yet — the seed below is the only
+          // thing that does, and it has not run — so give their work a
+          // draft to live on rather than leaving the rail pointing at
+          // nothing.
+          const v = blankView();
+          setViews([...mapped, v]);
+          setActiveId((cur) => cur ?? v.id);
+          return; // draftFilters deliberately untouched
+        }
 
         // Replay a shared deep-link, in priority order:
         //   1. ?view=<id> → open that saved view (if it still exists)
@@ -553,7 +579,7 @@ export default function Search() {
 
         <FilterEditor
           filters={draftFilters}
-          onChange={setDraftFilters}
+          onChange={changeFilters}
           knownIntegrations={integrations.map((i) => ({ id: i.id, name: i.name, services: i.services }))}
           recentValues={recentValues}
           fieldCatalog={fieldCatalog}

@@ -41,15 +41,17 @@ import { logIn } from "./fixtures";
  * Adds a filter row and opens its attribute picker, tolerating the row
  * being swept away before it can be touched.
  *
- * A freshly added row is a bare "payload" with no fieldPath, and
- * writeFiltersToParams does not serialize those — so when the URL
- * round-trip lands it re-renders the list WITHOUT the new row. The row
- * therefore exists, is visible, and can still be gone a moment later:
- * under a full parallel run the click on it timed out at 15s having
- * watched it disappear, one line after an assertion that it was there.
+ * A row used to be swept away by the saved-views fetch: it seeded the
+ * draft when it resolved, so a row added while it was still in flight
+ * was replaced by the seed. Under load the click on that row timed out
+ * having watched it disappear, one line after an assertion that it was
+ * there. That is fixed in the page, and "a filter row added before the
+ * saved views load is not swept away" guards it directly.
  *
- * Retrying the add (not just the click) is the only thing that helps —
- * once the row is dropped, waiting longer will not bring it back.
+ * The retry stays as insurance against unrelated timing, and because
+ * retrying the ADD is the only thing that could ever help — a dropped
+ * row does not come back by waiting. If it starts retrying often, the
+ * dedicated test above is what will tell you why.
  */
 async function addFilterRowAndOpenAttribute(page: Page, crashes: string[]) {
   await expect(async () => {
@@ -69,6 +71,35 @@ async function expectFilterRow(page: Page, crashes: string[]) {
     throw new Error(`the filter row did not render — page errors: ${why}\n\n${String(e)}`);
   }
 }
+
+// The saved-views fetch seeds the draft when it resolves. Delaying it
+// puts the seed AFTER the click, deterministically — which is what
+// happened by accident on a loaded runner, and made a freshly added
+// filter row vanish. Slow networks do this to real users too.
+test("a filter row added before the saved views load is not swept away", async ({ page }) => {
+  const crashes: string[] = [];
+  page.on("pageerror", (e) => crashes.push(e.message));
+  await logIn(page);
+
+  await page.route("**/api/v1/message-views*", async (route) => {
+    await new Promise((r) => setTimeout(r, 2_500));
+    await route.continue();
+  });
+
+  await page.goto("/search?s=any");
+  // Add the row while the views request is still in flight.
+  await page.getByRole("button", { name: "+ add a filter" }).click();
+  await expectFilterRow(page, crashes);
+
+  // Outlive the seed: before the fix it arrived here and replaced the
+  // draft, taking the row with it.
+  await page.waitForTimeout(4_000);
+  await expect(
+    page.getByRole("button", { name: /attribute/ }).last(),
+    "the row was discarded when the saved views landed",
+  ).toBeVisible();
+  expect(crashes, `page threw: ${crashes.join(" | ")}`).toEqual([]);
+});
 
 test("adding a filter works without crypto.randomUUID — the non-secure-context cell", async ({ page }) => {
   const crashes: string[] = [];
