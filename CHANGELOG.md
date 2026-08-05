@@ -3,8 +3,14 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.68 — 2026-08-05
+
+- e2e: give the rbac visibility tests their own integration (9b82199)
+- alerts: let a low-traffic check fire on an integration that has gone silent (173e1c4)
+
 ## v0.11.67 — 2026-08-05
 
+- release v0.11.67 — refresh internal changelog (c6a0940)
 - e2e: stop the dashboard spec assuming a reload returns to its board (9ad8d5f)
 - release v0.11.67 — refresh internal changelog (d0f7b68)
 - health checks: colour a check by its state, and refresh the page it changes (97ec502)
