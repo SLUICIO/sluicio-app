@@ -5,6 +5,8 @@ _Internal: not shown anywhere in the Sluicio product._
 
 ## v0.11.72 — 2026-08-05
 
+- health checks: make "edit" open the check's editor, not just its page (bc81e64)
+- release v0.11.72 — refresh internal changelog (3deef61)
 - integrations: keep Edit on every tab, and let the Errors tab edit a check (0600de5)
 
 ## v0.11.71 — 2026-08-05
