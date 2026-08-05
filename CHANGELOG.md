@@ -3,8 +3,10 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
-## v0.11.67 — 2026-08-04
+## v0.11.67 — 2026-08-05
 
+- e2e: stop the dashboard spec assuming a reload returns to its board (9ad8d5f)
+- release v0.11.67 — refresh internal changelog (d0f7b68)
 - health checks: colour a check by its state, and refresh the page it changes (97ec502)
 
 ## v0.11.66 — 2026-08-04
