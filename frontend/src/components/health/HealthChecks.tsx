@@ -22,6 +22,7 @@ import type {
 import SearchableSelect from "../SearchableSelect";
 import { EditDrawer } from "../primitives";
 import { anchorTransform, useAnchoredPosition } from "../primitives/useAnchoredPosition";
+import { CHECK_PARAM } from "../../lib/checkEditHref";
 import AttributeSuggest from "../logs/AttributeSuggest";
 import FilterChip from "../logs/FilterChip";
 import { AGG_LABELS, ALERT_AGGREGATIONS } from "../../lib/aggregations";
@@ -156,6 +157,10 @@ export default function HealthChecks({
   onChanged?: () => void;
 }) {
   const [rules, setRules] = useState<AlertRule[]>([]);
+  // Opened once, when arriving from a ?check= deep link. A ref, not
+  // state: re-opening the drawer every time the list refreshes would
+  // make it impossible to close.
+  const deepLinkHandled = useRef(false);
   // Which checks are firing RIGHT NOW. The rules list carries a check's
   // configured severity, which is what it would be worth if it fired —
   // not whether it has. Colouring by severity alone painted every row
@@ -196,6 +201,29 @@ export default function HealthChecks({
   useEffect(() => {
     refresh();
   }, [refresh, reloadKey]);
+
+  // Open the drawer for a check linked to from an Errors page. Landing on
+  // the page is not the same as being able to act — a scope can carry a
+  // dozen checks, and finding the one you clicked was left to the reader.
+  //
+  // The parameter is dropped once consumed, so a refresh does not reopen
+  // a drawer the user has closed, and the URL stays shareable as "this
+  // page" rather than "this page, editing something".
+  useEffect(() => {
+    if (deepLinkHandled.current || rules.length === 0) return;
+    const params = new URLSearchParams(window.location.search);
+    const wanted = params.get(CHECK_PARAM);
+    if (!wanted) return;
+    deepLinkHandled.current = true;
+    const rule = rules.find((r) => r.id === wanted);
+    if (rule) {
+      setCreating(null);
+      setEditing(rule);
+    }
+    params.delete(CHECK_PARAM);
+    const q = params.toString();
+    window.history.replaceState(null, "", `${window.location.pathname}${q ? `?${q}` : ""}`);
+  }, [rules]);
 
   const remove = async (id: string) => {
     if (!window.confirm("Delete this health check?")) return;

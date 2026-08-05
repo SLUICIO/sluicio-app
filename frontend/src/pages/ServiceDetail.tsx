@@ -8,6 +8,7 @@
 // metrics) config. Tabs surface the deeper Metrics / Logs / Traces views.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { CHECK_PARAM } from "../lib/checkEditHref";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api/client";
 import AddToIntegration from "../components/AddToIntegration";
@@ -92,6 +93,24 @@ export default function ServiceDetail() {
   const [meta, setMeta] = useState<ServiceMetadata | null>(null);
   const [neighbors, setNeighbors] = useState<NeighborsResponse | null>(null);
   const [rules, setRules] = useState<AlertRule[]>([]);
+  // Opened once, from an Errors page's ?check= link — the same drawer the
+  // Health tab opens, so "edit" lands on the editor wherever it is
+  // clicked from. A ref, since re-opening on every rules refresh would
+  // make the drawer impossible to close.
+  const checkDeepLinkHandled = useRef(false);
+  useEffect(() => {
+    if (checkDeepLinkHandled.current || rules.length === 0) return;
+    const params = new URLSearchParams(window.location.search);
+    const wanted = params.get(CHECK_PARAM);
+    if (!wanted) return;
+    checkDeepLinkHandled.current = true;
+    const rule = rules.find((r) => r.id === wanted);
+    if (rule) setEditCheckRule(rule);
+    params.delete(CHECK_PARAM);
+    const q = params.toString();
+    window.history.replaceState(null, "", `${window.location.pathname}${q ? `?${q}` : ""}`);
+  }, [rules]);
+
   const [instances, setInstances] = useState<AlertInstance[]>([]);
   const [channels, setChannels] = useState<NotificationChannel[]>([]);
   const [error, setError] = useState<string | null>(null);
