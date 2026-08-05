@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.69 — 2026-08-05
+
+- e2e: halve the filter test's budget, and stop it racing a vanishing row (b34e4d8)
+
 ## v0.11.68 — 2026-08-05
 
+- release v0.11.68 — refresh internal changelog (678c75c)
 - e2e: make a missing filter row report the exception that caused it (ee01253)
 - release v0.11.68 — refresh internal changelog (7a16c2f)
 - e2e: cap the action timeout so a stuck click says what it was waiting for (074f06b)
