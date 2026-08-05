@@ -3443,6 +3443,11 @@ function SmtpSettings({ isAdmin }: { isAdmin: boolean }) {
   const [savedAt, setSavedAt] = useState(0);
   const [testTo, setTestTo] = useState("");
   const [testMsg, setTestMsg] = useState<string | null>(null);
+  // Sending is not instant — the request waits on a real SMTP
+  // conversation, which can take seconds against a remote relay. Without
+  // a busy state the button looked inert, and nothing stopped a second
+  // click sending a second email while the first was still in flight.
+  const [testBusy, setTestBusy] = useState(false);
 
   const load = () => {
     api
@@ -3489,12 +3494,16 @@ function SmtpSettings({ isAdmin }: { isAdmin: boolean }) {
   };
 
   const sendTest = async () => {
+    if (testBusy) return;
+    setTestBusy(true);
     setTestMsg(null);
     try {
       const r = await api.testSMTP(testTo.trim() || undefined);
       setTestMsg(`✓ Test email sent to ${r.to}.`);
     } catch (e) {
       setTestMsg(`✗ ${String((e as Error).message ?? e)}`);
+    } finally {
+      setTestBusy(false);
     }
   };
 
@@ -3555,7 +3564,9 @@ function SmtpSettings({ isAdmin }: { isAdmin: boolean }) {
         <div style={{ marginTop: 16, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <input className="search__input" style={{ maxWidth: 240 }} value={testTo}
             onChange={(e) => setTestTo(e.target.value)} placeholder="you@example.com (test recipient)" />
-          <button className="btn" type="button" onClick={sendTest}>Send test email</button>
+          <button className="btn" type="button" onClick={sendTest} disabled={testBusy}>
+            {testBusy ? "Sending…" : "Send test email"}
+          </button>
           {testMsg && <span className="muted" style={{ fontSize: 12.5 }}>{testMsg}</span>}
         </div>
       )}
