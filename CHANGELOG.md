@@ -5,6 +5,8 @@ _Internal: not shown anywhere in the Sluicio product._
 
 ## v0.11.68 — 2026-08-05
 
+- e2e: cap the action timeout so a stuck click says what it was waiting for (074f06b)
+- release v0.11.68 — refresh internal changelog (fa25ec9)
 - e2e: give the rbac visibility tests their own integration (9b82199)
 - alerts: let a low-traffic check fire on an integration that has gone silent (173e1c4)
 
