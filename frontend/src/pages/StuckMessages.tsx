@@ -11,6 +11,7 @@
 // the "clear errors" acknowledgements.
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { checkEditHref } from "../lib/checkEditHref";
 import { Link } from "react-router-dom";
 import { useTraceHref } from "../lib/traceHref";
 import { api } from "../api/client";
@@ -486,7 +487,7 @@ function CheckRow({
       )}
       <span className={`m-rule-badge sev-${check.severity}`}>{check.severity}</span>
       <Link
-        to={editHref(check)}
+        to={checkEditHref(check)}
         className="m-ex-tgt"
         title="Open where this check is defined, to edit or disable it"
       >
@@ -570,23 +571,6 @@ function OpenErrorRow({
 }
 
 // The entity a failing check guards, linked to its detail page.
-// editHref is where a check is actually edited: the owning entity's page,
-// which is the only place its editor lives. An unbound rule has no owning
-// entity, so it goes to Alerts, where org-wide rules are managed.
-//
-// Worth having as its own affordance rather than relying on the target
-// link: "where do I change this?" was not answerable from this page, and
-// the target reads as provenance, not as an action.
-function editHref(check: FailingCheck): string {
-  if (check.target_kind === "system" && check.system_id) return `/systems/${check.system_id}`;
-  if (check.target_kind === "integration" && check.integration_id) {
-    return `/integrations/${check.integration_id}/settings`;
-  }
-  if (check.target_kind === "service" && check.service_name) {
-    return `/services/${encodeURIComponent(check.service_name)}?tab=health`;
-  }
-  return "/alerts";
-}
 
 // Target names what a failing check governs, and links to where it can be
 // edited. "Org-wide" is reserved for a check bound to nothing — before

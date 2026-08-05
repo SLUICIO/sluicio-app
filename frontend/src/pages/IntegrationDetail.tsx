@@ -269,14 +269,10 @@ export default function IntegrationDetailPage() {
             // Runtime controls (pause/restart) intentionally omitted —
             // Sluicio is an observability tool, not a control plane.
             <div style={{ display: "flex", gap: 8 }}>
-              {/* Mirrors the service page's "Edit service": jumps to the
-                  integration's settings/edit view (tabs hidden there).
-                  Hidden for viewers — they're read-only. */}
-              {canWrite && (
-                <Link className="btn primary" to={`/integrations/${encodeURIComponent(id)}/settings`}>
-                  ✎ Edit integration
-                </Link>
-              )}
+              {/* "Edit integration" is NOT here: the shared header
+                  renders it on every tab, so it no longer disappears when
+                  you leave Overview. Clone and Delete stay Overview-only
+                  — Delete especially has no business on every tab. */}
               {canWrite && (
                 <button type="button" className="btn" onClick={() => setCloneOpen(true)}>
                   Clone

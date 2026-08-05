@@ -17,6 +17,7 @@
 // When all three are clear the page says so plainly.
 
 import { useEffect, useMemo, useState } from "react";
+import { checkEditHref } from "../lib/checkEditHref";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api/client";
 import AlertInstanceActions from "../components/AlertInstanceActions";
@@ -260,7 +261,19 @@ export default function IntegrationErrors() {
                       <span className={`badge sev-${c.severity}`}>{c.severity}</span>
                       <div className="mt-0.5">since {formatRelative(c.started_at)}</div>
                     </div>
-                    <div className="text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      {/* Same affordance as the org-wide Errors page: a
+                          check is only editable on the page of the thing
+                          it watches, and this list had no way to get
+                          there — so the more specific page was the less
+                          useful one. */}
+                      <Link
+                        to={checkEditHref(c)}
+                        className="m-ex-tgt"
+                        title="Open where this check is defined, to edit or disable it"
+                      >
+                        edit
+                      </Link>
                       {canWrite ? (
                         <AlertInstanceActions
                           instanceId={c.id}

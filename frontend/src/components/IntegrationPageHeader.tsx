@@ -14,7 +14,8 @@
 //                    which supersedes the read-only chips)
 //
 // Right side (header__actions):
-//   - actions        optional slot (Overview puts Delete here)
+//   - "Edit integration", on EVERY tab
+//   - actions        optional slot (Overview adds Clone + Delete)
 //
 // The header deliberately mirrors what the Overview page used to
 // render inline — Overview just passes its tag picker as `belowStats`
@@ -34,11 +35,14 @@ import TagChip from "./tags/TagChip";
 import type { IntegrationDetail, ServiceStatus, Tag } from "../api/types";
 import { formatRelative, statusLabel } from "../lib/format";
 import { useBreadcrumbLeaf } from "../lib/breadcrumb";
+import { useCurrentUser } from "../lib/useCurrentUser";
 
 interface Props {
   // Source of the displayed identity. null while loading.
   detail: IntegrationDetail | null;
-  // Optional right-side header slot — Overview uses it for Delete.
+  // Optional right-side header slot — Overview uses it for Clone and
+  // Delete. "Edit integration" is not passed in: it renders here for
+  // every tab, so it does not vanish the moment you leave Overview.
   actions?: ReactNode;
   // Optional slot rendered under the stats line — Overview uses it
   // for the tag EDITOR, which replaces the read-only chips below.
@@ -46,6 +50,12 @@ interface Props {
 }
 
 export default function IntegrationPageHeader({ detail, actions, belowStats }: Props) {
+  // Same expression Overview used when it owned this button: the server
+  // decides per integration (group editors only manage what is fully in
+  // their scope), with the capability as the fallback when the field is
+  // absent. Viewers see nothing.
+  const { can } = useCurrentUser();
+  const canEdit = detail?.can_manage ?? can("integration.write");
   // Feed the integration's name to the top-bar breadcrumb (its route
   // carries the id, not the name). Covers Overview/Services/Settings/Logs.
   useBreadcrumbLeaf(detail?.integration.name);
@@ -75,7 +85,19 @@ export default function IntegrationPageHeader({ detail, actions, belowStats }: P
         )}
         {belowStats ?? <HeaderTags tags={detail?.tags ?? []} />}
       </div>
-      {actions && <div className="flex items-center gap-2 flex-shrink-0">{actions}</div>}
+      {(canEdit || actions) && (
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {actions}
+          {canEdit && detail && (
+            <Link
+              className="btn primary"
+              to={`/integrations/${encodeURIComponent(detail.integration.id)}/settings`}
+            >
+              ✎ Edit integration
+            </Link>
+          )}
+        </div>
+      )}
     </header>
   );
 }
