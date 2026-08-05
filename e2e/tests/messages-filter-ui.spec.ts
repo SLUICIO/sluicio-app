@@ -4,7 +4,7 @@
 // error-type value picker offers the OBSERVED error types (not a blind
 // text box), and integration↔service cross-narrowing — once one side
 // is chosen, the other picker only offers compatible values.
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { logIn } from "./fixtures";
 
 // Adding a filter is one of the first things anyone does with the
@@ -24,6 +24,28 @@ import { logIn } from "./fixtures";
 // page in exactly the state a LAN-hostname browser hands it —
 // getRandomValues present, randomUUID absent — in a real browser, on the
 // real page, through the real click.
+/**
+ * Waits for a filter row to render, and says WHY if it does not.
+ *
+ * The row failing to appear is the exact symptom of the editor throwing
+ * mid-render — which is the whole point of this file — but the plain
+ * assertion reports only "element(s) not found", and the page-error
+ * check sits on the NEXT line where it never runs. Every CI failure here
+ * has therefore named a missing button and hidden the exception that
+ * caused it.
+ *
+ * Errors are read when the wait fails, not when it starts, so one thrown
+ * during the wait is still reported.
+ */
+async function expectFilterRow(page: Page, crashes: string[]) {
+  try {
+    await expect(page.getByRole("button", { name: /attribute/ }).last()).toBeVisible();
+  } catch (e) {
+    const why = crashes.length ? crashes.join(" | ") : "no page errors captured";
+    throw new Error(`the filter row did not render — page errors: ${why}\n\n${String(e)}`);
+  }
+}
+
 test("adding a filter works without crypto.randomUUID — the non-secure-context cell", async ({ page }) => {
   const crashes: string[] = [];
   page.on("pageerror", (e) => crashes.push(e.message));
@@ -46,7 +68,7 @@ test("adding a filter works without crypto.randomUUID — the non-secure-context
   await page.goto("/search?s=any");
   await page.getByRole("button", { name: "+ add a filter" }).click();
   // The row must actually render — not merely fail to throw.
-  await expect(page.getByRole("button", { name: /attribute/ }).last()).toBeVisible();
+  await expectFilterRow(page, crashes);
   expect(crashes, `adding a filter threw: ${crashes.join(" | ")}`).toEqual([]);
   // This deliberately does NOT click twice to assert two rows. A fresh
   // row is a bare "payload" with no fieldPath, and writeFiltersToParams
@@ -166,6 +188,7 @@ test("error-type list + integration↔service cross-narrowing on /search", async
     await expect(page.getByRole("button", { name: "+ add a filter" })).toBeVisible();
     // Add a filter row → defaults to payload; switch it to error type.
     await page.getByRole("button", { name: "+ add a filter" }).click();
+    await expectFilterRow(page, crashes);
     await page.getByRole("button", { name: /attribute/ }).last().click();
     await page.getByRole("button", { name: "error type", exact: true }).click();
     // Open the value pill → the observed error-type list must render.
