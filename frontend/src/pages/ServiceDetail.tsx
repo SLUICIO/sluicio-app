@@ -9,6 +9,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CHECK_PARAM } from "../lib/checkEditHref";
+import { metricCheckHref } from "../lib/metricCheckHref";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api/client";
 import AddToIntegration from "../components/AddToIntegration";
@@ -958,8 +959,34 @@ function HealthChecksView({
               <div className="svc-check-status">
                 <span className="svc-check-badge">{fail ? "Firing" : "Passing"}</span>
                 <span className="svc-check-since">
-                  {inst ? `for ${formatRelative(inst.started_at).replace(" ago", "")}` : `severity ${r.severity}`}
+                  {inst
+                    ? `for ${formatRelative(inst.started_at).replace(" ago", "")}`
+                    : `severity ${r.severity}`}
                 </span>
+                {/* The absolute time too: "for 3 hours" tells you the
+                    duration but not what else was happening then, which
+                    is the question you ask next when correlating with a
+                    deploy or another incident. */}
+                {inst && (
+                  <span className="svc-check-since" title={inst.started_at}>
+                    since {new Date(inst.started_at).toLocaleString()}
+                  </span>
+                )}
+                {/* Straight to the series the check judges, filtered as
+                    the evaluator sees it and ranged to contain the
+                    firing. The row itself opens the result blade, so this
+                    must not bubble — otherwise it does both. */}
+                {metricCheckHref(r, inst) && (
+                  <Link
+                    className="svc-check-since"
+                    style={{ color: "var(--primary)" }}
+                    to={metricCheckHref(r, inst)!}
+                    title="Open this metric, filtered as the check sees it"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    view metric →
+                  </Link>
+                )}
               </div>
             </div>
           );
