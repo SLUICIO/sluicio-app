@@ -340,9 +340,16 @@ code, .mono {
 .th-sortable--active .th-sortable__btn { color: var(--ink); }
 
 /* pills — token-driven, soft background + ink text */
+/* A pill hugs its content, so centring looks like a no-op — until the
+   label is long enough to wrap. "Receiving data" in a narrow status
+   column becomes two lines, and left-aligned text leaves the short
+   second line ("data") hugging the left edge while the pill is as wide
+   as the first. Centre both axes so a wrapped pill reads as one badge. */
 .pill {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  text-align: center;
   gap: 6px;
   padding: 3px 8px;
   border-radius: 999px;
