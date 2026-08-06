@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.77 — 2026-08-06
+
+- health checks: say how long one has been firing, and link to the metric (5f0f396)
+
 ## v0.11.76 — 2026-08-06
 
+- release v0.11.76 — refresh internal changelog (22d7fb4)
 - ui: centre a status pill's text when the label wraps (20063dc)
 
 ## v0.11.75 — 2026-08-05
