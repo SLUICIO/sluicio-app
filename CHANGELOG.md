@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.78 — 2026-08-06
+
+- service page: bring its health list in line with integrations and systems (5a7ece2)
+
 ## v0.11.77 — 2026-08-06
 
+- release v0.11.77 — refresh internal changelog (eaed5b5)
 - health checks: say how long one has been firing, and link to the metric (5f0f396)
 
 ## v0.11.76 — 2026-08-06
