@@ -8,9 +8,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { Link } from "react-router-dom";
 import { api } from "../../api/client";
 import type {
   AlertAggregation,
+  AlertInstance,
   AlertOperator,
   AlertPreview,
   AlertRule,
@@ -23,10 +25,12 @@ import SearchableSelect from "../SearchableSelect";
 import { EditDrawer } from "../primitives";
 import { anchorTransform, useAnchoredPosition } from "../primitives/useAnchoredPosition";
 import { CHECK_PARAM } from "../../lib/checkEditHref";
+import { metricCheckHref as metricHref } from "../../lib/metricCheckHref";
 import AttributeSuggest from "../logs/AttributeSuggest";
 import FilterChip from "../logs/FilterChip";
 import { AGG_LABELS, ALERT_AGGREGATIONS } from "../../lib/aggregations";
 import { alertCondition, alertSignalLabel } from "../../lib/alertRule";
+import { formatRelative } from "../../lib/format";
 
 // CheckScope is what a health check governs. All three are first-class
 // on the rule row (service_name / integration_id / system_id) and every
@@ -165,7 +169,11 @@ export default function HealthChecks({
   // configured severity, which is what it would be worth if it fired —
   // not whether it has. Colouring by severity alone painted every row
   // amber or red permanently.
-  const [firing, setFiring] = useState<Set<string>>(new Set());
+  // Keyed by rule id, holding the INSTANCE — the start time is what
+  // answers "how long has this been wrong", which the list could not say
+  // at all: it showed that a check existed, not that it had been firing
+  // since Tuesday.
+  const [firing, setFiring] = useState<Map<string, AlertInstance>>(new Map());
   const [loading, setLoading] = useState(true);
   // editing = an existing rule (PUT); creating = a new rule of a kind (POST).
   const [editing, setEditing] = useState<AlertRule | null>(null);
@@ -188,14 +196,14 @@ export default function HealthChecks({
       .listAlertInstances()
       .then((r) =>
         setFiring(
-          new Set(
+          new Map(
             (r.instances ?? [])
               .filter((i) => i.state === "firing")
-              .map((i) => i.alert_rule_id),
+              .map((i) => [i.alert_rule_id, i] as const),
           ),
         ),
       )
-      .catch(() => setFiring(new Set()));
+      .catch(() => setFiring(new Map()));
   }, [scope, target]);
 
   useEffect(() => {
@@ -365,8 +373,31 @@ export default function HealthChecks({
                     </div>
                     {/* Reads per signal — metric / pushed / log / failed-trace. */}
                     <div className="m-ex-cond">{alertCondition(rule)}</div>
+                    {/* How long it has been wrong. A list that says only
+                        "unhealthy" leaves you unable to tell a blip that
+                        started a minute ago from something broken since
+                        last week — and that is usually the first thing
+                        worth knowing. */}
+                    {firing.get(rule.id) && (
+                      <div className="m-ex-cond" style={{ color: "var(--err)" }}>
+                        firing for {formatRelative(firing.get(rule.id)!.started_at).replace(/\s*ago$/, "")}
+                        {" · since "}
+                        {new Date(firing.get(rule.id)!.started_at).toLocaleString()}
+                      </div>
+                    )}
                   </div>
                   <span className={`m-rule-badge sev-${rule.severity}`}>{rule.severity}</span>
+                  {/* The telemetry behind the check, pre-filtered to the
+                      metric and the rule's own attribute predicates, and
+                      widened to cover the firing so the onset is on
+                      screen rather than off the left edge. Only for
+                      metric checks — the others have no single series to
+                      open. */}
+                  {metricHref(rule, firing.get(rule.id)) && (
+                    <Link className="m-ex-tgt" to={metricHref(rule, firing.get(rule.id))!} title="Open this metric, filtered as the check sees it">
+                      view metric →
+                    </Link>
+                  )}
                   <button className="m-ex-tgt" type="button" onClick={() => { setCreating(null); setEditing(rule); }}>edit</button>
                   <button className="m-ex-tgt" type="button" onClick={() => remove(rule.id)}>remove</button>
                 </div>
