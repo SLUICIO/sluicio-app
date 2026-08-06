@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.76 — 2026-08-06
+
+- ui: centre a status pill's text when the label wraps (20063dc)
+
 ## v0.11.75 — 2026-08-05
 
+- release v0.11.75 — refresh internal changelog (cb5b414)
 - mail: bound the SMTP send, give the test button feedback, add a Message-ID (0a9429a)
 
 ## v0.11.74 — 2026-08-05
