@@ -25,6 +25,7 @@ import (
 
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/api/middleware"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/demand"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/messageviews"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/store"
 )
 
@@ -67,6 +68,47 @@ func logAttrKeys(attrs []store.LogAttrFilter) []string {
 	out := make([]string, 0, len(attrs))
 	for _, a := range attrs {
 		out = append(out, a.Key)
+	}
+	return out
+}
+
+// messageAttrKeys is logAttrKeys for the Messages view.
+//
+// Only payload filters yield keys. The other fields are structural —
+// service, status, time, trace id — and are properties of every span
+// rather than attributes anyone chose to emit, so counting them as
+// attribute demand would make each of them look load-bearing while
+// telling T3 nothing about which payload fields are worth their cost.
+func messageAttrKeys(filters []messageviews.Filter) []string {
+	out := make([]string, 0, len(filters))
+	for _, f := range filters {
+		if f.Field == messageviews.FieldPayload && f.FieldPath != "" {
+			out = append(out, f.FieldPath)
+		}
+	}
+	return out
+}
+
+// spanServices is the distinct service set of one fetched trace, in
+// first-seen order, for recording demand on a trace deep link.
+//
+// Opening a trace is demand on every service it crosses, not only on
+// whichever one the link came from: the reason the trace is worth
+// keeping is the hop-to-hop story, and a ledger that credited just the
+// entry point would recommend dropping the middle of every flow anyone
+// actually reads.
+func spanServices(rows []store.SpanRow) []string {
+	seen := make(map[string]struct{}, 8)
+	out := make([]string, 0, 8)
+	for _, r := range rows {
+		if r.ServiceName == "" {
+			continue
+		}
+		if _, ok := seen[r.ServiceName]; ok {
+			continue
+		}
+		seen[r.ServiceName] = struct{}{}
+		out = append(out, r.ServiceName)
 	}
 	return out
 }

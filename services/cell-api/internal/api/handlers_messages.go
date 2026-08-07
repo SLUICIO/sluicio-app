@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/sluicio/sluicio-app/pkg/httpserver"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/api/middleware"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/demand"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/integrations"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/messageviews"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/store"
@@ -492,6 +493,17 @@ func (h *Handlers) searchMessages(w http.ResponseWriter, r *http.Request) {
 			Attributes:      mergeAttributes(t.MatchedResourceAttrs, t.MatchedSpanAttrs),
 		})
 	}
+
+	// Messages is the most-used view in the product, so it is also the
+	// truest statement of what people consume. Recording it here — after
+	// the query has succeeded, never on the 400/500 paths above — is what
+	// keeps the advisor's ledger from sitting at zero on a cell where
+	// everyone browses traces and nobody opens Logs or Metrics.
+	//
+	// serviceFilter is the post-policy set, so demand is credited to the
+	// services actually served. When it is empty the query was org-wide;
+	// recordDemandServices records that as whole-signal demand.
+	h.recordDemandServices(r, demand.SignalTrace, serviceFilter, messageAttrKeys(req.Filters)...)
 
 	httpserver.WriteJSON(w, http.StatusOK, SearchResponse{
 		Window:     tr.Window(),

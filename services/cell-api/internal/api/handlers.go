@@ -2345,6 +2345,14 @@ func (h *Handlers) traceDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// Opening one trace is the most deliberate consumption there is —
+	// someone chose this exact flow out of everything the cell holds. It
+	// is recorded against the trace's visible services (post-policy
+	// filtering above, so a caller never credits demand to a service they
+	// cannot see) with no attribute keys: reading a trace is demand on
+	// the whole span, not on any one field of it.
+	h.recordDemandServices(r, demand.SignalTrace, spanServices(rows))
+
 	httpserver.WriteJSON(w, http.StatusOK, TraceDetail{
 		TraceID:   traceID,
 		Spans:     toSpanSummaries(rows),
