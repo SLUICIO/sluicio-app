@@ -4,6 +4,7 @@
 // use relative paths from the browser.
 
 import type {
+  AdvisorLedger,
   AdvisorSuggestion,
   AdvisorSuggestionsResponse,
   Announcement,
@@ -237,7 +238,8 @@ export const api = {
     post<AdvisorSuggestion>(`/advisor/suggestions/${encodeURIComponent(id)}/accept`, { note }),
   dismissAdvisorSuggestion: (id: string, note = "") =>
     post<AdvisorSuggestion>(`/advisor/suggestions/${encodeURIComponent(id)}/dismiss`, { note }),
-  runAdvisor: () => post<{ open_suggestions: number }>(`/advisor/run`, {}),
+  runAdvisor: () =>
+    post<{ open_suggestions: number; ledger: AdvisorLedger }>(`/advisor/run`, {}),
   // Records that somebody followed a notification's deep link. Fire and
   // forget: this is a measurement, and a failed measurement must never
   // interrupt the page the operator came to read.

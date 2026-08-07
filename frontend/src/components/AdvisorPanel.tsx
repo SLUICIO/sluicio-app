@@ -20,7 +20,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api/client";
-import type { AdvisorSuggestion } from "../api/types";
+import type { AdvisorLedger, AdvisorSuggestion } from "../api/types";
+import { ledgerMessage, runOutcomeMessage } from "../lib/advisorLedger";
 import { formatBytes } from "../lib/format";
 
 type Tab = "telemetry" | "alerting";
@@ -44,11 +45,14 @@ export default function AdvisorPanel() {
   const [tab, setTab] = useState<Tab>("telemetry");
   const [items, setItems] = useState<AdvisorSuggestion[]>([]);
   const [windowDays, setWindowDays] = useState(30);
-  const [ledger, setLedger] = useState<{ ready: boolean; days: number; needs_days: number }>({
+  const [ledger, setLedger] = useState<AdvisorLedger>({
     ready: true,
     days: 0,
     needs_days: 30,
   });
+  // What the last manual evaluation produced. A run that finds nothing
+  // is the common case and used to leave no trace at all on screen.
+  const [runOutcome, setRunOutcome] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [entitled, setEntitled] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -95,9 +99,15 @@ export default function AdvisorPanel() {
   const runNow = async () => {
     setRunning(true);
     setError(null);
+    setRunOutcome(null);
     try {
-      await api.runAdvisor();
+      const res = await api.runAdvisor();
       await load();
+      // Reported from the run's own response rather than from the
+      // reloaded list: the two are the same number here, but the run is
+      // the thing being reported on, and a later list failure should not
+      // turn a successful evaluation into silence.
+      setRunOutcome(runOutcomeMessage(res.open_suggestions ?? 0, res.ledger ?? ledger));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Evaluation failed");
     } finally {
@@ -153,27 +163,33 @@ export default function AdvisorPanel() {
       </p>
 
       {error && <div className="alert alert--error" style={{ marginBottom: 12 }}>{error}</div>}
-      {loading && <p className="muted">Loading…</p>}
-
-      {!loading && !ledger.ready && (
-        <div className="card" style={{ padding: 20 }}>
-          <h4 style={{ marginTop: 0 }}>Still watching</h4>
-          <p className="muted" style={{ fontSize: 13, marginBottom: 8 }}>
-            The advisor has {ledger.days} {ledger.days === 1 ? "day" : "days"} of consumption history and
-            needs {ledger.needs_days}. It will start advising in about{" "}
-            {Math.max(ledger.needs_days - ledger.days, 1)} days.
-          </p>
-          <p className="muted" style={{ fontSize: 13, margin: 0 }}>
-            This wait is deliberate. "Nobody used this" is only true if we were watching the whole time —
-            judging {ledger.needs_days} days of telemetry against {ledger.days} would call anything you
-            charted last month unused, and recommend deleting it. Config you already have (alert rules,
-            facet mappings, dashboards) is protected from day one; it is people's queries that need the
-            history.
-          </p>
+      {runOutcome && (
+        // Polite, not assertive: the outcome accompanies a reloaded list
+        // rather than interrupting it.
+        <div className="alert" role="status" style={{ marginBottom: 12 }}>
+          {runOutcome}
         </div>
       )}
+      {loading && <p className="muted">Loading…</p>}
 
-      {!loading && ledger.ready && items.length === 0 && (
+      {!loading &&
+        (() => {
+          const m = ledgerMessage(ledger);
+          if (!m) return null;
+          return (
+            <div className="card" style={{ padding: 20 }}>
+              <h4 style={{ marginTop: 0 }}>{m.title}</h4>
+              <p className="muted" style={{ fontSize: 13, marginBottom: 8 }}>
+                {m.lead}
+              </p>
+              <p className="muted" style={{ fontSize: 13, margin: 0 }}>
+                {m.detail}
+              </p>
+            </div>
+          );
+        })()}
+
+      {!loading && !ledgerMessage(ledger) && items.length === 0 && (
         <div className="card" style={{ padding: 20 }}>
           <p className="muted" style={{ margin: 0, fontSize: 13 }}>
             Nothing to suggest — everything this cell collects has a consumer, and no alert rule is

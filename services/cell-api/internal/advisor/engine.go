@@ -144,10 +144,25 @@ func (e *Engine) RunAll(ctx context.Context) {
 
 // LedgerStatus reports how much demand history an org has, and whether
 // it is yet enough to advise from.
+//
+// Days alone cannot carry the message, because "0 days" has two causes
+// that call for opposite advice. A ledger that is FILLING will be ready
+// on a knowable date, so "check back later" is true. A ledger that is
+// EMPTY — nobody has opened a single view — will read zero forever, and
+// telling that org to wait 30 days is a promise the product cannot
+// keep. Empty separates them so the UI can say the useful thing.
 type LedgerStatus struct {
 	Ready     bool `json:"ready"`
 	Days      int  `json:"days"`
 	NeedsDays int  `json:"needs_days"`
+	// Empty means the ledger holds no consumption at all for this org.
+	// Waiting will not change it; someone has to use the product.
+	Empty bool `json:"empty"`
+	// Unavailable means the ledger could not be read (ClickHouse down,
+	// query failed). Previously this returned zero days, so an outage
+	// was reported to the user as "you have no history" — a wrong and
+	// unactionable claim about their data.
+	Unavailable bool `json:"unavailable"`
 }
 
 // Ledger reports the org's demand-history status. The UI needs this to
@@ -157,8 +172,11 @@ func (e *Engine) Ledger(ctx context.Context, orgID uuid.UUID) LedgerStatus {
 	now := e.now()
 	window := int(e.window().Hours() / 24)
 	dem, err := LoadDemand(ctx, e.CH, orgID, now.Add(-evidenceHorizon))
-	if err != nil || dem.Earliest.IsZero() {
-		return LedgerStatus{Ready: false, Days: 0, NeedsDays: window}
+	if err != nil {
+		return LedgerStatus{Ready: false, Days: 0, NeedsDays: window, Unavailable: true}
+	}
+	if dem.Earliest.IsZero() {
+		return LedgerStatus{Ready: false, Days: 0, NeedsDays: window, Empty: true}
 	}
 	days := int(now.Sub(dem.Earliest).Hours() / 24)
 	return LedgerStatus{

@@ -2653,5 +2653,20 @@ export interface AdvisorSuggestionsResponse {
   /** How much demand history exists. "Nothing to suggest" and "we have
    *  not been watching long enough to say" look identical on screen and
    *  mean opposite things — this tells them apart. */
-  ledger: { ready: boolean; days: number; needs_days: number };
+  ledger: AdvisorLedger;
+}
+
+/** The advisor's demand-history status.
+ *
+ *  `days` alone is not enough to write a sentence with, because zero has
+ *  two meanings: a ledger that is filling and will be ready on a known
+ *  date, and one that is empty because nobody has opened a view yet and
+ *  which will read zero forever. `empty` separates them; `unavailable`
+ *  covers the third case, where the ledger could not be read at all. */
+export interface AdvisorLedger {
+  ready: boolean;
+  days: number;
+  needs_days: number;
+  empty?: boolean;
+  unavailable?: boolean;
 }

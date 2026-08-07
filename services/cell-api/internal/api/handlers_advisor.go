@@ -149,7 +149,15 @@ func (h *Handlers) runAdvisor(w http.ResponseWriter, r *http.Request) {
 		httpserver.WriteError(w, http.StatusInternalServerError, "evaluation finished but listing failed")
 		return
 	}
-	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"open_suggestions": len(items)})
+	// The count alone made a successful run indistinguishable from a
+	// broken button: an org whose ledger is too young gets zero
+	// suggestions, correctly, and had nothing to read but silence. The
+	// ledger travels back with the count so the panel can say WHY the
+	// answer was nothing.
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
+		"open_suggestions": len(items),
+		"ledger":           h.AdvisorEngine.Ledger(r.Context(), orgID),
+	})
 }
 
 // advisorRunCooldown bounds manual evaluations per org.
