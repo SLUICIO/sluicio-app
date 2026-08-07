@@ -11,6 +11,7 @@
 // the "clear errors" acknowledgements.
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { recentlyResolved } from "../lib/recentlyResolved";
 import { errorCountsChanged } from "../lib/errorCountsChanged";
 import { checkEditHref } from "../lib/checkEditHref";
 import { Link } from "react-router-dom";
@@ -18,13 +19,14 @@ import { useTraceHref } from "../lib/traceHref";
 import { api } from "../api/client";
 import AlertInstanceActions from "../components/AlertInstanceActions";
 import type {
+  AlertInstance,
   ErrorsFeedResponse,
   FailingCheck,
   IntegrationRef,
   OpenServiceError,
   ServiceSummary,
 } from "../api/types";
-import { formatNumber, formatRelative } from "../lib/format";
+import { formatDurationSeconds, formatNumber, formatRelative } from "../lib/format";
 import { bucketChecks } from "../lib/checkBuckets";
 import { systemKindLabel } from "../lib/systemKinds";
 import { usePageTitle } from "../lib/usePageTitle";
@@ -52,9 +54,22 @@ export default function StuckMessages() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // What fired and has since recovered on its own. Its own feed, because
+  // the errors feed reports what is wrong NOW — and a check that cleared
+  // itself is exactly what a reader arriving from a notification needs
+  // to see, having otherwise been shown "All clear" and left unsure
+  // whether they had missed something.
+  const [resolved, setResolved] = useState<AlertInstance[]>([]);
+
   const refresh = useCallback(() => {
     setLoading(true);
     setError(null);
+    api
+      .listAlertInstances(200)
+      .then((r) => setResolved(recentlyResolved(r.instances ?? [], windowVal)))
+      // Best-effort: this is context, not the page's job. A failure here
+      // must not stop what IS failing from rendering.
+      .catch(() => setResolved([]));
     api
       .errorsFeed(windowVal)
       .then((r) => {
@@ -230,6 +245,13 @@ export default function StuckMessages() {
         <div className="placeholder">
           All clear — nothing failing in the selected window. Anything you've
           cleared won't reappear until new errors arrive.
+          {resolved.length > 0 && (
+            <>
+              {" "}
+              {resolved.length} check{resolved.length === 1 ? "" : "s"} recovered on
+              their own in this window — listed below.
+            </>
+          )}
         </div>
       )}
 
@@ -308,6 +330,51 @@ export default function StuckMessages() {
           <div className="m-existing" style={{ padding: "8px 12px 12px" }}>
             {grouped.globalChecks.map((c) => (
               <CheckRow key={c.id} check={c} canWrite={orgWrite} onChanged={refresh} onError={setError} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* LAST, and visually quieter: these need no action. Placing them
+          above anything live would put "already fine" in front of "still
+          broken", and they are excluded from the tiles for the same
+          reason — the counts are about what needs attention. */}
+      {resolved.length > 0 && (
+        <div className="card" style={{ marginTop: 16 }}>
+          <div className="card__header">
+            Recovered on their own · {resolved.length}
+            <span className="muted" style={{ marginLeft: 8, fontWeight: 400, fontSize: 13 }}>
+              · cleared without anyone acting, in this window
+            </span>
+          </div>
+          <div className="m-existing" style={{ padding: "8px 12px 12px" }}>
+            {resolved.map((r) => (
+              <div key={r.id} className="m-existing-row">
+                <div className="m-ex-bar state-ok" />
+                <div className="m-ex-mid">
+                  <div className="m-ex-name">{r.rule_name}</div>
+                  <div className="m-ex-cond">
+                    {/* How long it was wrong, and when it ended — enough
+                        to tell whether the notification you followed is
+                        this one, and whether it mattered.
+                        The duration is end MINUS start, not time-since-
+                        start: a two-minute blip that ended two days ago
+                        read as "lasted 2 d", which inverts the one
+                        judgement this row exists to support. */}
+                    lasted{" "}
+                    {formatDurationSeconds(
+                      Math.max(0, (Date.parse(r.ended_at!) - Date.parse(r.started_at)) / 1000),
+                    )}
+                    {" · ended "}
+                    {formatRelative(r.ended_at!)}
+                    {" · "}
+                    {new Date(r.ended_at!).toLocaleString()}
+                  </div>
+                </div>
+                <div style={{ gridColumn: "3 / -1", display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 10 }}>
+                  <span className={`m-rule-badge sev-${r.severity}`}>{r.severity}</span>
+                </div>
+              </div>
             ))}
           </div>
         </div>
