@@ -14,6 +14,7 @@ import { usePageTitle } from "../lib/usePageTitle";
 import { useCurrentUser } from "../lib/useCurrentUser";
 import { EditDrawer } from "../components/primitives";
 import { checkLine } from "../lib/checkLine";
+import { filterSystemTypes } from "../lib/systemTypeSearch";
 
 const blankDraft = { key: "", label: "", is_system: true, prefixes: "", copyFrom: "" };
 
@@ -30,6 +31,7 @@ export default function SystemTypesPage() {
   const [creating, setCreating] = useState(false);
   const [draft, setDraft] = useState(blankDraft);
   const [imported, setImported] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Import a shared .systemtype.yaml / .json file. On a key conflict the
@@ -79,6 +81,11 @@ export default function SystemTypesPage() {
   useEffect(() => reload(), [reload]);
 
   const builtIns = useMemo(() => types.filter((t) => t.built_in), [types]);
+  // The list the catalog actually renders. `builtIns` above stays
+  // unfiltered on purpose: it feeds the "copy starter checks from"
+  // picker in the create drawer, which has nothing to do with what the
+  // page is currently searching for.
+  const shown = useMemo(() => filterSystemTypes(types, query), [types, query]);
   const rowKey = (t: SystemType) => t.id || `builtin:${t.key}`;
 
   const create = async () => {
@@ -237,14 +244,54 @@ export default function SystemTypesPage() {
       )}
 
       <div className="card">
-        <div className="card__header">Catalog · {types.length}</div>
+        <div
+          className="card__header"
+          style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}
+        >
+          {/* The count reports the filtered set against the total, so a
+              search never leaves any doubt about how much of the catalog
+              is hidden. */}
+          <span>
+            Catalog · {query.trim() ? `${shown.length} of ${types.length}` : types.length}
+          </span>
+          {/* Labelled by aria-label rather than a visible <label>: the
+              header has no room for one, and a placeholder alone is not
+              an accessible name (it disappears as soon as you type). */}
+          <input
+            type="search"
+            className="search__input"
+            // `.search__input` is width:100%, which in this flex header
+            // stretched the box across the whole card. Capped so it reads
+            // as one control in the header rather than as the header.
+            style={{ marginLeft: "auto", flex: "0 1 260px", minWidth: 180 }}
+            placeholder="Search by name…"
+            aria-label="Search system types by name"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </div>
         {loading && types.length === 0 ? (
           <div className="placeholder" style={{ margin: 12 }}>Loading…</div>
         ) : types.length === 0 ? (
           <div className="placeholder" style={{ margin: 12 }}>No system types.</div>
+        ) : shown.length === 0 ? (
+          // Distinct from "No system types": the catalog is not empty,
+          // the query just matched nothing, and the way out is to clear
+          // it rather than to import something.
+          <div className="placeholder" style={{ margin: 12 }}>
+            No system type matches “{query.trim()}”.{" "}
+            <button
+              type="button"
+              className="btn btn--sm"
+              style={{ marginLeft: 6 }}
+              onClick={() => setQuery("")}
+            >
+              Clear search
+            </button>
+          </div>
         ) : (
           <div style={{ padding: "4px 16px 8px" }}>
-            {types.map((t, i) => {
+            {shown.map((t, i) => {
               const k = rowKey(t);
               return (
                 <div key={k} style={{ borderTop: i === 0 ? undefined : "1px solid var(--border)", padding: "10px 0" }}>
