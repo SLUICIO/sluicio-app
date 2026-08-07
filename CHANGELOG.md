@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.84 — 2026-08-07
+
+- fix(trace): mark the service in the flow when a waterfall row is picked (728fd51)
+
 ## v0.11.83 — 2026-08-07
 
+- release v0.11.83 — refresh internal changelog (33225ad)
 - feat(flow): show where a message got to, and how to get there (85bef3c)
 - feat(flow): project one message onto the integration flow graph (0d14c5d)
 
