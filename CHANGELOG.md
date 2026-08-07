@@ -3,8 +3,14 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.80 — 2026-08-07
+
+- a11y: clear the WCAG 2.1 AA violations, and keep them cleared (88574e7)
+- seed: a file-transfer scenario for demos and screenshots (891f1fd)
+
 ## v0.11.79 — 2026-08-07
 
+- release v0.11.79 — refresh internal changelog (baf73a0)
 - errors: show checks that recovered on their own (0e60496)
 
 ## v0.11.78 — 2026-08-06
