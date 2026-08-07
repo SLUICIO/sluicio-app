@@ -3,8 +3,14 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.82 — 2026-08-07
+
+- feat(system-types): search the catalog by name (7382782)
+
 ## v0.11.81 — 2026-08-07
 
+- build(frontend): bump js-yaml to 4.3.1 to clear the audit gate (30f2b33)
+- release v0.11.81 — refresh internal changelog (e998b84)
 - fix(advisor): say why there is nothing to advise, and answer "Evaluate now" (dad6817)
 - fix(advisor): record demand when someone reads traces (82ebedf)
 
