@@ -449,9 +449,12 @@ export const api = {
     get<FlowResponse>(`/topology?range=${encodeURIComponent(window)}&view=${view}`),
   // Metadata relationship graph: integrations ↔ metadata values + tags.
   getMetadataGraph: () => get<MetaGraphResponse>(`/metadata-graph`),
-  integrationFlow: (id: string, window: string = "1h") =>
+  // `trace` projects one message onto the graph (issue #15): the same
+  // nodes and edges come back, plus a per-node state for that message.
+  integrationFlow: (id: string, window: string = "1h", trace?: string) =>
     get<FlowResponse>(
-      `/integrations/${encodeURIComponent(id)}/flow?range=${encodeURIComponent(window)}`
+      `/integrations/${encodeURIComponent(id)}/flow?range=${encodeURIComponent(window)}` +
+        (trace ? `&trace=${encodeURIComponent(trace)}` : "")
     ),
 
   // Service facets — multi-facet classification of a service.

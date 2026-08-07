@@ -65,7 +65,7 @@ export function ledgerMessage(l: AdvisorLedger): LedgerMessage | null {
       title: "Consumption history unavailable",
       lead: "The advisor could not read its demand ledger, so it cannot say what is used and what is not.",
       detail:
-        "This is a storage problem, not a verdict about your telemetry — nothing has been judged unused. " +
+        "This is a storage problem, not a verdict about your telemetry. Nothing has been judged unused. " +
         "Check that ClickHouse is reachable from the cell, then evaluate again.",
     };
   }
@@ -78,7 +78,7 @@ export function ledgerMessage(l: AdvisorLedger): LedgerMessage | null {
         "The advisor has no consumption history at all, so it has nothing to weigh your ingest against.",
       // The point of this screen: waiting is not the fix.
       detail:
-        "The ledger records when someone opens a view — messages, traces, logs, a metric chart — not how " +
+        "The ledger records when someone opens a view (messages, traces, logs, a metric chart), not how " +
         "much telemetry arrives. So it stays empty on a cell nobody browses, however much data is flowing " +
         `in, and will not fill on its own after ${l.needs_days} days. Use the product normally for a few ` +
         "weeks and the advisor will start having something to say.",

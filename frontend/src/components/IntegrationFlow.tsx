@@ -27,8 +27,16 @@ import ReactFlow, {
   type Node,
 } from "reactflow";
 import "reactflow/dist/style.css";
-import type { FlowEdge, FlowMap, FlowNode, FlowSchemaRef, ServiceStatus } from "../api/types";
+import type {
+  FlowEdge,
+  FlowMap,
+  FlowNode,
+  FlowSchemaRef,
+  ServiceStatus,
+  TraceNodeState,
+} from "../api/types";
 import { formatNumber } from "../lib/format";
+import { traceNodeVisual } from "../lib/traceNodeVisual";
 
 interface Props {
   nodes: FlowNode[];
@@ -45,6 +53,11 @@ interface Props {
   // Real health per service (firing checks + open errors), so a node reads
   // unhealthy even with no error traces in the window. Keyed by service name.
   statusByService?: Record<string, ServiceStatus>;
+  // One message projected onto this graph (issue #15), keyed by service
+  // name. When present the nodes report where THAT message got to
+  // instead of the service's aggregate health: the two answer different
+  // questions, and showing both at once on one box reads as neither.
+  traceStates?: Record<string, TraceNodeState>;
 }
 
 const NODE_W = 180;
@@ -63,6 +76,7 @@ interface ServiceNodeData {
   highlighted: boolean;
   schemas?: FlowSchemaRef[];
   heightPx: number;
+  traceState?: TraceNodeState;
 }
 
 // SchemaChip — one in/out schema pill on a service node. "in" is a
@@ -99,12 +113,33 @@ function SchemaChip({ s }: { s: FlowSchemaRef }) {
   );
 }
 
+// Border and text colour per projected-message state. "next" borrows the
+// warning role rather than the error one: the frontier is where to look,
+// not something known to have gone wrong.
+const TRACE_TONE_BORDER: Record<string, string> = {
+  ok: "var(--ok)",
+  err: "var(--err)",
+  next: "var(--warn)",
+  idle: "var(--border)",
+};
+const TRACE_TONE_INK: Record<string, string> = {
+  ok: "var(--ok-ink)",
+  err: "var(--err-ink)",
+  next: "var(--warn-ink)",
+  idle: "var(--muted)",
+};
+
 function ServiceNode({ data, selected }: NodeProps<ServiceNodeData>) {
   // Health reflects the service's configured health checks only: a node is
   // red iff a check is firing. Raw error traces no longer redden it — the
   // graph shows health, not error counts.
   const unhealthy = data.status === "unhealthy";
-  const hasErrors = unhealthy;
+  // With a message projected, the node answers "where did THIS get to"
+  // and the health badge stands down. A box that is red for a firing
+  // check and green for a message that sailed through it is a box
+  // saying two things at once.
+  const tv = traceNodeVisual(data.traceState);
+  const hasErrors = unhealthy && !tv;
   const isActive = selected || data.selected;
   const schemas = data.schemas ?? [];
   return (
@@ -114,13 +149,18 @@ function ServiceNode({ data, selected }: NodeProps<ServiceNodeData>) {
         height: data.heightPx,
         borderRadius: 8,
         background: "var(--surface-2)",
-        border: `${isActive ? 2 : 1}px solid ${
+        border: `${isActive || (tv && tv.tone !== "idle") ? 2 : 1}px solid ${
           isActive
             ? "var(--primary)"
-            : hasErrors
-              ? "var(--err)"
-              : "var(--border)"
+            : tv
+              ? TRACE_TONE_BORDER[tv.tone]
+              : hasErrors
+                ? "var(--err)"
+                : "var(--border)"
         }`,
+        // A not-reached node stays legible but recedes: the eye should
+        // land on the frontier, not on eleven equally-weighted boxes.
+        opacity: tv?.dimmed ? 0.45 : 1,
         padding: "10px 12px",
         boxShadow: isActive
           ? "0 0 0 3px color-mix(in srgb, var(--primary) 22%, transparent)"
@@ -155,9 +195,26 @@ function ServiceNode({ data, selected }: NodeProps<ServiceNodeData>) {
       >
         {data.label}
       </div>
-      <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
-        {formatNumber(data.traces)} traces
-      </div>
+      {tv ? (
+        <div
+          title={tv.detail}
+          style={{
+            fontSize: 11,
+            marginTop: 4,
+            fontWeight: tv.tone === "next" || tv.tone === "err" ? 600 : 400,
+            color: TRACE_TONE_INK[tv.tone],
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+        >
+          {tv.label}
+        </div>
+      ) : (
+        <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
+          {formatNumber(data.traces)} traces
+        </div>
+      )}
       {schemas.length > 0 && (
         <div
           style={{
@@ -279,6 +336,7 @@ function Inner({
   serviceSchemas,
   maps,
   statusByService,
+  traceStates,
 }: Props) {
   const rf = useReactFlow();
 
@@ -347,12 +405,13 @@ function Inner({
             highlighted: highlightPath?.has(n.service_name) ?? false,
             schemas: serviceSchemas?.[n.service_name],
             heightPx: nodeH,
+            traceState: traceStates?.[n.service_name],
           },
           draggable: false,
           selectable: true,
         };
       }),
-    [rawNodes, positions, selected, highlightPath, serviceSchemas, nodeH, statusByService],
+    [rawNodes, positions, selected, highlightPath, serviceSchemas, nodeH, statusByService, traceStates],
   );
 
   const edges: Edge[] = useMemo(

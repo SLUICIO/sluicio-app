@@ -86,7 +86,7 @@ describe("ledgerMessage", () => {
 
   it("blames storage, not the user's telemetry, when unreadable", () => {
     const m = ledgerMessage(led({ unavailable: true }))!;
-    expect(m.detail).toMatch(/nothing has been judged unused/);
+    expect(m.detail).toMatch(/nothing has been judged unused/i);
   });
 });
 

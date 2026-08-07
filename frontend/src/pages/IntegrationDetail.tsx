@@ -13,7 +13,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { slugify } from "../lib/slugify";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import ErrorBreakdown from "../components/ErrorBreakdown";
 import IntegrationFlow from "../components/IntegrationFlow";
@@ -38,11 +38,17 @@ import { formatNumber } from "../lib/format";
 import { useBreadcrumbLeaf } from "../lib/breadcrumb";
 import { useCurrentUser } from "../lib/useCurrentUser";
 import { usePageTitle } from "../lib/usePageTitle";
+import { traceStatesByService, traceSummaryLine } from "../lib/traceNodeVisual";
 import { useTimeWindow } from "../lib/useTimeWindow";
 
 export default function IntegrationDetailPage() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
+  // ?trace=<id> projects one message onto the flow graph (issue #15).
+  // It lives in the URL rather than in component state so the answer can
+  // be pasted into a ticket and reopened exactly as it was seen.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const traceParam = (searchParams.get("trace") ?? "").trim();
   const [windowVal] = useTimeWindow();
   const { can } = useCurrentUser();
   const [data, setData] = useState<IntegrationDetail | null>(null);
@@ -75,6 +81,12 @@ export default function IntegrationDetailPage() {
   const [serviceLoading, setServiceLoading] = useState(false);
   const [serviceError, setServiceError] = useState<string | null>(null);
 
+  // Per-service state for the projected message, indexed for the graph.
+  const traceStates = useMemo(
+    () => traceStatesByService(flow?.trace?.nodes),
+    [flow?.trace?.nodes],
+  );
+
   const refresh = () => {
     setLoading(true);
     setError(null);
@@ -84,7 +96,9 @@ export default function IntegrationDetailPage() {
       .catch((e) => setError(String(e.message ?? e)))
       .finally(() => setLoading(false));
     api
-      .integrationFlow(id, windowVal)
+      // ?trace= projects one message onto the graph (issue #15). Read
+      // from the URL so the view is linkable straight into a ticket.
+      .integrationFlow(id, windowVal, traceParam || undefined)
       .then(setFlow)
       .catch(() => setFlow(null));
     api
@@ -125,7 +139,7 @@ export default function IntegrationDetailPage() {
     return created;
   };
 
-  useEffect(refresh, [id, windowVal]);
+  useEffect(refresh, [id, windowVal, traceParam]);
 
   // Delayed-count tile: counts currently-firing trace-completion
   // alert instances on this integration. 30s cadence matches the
@@ -421,15 +435,60 @@ export default function IntegrationDetailPage() {
                       )}
                     </h2>
                     <p className="text-xs text-muted">
-                      {flow?.historical
-                        ? "No traces in the selected range — showing services and hops discovered historically."
-                        : "Click a service to inspect. Red borders mean a service is unhealthy (a failing health check)."}
+                      {flow?.trace
+                        ? "Showing where one message got to. Node colour is that message's path, not service health."
+                        : flow?.historical
+                          ? "No traces in the selected range — showing services and hops discovered historically."
+                          : "Click a service to inspect. Red borders mean a service is unhealthy (a failing health check)."}
                     </p>
                   </div>
                   <div className="text-xs text-muted">
                     {flow ? `${flow.nodes.length} services · ${flow.edges.length} hops` : ""}
                   </div>
                 </div>
+                {flow?.trace && (
+                  // The answer, in a sentence, above the picture. The
+                  // graph shows it too, but an operator mid-incident
+                  // should not have to read a diagram to get it.
+                  <div
+                    className="alert"
+                    role="status"
+                    style={{ margin: "12px 16px 0", display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}
+                  >
+                    <span style={{ flex: 1, minWidth: 240 }}>
+                      {traceSummaryLine(flow.trace.last_reached, flow.trace.nodes)}
+                    </span>
+                    <Link className="btn btn--sm" to={`/traces/${encodeURIComponent(flow.trace.trace_id)}`}>
+                      Open trace
+                    </Link>
+                    <button
+                      type="button"
+                      className="btn btn--sm"
+                      onClick={() => {
+                        const next = new URLSearchParams(searchParams);
+                        next.delete("trace");
+                        setSearchParams(next, { replace: true });
+                      }}
+                    >
+                      Clear
+                    </button>
+                  </div>
+                )}
+                {flow?.trace_outside_window && (
+                  // Said rather than silently corrected: widening the
+                  // range would change every count on the page under a
+                  // reader who only asked about one message.
+                  <div className="alert" style={{ margin: "12px 16px 0" }}>
+                    This message ran outside the selected time range. Its path is correct, but the
+                    per-service counts describe a period it was not part of.
+                  </div>
+                )}
+                {flow?.trace && flow.trace.spans_outside_integration > 0 && (
+                  <div className="muted" style={{ margin: "8px 16px 0", fontSize: 12 }}>
+                    {flow.trace.spans_outside_integration} of this message's spans belong to services
+                    outside this integration and are not drawn here.
+                  </div>
+                )}
                 <div style={{ height: 360 }}>
                   {flow ? (
                     <IntegrationFlow
@@ -440,6 +499,7 @@ export default function IntegrationDetailPage() {
                       serviceSchemas={flow.service_schemas}
                       maps={flow.maps}
                       statusByService={statusByService}
+                      traceStates={traceStates}
                     />
                   ) : (
                     <div className="p-6 text-sm text-muted">Loading flow…</div>

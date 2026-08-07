@@ -9,6 +9,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useTraceHref } from "../lib/traceHref";
+import { traceOnFlowHref } from "../lib/traceOnFlowHref";
 import { pickInitialSpan } from "../lib/spanSelection";
 import { api } from "../api/client";
 import TraceWaterfall from "./TraceWaterfall";
@@ -244,6 +245,20 @@ export default function TraceDrawer({
             )}
           </div>
           <div className="flex items-center gap-3">
+            {/* "Where is this message right now" (issue #15). Offered
+                only with an integration in context, because the answer
+                is a position on THAT integration's flow — there is no
+                such graph to project onto otherwise. */}
+            {traceOnFlowHref(integrationContextId, traceId) && (
+              <Link
+                to={traceOnFlowHref(integrationContextId, traceId)!}
+                className="whitespace-nowrap text-xs hover:underline"
+                style={{ color: "var(--primary)" }}
+                title="Show where this message got to on the integration's flow graph"
+              >
+                show on flow →
+              </Link>
+            )}
             <Link
               to={traceHref(traceId, integrationContextId, selectedSpan ?? undefined)}
               className="whitespace-nowrap text-xs hover:underline"

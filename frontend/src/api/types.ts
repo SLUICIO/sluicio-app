@@ -449,6 +449,56 @@ export interface FlowResponse {
   // graph still renders. Per-node counts reflect that historical
   // window in that case — the UI badges the panel accordingly.
   historical?: boolean;
+  // One message projected onto this graph, present only when the flow
+  // was requested with a trace id.
+  trace?: TraceProjection;
+  // The projected trace ran outside the selected range. The projection
+  // is still right (the graph's shape does not depend on the window),
+  // but the counts on screen describe a period the message was not in.
+  trace_outside_window?: boolean;
+}
+
+/** How one member service relates to one projected message.
+ *
+ *  There is deliberately no "waiting" or "in progress" state. A span is
+ *  only stored once it has ENDED, so a node with no span could be still
+ *  running, never sent, or crashed before export, and colouring that
+ *  absence as activity would be a guess dressed up as an answer. */
+export type TraceNodeStateKind =
+  /** The message has spans here. */
+  | "reached"
+  /** Reached, and at least one span failed. Usually where it stopped. */
+  | "failed"
+  /** No span here, but an immediate upstream was reached: the frontier,
+   *  and the place to look. Derived from the graph's edges. */
+  | "next"
+  /** No span, and no reached upstream. The message never got near it. */
+  | "not_reached";
+
+export interface TraceNodeState {
+  service_name: string;
+  state: TraceNodeStateKind;
+  span_count: number;
+  error_count: number;
+  first_seen?: string;
+  last_seen?: string;
+  /** For state "next": the reached upstream this node follows. */
+  after_service?: string;
+}
+
+export interface TraceProjection {
+  trace_id: string;
+  nodes: TraceNodeState[];
+  /** "source|target" keys the message actually traversed. */
+  traversed_edges: string[];
+  /** Deepest service the message is known to have reached. */
+  last_reached?: string;
+  /** Spans belonging to services outside this integration. Surfaced
+   *  rather than hidden: a high count means the graph is not the whole
+   *  story for this message. */
+  spans_outside_integration: number;
+  started?: string;
+  ended?: string;
 }
 
 // ServiceNeighbor is one direct caller or callee of a focal service

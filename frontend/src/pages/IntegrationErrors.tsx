@@ -19,6 +19,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { checkEditHref } from "../lib/checkEditHref";
 import { Link, useParams } from "react-router-dom";
+import { traceOnFlowHref } from "../lib/traceOnFlowHref";
 import { api } from "../api/client";
 import AlertInstanceActions from "../components/AlertInstanceActions";
 import IntegrationPageHeader from "../components/IntegrationPageHeader";
@@ -352,20 +353,37 @@ export default function IntegrationErrors() {
                 }
               >
                 {delayed.map((d) => (
-                  <button
-                    type="button"
+                  // The row opens the drawer; "where is it" is a sibling
+                  // link rather than nested inside the button (invalid
+                  // HTML, and it would steal the row's click). A delayed
+                  // trace is exactly the case issue #15 exists for, so
+                  // the answer is one click from the alert, not two.
+                  <div
                     key={d.traceId}
-                    onClick={() => setOpenTraceId(d.traceId)}
-                    className="grid w-full items-center gap-3 border-t border-border px-4 py-2.5 text-left text-sm first:border-t-0 hover:bg-surface-3"
-                    style={{ gridTemplateColumns: "20px 150px 1fr 130px" }}
+                    className="flex items-center border-t border-border first:border-t-0 hover:bg-surface-3"
                   >
-                    <StatusPip kind={sevPip(d.severity)} />
-                    <span className="truncate font-mono text-xs" style={{ color: "var(--primary)" }}>
-                      {d.traceId.slice(0, 16)}…
-                    </span>
-                    <span className="truncate text-muted">{d.rule}</span>
-                    <span className="text-right text-xs text-muted">since {formatRelative(d.since)}</span>
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => setOpenTraceId(d.traceId)}
+                      className="grid flex-1 items-center gap-3 px-4 py-2.5 text-left text-sm"
+                      style={{ gridTemplateColumns: "20px 150px 1fr 130px", minWidth: 0 }}
+                    >
+                      <StatusPip kind={sevPip(d.severity)} />
+                      <span className="truncate font-mono text-xs" style={{ color: "var(--primary)" }}>
+                        {d.traceId.slice(0, 16)}…
+                      </span>
+                      <span className="truncate text-muted">{d.rule}</span>
+                      <span className="text-right text-xs text-muted">since {formatRelative(d.since)}</span>
+                    </button>
+                    <Link
+                      to={traceOnFlowHref(id, d.traceId) ?? "#"}
+                      className="whitespace-nowrap px-4 py-2.5 text-xs hover:underline"
+                      style={{ color: "var(--primary)" }}
+                      title="Show where this message got to on the flow graph"
+                    >
+                      where is it? →
+                    </Link>
+                  </div>
                 ))}
                 {delayedCount > 0 && delayed.length === 0 && (
                   <div className="px-4 py-3 text-sm text-muted">
