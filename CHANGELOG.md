@@ -3,8 +3,14 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.81 — 2026-08-07
+
+- fix(advisor): say why there is nothing to advise, and answer "Evaluate now" (dad6817)
+- fix(advisor): record demand when someone reads traces (82ebedf)
+
 ## v0.11.80 — 2026-08-07
 
+- release v0.11.80 — refresh internal changelog (2eea418)
 - a11y: clear the WCAG 2.1 AA violations, and keep them cleared (88574e7)
 - seed: a file-transfer scenario for demos and screenshots (891f1fd)
 
