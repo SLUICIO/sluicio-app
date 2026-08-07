@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.79 — 2026-08-07
+
+- errors: show checks that recovered on their own (0e60496)
+
 ## v0.11.78 — 2026-08-06
 
+- release v0.11.78 — refresh internal changelog (0c6f8fb)
 - service page: bring its health list in line with integrations and systems (5a7ece2)
 
 ## v0.11.77 — 2026-08-06
