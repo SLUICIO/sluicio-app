@@ -3,8 +3,14 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.83 — 2026-08-07
+
+- feat(flow): show where a message got to, and how to get there (85bef3c)
+- feat(flow): project one message onto the integration flow graph (0d14c5d)
+
 ## v0.11.82 — 2026-08-07
 
+- release v0.11.82 — refresh internal changelog (1dd8b66)
 - feat(system-types): search the catalog by name (7382782)
 
 ## v0.11.81 — 2026-08-07
