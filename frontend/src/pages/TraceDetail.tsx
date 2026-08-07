@@ -448,6 +448,12 @@ export default function TraceDetail() {
                 <IntegrationFlow
                   nodes={flow.nodes}
                   edges={flow.edges}
+                  // The selection is shared with the waterfall below, so
+                  // picking a hop in either place marks the same service
+                  // here. It only ever flowed graph → waterfall before,
+                  // which left the graph looking inert while the reader
+                  // worked down the rows it was supposed to explain.
+                  selected={selectedSpanRecord?.service_name ?? null}
                   highlightPath={pathNodes}
                   highlightEdges={pathEdges}
                   onSelect={(name) => {
