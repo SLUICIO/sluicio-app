@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/sluicio/sluicio-app/pkg/httpserver"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/api/middleware"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/demand"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/erroracks"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/identity"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/integrations"
@@ -550,13 +551,61 @@ func (h *Handlers) integrationFlow(w http.ResponseWriter, r *http.Request) {
 		serviceSchemas = nil // omit the key entirely when empty
 	}
 
+	// ?trace=<id> projects ONE message onto this graph (issue #15).
+	//
+	// The projection does not depend on the window: members come from the
+	// catalog and edges fall back to a historical shape, so a trace older
+	// than the picked range still lays over the right graph. Rather than
+	// silently widening the range — which would change every aggregate
+	// number on screen — a trace outside it is reported as such, and the
+	// UI says so.
+	var projection *TraceProjection
+	traceOutsideWindow := false
+	if traceID := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("trace"))); traceID != "" {
+		const spanCap = 5000
+		spanRows, sErr := h.Store.SpansForTrace(r.Context(), traceID, spanCap)
+		if sErr != nil {
+			h.Logger.Error("spans for trace projection failed", "err", sErr, "trace_id", traceID)
+			httpserver.WriteError(w, http.StatusInternalServerError, "query failed")
+			return
+		}
+		// Same visibility rule as the trace detail endpoint: a trace id
+		// is guessable and must not become a way to read spans from
+		// services the caller has no policy for. Dropping them here also
+		// keeps the projection honest — an invisible service reads as
+		// "not reached" rather than leaking that it was involved.
+		if allowed, hasFilter := h.signalServiceFilter(r, identity.SignalTraces); hasFilter {
+			allowedSet := make(map[string]struct{}, len(allowed))
+			for _, n := range allowed {
+				allowedSet[n] = struct{}{}
+			}
+			kept := spanRows[:0]
+			for _, row := range spanRows {
+				if _, ok := allowedSet[row.ServiceName]; ok {
+					kept = append(kept, row)
+				}
+			}
+			spanRows = kept
+		}
+		p := ProjectTraceOntoFlow(traceID, memberNames, edges, spanRows)
+		if p.Ended != nil && (p.Ended.Before(tr.From) || p.Started.After(tr.To)) {
+			traceOutsideWindow = true
+		}
+		projection = &p
+		// Opening a message on the flow graph is consumption of that
+		// trace, on every member it crossed (see handlers_demand.go).
+		h.recordDemandServices(r, demand.SignalTrace, spanServices(spanRows))
+	}
+
 	httpserver.WriteJSON(w, http.StatusOK, FlowResponse{
-		Window:         tr.Window(),
-		Nodes:          nodes,
-		Edges:          edges,
-		Historical:     historical,
-		ServiceSchemas: serviceSchemas,
-		Maps:           flowMaps,
+		Window:             tr.Window(),
+		Nodes:              nodes,
+		Edges:              edges,
+		Historical:         historical,
+		ServiceSchemas:     serviceSchemas,
+		Maps:               flowMaps,
+		Trace:              projection,
+		TraceOutsideWindow: traceOutsideWindow,
 	})
 }
 

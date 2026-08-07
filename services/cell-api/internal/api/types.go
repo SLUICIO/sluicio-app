@@ -238,6 +238,17 @@ type FlowResponse struct {
 	// by a member service — "schema 1 → map x → schema 2", scoped to
 	// this integration. Omitted when none apply.
 	Maps []FlowMap `json:"maps,omitempty"`
+	// Trace is one message laid over this graph, present only when the
+	// request named a trace (?trace=). The aggregate fields above are
+	// unaffected by it: the graph is the same graph, with a per-node
+	// state added on top.
+	Trace *TraceProjection `json:"trace,omitempty"`
+	// TraceOutsideWindow flags that the projected trace ran outside the
+	// selected range. The projection is still correct — the graph's
+	// shape does not depend on the window — but the counts on screen
+	// describe a period the message was not part of, and saying so is
+	// cheaper than silently moving the window under the reader.
+	TraceOutsideWindow bool `json:"trace_outside_window,omitempty"`
 }
 
 // ServiceNeighbor is one direct neighbor of a focal service in the
