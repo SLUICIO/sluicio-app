@@ -3,3 +3,4 @@ ds-bundle/
 .design-sync/.cache/
 .design-sync/learnings/
 .design-sync/compiled.css
+frontend/test-results/

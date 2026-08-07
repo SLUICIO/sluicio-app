@@ -226,7 +226,7 @@ export default function CreateTraceAlertDrawer({
             Severity
             <select
               className="toolbar__select"
-              value={severity}
+              value={severity} aria-label="Severity"
               onChange={(e) => setSeverity(e.target.value as AlertSeverity)}
             >
               <option value="info">Info</option>

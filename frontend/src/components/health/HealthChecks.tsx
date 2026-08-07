@@ -729,7 +729,7 @@ function HealthCheckEditor({
       {pushed ? (
         <div className="m-rule-sentence">
           <span className="m-rs-prose">When the pushed value is</span>
-          <select className="m-rs-sel" value={op} onChange={(e) => setOp(e.target.value as AlertOperator)}>
+          <select className="m-rs-sel" value={op} aria-label="Comparison" onChange={(e) => setOp(e.target.value as AlertOperator)}>
             {OPS.map((o) => <option key={o.op} value={o.op}>{o.glyph}</option>)}
           </select>
           <input className="m-rs-num" type="number" value={threshold} onChange={(e) => setThreshold(Number(e.target.value))} />
@@ -738,18 +738,18 @@ function HealthCheckEditor({
       ) : (
         <div className="m-rule-sentence">
           <span className="m-rs-prose">When</span>
-          <select className="m-rs-sel" value={agg} onChange={(e) => setAgg(e.target.value as AlertAggregation)}>
+          <select className="m-rs-sel" value={agg} aria-label="Aggregation" onChange={(e) => setAgg(e.target.value as AlertAggregation)}>
             {ALERT_AGGREGATIONS.map((a) => <option key={a} value={a}>{AGG_LABELS[a]}</option>)}
           </select>
           <span className="m-rs-prose">of</span>
           <span className="m-rs-metric mono">{metric || "metric"}</span>
           <span className="m-rs-prose">is</span>
-          <select className="m-rs-sel" value={op} onChange={(e) => setOp(e.target.value as AlertOperator)}>
+          <select className="m-rs-sel" value={op} aria-label="Comparison" onChange={(e) => setOp(e.target.value as AlertOperator)}>
             {OPS.map((o) => <option key={o.op} value={o.op}>{o.glyph}</option>)}
           </select>
           <input className="m-rs-num" type="number" value={threshold} onChange={(e) => setThreshold(Number(e.target.value))} />
           <span className="m-rs-prose">for</span>
-          <select className="m-rs-sel" value={forWindow} onChange={(e) => setForWindow(e.target.value)}>
+          <select className="m-rs-sel" value={forWindow} aria-label="Evaluation window" onChange={(e) => setForWindow(e.target.value)}>
             {WINDOWS.map((wn) => <option key={wn} value={wn}>{wn}</option>)}
           </select>
         </div>
@@ -964,7 +964,7 @@ function LogCheckEditor({
 
       <div className="m-rule-sentence">
         <span className="m-rs-prose">When</span>
-        <select className="m-rs-sel" value={comparison} onChange={(e) => setComparison(e.target.value as "at_least" | "fewer_than")}>
+        <select className="m-rs-sel" value={comparison} aria-label="Comparison" onChange={(e) => setComparison(e.target.value as "at_least" | "fewer_than")}>
           <option value="at_least">at least</option>
           <option value="fewer_than">fewer than</option>
         </select>
@@ -1153,7 +1153,7 @@ function TraceCheckEditor({
         <>
           <div className="m-rule-sentence">
             <span className="m-rs-prose">When</span>
-            <select className="m-rs-sel" value={aggregation} onChange={(e) => setAggregation(e.target.value as "p95" | "max")}>
+            <select className="m-rs-sel" value={aggregation} aria-label="Aggregation" onChange={(e) => setAggregation(e.target.value as "p95" | "max")}>
               <option value="p95">p95</option>
               <option value="max">max</option>
             </select>

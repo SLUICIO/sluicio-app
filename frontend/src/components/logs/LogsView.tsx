@@ -913,7 +913,7 @@ function CreateLogAlertDialog({
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
           <label className="form__label" style={{ minWidth: 120 }}>
             Severity
-            <select className="toolbar__select" value={severity}
+            <select className="toolbar__select" value={severity} aria-label="Severity"
               onChange={(e) => setSeverity(e.target.value as AlertSeverity)}>
               <option value="info">info</option>
               <option value="warning">warning</option>

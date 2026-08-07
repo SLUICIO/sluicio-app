@@ -257,7 +257,7 @@ export default function MetricsExplorer({ service, embedded }: { service?: strin
                 key={t.value}
                 type="button"
                 role="tab"
-                aria-checked={mtype === t.value}
+                aria-selected={mtype === t.value}
                 className="level-seg__btn"
                 onClick={() => setMtype(t.value)}
               >

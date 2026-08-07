@@ -530,7 +530,7 @@ function RuleForm({
           Severity
           <select
             className="toolbar__select"
-            value={severity}
+            value={severity} aria-label="Severity"
             onChange={(e) => setSeverity(e.target.value as TraceCompletionRule["severity"])}
           >
             <option value="info">info</option>

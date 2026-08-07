@@ -36,7 +36,10 @@
   /* text */
   --ink: #0F172A;
   --ink-2: #334155;
-  --muted: #64748B;
+  /* Darkened from #64748B, which measured 4.19:1 on --surface-2 and so
+     failed WCAG 1.4.3 for body-size text. This clears 4.5:1 while
+     staying visibly secondary. */
+  --muted: #556070;
 
   /* primary / accent — sluice azure */
   --primary: #0E6E9E;          /* deep azure */
@@ -876,12 +879,12 @@ code, .mono {
   font: 500 12px 'Inter', sans-serif; color: var(--ink-2);
 }
 .level-seg__btn:hover { color: var(--ink); }
-.level-seg__btn[aria-checked="true"] {
+.level-seg__btn[aria-selected="true"] {
   background: var(--surface-2); color: var(--ink); font-weight: 600; box-shadow: var(--shadow-sm);
 }
-.level-seg__btn[aria-checked="true"].is-warn  { color: var(--warn-ink); }
-.level-seg__btn[aria-checked="true"].is-err   { color: var(--err-ink); }
-.level-seg__btn[aria-checked="true"].is-fatal { background: var(--err); color: #fff; box-shadow: none; }
+.level-seg__btn[aria-selected="true"].is-warn  { color: var(--warn-ink); }
+.level-seg__btn[aria-selected="true"].is-err   { color: var(--err-ink); }
+.level-seg__btn[aria-selected="true"].is-fatal { background: var(--err); color: #fff; box-shadow: none; }
 /* Tab variant. A segmented radio group marks its choice with
    aria-checked; a tablist uses aria-selected. Both are correct ARIA for
    their own widget, so the selected LOOK is shared here rather than
@@ -2355,4 +2358,17 @@ code, .mono {
 .prop-actions {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);
+}
+
+/* Links inside body copy are underlined: distinguishing them by colour
+   alone fails WCAG 1.4.1 unless the link/text contrast reaches 3:1, and
+   ours measured 1.17:1. Navigation, buttons and table cells are excluded
+   — they are not "links in a block of text", and underlining them all
+   makes dense views unreadable. */
+p a:not(.btn),
+.page__subtitle a,
+.placeholder a,
+.muted a:not(.btn) {
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }

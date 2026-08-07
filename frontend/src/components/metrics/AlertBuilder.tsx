@@ -284,7 +284,7 @@ export default function AlertBuilder({
         {/* sentence-style rule */}
         <div className="m-rule-sentence">
           <span className="m-rs-prose">When</span>
-          <select className="m-rs-sel" value={agg} onChange={(e) => setAgg(e.target.value as AlertAggregation)}>
+          <select className="m-rs-sel" value={agg} aria-label="Aggregation" onChange={(e) => setAgg(e.target.value as AlertAggregation)}>
             {ALERT_AGGREGATIONS.map((a) => (
               <option key={a} value={a}>{AGG_LABELS[a]}</option>
             ))}
@@ -292,7 +292,7 @@ export default function AlertBuilder({
           <span className="m-rs-prose">of</span>
           <span className="m-rs-metric">{metricName}</span>
           <span className="m-rs-prose">is</span>
-          <select className="m-rs-sel" value={op} onChange={(e) => setOp(e.target.value as AlertOperator)}>
+          <select className="m-rs-sel" value={op} aria-label="Comparison" onChange={(e) => setOp(e.target.value as AlertOperator)}>
             {OPS.map((o) => (
               <option key={o.op} value={o.op}>{o.glyph}</option>
             ))}
@@ -305,7 +305,7 @@ export default function AlertBuilder({
           />
           {displayUnit(unit) && <span className="m-rs-prose muted">{displayUnit(unit)}</span>}
           <span className="m-rs-prose">for</span>
-          <select className="m-rs-sel" value={forWindow} onChange={(e) => setForWindow(e.target.value)}>
+          <select className="m-rs-sel" value={forWindow} aria-label="Evaluation window" onChange={(e) => setForWindow(e.target.value)}>
             {WINDOWS.map((wn) => (
               <option key={wn} value={wn}>{wn}</option>
             ))}
@@ -391,7 +391,7 @@ export default function AlertBuilder({
           <label className="m-field-label">Break down by attribute</label>
           <select
             className="m-rs-sel"
-            value={splitBy}
+            value={splitBy} aria-label="Break down by attribute"
             onChange={(e) => setSplitBy(e.target.value)}
           >
             <option value="">Don't split — one combined value</option>

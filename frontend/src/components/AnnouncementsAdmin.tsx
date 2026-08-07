@@ -92,7 +92,7 @@ export default function AnnouncementsAdmin() {
         <div style={{ display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap" }}>
           <label className="form__label">
             Severity
-            <select className="search__input" value={severity}
+            <select className="search__input" value={severity} aria-label="Severity"
               onChange={(e) => setSeverity(e.target.value as typeof severity)}>
               <option value="info">Info</option>
               <option value="warning">Warning</option>
