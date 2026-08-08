@@ -22,6 +22,8 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"google.golang.org/protobuf/proto"
@@ -47,6 +49,11 @@ var transfers = []transfer{
 	// edge of a chart. Night 4 gives the same chart a gap with delivered
 	// files on both sides, which is what reads as "one night missing"
 	// rather than "the data stops here".
+	//
+	// -missing overrides this pair. A story that says "one night failed"
+	// wants -missing 0: a single drop to zero at the right edge, which
+	// file.count survives better than file.mtime does (the count keeps
+	// reporting, it just reports 0, so the line falls rather than stops).
 	{"filetransfer-prices-retailer-x", "prices-retailer-x", 2, []int{0, 4}},
 	{"filetransfer-orders-logistics", "orders-logistics", 1, nil},
 	{"filetransfer-invoices-finance", "invoices-finance", 4, nil},
@@ -57,6 +64,25 @@ func str(k, v string) *commonpb.KeyValue {
 	return &commonpb.KeyValue{Key: k, Value: &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: v}}}
 }
 
+// parseNights turns "0,4" into []int{0, 4}. An empty string means the
+// broken transfer delivered every night, which is how you seed a week
+// with nothing wrong in it.
+func parseNights(s string) ([]int, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil, nil
+	}
+	var out []int
+	for _, part := range strings.Split(s, ",") {
+		n, err := strconv.Atoi(strings.TrimSpace(part))
+		if err != nil || n < 0 {
+			return nil, fmt.Errorf("%q is not a night count", part)
+		}
+		out = append(out, n)
+	}
+	return out, nil
+}
+
 func gauge(name, unit string, dps []*metricspb.NumberDataPoint) *metricspb.Metric {
 	return &metricspb.Metric{Name: name, Unit: unit, Data: &metricspb.Metric_Gauge{Gauge: &metricspb.Gauge{DataPoints: dps}}}
 }
@@ -64,7 +90,15 @@ func gauge(name, unit string, dps []*metricspb.NumberDataPoint) *metricspb.Metri
 func main() {
 	endpoint := flag.String("endpoint", "http://localhost:4318/v1/metrics", "cell-ingest OTLP metrics endpoint")
 	days := flag.Int("days", 7, "how many days of history to emit")
+	missed := flag.String("missing", "0,4", "nights ago the broken transfer delivered nothing (0 = last night)")
 	flag.Parse()
+
+	nights, err := parseNights(*missed)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "-missing:", err)
+		os.Exit(1)
+	}
+	transfers[0].missing = nights
 
 	now := time.Now().UTC()
 	req := &colmetricspb.ExportMetricsServiceRequest{}
