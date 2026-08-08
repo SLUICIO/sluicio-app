@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.86 — 2026-08-08
+
+- fix(onboarding): the collector snippet no longer fails to start on current collectors (9ae16f5)
+
 ## v0.11.85 — 2026-08-08
 
+- release v0.11.85 — refresh internal changelog (6510bbf)
 - fix(seed): give the file-transfer demo a readable gap as well as a red check (a6e2bbf)
 - fix(routing): show a page instead of nothing for an unknown URL (189dc87)
 
