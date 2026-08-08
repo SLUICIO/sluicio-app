@@ -93,8 +93,10 @@ export default function Services() {
   // URL is the source of truth for tag / metadata / dependency filters so the
   // whole query is shareable and survives reload.
   const [searchParams, setSearchParams] = useSearchParams();
+  // ?tag= is accepted as an alias for ?tags= here too, same reasoning as the
+  // integrations list, and the two pages should not disagree about the URL.
   const activeSlugs = useMemo<string[]>(() => {
-    const raw = searchParams.get("tags");
+    const raw = searchParams.get("tags") ?? searchParams.get("tag");
     if (!raw) return [];
     return raw.split(",").map((s) => s.trim()).filter(Boolean);
   }, [searchParams]);
@@ -108,7 +110,10 @@ export default function Services() {
     setSearchParams(params, { replace: true });
   };
   const setActiveSlugs = (next: string[]) =>
-    patchParams((p) => (next.length === 0 ? p.delete("tags") : p.set("tags", next.join(","))));
+    patchParams((p) => {
+      p.delete("tag");
+      next.length === 0 ? p.delete("tags") : p.set("tags", next.join(","));
+    });
   const setFilters = (next: ReturnType<typeof parseFilters>) =>
     patchParams((p) => {
       const enc = serializeFilters(next);
@@ -305,7 +310,6 @@ export default function Services() {
           metadataFields={metadataFields}
           distinctValues={distinctValuesByField}
           staticFields={SERVICE_STATIC_FIELDS}
-          noun="services"
         />
         <div
           style={{
@@ -420,6 +424,7 @@ export default function Services() {
             className="btn btn--link"
             onClick={() => {
               patchParams((p) => {
+                p.delete("tag");
                 p.delete("tags");
                 p.delete("filter");
                 p.delete("dep");
@@ -448,6 +453,7 @@ export default function Services() {
             className="btn btn--link"
             onClick={() => {
               patchParams((p) => {
+                p.delete("tag");
                 p.delete("tags");
                 p.delete("filter");
                 p.delete("dep");

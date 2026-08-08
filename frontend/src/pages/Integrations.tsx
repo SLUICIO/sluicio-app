@@ -84,8 +84,12 @@ export default function Integrations() {
   // (not ids) are used because they're human-readable in the URL and
   // stable across renames.
   const [searchParams, setSearchParams] = useSearchParams();
+  // ?tag= is accepted as an alias for ?tags=. Singular is the natural guess
+  // when you're filtering on one tag, and silently ignoring it looked exactly
+  // like a broken filter: the chip strip renders the whole vocabulary either
+  // way, so a hand-typed ?tag=foo drew the chip but never narrowed the list.
   const activeSlugs = useMemo<string[]>(() => {
-    const raw = searchParams.get("tags");
+    const raw = searchParams.get("tags") ?? searchParams.get("tag");
     if (!raw) return [];
     return raw
       .split(",")
@@ -95,6 +99,9 @@ export default function Integrations() {
 
   const setActiveSlugs = (next: string[]) => {
     const params = new URLSearchParams(searchParams);
+    // Writes always use the canonical plural, so drop any alias we came in
+    // with rather than leaving two params to disagree.
+    params.delete("tag");
     if (next.length === 0) {
       params.delete("tags");
     } else {
@@ -234,7 +241,11 @@ export default function Integrations() {
 
   const totalCount = items?.length ?? 0;
   const visibleCount = visibleItems.length;
-  const filterActive = activeTagIds.size > 0 || filters.length > 0;
+  // The tag strip speaks only for itself. Keying its summary off "any filter
+  // is active" made a field filter render "4 of 6 match all of" with an empty
+  // tag list, next to a Clear that had no tag to clear, and dimmed every chip
+  // for a filter the strip has nothing to do with.
+  const tagFilterActive = activeTagIds.size > 0;
 
   // Distinct values seen for each filterable field across the loaded
   // integrations. Used to back the "equals" value SearchableSelect so
@@ -646,7 +657,7 @@ export default function Integrations() {
                     cursor: "pointer",
                     // Dim un-selected chips when at least one filter is
                     // active so the focus rests on the selection.
-                    opacity: filterActive && !active ? 0.55 : 1,
+                    opacity: tagFilterActive && !active ? 0.55 : 1,
                     transition: "opacity 0.12s ease",
                   }}
                 >
@@ -666,7 +677,7 @@ export default function Integrations() {
               );
             })}
           </div>
-          {filterActive && (
+          {tagFilterActive && (
             <div
               style={{
                 display: "flex",

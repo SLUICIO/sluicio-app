@@ -100,11 +100,9 @@ interface Props {
   // Static (non-metadata) fields offered. Defaults to the integrations set;
   // the services list passes name/namespace/status instead.
   staticFields?: FieldSpec[];
-  // Noun shown in the "Showing all <noun>" hint. Defaults to "integrations".
-  noun?: string;
 }
 
-export default function IntegrationFilterBar({ filters, onChange, metadataFields, distinctValues, staticFields, noun = "integrations" }: Props) {
+export default function IntegrationFilterBar({ filters, onChange, metadataFields, distinctValues, staticFields }: Props) {
   // Build the field catalogue: static columns + one entry per metadata
   // field, each with the right kind so opsFor can pick operators.
   const fieldSpecs: FieldSpec[] = [
@@ -142,9 +140,14 @@ export default function IntegrationFilterBar({ filters, onChange, metadataFields
     >
       <div className="flex items-baseline justify-between mb-2">
         <h3 className="text-sm font-semibold">Filters</h3>
+        {/* The hint speaks only for this bar's field filters. It used to read
+            "Showing all integrations", which is a claim about the list, and
+            the list is also narrowed by the tag strip this component knows
+            nothing about, so a tag filter left the page saying "showing all"
+            and "4 of 6 match" at the same time. */}
         <div className="text-xs text-muted">
           {filters.length === 0
-            ? `Showing all ${noun}. Click + add a filter to narrow.`
+            ? "No field filters. Click + add a filter to narrow."
             : `${filters.length} active · AND-joined`}
         </div>
       </div>
