@@ -40,7 +40,14 @@ type transfer struct {
 }
 
 var transfers = []transfer{
-	{"filetransfer-prices-retailer-x", "prices-retailer-x", 2, []int{0}},
+	// Two missed nights, and the pair is deliberate. Night 0 is what
+	// keeps the health check FIRING while a screenshot is taken: a check
+	// that is red right now is, by definition, a file that is missing
+	// right now, so the current failure can only ever sit at the right
+	// edge of a chart. Night 4 gives the same chart a gap with delivered
+	// files on both sides, which is what reads as "one night missing"
+	// rather than "the data stops here".
+	{"filetransfer-prices-retailer-x", "prices-retailer-x", 2, []int{0, 4}},
 	{"filetransfer-orders-logistics", "orders-logistics", 1, nil},
 	{"filetransfer-invoices-finance", "invoices-finance", 4, nil},
 	{"filetransfer-stock-warehouse", "stock-warehouse", 3, nil},
