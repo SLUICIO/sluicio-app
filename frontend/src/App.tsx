@@ -11,6 +11,7 @@ import IntegrationErrors from "./pages/IntegrationErrors";
 import IntegrationMessages from "./pages/IntegrationMessages";
 import IntegrationNew from "./pages/IntegrationNew";
 import IntegrationLogs from "./pages/IntegrationLogs";
+import IntegrationMetrics from "./pages/IntegrationMetrics";
 import IntegrationMetadata from "./pages/IntegrationMetadata";
 import IntegrationServices from "./pages/IntegrationServices";
 import IntegrationSettings from "./pages/IntegrationSettings";
@@ -76,6 +77,7 @@ export default function App() {
           element={<IntegrationMessages />}
         />
         <Route path="/integrations/:id/logs" element={<IntegrationLogs />} />
+        <Route path="/integrations/:id/metrics" element={<IntegrationMetrics />} />
         <Route path="/integrations/:id/services" element={<IntegrationServices />} />
         <Route path="/integrations/:id/metadata" element={<IntegrationMetadata />} />
         <Route path="/integrations/:id/errors" element={<IntegrationErrors />} />

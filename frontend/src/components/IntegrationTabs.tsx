@@ -45,6 +45,7 @@ export default function IntegrationTabs({ integrationId, messagesCount, errorsCo
   const tabs: Tab[] = [
     { label: "Overview", path: base, exact: true },
     { label: "Messages", path: `${base}/messages`, count: messagesCount },
+    { label: "Metrics", path: `${base}/metrics` },
     { label: "Logs", path: `${base}/logs` },
     { label: "Services", path: `${base}/services` },
     { label: "Errors", path: `${base}/errors`, count: errorsCount, tone: "err" },
