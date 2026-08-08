@@ -11,6 +11,7 @@
 // dropped (`embedded`) since the service tab already provides context.
 
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api } from "../../api/client";
 import type {
   LogAttrFilter,
@@ -72,8 +73,37 @@ function MetricTable({
   );
 }
 
-export default function MetricsExplorer({ service, embedded }: { service?: string; embedded?: boolean }) {
+export default function MetricsExplorer({
+  service: serviceProp,
+  integration: integrationProp,
+  embedded,
+}: {
+  service?: string;
+  // Integration display name, the form the catalogue resolves to member
+  // services. Mounting scope, same standing as `service`.
+  integration?: string;
+  embedded?: boolean;
+}) {
   const [windowVal] = useTimeWindow();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // A deep link from a health check carries the check's binding, so the
+  // explorer opens on the slice the evaluator judges. Props win: a tab
+  // mounted inside a service or an integration is already scoped by where
+  // it is, and a URL param must not be able to widen it.
+  const urlScope = {
+    service: serviceProp || integrationProp ? "" : (searchParams.get("service") ?? ""),
+    integration: serviceProp || integrationProp ? "" : (searchParams.get("integration") ?? ""),
+  };
+  const service = serviceProp || urlScope.service || undefined;
+  const integration = integrationProp || urlScope.integration || undefined;
+  const scopedByUrl = Boolean(urlScope.service || urlScope.integration);
+  const clearUrlScope = () => {
+    const p = new URLSearchParams(searchParams);
+    p.delete("service");
+    p.delete("integration");
+    setSearchParams(p, { replace: true });
+  };
 
   const [resp, setResp] = useState<MetricCatalogRichResponse | null>(null);
   const [fields, setFields] = useState<LogFieldEntry[]>([]);
@@ -103,9 +133,9 @@ export default function MetricsExplorer({ service, embedded }: { service?: strin
   const [groups, setGroups] = useState<MetricGroup[]>([]);
   const [groupsLoading, setGroupsLoading] = useState(false);
 
-  // Group-by + trim are org-wide affordances; hide them when scoped to one
-  // service (the catalog endpoint scopes, but the group endpoint doesn't).
-  const allowGroups = !service;
+  // Group-by + trim are org-wide affordances; hide them when scoped at all
+  // (the catalog endpoint scopes, but the group endpoint doesn't).
+  const allowGroups = !service && !integration;
   const grouped = allowGroups && group.by !== "none" && (group.by !== "attribute" || group.key !== "");
 
   const focusedMetric = useMemo(() => {
@@ -125,11 +155,11 @@ export default function MetricsExplorer({ service, embedded }: { service?: strin
     setLoading(true);
     setError(null);
     api
-      .metricCatalog(windowVal, { q: debouncedQuery, type: mtype, attrs: chips, service, limit: 100 })
+      .metricCatalog(windowVal, { q: debouncedQuery, type: mtype, attrs: chips, service, integration, limit: 100 })
       .then(setResp)
       .catch((e) => setError(String(e.message ?? e)))
       .finally(() => setLoading(false));
-  }, [windowVal, debouncedQuery, mtype, chips, service, reloadKey]);
+  }, [windowVal, debouncedQuery, mtype, chips, service, integration, reloadKey]);
 
   useEffect(() => {
     api
@@ -160,7 +190,7 @@ export default function MetricsExplorer({ service, embedded }: { service?: strin
   const attrKeys = useMemo(() => fields.map((f) => f.key), [fields]);
 
   const reload = () =>
-    api.metricCatalog(windowVal, { q: debouncedQuery, type: mtype, attrs: chips, service, limit: 100 }).then(setResp).catch(() => {});
+    api.metricCatalog(windowVal, { q: debouncedQuery, type: mtype, attrs: chips, service, integration, limit: 100 }).then(setResp).catch(() => {});
 
   const addFilter = (f: LogAttrFilter) => {
     setChips((cur) => (cur.some((c) => c.key === f.key && c.op === f.op && c.value === f.value) ? cur : [...cur, f]));
@@ -245,7 +275,11 @@ export default function MetricsExplorer({ service, embedded }: { service?: strin
             <input
               className="search__input mono"
               style={{ paddingLeft: 30, fontSize: 13 }}
-              placeholder={service ? `Search ${service}'s metrics…` : "Search metrics by name…"}
+              placeholder={
+                service || integration
+                  ? `Search ${service ?? integration}'s metrics…`
+                  : "Search metrics by name…"
+              }
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
@@ -270,6 +304,18 @@ export default function MetricsExplorer({ service, embedded }: { service?: strin
         </div>
 
         <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", marginTop: 8 }}>
+          {/* A scope that arrived in the URL has to be visible and
+              removable. Silently listing fewer metrics than the page
+              normally shows is indistinguishable from missing telemetry. */}
+          {scopedByUrl && (
+            <FilterChip
+              k={urlScope.service ? "service" : "integration"}
+              op="eq"
+              value={urlScope.service || urlScope.integration}
+              accent
+              onRemove={clearUrlScope}
+            />
+          )}
           {chips.map((c, i) => (
             <FilterChip key={`${c.key}-${c.op}-${i}`} k={c.key} op={c.op} value={c.value} accent={i === 0} onRemove={() => removeFilter(i)} />
           ))}
@@ -291,7 +337,9 @@ export default function MetricsExplorer({ service, embedded }: { service?: strin
             )}
           </div>
 
-          {!service && (
+          {/* Trim writes an org-wide ingestion config, so it belongs to the
+              unscoped page only — the same rule group-by follows. */}
+          {allowGroups && (
             <button
               type="button"
               className="addfilter"

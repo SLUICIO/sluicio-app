@@ -290,6 +290,7 @@ export default function IntegrationSettings() {
       {canWrite && <HealthChecks
           scope="integration"
           target={id}
+          targetLabel={integration?.integration.name}
           window={windowVal}
           reloadKey={healthReloadKey}
           // Re-reads the integration so its health pill reflects the

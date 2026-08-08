@@ -9,7 +9,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CHECK_PARAM } from "../lib/checkEditHref";
-import { metricCheckHref } from "../lib/metricCheckHref";
+import { metricCheckHref, metricCheckLinkTitle } from "../lib/metricCheckHref";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api/client";
 import AddToIntegration from "../components/AddToIntegration";
@@ -570,7 +570,7 @@ export default function ServiceDetail() {
               <div className="svc-grid">
                 <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
                   <GoldenSignals data={data} serviceName={name} mode={goldenMode} onModeChange={setGoldenMode} />
-                  <HealthChecksView rules={rules} firingByRule={firingByRule} failing={failing} openErrorCount={data?.open_error_count ?? 0} onEdit={() => setMode("edit")} onSelectCheck={setCheckDetail} window={windowVal} />
+                  <HealthChecksView rules={rules} firingByRule={firingByRule} failing={failing} openErrorCount={data?.open_error_count ?? 0} onEdit={() => setMode("edit")} onSelectCheck={setCheckDetail} serviceName={name} window={windowVal} />
                   <Dependencies neighbors={neighbors} name={name} ownTraceCount={data?.stats.trace_count ?? 0} ownStatus={data?.status} />
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
@@ -601,7 +601,7 @@ export default function ServiceDetail() {
             )}
 
             {tab === "health" && (
-              <HealthChecksView rules={rules} firingByRule={firingByRule} failing={failing} openErrorCount={data?.open_error_count ?? 0} onEdit={() => setMode("edit")} onSelectCheck={setCheckDetail} window={windowVal} wide />
+              <HealthChecksView rules={rules} firingByRule={firingByRule} failing={failing} openErrorCount={data?.open_error_count ?? 0} onEdit={() => setMode("edit")} onSelectCheck={setCheckDetail} serviceName={name} window={windowVal} wide />
             )}
 
             {tab === "metrics" && <MetricsExplorer service={name} embedded />}
@@ -882,6 +882,7 @@ function HealthChecksView({
   openErrorCount,
   onEdit,
   onSelectCheck,
+  serviceName,
   window: win,
   wide,
 }: {
@@ -894,6 +895,10 @@ function HealthChecksView({
   // Open the detail blade for a check: a configured rule, or the built-in
   // error-span pseudo-check (rule null, builtin true).
   onSelectCheck: (sel: { rule: AlertRule | null; builtin: boolean }) => void;
+  // Scope for the "view metric" deep link: these rules are bound to this
+  // service, and the link has to carry that or it opens the metric across
+  // every service reporting it.
+  serviceName: string;
   window: string;
   wide?: boolean;
 }) {
@@ -976,12 +981,12 @@ function HealthChecksView({
                     the evaluator sees it and ranged to contain the
                     firing. The row itself opens the result blade, so this
                     must not bubble — otherwise it does both. */}
-                {metricCheckHref(r, inst) && (
+                {metricCheckHref(r, inst, { service: serviceName }) && (
                   <Link
                     className="svc-check-since"
                     style={{ color: "var(--primary)" }}
-                    to={metricCheckHref(r, inst)!}
-                    title="Open this metric, filtered as the check sees it"
+                    to={metricCheckHref(r, inst, { service: serviceName })!}
+                    title={metricCheckLinkTitle({ service: serviceName })}
                     onClick={(e) => e.stopPropagation()}
                   >
                     view metric →

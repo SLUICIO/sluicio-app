@@ -58,11 +58,28 @@ export function windowCovering(startedAt: string, now = Date.now()): string {
 }
 
 /**
+ * Which telemetry the check is bound to, in the vocabulary the metric
+ * catalogue understands: a service name, or an integration's display
+ * name (whose services the catalogue resolves for us).
+ *
+ * Supplied by the caller because a rule carries ids, not names, and the
+ * page rendering the link already knows what it is looking at.
+ */
+export interface CheckLinkScope {
+  service?: string;
+  integration?: string;
+}
+
+/**
  * The metrics-page URL for a rule, or null when there is no single
  * series to open — a log match or a failed-trace check has no metric,
  * and a pushed check's value never came from one.
  */
-export function metricCheckHref(rule: AlertRule, instance?: AlertInstance): string | null {
+export function metricCheckHref(
+  rule: AlertRule,
+  instance?: AlertInstance,
+  scope?: CheckLinkScope,
+): string | null {
   if (rule.signal !== "metric" || rule.source === "pushed") return null;
   const metric = rule.spec?.metric_name?.trim();
   if (!metric) return null;
@@ -75,6 +92,27 @@ export function metricCheckHref(rule: AlertRule, instance?: AlertInstance): stri
   if (attrs.length > 0) {
     params.set("mattr", JSON.stringify(attrs.map((a) => ({ key: a.key, op: a.op, value: a.value }))));
   }
+  // The rule's BINDING, which is scope the predicates never carried. An
+  // integration-bound check on file.mtime judges that integration's
+  // services; without this the link opened every service reporting
+  // file.mtime, which for a fleet of file transfers is every transfer at
+  // once — the one view that cannot answer "is THIS one late".
+  if (scope?.service) params.set("service", scope.service);
+  else if (scope?.integration) params.set("integration", scope.integration);
   if (instance?.started_at) params.set("range", windowCovering(instance.started_at));
   return `/metrics?${params.toString()}`;
+}
+
+/**
+ * Tooltip for the link, honest about how far the filtering goes.
+ *
+ * The catalogue narrows by service and by integration but has no system
+ * dimension, so a system-bound check can only open the metric with its
+ * own predicates. Saying "filtered as the check sees it" there would
+ * promise a narrowing the URL does not carry.
+ */
+export function metricCheckLinkTitle(scope?: CheckLinkScope): string {
+  return scope?.service || scope?.integration
+    ? "Open this metric, filtered as the check sees it"
+    : "Open this metric with the check's own filters, across every service reporting it";
 }

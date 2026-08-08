@@ -25,7 +25,7 @@ import SearchableSelect from "../SearchableSelect";
 import { EditDrawer } from "../primitives";
 import { anchorTransform, useAnchoredPosition } from "../primitives/useAnchoredPosition";
 import { CHECK_PARAM } from "../../lib/checkEditHref";
-import { metricCheckHref as metricHref } from "../../lib/metricCheckHref";
+import { metricCheckHref as metricHref, metricCheckLinkTitle } from "../../lib/metricCheckHref";
 import AttributeSuggest from "../logs/AttributeSuggest";
 import FilterChip from "../logs/FilterChip";
 import { AGG_LABELS, ALERT_AGGREGATIONS } from "../../lib/aggregations";
@@ -144,12 +144,18 @@ export function barStateClass(rule: { severity: string; enabled: boolean }, isFi
 export default function HealthChecks({
   scope,
   target,
+  targetLabel,
   window: win,
   reloadKey,
   onChanged,
 }: {
   scope: CheckScope;
   target: string;
+  // Human name of the target, when `target` is an id. Only the metrics
+  // deep link needs it: the catalogue narrows by integration NAME, and a
+  // rule carries ids, so without this the link cannot say which
+  // integration's services the check was judging.
+  targetLabel?: string;
   window: string;
   // Bump to force a re-fetch when checks change outside this component
   // (e.g. a monitoring template is applied on the parent edit screen).
@@ -180,6 +186,17 @@ export default function HealthChecks({
   const [creating, setCreating] = useState<CheckKind | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // What the "view metric" link can say about this scope. The metric
+  // catalogue narrows by service and by integration; there is no system
+  // dimension, so a system's checks link out unscoped and the tooltip
+  // says so rather than promising a filter that is not in the URL.
+  const linkScope =
+    scope === "service"
+      ? { service: target }
+      : scope === "integration" && targetLabel
+        ? { integration: targetLabel }
+        : undefined;
 
   const refresh = useCallback(() => {
     setLoading(true);
@@ -388,16 +405,19 @@ export default function HealthChecks({
                   </div>
                   <span className={`m-rule-badge sev-${rule.severity}`}>{rule.severity}</span>
                   {/* The telemetry behind the check, pre-filtered to the
-                      metric and the rule's own attribute predicates, and
-                      widened to cover the firing so the onset is on
-                      screen rather than off the left edge. Only for
-                      metric checks — the others have no single series to
-                      open. */}
-                  {metricHref(rule, firing.get(rule.id)) && (
-                    <Link className="m-ex-tgt" to={metricHref(rule, firing.get(rule.id))!} title="Open this metric, filtered as the check sees it">
-                      view metric →
-                    </Link>
-                  )}
+                      metric, the rule's own attribute predicates and the
+                      scope it is bound to, and widened to cover the
+                      firing so the onset is on screen rather than off the
+                      left edge. Only for metric checks — the others have
+                      no single series to open. */}
+                  {(() => {
+                    const href = metricHref(rule, firing.get(rule.id), linkScope);
+                    return href ? (
+                      <Link className="m-ex-tgt" to={href} title={metricCheckLinkTitle(linkScope)}>
+                        view metric →
+                      </Link>
+                    ) : null;
+                  })()}
                   <button className="m-ex-tgt" type="button" onClick={() => { setCreating(null); setEditing(rule); }}>edit</button>
                   <button className="m-ex-tgt" type="button" onClick={() => remove(rule.id)}>remove</button>
                 </div>
