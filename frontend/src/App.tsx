@@ -35,6 +35,7 @@ import Developers from "./pages/Developers";
 import ServiceTypeDetail from "./pages/ServiceTypeDetail";
 import ServiceTypes from "./pages/ServiceTypes";
 import StuckMessages from "./pages/StuckMessages";
+import NotFound from "./pages/NotFound";
 import Tags from "./pages/Tags";
 import Topology from "./pages/Topology";
 import TraceDetail from "./pages/TraceDetail";
@@ -121,6 +122,9 @@ export default function App() {
             </RequireOperator>
           }
         />
+        {/* Catch-all. Without it an unknown path rendered the shell with
+            an empty outlet: a blank page, no message, nothing logged. */}
+        <Route path="*" element={<NotFound />} />
         </Route>
       </Routes>
     </UserProvider>
