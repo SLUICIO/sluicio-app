@@ -3,8 +3,16 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.87 — 2026-08-08
+
+- feat(integrations): a Metrics tab on the integration (6560508)
+- fix(metrics): "view metric" carries the scope the check is bound to (3d010ea)
+- fix(seed): let the file-transfer demo choose which nights it missed (885ec65)
+- fix(integrations): a tag filter no longer reads as "showing all" (cf9170e)
+
 ## v0.11.86 — 2026-08-08
 
+- release v0.11.86 — refresh internal changelog (26e1afb)
 - fix(onboarding): the collector snippet no longer fails to start on current collectors (9ae16f5)
 
 ## v0.11.85 — 2026-08-08
