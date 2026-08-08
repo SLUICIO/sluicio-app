@@ -1381,23 +1381,41 @@ function IngestKeysTab() {
   if (error) return <div className="alert alert--error">Failed to load: {error}</div>;
   if (!keys) return <div className="placeholder">Loading…</div>;
 
-  // A paste-ready OpenTelemetry Collector config: the otlphttp exporter
+  // A paste-ready OpenTelemetry Collector config: the OTLP/HTTP exporter
   // pointed at this cell (ingestBase = configured ingest URL or the
   // browser origin) with the real key baked in, plus the pipeline wiring
   // so traces/metrics/logs actually export.
+  //
+  // The exporter's TYPE NAME is not stable across collector versions:
+  // `otlphttp` was removed in v0.146.0 and `otlp_http` does not exist
+  // before it. There is no spelling that works on both, so this snippet
+  // cannot be silently correct — it has to say which is which.
+  //
+  // We lead with the current name, because someone setting Sluicio up
+  // today is installing a current collector. The older name is given as
+  // a commented one-line swap rather than a second code block, so the
+  // fix is visible to anyone whose collector refuses to start without
+  // sending them back to this page to hunt for it.
+  //
+  // Issue #16 replaces this with a version-aware snippet once the
+  // collector version is a known setting; until then the comment is the
+  // honest form.
   const collectorSnippet = (key: string) =>
     [
       "exporters:",
-      "  otlphttp:",
+      "  # On collector versions before v0.146.0, this exporter is",
+      "  # named `otlphttp` (no underscore) — rename it below and in",
+      "  # the three pipelines if yours fails to start.",
+      "  otlp_http:",
       `    endpoint: ${ingestBase}`,
       "    headers:",
       `      Authorization: "Bearer ${key}"`,
       "",
       "service:",
       "  pipelines:",
-      "    traces:  { exporters: [otlphttp] }",
-      "    metrics: { exporters: [otlphttp] }",
-      "    logs:    { exporters: [otlphttp] }",
+      "    traces:  { exporters: [otlp_http] }",
+      "    metrics: { exporters: [otlp_http] }",
+      "    logs:    { exporters: [otlp_http] }",
     ].join("\n");
 
   // The OpenTelemetry SDK env-var form, for apps instrumented directly
