@@ -3,8 +3,14 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.85 — 2026-08-08
+
+- fix(seed): give the file-transfer demo a readable gap as well as a red check (a6e2bbf)
+- fix(routing): show a page instead of nothing for an unknown URL (189dc87)
+
 ## v0.11.84 — 2026-08-07
 
+- release v0.11.84 — refresh internal changelog (84ed1d5)
 - fix(trace): mark the service in the flow when a waterfall row is picked (728fd51)
 
 ## v0.11.83 — 2026-08-07
