@@ -2706,6 +2706,32 @@ export interface AdvisorSuggestionsResponse {
   ledger: AdvisorLedger;
 }
 
+/** One bucket of an integration's error attribution (issue #12). */
+export interface ErrorBreakdownBucket {
+  value: string;
+  errors: number;
+}
+
+/** Where an integration's failures are coming from, attributed to
+ *  something more specific than the service they ran on.
+ *
+ *  `dimension` is NOT fixed. An integration spanning several services is
+ *  split by service; one carried by a single service is split by its
+ *  defining attribute when that discriminates, and otherwise by the
+ *  operation that failed. `reason` says which, because a number whose
+ *  meaning changes between integrations is not interpretable without it. */
+export interface ErrorBreakdownResponse {
+  window: Window;
+  dimension: "service" | "attribute" | "span";
+  attribute_key?: string;
+  reason: string;
+  buckets: ErrorBreakdownBucket[];
+  /** Distinct failing traces. The buckets can sum to MORE than this: a
+   *  trace that failed at two operations is counted at both, because the
+   *  question is where it failed. Never derive a total by adding rows. */
+  error_traces: number;
+}
+
 /** The advisor's demand-history status.
  *
  *  `days` alone is not enough to write a sentence with, because zero has

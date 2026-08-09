@@ -3606,3 +3606,172 @@ func (s *Store) MetricAggregateGrouped(ctx context.Context, metricName string, a
 	}
 	return out, rows.Err()
 }
+
+// ── Error attribution by dimension (issue #12) ───────────────────────
+
+// ErrorDimension names what an error breakdown groups by. Spelled as a
+// type rather than a bare string so a caller cannot pass an arbitrary
+// column name into the query builder.
+type ErrorDimension struct {
+	// AttributeKey groups by the value of one span/resource attribute.
+	// Empty means group by span name instead.
+	AttributeKey string
+}
+
+// ErrorBucket is one row of an error breakdown: a dimension value and
+// how many of the integration's failing traces carry it.
+type ErrorBucket struct {
+	Value  string
+	Errors uint64
+}
+
+// ErrorTracesByDimension groups an integration's FAILING traces by
+// something more specific than the service they ran on.
+//
+// Membership is per-trace and matches ServiceTraceCountsFiltered exactly:
+// a trace belongs to the integration when some span on some member
+// service satisfies the attribute predicate. Any other definition would
+// disagree with the counts rendered beside this breakdown, which was the
+// substance of the bug 3f91fcd fixed.
+//
+// The bucket is taken from the ERRORING span, not from the trace, because
+// the question is "where did it fail", not "what was this trace about".
+// A trace that failed in two different flows therefore counts in both,
+// so the buckets can sum to more than the trace total. That is the
+// honest arithmetic for this question and the caller must not present
+// the sum as a total.
+func (s *Store) ErrorTracesByDimension(
+	ctx context.Context,
+	services []string,
+	from, to time.Time,
+	attrGroups [][]LogAttrFilter,
+	dim ErrorDimension,
+	limit int,
+) ([]ErrorBucket, error) {
+	if len(services) == 0 {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+
+	placeholders := make([]string, len(services))
+	for i := range services {
+		placeholders[i] = "?"
+	}
+	in := strings.Join(placeholders, ",")
+
+	// The grouping expression. An attribute is looked up on the span
+	// first and the resource second, matching how a payload filter
+	// resolves it, so a breakdown agrees with the search that produced
+	// the integration.
+	group := "SpanName"
+	var groupArgs []any
+	if dim.AttributeKey != "" {
+		group = "coalesce(nullIf(SpanAttributes[?], ''), ResourceAttributes[?])"
+		groupArgs = []any{dim.AttributeKey, dim.AttributeKey}
+	}
+
+	args := []any{}
+	args = append(args, groupArgs...)
+	args = append(args, from, to)
+	for _, n := range services {
+		args = append(args, n)
+	}
+	// Membership subquery: same window, same services, same predicate.
+	args = append(args, from, to)
+	for _, n := range services {
+		args = append(args, n)
+	}
+	attrSQL := ""
+	if clause, cargs := attrGroupsClause("SpanAttributes", attrGroups); clause != "" {
+		attrSQL = " AND " + clause
+		args = append(args, cargs...)
+	}
+
+	q := `
+		SELECT ` + group + ` AS dim,
+		       toUInt64(uniqExact(TraceId)) AS errors
+		FROM traces
+		WHERE Timestamp >= ? AND Timestamp <= ?
+		  AND ServiceName IN (` + in + `)
+		  AND StatusCode = 'Error'
+		  AND TraceId IN (
+		      SELECT TraceId FROM traces
+		      WHERE Timestamp >= ? AND Timestamp <= ?
+		        AND ServiceName IN (` + in + `)` + attrSQL + `
+		  )
+		GROUP BY dim
+		HAVING dim != ''
+		ORDER BY errors DESC
+		LIMIT ` + strconv.Itoa(limit)
+
+	rows, err := s.conn.Query(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("error traces by dimension: %w", err)
+	}
+	defer rows.Close()
+	out := []ErrorBucket{}
+	for rows.Next() {
+		var b ErrorBucket
+		if err := rows.Scan(&b.Value, &b.Errors); err != nil {
+			return nil, err
+		}
+		out = append(out, b)
+	}
+	return out, rows.Err()
+}
+
+// ErrorTraceTotalFiltered counts an integration's DISTINCT failing
+// traces across all its member services.
+//
+// Exists because the breakdown's buckets must not be summed to get a
+// total: a trace that failed on two dimension values is counted in both
+// buckets, deliberately, so adding them up overcounts. The total is
+// therefore its own question with its own query.
+func (s *Store) ErrorTraceTotalFiltered(
+	ctx context.Context,
+	services []string,
+	from, to time.Time,
+	attrGroups [][]LogAttrFilter,
+) (uint64, error) {
+	if len(services) == 0 {
+		return 0, nil
+	}
+	placeholders := make([]string, len(services))
+	for i := range services {
+		placeholders[i] = "?"
+	}
+	in := strings.Join(placeholders, ",")
+
+	args := []any{from, to}
+	for _, n := range services {
+		args = append(args, n)
+	}
+	args = append(args, from, to)
+	for _, n := range services {
+		args = append(args, n)
+	}
+	attrSQL := ""
+	if clause, cargs := attrGroupsClause("SpanAttributes", attrGroups); clause != "" {
+		attrSQL = " AND " + clause
+		args = append(args, cargs...)
+	}
+
+	q := `
+		SELECT toUInt64(uniqExact(TraceId))
+		FROM traces
+		WHERE Timestamp >= ? AND Timestamp <= ?
+		  AND ServiceName IN (` + in + `)
+		  AND StatusCode = 'Error'
+		  AND TraceId IN (
+		      SELECT TraceId FROM traces
+		      WHERE Timestamp >= ? AND Timestamp <= ?
+		        AND ServiceName IN (` + in + `)` + attrSQL + `
+		  )`
+	var n uint64
+	if err := s.conn.QueryRow(ctx, q, args...).Scan(&n); err != nil {
+		return 0, fmt.Errorf("error trace total filtered: %w", err)
+	}
+	return n, nil
+}

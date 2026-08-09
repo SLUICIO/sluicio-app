@@ -14,9 +14,10 @@
 // service error counts and let the inspector show the underlying
 // span messages.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import type { ServiceSummary } from "../api/types";
+import { api } from "../api/client";
+import type { ErrorBreakdownResponse, ServiceSummary } from "../api/types";
 import { formatNumber } from "../lib/format";
 import { useCurrentUser } from "../lib/useCurrentUser";
 import CreateTraceAlertDrawer from "./CreateTraceAlertDrawer";
@@ -37,17 +38,128 @@ interface Props {
   integrationId: string;
   services: ServiceSummary[];
   onJumpToService?: (serviceName: string) => void;
+  /** Time window, so the attribution matches the rest of the page. */
+  window?: string;
 }
 
 export default function ErrorBreakdown({
   integrationId,
   services,
   onJumpToService,
+  window: windowVal = "1h",
 }: Props) {
   const { can } = useCurrentUser();
   const canWrite = can("integration.write");
   const [showAlert, setShowAlert] = useState(false);
+  // Server-side attribution (issue #12). Only used when it reports a
+  // dimension other than "service"; the per-service view below is still
+  // the right answer for an integration that spans several services,
+  // and re-deriving it here would be a second source of truth for a
+  // number already on the page.
+  const [attribution, setAttribution] = useState<ErrorBreakdownResponse | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .integrationErrorBreakdown(integrationId, windowVal)
+      .then((r) => !cancelled && setAttribution(r))
+      .catch(() => !cancelled && setAttribution(null));
+    return () => {
+      cancelled = true;
+    };
+  }, [integrationId, windowVal]);
   const total = services.reduce((acc, s) => acc + s.error_trace_count, 0);
+  // Computed BEFORE the "no error traces" early return below, which
+  // sums per-service counts that respect the acknowledgement watermark.
+  // The page header counts raw failing traces in the window, so an
+  // integration whose errors were acknowledged showed "3 error traces"
+  // at the top and "No error traces 🎉" immediately underneath. The
+  // server attribution agrees with the header, so it has to be able to
+  // speak before the client-side sum declares the all-clear.
+  // One service carrying this integration: "100% of failures come from
+  // <the runtime>" is true and useless, so the server splits the
+  // failures by the defining attribute or by the operation instead.
+  const byDimension =
+    attribution && attribution.dimension !== "service" && attribution.buckets.length > 0
+      ? attribution
+      : null;
+
+  if (byDimension) {
+    const max = Math.max(...byDimension.buckets.map((b) => b.errors), 1);
+    const top = byDimension.buckets[0];
+    const label = byDimension.dimension === "attribute" ? byDimension.attribute_key : "operation";
+    return (
+      <div className="space-y-3">
+        <div>
+          <h3 className="text-lg font-semibold">Where are the error traces?</h3>
+          <p className="text-xs text-muted">
+            {formatNumber(byDimension.error_traces)} failing trace
+            {byDimension.error_traces === 1 ? "" : "s"} · {byDimension.reason}
+          </p>
+        </div>
+
+        <div
+          className="rounded-xl p-3"
+          style={{
+            borderLeft: "4px solid var(--err)",
+            background: "var(--err-soft)",
+            color: "var(--err-ink)",
+          }}
+        >
+          <div className="text-base leading-snug">
+            Most failures are at <span className="font-semibold">{top.value}</span> ({formatNumber(top.errors)}).
+          </div>
+          <div className="mt-2 text-sm">
+            <Link
+              to={`/integrations/${encodeURIComponent(integrationId)}/messages${ERRORS_ONLY_QUERY}`}
+              className="font-medium underline-offset-2 hover:underline"
+              style={{ color: "var(--err-ink)" }}
+            >
+              see all {formatNumber(byDimension.error_traces)} failed →
+            </Link>
+          </div>
+        </div>
+
+        <div className="space-y-1.5">
+          {byDimension.buckets.map((b) => (
+            <div key={b.value} className="flex items-center gap-3 text-sm">
+              <span className="min-w-0 flex-1 truncate" title={b.value}>{b.value}</span>
+              {/* Bars are scaled to the LARGEST bucket, not to a total.
+                  A trace that failed at two operations is counted at
+                  both, so the rows deliberately sum to more than the
+                  trace count and a percentage would read as nonsense. */}
+              <span
+                aria-hidden
+                style={{
+                  height: 6,
+                  width: `${(b.errors / max) * 120}px`,
+                  background: "var(--err)",
+                  borderRadius: 3,
+                  flex: "none",
+                }}
+              />
+              <span className="w-10 text-right font-mono text-xs text-muted">
+                {formatNumber(b.errors)}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        <p className="text-xs text-muted">
+          A trace that failed at more than one {label} is counted at each, so these add up to more
+          than {formatNumber(byDimension.error_traces)}.
+        </p>
+
+        {showAlert && (
+          <CreateTraceAlertDrawer
+            integrationId={integrationId}
+            onClose={() => setShowAlert(false)}
+          />
+        )}
+      </div>
+    );
+  }
+
+
   if (total === 0) {
     // No error traces in the window — but a service can still be unhealthy
     // from a firing health check (metric/log) with zero error traces. Say

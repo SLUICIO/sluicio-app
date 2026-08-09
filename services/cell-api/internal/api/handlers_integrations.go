@@ -1413,3 +1413,125 @@ func (h *Handlers) cloneIntegration(w http.ResponseWriter, r *http.Request) {
 		"copied_group_access": scope.GroupAccess,
 	})
 }
+
+// ErrorBreakdownBucket is one row of an integration's error attribution.
+type ErrorBreakdownBucket struct {
+	Value  string `json:"value"`
+	Errors uint64 `json:"errors"`
+}
+
+// ErrorBreakdownResponse attributes an integration's failures to
+// something more specific than the service they ran on (issue #12).
+type ErrorBreakdownResponse struct {
+	Window WindowSummary `json:"window"`
+	// Dimension is "service", "attribute" or "span". It is not fixed:
+	// see ChooseErrorDimension for why, and Reason for what to tell the
+	// reader on this particular integration.
+	Dimension string `json:"dimension"`
+	// AttributeKey is set only when Dimension is "attribute".
+	AttributeKey string `json:"attribute_key,omitempty"`
+	Reason       string `json:"reason"`
+	Buckets      []ErrorBreakdownBucket `json:"buckets"`
+	// ErrorTraces is the number of DISTINCT failing traces. The buckets
+	// can sum to more than this: a trace that failed in two flows is
+	// counted in both, because the question is where it failed rather
+	// than what it was. Reported separately so nothing has to derive a
+	// total by adding rows up, which would overcount.
+	ErrorTraces uint64 `json:"error_traces"`
+}
+
+// integrationErrorBreakdown: GET /api/v1/integrations/{id}/error-breakdown
+func (h *Handlers) integrationErrorBreakdown(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid integration id")
+		return
+	}
+	tr := ParseRange(r, time.Hour)
+	orgID := middleware.OrgID(r)
+
+	if _, err := h.Integrations.Get(r.Context(), orgID, id); err != nil {
+		if errors.Is(err, integrations.ErrNotFound) {
+			httpserver.WriteError(w, http.StatusNotFound, "integration not found")
+			return
+		}
+		h.Logger.Error("get integration for error breakdown failed", "err", err)
+		httpserver.WriteError(w, http.StatusInternalServerError, "query failed")
+		return
+	}
+
+	memberNames, mErr := h.Catalog.IntegrationServices(r.Context(), id)
+	if mErr != nil {
+		h.Logger.Warn("read integration_services for error breakdown failed", "err", mErr)
+	}
+	visible, anyVisible := h.filterVisibleMembers(r, memberNames)
+	if !anyVisible {
+		httpserver.WriteError(w, http.StatusNotFound, "integration not found")
+		return
+	}
+	memberNames = visible
+
+	attrGroups := h.integrationGroups(r.Context(), id)
+
+	var definingAttrs []string
+	if ms, err := h.Integrations.MatchersForIntegration(r.Context(), id); err == nil {
+		definingAttrs = DefiningAttributes(ms)
+	} else {
+		h.Logger.Warn("matchers for error breakdown failed", "err", err)
+	}
+
+	// Whether the defining attribute actually discriminates is a
+	// question about the DATA, not about the matchers: an `equals`
+	// matcher pins one value while a regex or an `in` list can match
+	// many. Asked only when it could change the answer.
+	discriminates := false
+	var attrBuckets []store.ErrorBucket
+	if len(memberNames) == 1 && len(definingAttrs) > 0 {
+		attrBuckets, err = h.Store.ErrorTracesByDimension(
+			r.Context(), memberNames, tr.From, tr.To, attrGroups,
+			store.ErrorDimension{AttributeKey: definingAttrs[0]}, 50)
+		if err != nil {
+			h.Logger.Warn("attribute error breakdown failed", "err", err)
+		}
+		discriminates = len(attrBuckets) > 1
+	}
+
+	choice := ChooseErrorDimension(len(memberNames), definingAttrs, discriminates)
+
+	var buckets []store.ErrorBucket
+	switch choice.Kind {
+	case ErrorDimAttribute:
+		buckets = attrBuckets // already fetched to answer `discriminates`
+	case ErrorDimSpan:
+		buckets, err = h.Store.ErrorTracesByDimension(
+			r.Context(), memberNames, tr.From, tr.To, attrGroups,
+			store.ErrorDimension{}, 50)
+		if err != nil {
+			h.Logger.Error("span error breakdown failed", "err", err)
+			httpserver.WriteError(w, http.StatusInternalServerError, "query failed")
+			return
+		}
+	}
+	// ErrorDimService is left to the per-service summaries the page
+	// already has: re-deriving them here would be a second source of
+	// truth for a number that is already on screen.
+
+	out := make([]ErrorBreakdownBucket, 0, len(buckets))
+	for _, b := range buckets {
+		out = append(out, ErrorBreakdownBucket{Value: b.Value, Errors: b.Errors})
+	}
+
+	total, tErr := h.Store.ErrorTraceTotalFiltered(r.Context(), memberNames, tr.From, tr.To, attrGroups)
+	if tErr != nil {
+		h.Logger.Warn("error trace total failed", "err", tErr)
+	}
+
+	httpserver.WriteJSON(w, http.StatusOK, ErrorBreakdownResponse{
+		Window:       tr.Window(),
+		Dimension:    choice.Kind,
+		AttributeKey: choice.AttributeKey,
+		Reason:       choice.Reason,
+		Buckets:      out,
+		ErrorTraces:  total,
+	})
+}

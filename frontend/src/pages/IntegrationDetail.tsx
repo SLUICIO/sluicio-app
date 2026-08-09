@@ -402,6 +402,7 @@ export default function IntegrationDetailPage() {
                 integrationId={id}
                 services={data.services ?? []}
                 onJumpToService={(name) => setSelectedService(name)}
+                window={windowVal}
               />
             </section>
           )}

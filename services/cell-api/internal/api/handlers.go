@@ -961,6 +961,7 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/integrations/{id}/attribute-keys", h.integrationAttributeKeys)
 	mux.HandleFunc("GET /api/v1/integrations/{id}/attribute-values", h.integrationAttributeValues)
 	mux.HandleFunc("GET /api/v1/integrations/{id}/flow", h.integrationFlow)
+	mux.HandleFunc("GET /api/v1/integrations/{id}/error-breakdown", h.integrationErrorBreakdown)
 	// Org-wide service topology graph (visibility-filtered inside the handler).
 	mux.HandleFunc("GET /api/v1/topology", h.topologyGraph)
 	// Metadata relationship graph: integrations ↔ metadata values + tags.

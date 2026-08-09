@@ -5,6 +5,7 @@
 
 import type {
   AdvisorLedger,
+  ErrorBreakdownResponse,
   AdvisorSuggestion,
   AdvisorSuggestionsResponse,
   Announcement,
@@ -451,6 +452,10 @@ export const api = {
   getMetadataGraph: () => get<MetaGraphResponse>(`/metadata-graph`),
   // `trace` projects one message onto the graph (issue #15): the same
   // nodes and edges come back, plus a per-node state for that message.
+  integrationErrorBreakdown: (id: string, window: string = "1h") =>
+    get<ErrorBreakdownResponse>(
+      `/integrations/${encodeURIComponent(id)}/error-breakdown?range=${encodeURIComponent(window)}`
+    ),
   integrationFlow: (id: string, window: string = "1h", trace?: string) =>
     get<FlowResponse>(
       `/integrations/${encodeURIComponent(id)}/flow?range=${encodeURIComponent(window)}` +
