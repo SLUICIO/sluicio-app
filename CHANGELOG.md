@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.91 — 2026-08-09
+
+- feat(traces): store span links, so a hand-off stops looking like a stop (f14cfc4)
+
 ## v0.11.90 — 2026-08-09
 
+- release v0.11.90 — refresh internal changelog (7c44c00)
 - feat(mcp): let an agent see its own proposal queue and the candidates (ed2052b)
 - feat(proposals): create-proposal plumbing and cell-surfaced candidates (dac5cb0)
 - feat(proposals): find candidate integrations from the call graph (0586c9c)
