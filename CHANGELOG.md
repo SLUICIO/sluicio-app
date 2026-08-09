@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.92 — 2026-08-09
+
+- feat(traces): draw a trace as a graph of steps, not only a waterfall (87112b1)
+
 ## v0.11.91 — 2026-08-09
 
+- release v0.11.91 — refresh internal changelog (1165bf0)
 - feat(traces): store span links, so a hand-off stops looking like a stop (f14cfc4)
 
 ## v0.11.90 — 2026-08-09
