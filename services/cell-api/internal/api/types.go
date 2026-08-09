@@ -178,6 +178,17 @@ type TraceDetail struct {
 	TraceID   string        `json:"trace_id"`
 	Spans     []SpanSummary `json:"spans"`
 	Truncated bool          `json:"truncated,omitempty"`
+	// LinksRecordedSince is when this cell began storing span links.
+	// A trace that ran entirely before it has UNKNOWN hand-offs; one
+	// that ran after has none, which is a fact rather than a gap.
+	//
+	// Needed because an empty link array cannot tell those apart on its
+	// own: migration 0008 gave every existing row an empty array, so a
+	// span with no links and a span stored before links existed are
+	// byte-identical. Without this the UI could only guess, and it
+	// guessed wrong -- every hand-off-free trace claimed to predate the
+	// feature.
+	LinksRecordedSince *time.Time `json:"links_recorded_since,omitempty"`
 }
 
 // FlowNode is one service in the flow graph.
@@ -363,7 +374,7 @@ type SpanSummary struct {
 	// Absent means UNKNOWN, not "none": links were not stored before
 	// v0.11.91 and there is no backfill, so a span ingested earlier will
 	// never report any. Anything drawing hand-offs must say so.
-	Links []SpanLink `json:"links,omitempty"`
+	Links []SpanLink `json:"links"`
 	// LinksTotal is how many links the span carried before truncation at
 	// ingest. Greater than len(Links) means the rest were dropped, and
 	// the reader has to say "showing N of M" rather than presenting the

@@ -25,6 +25,8 @@ const PAD = 16;
 
 interface Props {
   spans: SpanSummary[];
+  /** When this cell began storing span links. See buildSpanGraph. */
+  linksRecordedSince?: string;
   selectedSpanId?: string | null;
   onSelect?: (spanId: string) => void;
 }
@@ -57,8 +59,11 @@ function depths(nodes: SpanNode[]): Map<string, number> {
   return out;
 }
 
-export default function SpanGraph({ spans, selectedSpanId, onSelect }: Props) {
-  const graph = useMemo(() => buildSpanGraph(spans), [spans]);
+export default function SpanGraph({ spans, linksRecordedSince, selectedSpanId, onSelect }: Props) {
+  const graph = useMemo(
+    () => buildSpanGraph(spans, linksRecordedSince),
+    [spans, linksRecordedSince],
+  );
   const refusal = graphRefusal(graph);
 
   const layout = useMemo(() => {

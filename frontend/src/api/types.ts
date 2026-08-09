@@ -412,6 +412,10 @@ export interface ServiceErrorAck {
 
 export interface TraceDetailResponse {
   trace_id: string;
+  /** When this cell began storing span links. A trace that ran entirely
+   *  before it has UNKNOWN hand-offs; one that ran after has none. An
+   *  empty link array cannot tell those apart on its own. */
+  links_recorded_since?: string;
   spans: SpanSummary[];
   // truncated=true when the trace had more spans than the server-side
   // cap. UI renders a banner so a 50K-span runaway trace doesn't look

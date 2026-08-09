@@ -256,7 +256,7 @@ export default function TraceDrawer({
                 style={{ color: "var(--primary)" }}
                 title="Show where this message got to on the integration's flow graph"
               >
-                show on flow →
+                where is it? →
               </Link>
             )}
             <Link

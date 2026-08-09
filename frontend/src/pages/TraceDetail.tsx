@@ -84,10 +84,15 @@ export default function TraceDetail() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedSpan, setSelectedSpan] = useState<string | null>(null);
-  // Which view of the trace is on screen. Defaults to the service flow,
-  // which is the established one; the span graph is the new answer to a
-  // different question rather than a replacement.
-  const [graphView, setGraphView] = useState(false);
+  // Which view of the trace is on screen.
+  //
+  // Steps leads, because it answers the question people arrive with:
+  // what happened to my message. The service flow answers which services
+  // it crossed, which the reader usually already knows -- they clicked
+  // through from one. The service view stays one click away rather than
+  // being removed; it is the better picture when a trace spans many
+  // services and you care about the boundaries rather than the steps.
+  const [graphView, setGraphView] = useState(true);
   const [integrationContextName, setIntegrationContextName] = useState<string | null>(null);
   const [trimOpen, setTrimOpen] = useState(false);
   const keyAttrs = useKeyAttributes();
@@ -474,6 +479,7 @@ export default function TraceDetail() {
                 {graphView ? (
                   <SpanGraph
                     spans={data.spans}
+                    linksRecordedSince={data.links_recorded_since}
                     selectedSpanId={selectedSpan}
                     onSelect={(id) => setSelectedSpan(id)}
                   />

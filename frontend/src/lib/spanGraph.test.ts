@@ -112,26 +112,43 @@ describe("concurrency", () => {
 
 describe("hand-offs", () => {
   it("draws a link as a hand-off, not as nesting", () => {
-    const g = buildSpanGraph([
-      span({ span_id: "a", links: [{ trace_id: "other", span_id: "far" }] }),
-    ]);
+    const g = buildSpanGraph(
+      [span({ span_id: "a", links: [{ trace_id: "other", span_id: "far" }] })],
+      at(0),
+    );
     expect(g.handoffs).toEqual([{ from: "a", traceId: "other", spanId: "far" }]);
     expect(g.edges).toHaveLength(0);
     expect(g.handoffsUnknown).toBe(false);
   });
 
-  it("says hand-offs are UNKNOWN for a trace stored before links existed", () => {
-    // The critical distinction. There is no backfill, so an older trace
-    // reports nothing whether or not it had hand-offs, and presenting
-    // that silence as "none" would be a confident lie in exactly the
-    // scenario this feature exists for.
-    const g = buildSpanGraph([span({ span_id: "a" })]);
-    expect(g.handoffsUnknown).toBe(true);
-    expect(g.handoffs).toHaveLength(0);
+  it("says hand-offs are UNKNOWN only for a trace that predates link storage", () => {
+    // The critical distinction, and the one the first version got
+    // wrong. An empty link array is ambiguous: the migration gave every
+    // pre-existing row one, so "had none" and "was never recorded" are
+    // byte-identical. Only the trace's own age can tell them apart.
+    const old = buildSpanGraph([span({ span_id: "a", timestamp: at(0) })], at(1000));
+    expect(old.handoffsUnknown).toBe(true);
   });
 
-  it("knows the difference between no links and no link data", () => {
-    const g = buildSpanGraph([span({ span_id: "a", links: [] })]);
+  it("does NOT caveat a modern trace that simply has no hand-offs", () => {
+    // The bug this replaces: every ordinary message claimed to predate
+    // the feature, which is both false and the kind of caveat that
+    // teaches people to ignore caveats.
+    const fresh = buildSpanGraph([span({ span_id: "a", timestamp: at(5000) })], at(1000));
+    expect(fresh.handoffsUnknown).toBe(false);
+    expect(fresh.handoffs).toHaveLength(0);
+  });
+
+  it("treats everything as unknown when the cell never recorded links", () => {
+    const g = buildSpanGraph([span({ span_id: "a" })]);
+    expect(g.handoffsUnknown).toBe(true);
+  });
+
+  it("never caveats a trace that HAS hand-offs", () => {
+    const g = buildSpanGraph(
+      [span({ span_id: "a", timestamp: at(0), links: [{ trace_id: "o", span_id: "f" }] })],
+      at(1000),
+    );
     expect(g.handoffsUnknown).toBe(false);
   });
 });

@@ -2381,11 +2381,15 @@ func (h *Handlers) traceDetail(w http.ResponseWriter, r *http.Request) {
 	// the whole span, not on any one field of it.
 	h.recordDemandServices(r, demand.SignalTrace, spanServices(rows))
 
-	httpserver.WriteJSON(w, http.StatusOK, TraceDetail{
+	out := TraceDetail{
 		TraceID:   traceID,
 		Spans:     toSpanSummaries(rows),
 		Truncated: truncated,
-	})
+	}
+	if since, err := h.Store.LinksRecordedSince(r.Context()); err == nil && !since.IsZero() {
+		out.LinksRecordedSince = &since
+	}
+	httpserver.WriteJSON(w, http.StatusOK, out)
 }
 
 // helpers

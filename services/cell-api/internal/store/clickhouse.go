@@ -3793,3 +3793,28 @@ func (s *Store) ErrorTraceTotalFiltered(
 	}
 	return n, nil
 }
+
+// LinksRecordedSince returns when this cell began storing span links,
+// or the zero time if it never has.
+//
+// Needed because an empty link array is AMBIGUOUS. Migration 0008 gave
+// every existing row an empty array, so a span with no links and a span
+// stored before links existed are byte-identical. Without this, the UI
+// could only guess, and it guessed wrong: every hand-off-free trace
+// claimed to predate the feature.
+//
+// The migration's own applied_at is the boundary. A trace that ran
+// entirely before it has genuinely unknown hand-offs; one that ran after
+// it has none, and that is a fact rather than a gap.
+func (s *Store) LinksRecordedSince(ctx context.Context) (time.Time, error) {
+	var t time.Time
+	err := s.conn.QueryRow(ctx,
+		`SELECT applied_at FROM schema_migrations WHERE version = '0008_span_links' LIMIT 1`).Scan(&t)
+	if err != nil {
+		// Not applied yet, or the table is shaped differently on an old
+		// cell. Zero means "never", which makes every trace unknown --
+		// the conservative direction.
+		return time.Time{}, nil
+	}
+	return t, nil
+}
