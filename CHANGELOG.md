@@ -3,8 +3,15 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.89 — 2026-08-09
+
+- feat(collector): generate snippets for the collector the customer runs (1e6d880)
+- feat(health): report whether this cell is actually doing its job (a26068e)
+- feat(errors): attribute an integration's failures to the flow, not the runtime (e24a006)
+
 ## v0.11.88 — 2026-08-09
 
+- release v0.11.88 — refresh internal changelog (50ad62a)
 - fix(health): keep every check's actions on one line (79b8a1f)
 
 ## v0.11.87 — 2026-08-08
