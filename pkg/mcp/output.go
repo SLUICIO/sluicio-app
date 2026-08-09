@@ -485,3 +485,39 @@ func structuredResult(name, body string) (map[string]any, error) {
 	}
 	return out, nil
 }
+
+// listProposalsOut describes the agent's own queue (issue #10).
+//
+// The states matter more than the fields: an agent that cannot tell
+// "already pending" from "a human rejected this" will re-file the
+// second kind, which spends a reviewer's attention on a decision they
+// already made.
+var listProposalsOut = outSchema(map[string]any{
+	"proposals": arrOf("Proposals filed against this org, newest first.", map[string]any{
+		"id":                strOut("Proposal id (uuid)."),
+		"target_kind":       strOut("What kind of thing it changes, e.g. alert_rule."),
+		"target_id":         strOut("The thing it changes. ABSENT when the proposal would CREATE something new."),
+		"target_label":      strOut("Human-readable name of the target, or of what would be created."),
+		"rationale":         strOut("Why it was proposed, shown verbatim to the reviewer."),
+		"state":             strOut("pending | approved | rejected | expired | superseded. Only pending awaits a decision; re-filing something rejected wastes the reviewer's attention."),
+		"proposed_by_label": strOut("Who or what filed it."),
+		"dedup_key":         strOut("Identifies what a CREATE proposal would create. An identical pending proposal is refused as a duplicate."),
+		"expires_at":        strOut("When it stops being reviewable (RFC3339)."),
+		"created_at":        strOut("When it was filed (RFC3339)."),
+	}),
+})
+
+// integrationCandidatesOut describes groupings derived from the call
+// graph, deliberately labelled as candidates rather than conclusions.
+var integrationCandidatesOut = outSchema(map[string]any{
+	"candidates": arrOf("Groups of services that call each other and belong to no integration.", map[string]any{
+		"services":        strArr("The service names in this group, sorted."),
+		"internal_traces": intOut("Traces observed on hops INSIDE the group. This is the evidence the grouping exists; cite it in a rationale."),
+		"dedup_key":       strOut("Matches what a create proposal for this grouping would use, so you can check sluicio_list_proposals before filing."),
+	}),
+	"unassigned_services": intOut("How many services belong to no integration at all. Lets you tell 'nothing to suggest' from 'nothing left to assign'."),
+	"skipped_oversized": arrOf("Groupings too large to be useful, usually a hub service chaining unrelated flows together. Reported so a cap does not read as 'nothing else to find'.", map[string]any{
+		"services":        strArr("The service names in the oversized component."),
+		"internal_traces": intOut("Traces on hops inside it."),
+	}),
+})

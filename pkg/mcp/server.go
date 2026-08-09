@@ -175,7 +175,7 @@ func (s *Server) initialize(params json.RawMessage) map[string]any {
 		// notify about — say so rather than leaving a client to poll.
 		"capabilities": map[string]any{"tools": map[string]any{"listChanged": false}},
 		"serverInfo":   map[string]any{"name": serverName, "version": serverVersion},
-		"instructions": "Access to a Sluicio monitoring cell. Report on integration/service/system health, errors, alerts, logs, metrics, and traces/messages — everything is filtered by the token's RBAC scope. You cannot change any monitoring configuration directly. You MAY propose a tuning change to an existing alert rule (sluicio_propose_check_tuning); that files a reviewable request which a human approves or rejects, and only their approval applies it. Propose only when you can cite what you observed, and say so in the rationale.",
+		"instructions": "Access to a Sluicio monitoring cell. Report on integration/service/system health, errors, alerts, logs, metrics, and traces/messages — everything is filtered by the token's RBAC scope. You cannot change any monitoring configuration directly. You MAY propose a tuning change to an existing alert rule (sluicio_propose_check_tuning); that files a reviewable request which a human approves or rejects, and only their approval applies it. Check sluicio_list_proposals before filing, so you do not re-file something already pending or already rejected. Propose only when you can cite what you observed, and say so in the rationale.",
 	}
 }
 
@@ -428,6 +428,27 @@ func buildTools(s *Server) []tool {
 			Call: func(a map[string]any) (string, error) { return s.get("/api/v1/integrations", nil) }},
 		{Name: "sluicio_list_services", Output: listServicesOut, Description: "List discovered services with their TRAFFIC (trace + error counts), last-seen, and health over a time window (default 24h). This is the source of truth for whether a service has traffic — if a service shows zero, widen `window` (e.g. 7d) before concluding it has none, since low-frequency integrations may be quiet within a short window.", Schema: objSchema(map[string]any{"window": strProp("Time window, e.g. 1h, 24h, 7d. Default 24h.")}),
 			Call: func(a map[string]any) (string, error) { return s.get("/api/v1/services", rangeArg(a, "24h")) }},
+		// An agent could file proposals but never see its own queue, so
+		// "check what is already filed before filing" was impossible and
+		// the inbox filled with the same suggestion every run (issue
+		// #10, design problem 2). Read-only and RBAC-scoped like
+		// everything else.
+		{Name: "sluicio_list_proposals", Output: listProposalsOut, Description: "List change proposals filed against this org, with their state (pending/approved/rejected/expired/superseded). Call this BEFORE filing a proposal: an identical pending one is rejected as a duplicate, and re-proposing something a human already rejected wastes their attention. `state` filters; omit it to see everything.", Schema: objSchema(map[string]any{"state": strProp("Filter by state: pending, approved, rejected, expired, superseded.")}),
+			Call: func(a map[string]any) (string, error) {
+				q := url.Values{}
+				if v := argStr(a, "state"); v != "" {
+					q.Set("state", v)
+				}
+				return s.get("/api/v1/proposals", q)
+			}},
+		// The deterministic half of "propose an integration": the cell
+		// works out WHICH services belong together from observed calls,
+		// and the agent supplies the judgement — what the group is, which
+		// matcher expresses it durably, and the rationale a reviewer reads.
+		{Name: "sluicio_integration_candidates", Output: integrationCandidatesOut, Description: "Groups of services that talk to each other but belong to no integration, derived from the observed call graph over a window (default 7d). Each carries the traffic on hops inside the group, which is the evidence the grouping exists, and a dedup_key matching what a create proposal would use. These are candidates, not conclusions: decide what the group IS, whether a prefix matcher would survive tomorrow's service or explicit per-service matchers are safer, and whether a listed service really belongs.", Schema: objSchema(map[string]any{"window": strProp("Time window, e.g. 24h, 7d, 30d. Default 7d.")}),
+			Call: func(a map[string]any) (string, error) {
+				return s.get("/api/v1/integration-candidates", rangeArg(a, "7d"))
+			}},
 		{Name: "sluicio_list_systems", Output: listSystemsOut, Description: "List systems (RabbitMQ, Kafka, etc.) — entities spanning member services — with rolled-up health.", Schema: objSchema(nil),
 			Call: func(a map[string]any) (string, error) { return s.get("/api/v1/systems", nil) }},
 		{Name: "sluicio_get_system", Output: getSystemOut, Description: "Get one system by id, including its member services and their health.", Schema: objSchema(map[string]any{"id": strProp("The system id (uuid) from sluicio_list_systems.")}, "id"),
