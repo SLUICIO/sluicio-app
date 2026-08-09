@@ -883,6 +883,21 @@ type SpanRow struct {
 	DurationNs         uint64
 	ResourceAttributes map[string]string
 	SpanAttributes     map[string]string
+	// LinkTraceIDs / LinkSpanIDs are the spans this one links to: the
+	// asynchronous hand-offs (a queue, a scheduled retry, a delayed
+	// delivery) that a parent/child edge cannot express.
+	//
+	// EMPTY MEANS UNKNOWN, not "none". Links were not stored before
+	// migration 0008 and there is no backfill, so a span ingested
+	// earlier will always report none whether or not it had any. Any
+	// reader drawing hand-offs has to say so rather than presenting
+	// silence as an answer.
+	LinkTraceIDs []string
+	LinkSpanIDs  []string
+	// LinksTotal is how many links the span carried before truncation at
+	// ingest. Greater than len(LinkTraceIDs) means the rest were dropped
+	// and the reader must say "showing N of M".
+	LinksTotal uint32
 }
 
 // RecentSpans returns the most recent spans for a service in the range.
@@ -891,7 +906,8 @@ func (s *Store) RecentSpans(ctx context.Context, service string, from, to time.T
 		SELECT
 			Timestamp, TraceId, SpanId, ParentSpanId, ServiceName,
 			SpanName, SpanKind, StatusCode, StatusMessage, DurationNs,
-			ResourceAttributes, SpanAttributes
+			ResourceAttributes, SpanAttributes,
+			LinkTraceIds, LinkSpanIds, LinksTotal
 		FROM traces
 		WHERE ServiceName = ? AND Timestamp >= ? AND Timestamp <= ?
 		ORDER BY Timestamp DESC
@@ -1725,7 +1741,8 @@ func (s *Store) SpansForTrace(ctx context.Context, traceID string, limit int) ([
 		SELECT
 			Timestamp, TraceId, SpanId, ParentSpanId, ServiceName,
 			SpanName, SpanKind, StatusCode, StatusMessage, DurationNs,
-			ResourceAttributes, SpanAttributes
+			ResourceAttributes, SpanAttributes,
+			LinkTraceIds, LinkSpanIds, LinksTotal
 		FROM traces
 		WHERE TraceId = ?
 		ORDER BY Timestamp ASC
@@ -1853,6 +1870,7 @@ func (s *Store) querySpans(ctx context.Context, query string, args ...any) ([]Sp
 			&r.Timestamp, &r.TraceID, &r.SpanID, &r.ParentSpanID, &r.ServiceName,
 			&r.SpanName, &r.SpanKind, &r.StatusCode, &r.StatusMessage, &r.DurationNs,
 			&r.ResourceAttributes, &r.SpanAttributes,
+			&r.LinkTraceIDs, &r.LinkSpanIDs, &r.LinksTotal,
 		); err != nil {
 			return nil, err
 		}

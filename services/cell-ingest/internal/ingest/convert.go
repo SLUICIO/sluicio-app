@@ -37,6 +37,7 @@ func convertSpan(span *tracepb.Span, resourceAttrs map[string]string, serviceNam
 		duration = uint64(end.Sub(start).Nanoseconds())
 	}
 	status := span.GetStatus()
+	linkTraces, linkSpans, linksTotal := convertLinks(span.GetLinks())
 	return SpanRow{
 		Timestamp:          start,
 		TraceID:            hex.EncodeToString(span.GetTraceId()),
@@ -51,7 +52,45 @@ func convertSpan(span *tracepb.Span, resourceAttrs map[string]string, serviceNam
 		DurationNs:         duration,
 		StatusCode:         statusCodeString(status.GetCode()),
 		StatusMessage:      status.GetMessage(),
+		LinkTraceIDs:       linkTraces,
+		LinkSpanIDs:        linkSpans,
+		LinksTotal:         linksTotal,
 	}
+}
+
+// convertLinks extracts a span's links, keeping only the REFERENCE and
+// capping the count (issue #19).
+//
+// Link attributes are deliberately dropped. A link in the protocol is a
+// trace/span reference plus an arbitrary attribute set, and the
+// attributes are where unbounded growth lives; nothing designed so far
+// reads them, so storing them would be speculative cost on the highest-
+// volume table in the system.
+//
+// The true count is returned even when the array is truncated, so a
+// reader can be told "linked to 500 traces, showing 32" rather than
+// being quietly handed 32 as though that were all of them. Silent
+// truncation on a "where is my message" feature would be the exact
+// failure the feature exists to prevent.
+func convertLinks(links []*tracepb.Span_Link) (traceIDs, spanIDs []string, total uint32) {
+	total = uint32(len(links))
+	if total == 0 {
+		return nil, nil, 0
+	}
+	n := len(links)
+	if n > MaxSpanLinks {
+		n = MaxSpanLinks
+	}
+	traceIDs = make([]string, 0, n)
+	spanIDs = make([]string, 0, n)
+	for _, l := range links[:n] {
+		if l == nil {
+			continue
+		}
+		traceIDs = append(traceIDs, hex.EncodeToString(l.GetTraceId()))
+		spanIDs = append(spanIDs, hex.EncodeToString(l.GetSpanId()))
+	}
+	return traceIDs, spanIDs, total
 }
 
 func attributesToMap(attrs []*commonpb.KeyValue) map[string]string {

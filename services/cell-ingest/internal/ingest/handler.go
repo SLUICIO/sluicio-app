@@ -92,18 +92,18 @@ type CounterSnapshot struct {
 func GetCounters() Counters {
 	return Counters{
 		Traces: CounterSnapshot{
-			Accepted: tracesCounters.accepted.Load(),
-			Rejected: tracesCounters.rejected.Load(),
+			Accepted:  tracesCounters.accepted.Load(),
+			Rejected:  tracesCounters.rejected.Load(),
 			RowsTotal: tracesCounters.rowsTotal.Load(),
 		},
 		Logs: CounterSnapshot{
-			Accepted: logsCounters.accepted.Load(),
-			Rejected: logsCounters.rejected.Load(),
+			Accepted:  logsCounters.accepted.Load(),
+			Rejected:  logsCounters.rejected.Load(),
 			RowsTotal: logsCounters.rowsTotal.Load(),
 		},
 		Metrics: CounterSnapshot{
-			Accepted: metricsCounters.accepted.Load(),
-			Rejected: metricsCounters.rejected.Load(),
+			Accepted:  metricsCounters.accepted.Load(),
+			Rejected:  metricsCounters.rejected.Load(),
 			RowsTotal: metricsCounters.rowsTotal.Load(),
 		},
 	}

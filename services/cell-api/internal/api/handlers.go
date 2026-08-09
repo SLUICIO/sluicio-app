@@ -2393,6 +2393,14 @@ func (h *Handlers) traceDetail(w http.ResponseWriter, r *http.Request) {
 func toSpanSummaries(rows []store.SpanRow) []SpanSummary {
 	out := make([]SpanSummary, 0, len(rows))
 	for _, r := range rows {
+		links := make([]SpanLink, 0, len(r.LinkTraceIDs))
+		for k := range r.LinkTraceIDs {
+			spanID := ""
+			if k < len(r.LinkSpanIDs) {
+				spanID = r.LinkSpanIDs[k]
+			}
+			links = append(links, SpanLink{TraceID: r.LinkTraceIDs[k], SpanID: spanID})
+		}
 		out = append(out, SpanSummary{
 			Timestamp:          r.Timestamp,
 			TraceID:            r.TraceID,
@@ -2407,6 +2415,8 @@ func toSpanSummaries(rows []store.SpanRow) []SpanSummary {
 			Attributes:         mergeAttributes(r.ResourceAttributes, r.SpanAttributes),
 			ResourceAttributes: r.ResourceAttributes,
 			SpanAttributes:     r.SpanAttributes,
+			Links:              links,
+			LinksTotal:         r.LinksTotal,
 		})
 	}
 	return out

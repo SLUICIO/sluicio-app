@@ -353,6 +353,33 @@ type SpanSummary struct {
 	Attributes         map[string]string `json:"attributes,omitempty"`
 	ResourceAttributes map[string]string `json:"resource_attributes,omitempty"`
 	SpanAttributes     map[string]string `json:"span_attributes,omitempty"`
+	// Links are the spans this one links to: the ASYNCHRONOUS hand-offs
+	// (a queue, a scheduled retry, a delayed delivery) that a
+	// parent/child edge cannot express. Under the OTel messaging
+	// conventions a delayed continuation is a LINKED SECOND TRACE, so
+	// without these a message handed off looks like a message that
+	// stopped (issue #19).
+	//
+	// Absent means UNKNOWN, not "none": links were not stored before
+	// v0.11.91 and there is no backfill, so a span ingested earlier will
+	// never report any. Anything drawing hand-offs must say so.
+	Links []SpanLink `json:"links,omitempty"`
+	// LinksTotal is how many links the span carried before truncation at
+	// ingest. Greater than len(Links) means the rest were dropped, and
+	// the reader has to say "showing N of M" rather than presenting the
+	// stored ones as all of them.
+	LinksTotal uint32 `json:"links_total,omitempty"`
+}
+
+// SpanLink is one reference from a span to another span, usually in a
+// different trace.
+//
+// Only the reference is kept. A link in the protocol also carries an
+// arbitrary attribute set, which is where unbounded growth lives and
+// which nothing reads today.
+type SpanLink struct {
+	TraceID string `json:"trace_id"`
+	SpanID  string `json:"span_id"`
 }
 
 // TraceSearchResult is one row in the search response. The "matched"

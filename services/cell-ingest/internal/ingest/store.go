@@ -41,7 +41,10 @@ func (s *Store) InsertSpans(ctx context.Context, rows []SpanRow) error {
 			SpanAttributes,
 			DurationNs,
 			StatusCode,
-			StatusMessage
+			StatusMessage,
+			LinkTraceIds,
+			LinkSpanIds,
+			LinksTotal
 		)
 	`)
 	if err != nil {
@@ -64,6 +67,11 @@ func (s *Store) InsertSpans(ctx context.Context, rows []SpanRow) error {
 			r.DurationNs,
 			r.StatusCode,
 			r.StatusMessage,
+			// Nil slices would be rejected; an empty array is the
+			// honest representation of "this span had no links".
+			nonNil(r.LinkTraceIDs),
+			nonNil(r.LinkSpanIDs),
+			r.LinksTotal,
 		); err != nil {
 			return fmt.Errorf("append row: %w", err)
 		}
@@ -169,4 +177,13 @@ func (s *Store) InsertMetrics(ctx context.Context, rows []MetricRow) error {
 	}
 
 	return batch.Send()
+}
+
+// nonNil turns a nil slice into an empty one for the ClickHouse driver,
+// which will not accept nil for an Array column.
+func nonNil(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
 }
