@@ -20,6 +20,17 @@ Target version: `vX.Y.Z`  ·  Date: `YYYY-MM-DD`  ·  Signed off by: `____`
       suite. Confirm green; review the uploaded Playwright report.
 - [ ] Or locally: `make dev-up && make seed-traces && make e2e`.
 
+## 1b. Walk anything not yet verified by a human
+
+- [ ] **[needs-verification.md](needs-verification.md)** — features that
+      have shipped but that nobody has yet watched work on a real
+      instance. Green CI proves a feature does what its author thought;
+      it cannot tell that apart from doing the wrong thing correctly.
+      Cases graduate into the area protocols below once they pass, so
+      this list should shrink rather than grow. Tracked by the
+      [`needs-verification`](https://github.com/SLUICIO/sluicio-app/labels/needs-verification)
+      label.
+
 ## 2. Walk the use-case catalog
 
 For each area, walk its `Manual` cases and confirm its `Automated` cases
