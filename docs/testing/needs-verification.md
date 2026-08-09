@@ -59,6 +59,21 @@ whose defining attribute matches several values — a Node-RED runtime
 matched by a regex or an `in` list rather than a single flow. macmini01
 has the data; the dev cell does not.
 
+**Fixture.** [`fixtures/nodered-issue12.json`](fixtures/nodered-issue12.json)
+imports two Node-RED flows that fail on a fraction of runs, at
+differently-named steps. Their tab ids are FIXED (`sluiciotest0a`,
+`sluiciotest0b`) so one integration can match both:
+
+```
+service.name  equals   <your node-red service>
+node_red.flow.id  matches   ^sluiciotest0
+```
+
+Both functions `throw` rather than calling `node.error`. That is not
+style: `msg.error` alone routes to `catch` without firing `onComplete`,
+so the span is never marked failed and the fixture would produce no
+error traces at all.
+
 | | |
 |--|--|
 | **Case 12.1** | On an integration spanning several services, the breakdown still splits by service and reads as before. |
@@ -94,31 +109,6 @@ purpose.
 | **Case 14.5** | With the token set, the report lists ten loops. After the cell has run a few minutes, the frequent ones (`alerting`, `demand-writer`, `event-subscriptions`) read `ok`. |
 | **Case 14.6** | A response contains **no organisation names and no per-org figures**. This is a privacy boundary, not a formatting preference: a cell operator and a tenant's admins can be different parties. |
 | **Case 14.7** | Capacity never moves `status`. Only a dead dependency or a stale loop does. |
-
----
-
-## #16 — Version-aware collector config
-
-**What shipped.** An org-level collector version and distribution,
-defaulting to the newest this build knows. The onboarding snippet is
-generated for that target and says which collector it was written for,
-and whether the version was configured or assumed.
-
-**Where.** Settings → Ingestion, on the one-time reveal after generating
-an ingest key. API: `GET`/`PATCH /api/v1/collector-target`.
-
-**Verified so far.** The endpoints, including rejection of an
-unparseable version and the org default resolving to newest.
-
-**Not verified.** The **rendered snippet**, because it only appears once
-when a key is created and no key was created on a real instance.
-
-| | |
-|--|--|
-| **Case 16.1** | With no version set, generate an ingest key. The snippet uses `otlp_http` and says the version was assumed. |
-| **Case 16.2** | Set the org version to `0.140.0`, generate another key. The snippet uses `otlphttp` and says it was written for 0.140.0. |
-| **Case 16.3** | Paste each snippet into the collector version it names and confirm it **starts**. This is the whole point; a snippet that validates but will not start has failed. |
-| **Case 16.4** | `PATCH` with `"version": "latest"` is rejected with a readable message. |
 
 ---
 
