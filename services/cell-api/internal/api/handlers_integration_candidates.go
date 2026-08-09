@@ -23,6 +23,12 @@ import (
 // IntegrationCandidate is one proposed grouping.
 type IntegrationCandidate struct {
 	Services []string `json:"services"`
+	// SharedServices are adjacent services left OUT because they take
+	// part in other flows too, typically a gateway or a shared worker.
+	// Named rather than dropped: including one fuses unrelated flows
+	// into a useless suggestion, omitting it silently hides a real
+	// participant, and the reviewer is the one who should choose.
+	SharedServices []string `json:"shared_services,omitempty"`
 	// Traces is the traffic observed on hops INSIDE the group, which is
 	// the evidence for the grouping existing at all. A reviewer gets the
 	// number rather than a bare list of names.
@@ -76,7 +82,14 @@ func (h *Handlers) integrationCandidates(w http.ResponseWriter, r *http.Request)
 	}
 
 	unassigned := []string{}
+	// How many traces each service takes part in. This is the
+	// DENOMINATOR the overlap test needs: an edge's count is already the
+	// intersection, so comparing it against a service's own total says
+	// whether the two do their work together or one of them simply calls
+	// everybody.
+	serviceTraces := map[string]uint64{}
 	for _, s := range all {
+		serviceTraces[s.ServiceName] = s.TraceCount
 		if !assigned[s.ServiceName] {
 			unassigned = append(unassigned, s.ServiceName)
 		}
@@ -105,9 +118,10 @@ func (h *Handlers) integrationCandidates(w http.ResponseWriter, r *http.Request)
 		out := make([]IntegrationCandidate, 0, len(cs))
 		for _, c := range cs {
 			out = append(out, IntegrationCandidate{
-				Services: c.Services,
-				Traces:   c.InternalTraces,
-				DedupKey: proposals.DedupKey(c.Services),
+				Services:       c.Services,
+				SharedServices: c.SharedServices,
+				Traces:         c.InternalTraces,
+				DedupKey:       proposals.DedupKey(c.Services),
 			})
 		}
 		return out
@@ -115,8 +129,8 @@ func (h *Handlers) integrationCandidates(w http.ResponseWriter, r *http.Request)
 
 	httpserver.WriteJSON(w, http.StatusOK, IntegrationCandidatesResponse{
 		Window:     tr.Window(),
-		Candidates: toAPI(proposals.FindClusters(unassigned, edges, opt)),
+		Candidates: toAPI(proposals.FindClusters(unassigned, edges, serviceTraces, opt)),
 		Unassigned: len(unassigned),
-		Skipped:    toAPI(proposals.OversizedClusters(unassigned, edges, opt)),
+		Skipped:    toAPI(proposals.OversizedClusters(unassigned, edges, serviceTraces, opt)),
 	})
 }

@@ -33,6 +33,12 @@ func all(groups ...[]string) []string {
 	return out
 }
 
+// The topology cases below pass a nil denominator, which disables the
+// overlap test. That is deliberate: they were written to check the
+// clustering rules, and supplying per-service traffic would make them
+// also depend on the overlap threshold, so a change to that threshold
+// would break tests that are not about it.
+
 func has(c Cluster, name string) bool {
 	for _, s := range c.Services {
 		if s == name {
@@ -49,7 +55,7 @@ func TestTopologyFindsWhatNamingMisses(t *testing.T) {
 	edges := append(chain(shipping, 100), chain(intake, 80)...)
 	edges = append(edges, chain(notify, 40)...)
 
-	got := FindClusters(svcs, edges, DefaultClusterOptions())
+	got := FindClusters(svcs, edges, nil, DefaultClusterOptions())
 	if len(got) != 3 {
 		t.Fatalf("got %d clusters, want 3: %+v", len(got), got)
 	}
@@ -71,7 +77,7 @@ func TestNamingsWrongGroupingsAreNotProduced(t *testing.T) {
 	svcs := all(shipping, notify)
 	edges := append(chain(shipping, 100), chain(notify, 40)...)
 
-	for _, c := range FindClusters(svcs, edges, DefaultClusterOptions()) {
+	for _, c := range FindClusters(svcs, edges, nil, DefaultClusterOptions()) {
 		if has(c, "carrier-dispatcher") && has(c, "notification-dispatcher") {
 			t.Fatalf("shipping and email were fused: %+v", c)
 		}
@@ -87,7 +93,7 @@ func TestAStrayCallDoesNotFuseTwoFlows(t *testing.T) {
 	edges := append(chain(shipping, 100), chain(notify, 40)...)
 	edges = append(edges, Edge{Source: "warehouse-picker", Target: "email-service", Traces: 1})
 
-	got := FindClusters(svcs, edges, DefaultClusterOptions())
+	got := FindClusters(svcs, edges, nil, DefaultClusterOptions())
 	if len(got) != 2 {
 		t.Fatalf("a single stray call fused the flows: %+v", got)
 	}
@@ -99,7 +105,7 @@ func TestARealRelationshipDoesJoin(t *testing.T) {
 	edges := append(chain(shipping, 100), chain(notify, 40)...)
 	edges = append(edges, Edge{Source: "warehouse-picker", Target: "email-service", Traces: 500})
 
-	if got := FindClusters(svcs, edges, DefaultClusterOptions()); len(got) != 1 {
+	if got := FindClusters(svcs, edges, nil, DefaultClusterOptions()); len(got) != 1 {
 		t.Fatalf("heavy traffic should join them, got %d clusters", len(got))
 	}
 }
@@ -113,7 +119,7 @@ func TestAssignedServicesAreNotPulledIn(t *testing.T) {
 		{Source: "a", Target: "b", Traces: 50},
 		{Source: "b", Target: "already-assigned", Traces: 900},
 	}
-	got := FindClusters(svcs, edges, DefaultClusterOptions())
+	got := FindClusters(svcs, edges, nil, DefaultClusterOptions())
 	if len(got) != 1 {
 		t.Fatalf("got %+v", got)
 	}
@@ -123,7 +129,7 @@ func TestAssignedServicesAreNotPulledIn(t *testing.T) {
 }
 
 func TestALonelyServiceIsNotAnIntegration(t *testing.T) {
-	got := FindClusters([]string{"solo", "other"}, nil, DefaultClusterOptions())
+	got := FindClusters([]string{"solo", "other"}, nil, nil, DefaultClusterOptions())
 	if len(got) != 0 {
 		t.Fatalf("isolated services should not be proposed: %+v", got)
 	}
@@ -142,10 +148,10 @@ func TestAHubThatChainedTheEstateIsSkippedAndReported(t *testing.T) {
 	}
 	svcs = append(svcs, "hub")
 
-	if got := FindClusters(svcs, edges, DefaultClusterOptions()); len(got) != 0 {
+	if got := FindClusters(svcs, edges, nil, DefaultClusterOptions()); len(got) != 0 {
 		t.Fatalf("an oversized component should not be proposed: %+v", got)
 	}
-	over := OversizedClusters(svcs, edges, DefaultClusterOptions())
+	over := OversizedClusters(svcs, edges, nil, DefaultClusterOptions())
 	if len(over) != 1 || len(over[0].Services) != 14 {
 		t.Fatalf("the oversized component should be reportable: %+v", over)
 	}
@@ -156,7 +162,7 @@ func TestBusiestClusterComesFirst(t *testing.T) {
 	// from monitoring matters most.
 	svcs := all(shipping, notify)
 	edges := append(chain(shipping, 1000), chain(notify, 10)...)
-	got := FindClusters(svcs, edges, DefaultClusterOptions())
+	got := FindClusters(svcs, edges, nil, DefaultClusterOptions())
 	if len(got) != 2 {
 		t.Fatalf("got %+v", got)
 	}
@@ -170,8 +176,8 @@ func TestResultIsDeterministic(t *testing.T) {
 	// would file the same suggestion repeatedly under different keys.
 	svcs := all(shipping, intake)
 	edges := append(chain(shipping, 100), chain(intake, 80)...)
-	a := FindClusters(svcs, edges, DefaultClusterOptions())
-	b := FindClusters(svcs, edges, DefaultClusterOptions())
+	a := FindClusters(svcs, edges, nil, DefaultClusterOptions())
+	b := FindClusters(svcs, edges, nil, DefaultClusterOptions())
 	if len(a) != len(b) {
 		t.Fatal("cluster count varies between runs")
 	}
@@ -249,5 +255,109 @@ func TestAnUnknownReportingSetDoesNotCondemnEverything(t *testing.T) {
 	}
 	if d.Any() {
 		t.Error("nothing drifted")
+	}
+}
+
+
+// ── The shared-gateway case, from a real cell ────────────────────────
+//
+// The demo cell proposed one cluster of seven services. A human would
+// have made three. Connected components could not tell them apart
+// because a gateway fed all three, and at seven services it was well
+// under the size cap, so nothing else was going to catch it.
+//
+// The numbers below are the ones actually observed, not invented.
+
+var (
+	gwSvcs = []string{
+		"b2b-gateway", "order-validator", "erp-adapter",
+		"invoice-matcher", "finance-ledger",
+		"despatch-notifier", "warehouse-sync",
+	}
+	// b2b-gateway is in every trace; each downstream pair in a subset.
+	// 33,327 + 19,829 + 13,312 = 66,468, exactly the gateway's total.
+	gwTraces = map[string]uint64{
+		"b2b-gateway": 66468,
+		"order-validator": 33327, "erp-adapter": 33327,
+		"invoice-matcher": 19829, "finance-ledger": 19829,
+		"despatch-notifier": 13312, "warehouse-sync": 13312,
+	}
+	gwEdges = []Edge{
+		{Source: "b2b-gateway", Target: "order-validator", Traces: 33327},
+		{Source: "order-validator", Target: "erp-adapter", Traces: 33327},
+		{Source: "b2b-gateway", Target: "invoice-matcher", Traces: 19829},
+		{Source: "invoice-matcher", Target: "finance-ledger", Traces: 19829},
+		{Source: "b2b-gateway", Target: "despatch-notifier", Traces: 13312},
+		{Source: "despatch-notifier", Target: "warehouse-sync", Traces: 13312},
+	}
+)
+
+func TestASharedGatewayNoLongerFusesThreeFlows(t *testing.T) {
+	got := FindClusters(gwSvcs, gwEdges, gwTraces, DefaultClusterOptions())
+	if len(got) != 3 {
+		names := [][]string{}
+		for _, c := range got {
+			names = append(names, c.Services)
+		}
+		t.Fatalf("got %d clusters, want 3: %v", len(got), names)
+	}
+	for _, c := range got {
+		if len(c.Services) != 2 {
+			t.Errorf("each flow is a pair, got %v", c.Services)
+		}
+		if has(c, "b2b-gateway") {
+			t.Errorf("the gateway must not be a member: %v", c.Services)
+		}
+	}
+}
+
+func TestTheGatewayIsNamedRatherThanHidden(t *testing.T) {
+	// Dropping it silently would hide a real participant, which is the
+	// opposite failure from fusing everything into one cluster.
+	for _, c := range FindClusters(gwSvcs, gwEdges, gwTraces, DefaultClusterOptions()) {
+		if len(c.SharedServices) != 1 || c.SharedServices[0] != "b2b-gateway" {
+			t.Errorf("%v should name the gateway it is fed by, got %v", c.Services, c.SharedServices)
+		}
+	}
+}
+
+func TestWithoutTheDenominatorNothingIsExcluded(t *testing.T) {
+	// Missing traffic data is not evidence of a hub. A cell that could
+	// not supply it must degrade to the old behaviour rather than
+	// refusing to group anything.
+	got := FindClusters(gwSvcs, gwEdges, nil, DefaultClusterOptions())
+	if len(got) != 1 || len(got[0].Services) != 7 {
+		t.Fatalf("expected the old single cluster, got %+v", got)
+	}
+}
+
+func TestAGenuineChainSurvivesTheOverlapTest(t *testing.T) {
+	// The condition must not split a real flow. Every service here does
+	// all of its work in the same traces.
+	svcs := []string{"a", "b", "c", "d"}
+	traces := map[string]uint64{"a": 500, "b": 500, "c": 500, "d": 500}
+	edges := []Edge{
+		{Source: "a", Target: "b", Traces: 500},
+		{Source: "b", Target: "c", Traces: 500},
+		{Source: "c", Target: "d", Traces: 500},
+	}
+	got := FindClusters(svcs, edges, traces, DefaultClusterOptions())
+	if len(got) != 1 || len(got[0].Services) != 4 {
+		t.Fatalf("a genuine chain was split: %+v", got)
+	}
+	if len(got[0].SharedServices) != 0 {
+		t.Errorf("nothing was shared here, got %v", got[0].SharedServices)
+	}
+}
+
+func TestAServiceOnTheBoundaryIsIncluded(t *testing.T) {
+	// The threshold is a judgement, so it should err toward keeping a
+	// service in: a missing member is harder for a reviewer to notice
+	// than an extra one.
+	svcs := []string{"a", "b"}
+	traces := map[string]uint64{"a": 100, "b": 60}
+	edges := []Edge{{Source: "a", Target: "b", Traces: 60}} // 0.60 exactly
+	if got := FindClusters(svcs, edges, traces, DefaultClusterOptions()); len(got) != 1 {
+		t.Fatalf("an edge exactly at the threshold should join: %+v", got)
 	}
 }

@@ -57,6 +57,17 @@ type Edge struct {
 
 // Cluster is a proposed grouping of services.
 type Cluster struct {
+	// SharedServices are adjacent services excluded from the grouping
+	// because they take part in other flows too — typically a gateway or
+	// a shared worker.
+	//
+	// Reported rather than dropped, and NOT folded into Services,
+	// because both answers are wrong on their own: including such a
+	// service fuses unrelated flows into one useless suggestion, and
+	// omitting it silently hides a real participant. Naming it lets the
+	// reviewer decide, which is the same division of labour the rest of
+	// this file follows.
+	SharedServices []string
 	// Services, sorted, so the same cluster produces the same dedup key
 	// on every run.
 	Services []string
@@ -65,6 +76,22 @@ type Cluster struct {
 	// and so an agent can cite what it observed.
 	InternalTraces uint64
 }
+
+// MinOverlap is the share of a service's own traffic that must run
+// through an edge before it counts as belonging to the same flow.
+//
+// Measured against the BUSIER endpoint, which is the whole point: a
+// shared gateway takes part in every flow it feeds, so an edge from it
+// carries all of a downstream's traces but only a fraction of its own.
+// That asymmetry is what distinguishes "these two do their work
+// together" from "one of these calls everybody".
+//
+// Verified against a real cell where a gateway fed three unrelated
+// flows: its edges carried 50%, 30% and 20% of its traffic, while every
+// edge inside a flow carried 100% of both endpoints'. Anything from
+// roughly 0.4 to 0.9 separates that case; 0.6 leaves room on both sides
+// rather than sitting on the boundary.
+const MinOverlap = 0.6
 
 // ClusterOptions bounds what is worth proposing.
 type ClusterOptions struct {
@@ -77,6 +104,8 @@ type ClusterOptions struct {
 	// that call each other are usually a caller and its database, not a
 	// business flow.
 	MinServices int
+	// MinOverlap overrides the package default. Zero uses it.
+	MinOverlap float64
 	// MaxServices caps a cluster. A component spanning half the estate
 	// is not an integration, it is the estate: some hub service (an auth
 	// sidecar, a shared gateway) has chained everything together, and
@@ -88,7 +117,7 @@ type ClusterOptions struct {
 // wrong suggestion is a reviewer's trust; the cost of a missed one is
 // that things stay as they are today.
 func DefaultClusterOptions() ClusterOptions {
-	return ClusterOptions{MinEdgeTraces: 5, MinServices: 2, MaxServices: 12}
+	return ClusterOptions{MinEdgeTraces: 5, MinServices: 2, MaxServices: 12, MinOverlap: MinOverlap}
 }
 
 // FindClusters returns connected components of the call graph, limited
@@ -98,9 +127,16 @@ func DefaultClusterOptions() ClusterOptions {
 // are ignored entirely rather than pulling assigned services in. A
 // service already in an integration is not evidence about services that
 // are not, and including it would propose overlapping memberships.
-func FindClusters(unassigned []string, edges []Edge, opt ClusterOptions) []Cluster {
+// FindClusters takes serviceTraces: how many distinct traces each
+// service takes part in, which is the denominator the overlap test
+// needs. An absent or zero entry disables the test for that service
+// rather than excluding it — missing data is not evidence of a hub.
+func FindClusters(unassigned []string, edges []Edge, serviceTraces map[string]uint64, opt ClusterOptions) []Cluster {
 	if opt.MinServices <= 0 {
 		opt.MinServices = 2
+	}
+	if opt.MinOverlap <= 0 {
+		opt.MinOverlap = MinOverlap
 	}
 
 	candidate := make(map[string]bool, len(unassigned))
@@ -130,6 +166,11 @@ func FindClusters(unassigned []string, edges []Edge, opt ClusterOptions) []Clust
 	// Traffic on the edges that actually joined things, kept per edge so
 	// it can be summed per cluster after the components settle.
 	kept := make([]Edge, 0, len(edges))
+	// Edges rejected for weak overlap, and the services on them. Kept so
+	// a cluster can name the shared service feeding it rather than
+	// leaving it unexplained.
+	weak := []Edge{}
+	shared := map[string]bool{}
 	for _, e := range edges {
 		if e.Source == e.Target {
 			continue
@@ -138,6 +179,20 @@ func FindClusters(unassigned []string, edges []Edge, opt ClusterOptions) []Clust
 			continue
 		}
 		if e.Traces < opt.MinEdgeTraces {
+			continue
+		}
+		// Do these two do most of their work TOGETHER, or does one of
+		// them simply call everybody? An edge's trace count is already
+		// the intersection; comparing it against the busier endpoint's
+		// own total turns that into a share.
+		busier := serviceTraces[e.Source]
+		if t := serviceTraces[e.Target]; t > busier {
+			busier = t
+		}
+		if busier > 0 && float64(e.Traces)/float64(busier) < opt.MinOverlap {
+			shared[e.Source] = true
+			shared[e.Target] = true
+			weak = append(weak, e)
 			continue
 		}
 		union(e.Source, e.Target)
@@ -167,7 +222,27 @@ func FindClusters(unassigned []string, edges []Edge, opt ClusterOptions) []Clust
 			continue
 		}
 		sort.Strings(members)
-		out = append(out, Cluster{Services: members, InternalTraces: traffic[root]})
+		// Which shared services touch this cluster. A hub belongs to
+		// every flow it feeds, so it can legitimately appear on several.
+		inCluster := map[string]bool{}
+		for _, m := range members {
+			inCluster[m] = true
+		}
+		adj := map[string]bool{}
+		for _, e := range weak {
+			if inCluster[e.Source] && !inCluster[e.Target] && shared[e.Target] {
+				adj[e.Target] = true
+			}
+			if inCluster[e.Target] && !inCluster[e.Source] && shared[e.Source] {
+				adj[e.Source] = true
+			}
+		}
+		sharedNames := make([]string, 0, len(adj))
+		for n := range adj {
+			sharedNames = append(sharedNames, n)
+		}
+		sort.Strings(sharedNames)
+		out = append(out, Cluster{Services: members, SharedServices: sharedNames, InternalTraces: traffic[root]})
 	}
 
 	// Busiest first: the cluster carrying the most traffic is the one
@@ -187,10 +262,10 @@ func FindClusters(unassigned []string, edges []Edge, opt ClusterOptions) []Clust
 // A silent cap reads as "there was nothing else to find", which is the
 // opposite of the truth: an oversized component usually means a hub
 // service has chained unrelated flows together, and that is a finding.
-func OversizedClusters(unassigned []string, edges []Edge, opt ClusterOptions) []Cluster {
+func OversizedClusters(unassigned []string, edges []Edge, serviceTraces map[string]uint64, opt ClusterOptions) []Cluster {
 	wide := opt
 	wide.MaxServices = 0
-	all := FindClusters(unassigned, edges, wide)
+	all := FindClusters(unassigned, edges, serviceTraces, wide)
 	out := []Cluster{}
 	for _, c := range all {
 		if opt.MaxServices > 0 && len(c.Services) > opt.MaxServices {
