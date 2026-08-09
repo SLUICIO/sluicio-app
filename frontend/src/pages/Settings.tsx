@@ -19,6 +19,7 @@ import { FormEvent, Fragment, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import type {
+  CollectorTarget,
   AccessPolicy,
   AccessPolicyInput,
   AuthOrg,
@@ -41,6 +42,7 @@ import type {
   UsageSignalReport,
 } from "../api/types";
 import { EditDrawer } from "../components/primitives";
+import { versionAtLeast } from "../lib/collectorVersion";
 import NotificationTemplateEditor from "../components/alerts/NotificationTemplateEditor";
 import TrimIngestionPanel from "../components/metrics/TrimIngestionPanel";
 import MetricAttributesInline from "../components/metrics/MetricAttributesInline";
@@ -1321,6 +1323,22 @@ function IngestKeysTab() {
   const { can } = useCurrentUser();
   const isAdmin = can("org.manage");
   const [keys, setKeys] = useState<IngestKey[] | null>(null);
+  // Which collector the snippet below is written FOR (issue #16). The
+  // exporter's type name changed in v0.146.0, so a snippet that does not
+  // know its target is a snippet that is wrong for half the world.
+  const [collectorTarget, setCollectorTarget] = useState<CollectorTarget | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .getCollectorTarget()
+      .then((t) => !cancelled && setCollectorTarget(t))
+      .catch(() => {
+        /* falls back to the newest name, same as the server default */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -1388,34 +1406,27 @@ function IngestKeysTab() {
   //
   // The exporter's TYPE NAME is not stable across collector versions:
   // `otlphttp` was removed in v0.146.0 and `otlp_http` does not exist
-  // before it. There is no spelling that works on both, so this snippet
-  // cannot be silently correct — it has to say which is which.
-  //
-  // We lead with the current name, because someone setting Sluicio up
-  // today is installing a current collector. The older name is given as
-  // a commented one-line swap rather than a second code block, so the
-  // fix is visible to anyone whose collector refuses to start without
-  // sending them back to this page to hunt for it.
-  //
-  // Issue #16 replaces this with a version-aware snippet once the
-  // collector version is a known setting; until then the comment is the
-  // honest form.
+  // before it. There is no spelling that works on both, so the snippet
+  // is generated FOR a specific collector rather than hedged with a
+  // comment (issue #16). The target comes from the org setting, and
+  // falls back to the newest version this build knows.
+  const exporterName =
+    collectorTarget && !versionAtLeast(collectorTarget.version, "0.146.0")
+      ? "otlphttp"
+      : "otlp_http";
   const collectorSnippet = (key: string) =>
     [
       "exporters:",
-      "  # On collector versions before v0.146.0, this exporter is",
-      "  # named `otlphttp` (no underscore) — rename it below and in",
-      "  # the three pipelines if yours fails to start.",
-      "  otlp_http:",
+      `  ${exporterName}:`,
       `    endpoint: ${ingestBase}`,
       "    headers:",
       `      Authorization: "Bearer ${key}"`,
       "",
       "service:",
       "  pipelines:",
-      "    traces:  { exporters: [otlp_http] }",
-      "    metrics: { exporters: [otlp_http] }",
-      "    logs:    { exporters: [otlp_http] }",
+      `    traces:  { exporters: [${exporterName}] }`,
+      `    metrics: { exporters: [${exporterName}] }`,
+      `    logs:    { exporters: [${exporterName}] }`,
     ].join("\n");
 
   // The OpenTelemetry SDK env-var form, for apps instrumented directly
@@ -1499,7 +1510,23 @@ function IngestKeysTab() {
           <KeySnippet
             title="OpenTelemetry Collector (otel-collector.yaml)"
             code={collectorSnippet(created.key)}
-            hint={<>For a Collector pipeline fanning traces, metrics and logs to Sluicio.</>}
+            hint={
+              <>
+                For a Collector pipeline fanning traces, metrics and logs to Sluicio.{" "}
+                {/* Which collector this is written FOR. The exporter's
+                    type name changed in v0.146.0, so the snippet is only
+                    interpretable alongside its target — and an assumed
+                    target needs a different sentence than a stated one. */}
+                {collectorTarget?.configured ? (
+                  <>Written for collector {collectorTarget.version}.</>
+                ) : (
+                  <>
+                    Written for collector {collectorTarget?.version ?? "the newest known version"},
+                    assumed because no version is set for this organisation.
+                  </>
+                )}
+              </>
+            }
           />
         </div>
       )}

@@ -2706,6 +2706,24 @@ export interface AdvisorSuggestionsResponse {
   ledger: AdvisorLedger;
 }
 
+/** Which collector the snippets Sluicio generates are written for
+ *  (issue #16). Collector configuration is not version-stable, so YAML
+ *  written without a target is right for some customers and refuses to
+ *  start for others. */
+export interface CollectorTarget {
+  version: string;
+  distribution: string;
+  /** False when nothing is set and the newest known version is being
+   *  assumed. A snippet generated against an assumption needs a
+   *  different sentence beside it than one generated against a stated
+   *  version. */
+  configured: boolean;
+  newest_known: string;
+  /** The configured version is newer than this Sluicio release can
+   *  reason about. A limit of ours, never a fault of theirs. */
+  beyond_known?: boolean;
+}
+
 /** One bucket of an integration's error attribution (issue #12). */
 export interface ErrorBreakdownBucket {
   value: string;

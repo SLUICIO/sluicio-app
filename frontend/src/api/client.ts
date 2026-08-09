@@ -5,6 +5,7 @@
 
 import type {
   AdvisorLedger,
+  CollectorTarget,
   ErrorBreakdownResponse,
   AdvisorSuggestion,
   AdvisorSuggestionsResponse,
@@ -452,6 +453,9 @@ export const api = {
   getMetadataGraph: () => get<MetaGraphResponse>(`/metadata-graph`),
   // `trace` projects one message onto the graph (issue #15): the same
   // nodes and edges come back, plus a per-node state for that message.
+  getCollectorTarget: () => get<CollectorTarget>(`/collector-target`),
+  setCollectorTarget: (body: { version?: string; distribution?: string }) =>
+    patch<CollectorTarget>(`/collector-target`, body),
   integrationErrorBreakdown: (id: string, window: string = "1h") =>
     get<ErrorBreakdownResponse>(
       `/integrations/${encodeURIComponent(id)}/error-breakdown?range=${encodeURIComponent(window)}`
