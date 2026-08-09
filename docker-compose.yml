@@ -85,6 +85,9 @@ services:
       # Optional MFA encryption key (base64 32 bytes). Unset = auto-
       # generated + persisted in cell_settings.
       SLUICIO_MFA_KEY: ${SLUICIO_MFA_KEY:-}
+      # Shared secret for GET /api/v1/cell-health, so an external monitor
+      # can poll it. Unset means no machine access, not open access.
+      SLUICIO_HEALTH_TOKEN: ${SLUICIO_HEALTH_TOKEN:-}
       # Optional off-box audit sink (EE): every audit entry is also POSTed
       # (HMAC-signed when the secret is set) to this URL. Empty = no
       # shipping. Deploy-time only, on purpose — see docs/audit-log.md.

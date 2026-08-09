@@ -20,6 +20,7 @@ package demand
 
 import (
 	"context"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/cellhealth"
 	"log/slog"
 	"time"
 
@@ -103,6 +104,7 @@ func (s *Sweeper) Run(ctx context.Context) {
 	}
 	s.RunOnce(ctx)
 	t := time.NewTicker(s.Every)
+	cellhealth.Register("demand-sweep", s.Every)
 	defer t.Stop()
 	for {
 		select {
@@ -110,6 +112,9 @@ func (s *Sweeper) Run(ctx context.Context) {
 			return
 		case <-t.C:
 			s.RunOnce(ctx)
+			// End of cycle, not start: a loop wedged inside its
+			// own body is exactly what this catches.
+			cellhealth.Beat("demand-sweep")
 		}
 	}
 }

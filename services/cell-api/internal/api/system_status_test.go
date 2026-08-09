@@ -20,11 +20,11 @@ import "testing"
 
 func TestSystemStatusReflectsItsOwnChecks(t *testing.T) {
 	cases := []struct {
-		name     string
-		members  []string
-		checks   bool
-		firing   bool
-		want     string
+		name    string
+		members []string
+		checks  bool
+		firing  bool
+		want    string
 	}{
 		// The reported bug.
 		{"no members, passing checks", nil, true, false, "ok"},

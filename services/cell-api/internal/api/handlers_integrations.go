@@ -1429,8 +1429,8 @@ type ErrorBreakdownResponse struct {
 	// reader on this particular integration.
 	Dimension string `json:"dimension"`
 	// AttributeKey is set only when Dimension is "attribute".
-	AttributeKey string `json:"attribute_key,omitempty"`
-	Reason       string `json:"reason"`
+	AttributeKey string                 `json:"attribute_key,omitempty"`
+	Reason       string                 `json:"reason"`
 	Buckets      []ErrorBreakdownBucket `json:"buckets"`
 	// ErrorTraces is the number of DISTINCT failing traces. The buckets
 	// can sum to more than this: a trace that failed in two flows is

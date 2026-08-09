@@ -32,6 +32,7 @@ package retention
 import (
 	"context"
 	"fmt"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/cellhealth"
 	"log/slog"
 	"time"
 
@@ -71,6 +72,7 @@ func (e *Enforcer) Run(ctx context.Context) {
 		e.logger.Warn("retention initial apply failed", "err", err)
 	}
 	t := time.NewTicker(e.interval)
+	cellhealth.Register("retention", e.interval)
 	defer t.Stop()
 	for {
 		select {
@@ -80,6 +82,9 @@ func (e *Enforcer) Run(ctx context.Context) {
 			if err := e.applyAll(ctx, false); err != nil {
 				e.logger.Warn("retention apply failed", "err", err)
 			}
+			// End of cycle, not start: a loop wedged inside its
+			// own body is exactly what this catches.
+			cellhealth.Beat("retention")
 		}
 	}
 }

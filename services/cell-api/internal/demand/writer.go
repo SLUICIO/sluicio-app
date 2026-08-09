@@ -19,6 +19,7 @@ package demand
 
 import (
 	"context"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/cellhealth"
 	"log/slog"
 	"sync"
 	"time"
@@ -150,6 +151,7 @@ func (w *Writer) RecordKeys(orgID uuid.UUID, signal Signal, service string, keys
 // cancelled context cannot issue the INSERT.
 func (w *Writer) Run(ctx context.Context) {
 	t := time.NewTicker(w.every)
+	cellhealth.Register("demand-writer", w.every)
 	defer t.Stop()
 	for {
 		select {
@@ -160,6 +162,9 @@ func (w *Writer) Run(ctx context.Context) {
 			return
 		case <-t.C:
 			w.flushLogged(ctx)
+			// End of cycle, not start: a loop wedged inside its
+			// own body is exactly what this catches.
+			cellhealth.Beat("demand-writer")
 		}
 	}
 }

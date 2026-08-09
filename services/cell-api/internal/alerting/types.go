@@ -418,8 +418,8 @@ type AlertRule struct {
 	// The schema permits more than one scope (see 0009 and 0077); when
 	// several are set, resolution order is system → integration →
 	// service, and the API rejects ambiguous NEW rules.
-	SystemID       *uuid.UUID `json:"system_id,omitempty"`
-	ServiceName    string     `json:"service_name,omitempty"` // bound service (health check); "" = none
+	SystemID    *uuid.UUID `json:"system_id,omitempty"`
+	ServiceName string     `json:"service_name,omitempty"` // bound service (health check); "" = none
 	// GroupID is the owning team. nil = org-wide (visible to everyone);
 	// set = visible/editable only by team members + org admins.
 	GroupID     *uuid.UUID     `json:"group_id,omitempty"`

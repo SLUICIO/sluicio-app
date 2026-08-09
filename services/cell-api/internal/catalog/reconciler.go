@@ -16,6 +16,7 @@ package catalog
 
 import (
 	"context"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/cellhealth"
 	"log/slog"
 	"time"
 
@@ -109,6 +110,7 @@ func (r *Reconciler) Run(ctx context.Context) {
 		r.logger.Warn("catalog reconcile (warm) failed", "err", err)
 	}
 	t := time.NewTicker(r.interval)
+	cellhealth.Register("service-reconciler", r.interval)
 	defer t.Stop()
 	for {
 		select {
@@ -118,6 +120,9 @@ func (r *Reconciler) Run(ctx context.Context) {
 			if err := r.RunOnce(ctx); err != nil {
 				r.logger.Warn("catalog reconcile failed", "err", err)
 			}
+			// End of cycle, not start: a loop wedged inside its
+			// own body is exactly what this catches.
+			cellhealth.Beat("service-reconciler")
 		}
 	}
 }

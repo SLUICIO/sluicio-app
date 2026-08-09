@@ -624,6 +624,15 @@ func main() {
 		// Liveness/readiness for orchestrators (Kubernetes probes can't
 		// authenticate). Returns only {"status":"ok"}.
 		"/healthz",
+		// Readiness: reachable by anyone who can reach the port, so it
+		// says only WHICH dependency is unhappy and nothing about the
+		// data behind it. The full report is operator-scoped at
+		// /api/v1/cell-health.
+		"/readyz",
+		// Machine access to the health report is a shared secret checked
+		// inside the handler, not a session; the auth middleware would
+		// reject the request before it got there.
+		"/api/v1/cell-health",
 		"/api/v1/auth/login",
 		"/api/v1/auth/logout",
 		"/api/v1/auth/install-state",

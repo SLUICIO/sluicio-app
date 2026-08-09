@@ -5,6 +5,7 @@ package tracecompletion
 import (
 	"context"
 	"fmt"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/cellhealth"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -86,6 +87,7 @@ func (e *Evaluator) Run(ctx context.Context) {
 		e.logger.Warn("tracecompletion initial evaluate failed", "err", err)
 	}
 	t := time.NewTicker(e.interval)
+	cellhealth.Register("trace-completion", e.interval)
 	defer t.Stop()
 	for {
 		select {
@@ -95,6 +97,9 @@ func (e *Evaluator) Run(ctx context.Context) {
 			if err := e.EvaluateOnce(ctx); err != nil {
 				e.logger.Warn("tracecompletion evaluate failed", "err", err)
 			}
+			// End of cycle, not start: a loop wedged inside its
+			// own body is exactly what this catches.
+			cellhealth.Beat("trace-completion")
 		}
 	}
 }

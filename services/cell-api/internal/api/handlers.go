@@ -1249,6 +1249,21 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 		mux.HandleFunc("PATCH /api/v1/cell-settings/system",
 			h.AuthMW.RequireOperator(h.patchSystemSettings))
 		// Global SMTP — operator-only. Read masks the password.
+		// Cell health is operator-scoped and cell-wide: it crosses orgs,
+		// so it is not an org-scoped route, and it carries no per-org
+		// figures for the same reason (see handlers_cellhealth.go).
+		// Either an operator session (the page) or the cell's health
+		// token (a machine). The token path cannot go through
+		// RequireOperator: it refuses capped tokens by design, and an
+		// endpoint only a logged-in human can reach cannot be polled,
+		// which is the one thing this endpoint is for.
+		mux.HandleFunc("GET /api/v1/cell-health", func(w http.ResponseWriter, r *http.Request) {
+			if healthTokenOK(r) {
+				h.cellHealth(w, r)
+				return
+			}
+			h.AuthMW.RequireOperator(h.cellHealth)(w, r)
+		})
 		mux.HandleFunc("GET /api/v1/cell-settings/smtp",
 			h.AuthMW.RequireOperator(h.getSMTP))
 		mux.HandleFunc("PATCH /api/v1/cell-settings/smtp",
@@ -1516,6 +1531,10 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/v1/services/{name}/tags/{tagId}", h.writeService(h.detachServiceTag))
 
 	mux.HandleFunc("GET /healthz", h.healthz)
+	// Readiness is separate from liveness: /healthz answers "is the
+	// process up", which cannot fail while it is answering. /readyz
+	// answers "can I actually serve", which can.
+	mux.HandleFunc("GET /readyz", h.readyz)
 	// API docs (public; see the auth skip-list in main.go).
 	mux.HandleFunc("GET /api/v1/openapi.json", h.openapiSpec)
 	mux.HandleFunc("GET /api/v1/llms.txt", h.llmsSpec)

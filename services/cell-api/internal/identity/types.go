@@ -180,11 +180,11 @@ type Session struct {
 // is per-account (not per-org-membership) because a service account
 // always lives in exactly one org.
 type ServiceAccount struct {
-	ID          uuid.UUID  `json:"id"`
-	OrgID       uuid.UUID  `json:"org_id"`
-	Name        string     `json:"name"`
-	Description string     `json:"description"`
-	Role        Role       `json:"role"`
+	ID          uuid.UUID `json:"id"`
+	OrgID       uuid.UUID `json:"org_id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	Role        Role      `json:"role"`
 	// Scope is the visibility model (docs/service-account-scoping-design.md):
 	// SAScopeScoped (default) — deny-by-default, visibility resolved from
 	// group memberships exactly like a user's; SAScopeOrgWide — explicit,

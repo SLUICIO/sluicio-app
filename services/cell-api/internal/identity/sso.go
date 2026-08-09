@@ -15,8 +15,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/sluicio/sluicio-app/services/cell-api/internal/secretcrypto"
 	"github.com/jackc/pgx/v5"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/secretcrypto"
 )
 
 const authProviderCols = `id, org_id, name, kind, issuer_url, client_id, client_secret,

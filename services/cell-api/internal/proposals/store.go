@@ -25,6 +25,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/cellhealth"
 	"log/slog"
 	"time"
 
@@ -313,6 +314,7 @@ func (s *Store) RunExpirySweep(ctx context.Context, logger *slog.Logger) {
 	sweep()
 
 	t := time.NewTicker(SweepInterval)
+	cellhealth.Register("proposal-expiry", SweepInterval)
 	defer t.Stop()
 	for {
 		select {
@@ -320,6 +322,9 @@ func (s *Store) RunExpirySweep(ctx context.Context, logger *slog.Logger) {
 			return
 		case <-t.C:
 			sweep()
+			// End of cycle, not start: a loop wedged inside its
+			// own body is exactly what this catches.
+			cellhealth.Beat("proposal-expiry")
 		}
 	}
 }

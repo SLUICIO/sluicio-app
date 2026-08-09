@@ -13,6 +13,7 @@ package errornotify
 import (
 	"context"
 	"fmt"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/cellhealth"
 	"log/slog"
 	"net/http"
 	"time"
@@ -60,6 +61,7 @@ func New(ch *store.Store, acks *erroracks.Store, routes *notifyprofiles.Store, c
 func (n *Notifier) Run(ctx context.Context) {
 	n.once(ctx)
 	t := time.NewTicker(n.interval)
+	cellhealth.Register("error-notifier", n.interval)
 	defer t.Stop()
 	for {
 		select {
@@ -67,6 +69,9 @@ func (n *Notifier) Run(ctx context.Context) {
 			return
 		case <-t.C:
 			n.once(ctx)
+			// End of cycle, not start: a loop wedged inside its
+			// own body is exactly what this catches.
+			cellhealth.Beat("error-notifier")
 		}
 	}
 }

@@ -5,6 +5,7 @@ package eventsubs
 import (
 	"context"
 	"fmt"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/cellhealth"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -47,6 +48,7 @@ func (w *Worker) Run(ctx context.Context) {
 	}
 	w.client = &http.Client{Timeout: 15 * time.Second}
 	t := time.NewTicker(w.Poll)
+	cellhealth.Register("event-subscriptions", w.Poll)
 	defer t.Stop()
 	for {
 		select {
@@ -54,6 +56,9 @@ func (w *Worker) Run(ctx context.Context) {
 			return
 		case <-t.C:
 			w.sweep(ctx)
+			// End of cycle, not start: a loop wedged inside its
+			// own body is exactly what this catches.
+			cellhealth.Beat("event-subscriptions")
 		}
 	}
 }

@@ -5,6 +5,7 @@ package alerting
 import (
 	"context"
 	"fmt"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/cellhealth"
 	"log/slog"
 	"net/http"
 	"os"
@@ -401,6 +402,7 @@ func (e *Engine) Run(ctx context.Context) {
 
 func (e *Engine) loop(ctx context.Context, every time.Duration, tick func(context.Context)) {
 	t := time.NewTicker(every)
+	cellhealth.Register("alerting", every)
 	defer t.Stop()
 	for {
 		select {
@@ -408,6 +410,9 @@ func (e *Engine) loop(ctx context.Context, every time.Duration, tick func(contex
 			return
 		case <-t.C:
 			tick(ctx)
+			// End of cycle, not start: a loop wedged inside its
+			// own body is exactly what this catches.
+			cellhealth.Beat("alerting")
 		}
 	}
 }

@@ -21,6 +21,7 @@ package advisor
 
 import (
 	"context"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/cellhealth"
 	"log/slog"
 	"time"
 
@@ -111,6 +112,7 @@ func (e *Engine) Run(ctx context.Context) {
 		every = 24 * time.Hour
 	}
 	t := time.NewTicker(every)
+	cellhealth.Register("advisor", every)
 	defer t.Stop()
 	for {
 		select {
@@ -118,6 +120,9 @@ func (e *Engine) Run(ctx context.Context) {
 			return
 		case <-t.C:
 			e.RunAll(ctx)
+			// End of cycle, not start: a loop wedged inside its
+			// own body is exactly what this catches.
+			cellhealth.Beat("advisor")
 		}
 	}
 }
