@@ -3,8 +3,14 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.94 — 2026-08-09
+
+- fix(traces): stop claiming every hand-off-free message predates the feature (79a9b09)
+- docs(testing): a Node-RED fixture for the one #12 case that needed real data (bca8f5a)
+
 ## v0.11.93 — 2026-08-09
 
+- release v0.11.93 — refresh internal changelog (1b11302)
 - docs(testing): track what has shipped but nobody has watched work (b540f94)
 
 ## v0.11.92 — 2026-08-09
