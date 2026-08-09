@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.93 — 2026-08-09
+
+- docs(testing): track what has shipped but nobody has watched work (b540f94)
+
 ## v0.11.92 — 2026-08-09
 
+- release v0.11.92 — refresh internal changelog (eb3d857)
 - feat(traces): draw a trace as a graph of steps, not only a waterfall (87112b1)
 
 ## v0.11.91 — 2026-08-09
