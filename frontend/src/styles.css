@@ -1239,7 +1239,7 @@ code, .mono {
 .m-intg-tick { width: 22px; height: 22px; display: inline-grid; place-items: center; font: 700 13px 'Inter', sans-serif; color: var(--primary); }
 .m-builder-actions { display: flex; gap: 8px; border-top: 1px dashed var(--border); padding-top: 12px; }
 .m-existing { display: flex; flex-direction: column; gap: 6px; }
-.m-existing-row { display: grid; grid-template-columns: 4px 1fr auto auto auto; gap: 10px; align-items: center; padding: 8px 12px 8px 0; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.m-existing-row { display: grid; grid-template-columns: 4px 1fr auto auto; gap: 10px; align-items: center; padding: 8px 12px 8px 0; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
 /* The severity colours say how BAD this check would be if it fired; the
    state classes say whether it is firing right now. A row used to be
    painted amber or red permanently, which read as "this check is angry"
@@ -1250,6 +1250,9 @@ code, .mono {
 .m-ex-bar.state-ok { background: var(--ok); }
 /* Disabled, or never evaluated — nothing is being asserted either way. */
 .m-ex-bar.state-idle { background: var(--border); }
+/* Every row action in one cell, so the column count does not depend on
+   how many buttons a given check happens to have. */
+.m-ex-actions { display: flex; align-items: center; gap: 10px; flex-wrap: nowrap; white-space: nowrap; justify-content: flex-end; }
 .m-ex-mid { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .m-ex-name { font-size: 12.5px; color: var(--ink); font-weight: 600; }
 .m-ex-cond { font-size: 11px; color: var(--muted); font-family: var(--mono); }

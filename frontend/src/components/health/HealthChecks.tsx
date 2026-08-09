@@ -410,16 +410,25 @@ export default function HealthChecks({
                       firing so the onset is on screen rather than off the
                       left edge. Only for metric checks — the others have
                       no single series to open. */}
-                  {(() => {
-                    const href = metricHref(rule, firing.get(rule.id), linkScope);
-                    return href ? (
-                      <Link className="m-ex-tgt" to={href} title={metricCheckLinkTitle(linkScope)}>
-                        view metric →
-                      </Link>
-                    ) : null;
-                  })()}
-                  <button className="m-ex-tgt" type="button" onClick={() => { setCreating(null); setEditing(rule); }}>edit</button>
-                  <button className="m-ex-tgt" type="button" onClick={() => remove(rule.id)}>remove</button>
+                  {/* One grid cell for every action, however many there
+                      are. The row used to give each button its own
+                      column, so a metric check — which adds "view
+                      metric" — had one child more than there were
+                      columns and pushed "remove" onto an implicit second
+                      row at the far left. Adding a fourth action would
+                      have done it again. */}
+                  <div className="m-ex-actions">
+                    {(() => {
+                      const href = metricHref(rule, firing.get(rule.id), linkScope);
+                      return href ? (
+                        <Link className="m-ex-tgt" to={href} title={metricCheckLinkTitle(linkScope)}>
+                          view metric →
+                        </Link>
+                      ) : null;
+                    })()}
+                    <button className="m-ex-tgt" type="button" onClick={() => { setCreating(null); setEditing(rule); }}>edit</button>
+                    <button className="m-ex-tgt" type="button" onClick={() => remove(rule.id)}>remove</button>
+                  </div>
                 </div>
               ))}
             </div>
