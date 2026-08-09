@@ -210,6 +210,27 @@ export interface SpanSummary {
   // Split views for the advanced panel, when the source matters.
   resource_attributes?: Record<string, string>;
   span_attributes?: Record<string, string>;
+  /** Spans this one links to, usually in another trace: the
+   *  ASYNCHRONOUS hand-offs (a queue, a scheduled retry, a delayed
+   *  delivery) that a parent/child edge cannot express.
+   *
+   *  ABSENT means unknown, not "none". Links were not stored before
+   *  v0.11.91 and there is no backfill, so a trace ingested earlier will
+   *  never report any, and anything drawing hand-offs has to say so
+   *  rather than presenting silence as an answer. */
+  links?: SpanLink[];
+  /** How many links the span carried before truncation at ingest.
+   *  Greater than links.length means the rest were dropped, and the
+   *  reader must be told "showing N of M". */
+  links_total?: number;
+}
+
+/** One reference from a span to another span, usually in another trace.
+ *  Only the reference is kept; a link's attributes are where unbounded
+ *  growth lives and nothing reads them today. */
+export interface SpanLink {
+  trace_id: string;
+  span_id: string;
 }
 
 export interface ServiceMetadata {

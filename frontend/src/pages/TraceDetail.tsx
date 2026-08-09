@@ -9,6 +9,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import IntegrationFlow from "../components/IntegrationFlow";
+import SpanGraph from "../components/SpanGraph";
 import TraceErrorPanel from "../components/TraceErrorPanel";
 import TraceWaterfall from "../components/TraceWaterfall";
 import TraceTrimPanel from "../components/traces/TraceTrimPanel";
@@ -83,6 +84,10 @@ export default function TraceDetail() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedSpan, setSelectedSpan] = useState<string | null>(null);
+  // Which view of the trace is on screen. Defaults to the service flow,
+  // which is the established one; the span graph is the new answer to a
+  // different question rather than a replacement.
+  const [graphView, setGraphView] = useState(false);
   const [integrationContextName, setIntegrationContextName] = useState<string | null>(null);
   const [trimOpen, setTrimOpen] = useState(false);
   const keyAttrs = useKeyAttributes();
@@ -438,13 +443,41 @@ export default function TraceDetail() {
             >
               <div className="flex items-baseline justify-between border-b border-border px-4 py-3">
                 <div>
-                  <h2 className="text-base font-semibold">Flow · this message's path</h2>
+                  <h2 className="text-base font-semibold">
+                    {graphView ? "Steps · what ran, and what ran together" : "Flow · this message's path"}
+                  </h2>
                   <p className="text-xs text-muted">
-                    Highlighted edges show the hops this message took.
+                    {graphView
+                      ? "Every step this message took, repeats folded together. The waterfall below shows the same thing in time order."
+                      : "Highlighted edges show the hops this message took."}
                   </p>
                 </div>
+                {/* Two views of one trace, because they answer different
+                    questions: the service flow says which services it
+                    crossed, the span graph says what actually ran inside
+                    them and what overlapped. */}
+                <div className="level-seg" role="tablist" aria-label="Trace view">
+                  {([["services", "Services"], ["steps", "Steps"]] as const).map(([k, label]) => (
+                    <button
+                      key={k}
+                      role="tab"
+                      aria-selected={graphView === (k === "steps")}
+                      className={`level-seg__btn${graphView === (k === "steps") ? " is-active" : ""}`}
+                      onClick={() => setGraphView(k === "steps")}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
               </div>
-              <div style={{ height: 320, position: "relative" }}>
+              <div style={{ height: 320, position: "relative", overflow: "auto" }}>
+                {graphView ? (
+                  <SpanGraph
+                    spans={data.spans}
+                    selectedSpanId={selectedSpan}
+                    onSelect={(id) => setSelectedSpan(id)}
+                  />
+                ) : (
                 <IntegrationFlow
                   nodes={flow.nodes}
                   edges={flow.edges}
@@ -462,6 +495,7 @@ export default function TraceDetail() {
                     if (span) setSelectedSpan(span.span_id);
                   }}
                 />
+                )}
               </div>
             </section>
 
