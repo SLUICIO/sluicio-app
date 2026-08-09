@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.88 — 2026-08-09
+
+- fix(health): keep every check's actions on one line (79b8a1f)
+
 ## v0.11.87 — 2026-08-08
 
+- release v0.11.87 — refresh internal changelog (ada4a8a)
 - feat(integrations): a Metrics tab on the integration (6560508)
 - fix(metrics): "view metric" carries the scope the check is bound to (3d010ea)
 - fix(seed): let the file-transfer demo choose which nights it missed (885ec65)
