@@ -3,8 +3,15 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.90 — 2026-08-09
+
+- feat(mcp): let an agent see its own proposal queue and the candidates (ed2052b)
+- feat(proposals): create-proposal plumbing and cell-surfaced candidates (dac5cb0)
+- feat(proposals): find candidate integrations from the call graph (0586c9c)
+
 ## v0.11.89 — 2026-08-09
 
+- release v0.11.89 — refresh internal changelog (f2f2b2d)
 - feat(collector): generate snippets for the collector the customer runs (1e6d880)
 - feat(health): report whether this cell is actually doing its job (a26068e)
 - feat(errors): attribute an integration's failures to the flow, not the runtime (e24a006)
