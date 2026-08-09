@@ -200,3 +200,54 @@ func TestDedupKeySeparatorCannotBeForged(t *testing.T) {
 		t.Error("a name containing the separator collided with two names")
 	}
 }
+
+func TestATakenSlugBlocksApproval(t *testing.T) {
+	// Applying would fail, or worse attach to somebody else's
+	// integration. This is the one drift that must stop an approval.
+	d := CheckCreateDrift([]string{"a"}, true, nil, nil)
+	if !d.Any() || !d.Blocking() {
+		t.Fatalf("a taken slug must block: %+v", d)
+	}
+}
+
+func TestClaimedServicesWeakenButDoNotBlock(t *testing.T) {
+	// An integration over four of five originally proposed services is
+	// usually still the one the reviewer wanted. Blocking would turn a
+	// useful suggestion into a dead row whenever somebody tidied one
+	// service in the meantime.
+	d := CheckCreateDrift([]string{"a", "b", "c"}, false, map[string]bool{"b": true}, nil)
+	if !d.Any() {
+		t.Fatal("a claimed service is drift")
+	}
+	if d.Blocking() {
+		t.Error("claimed services must not block an approval")
+	}
+	if len(d.ClaimedServices) != 1 || d.ClaimedServices[0] != "b" {
+		t.Errorf("got %v", d.ClaimedServices)
+	}
+}
+
+func TestServicesThatWentQuietAreReported(t *testing.T) {
+	// The evidence has expired: approving would create an integration
+	// watching something that no longer reports.
+	d := CheckCreateDrift([]string{"a", "b"}, false, nil, map[string]bool{"a": true})
+	if len(d.MissingServices) != 1 || d.MissingServices[0] != "b" {
+		t.Fatalf("got %v", d.MissingServices)
+	}
+	if d.Blocking() {
+		t.Error("a quiet service is a judgement call, not a block")
+	}
+}
+
+func TestAnUnknownReportingSetDoesNotCondemnEverything(t *testing.T) {
+	// An empty map means "not established", not "nothing reports".
+	// Treating it as the latter would block every approval on a cell
+	// whose catalog had not finished loading.
+	d := CheckCreateDrift([]string{"a", "b"}, false, nil, nil)
+	if len(d.MissingServices) != 0 {
+		t.Fatalf("an unestablished reporting set must not mark services missing: %v", d.MissingServices)
+	}
+	if d.Any() {
+		t.Error("nothing drifted")
+	}
+}

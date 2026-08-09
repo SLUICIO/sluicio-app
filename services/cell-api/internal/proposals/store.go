@@ -25,6 +25,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/cellhealth"
 	"log/slog"
 	"time"
@@ -45,6 +46,10 @@ var (
 	// ErrDrift is returned when the target changed since the proposal
 	// was filed, so approving would clobber whoever changed it.
 	ErrDrift = errors.New("proposals: the target changed since this was proposed")
+	// ErrDuplicatePending is returned when an identical create proposal
+	// is already awaiting a decision. Distinct from an error: the
+	// suggestion is in the inbox, which is what the caller wanted.
+	ErrDuplicatePending = errors.New("proposals: an identical proposal is already pending")
 )
 
 // DefaultTTL is how long a proposal stays reviewable. Long enough to
@@ -77,6 +82,10 @@ type Proposal struct {
 	ProposedByID    *uuid.UUID `json:"proposed_by_id,omitempty"`
 	ProposedByLabel string     `json:"proposed_by_label"`
 	Via             string     `json:"via"`
+	// DedupKey identifies what a CREATE proposal would create, so the
+	// same suggestion arriving on every agent run does not bury the
+	// inbox. Empty for updates, which supersede by target instead.
+	DedupKey string `json:"dedup_key,omitempty"`
 
 	State        string     `json:"state"`
 	DecidedBy    *uuid.UUID `json:"decided_by,omitempty"`
@@ -97,14 +106,16 @@ func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 const cols = `id, org_id, target_kind, target_id, target_label, changes, rationale,
 	proposed_by_kind, proposed_by_id, proposed_by_label, via,
-	state, decided_by, decided_at, decision_note, expires_at, created_at, updated_at`
+	state, decided_by, decided_at, decision_note, expires_at, created_at, updated_at,
+	COALESCE(dedup_key, '')`
 
 func scan(row pgx.Row) (Proposal, error) {
 	var p Proposal
 	var raw []byte
 	err := row.Scan(&p.ID, &p.OrgID, &p.TargetKind, &p.TargetID, &p.TargetLabel, &raw, &p.Rationale,
 		&p.ProposedByKind, &p.ProposedByID, &p.ProposedByLabel, &p.Via,
-		&p.State, &p.DecidedBy, &p.DecidedAt, &p.DecisionNote, &p.ExpiresAt, &p.CreatedAt, &p.UpdatedAt)
+		&p.State, &p.DecidedBy, &p.DecidedAt, &p.DecisionNote, &p.ExpiresAt, &p.CreatedAt, &p.UpdatedAt,
+		&p.DedupKey)
 	if err != nil {
 		return Proposal{}, err
 	}
@@ -143,15 +154,32 @@ func (s *Store) Create(ctx context.Context, p Proposal, ttl time.Duration) (Prop
 		}
 	}
 
+	// A create carries a dedup key instead of superseding. NULL rather
+	// than empty string so the partial unique index ignores updates
+	// entirely: an empty string would make every update collide with
+	// every other update on the same target kind.
+	var dedup *string
+	if p.DedupKey != "" {
+		k := p.DedupKey
+		dedup = &k
+	}
+
 	row := tx.QueryRow(ctx, `INSERT INTO proposals
 		(org_id, target_kind, target_id, target_label, changes, rationale,
-		 proposed_by_kind, proposed_by_id, proposed_by_label, via, expires_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+		 proposed_by_kind, proposed_by_id, proposed_by_label, via, expires_at, dedup_key)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
 		RETURNING `+cols,
 		p.OrgID, p.TargetKind, p.TargetID, p.TargetLabel, changes, p.Rationale,
-		p.ProposedByKind, p.ProposedByID, p.ProposedByLabel, p.Via, time.Now().Add(ttl))
+		p.ProposedByKind, p.ProposedByID, p.ProposedByLabel, p.Via, time.Now().Add(ttl), dedup)
 	out, err := scan(row)
 	if err != nil {
+		// A duplicate pending create is not a failure worth an error
+		// page: the suggestion is already in the inbox, which is what
+		// the caller wanted. Reported distinctly so an agent can tell
+		// "already filed" from "rejected".
+		if isUniqueViolation(err) {
+			return Proposal{}, ErrDuplicatePending
+		}
 		return Proposal{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -327,4 +355,13 @@ func (s *Store) RunExpirySweep(ctx context.Context, logger *slog.Logger) {
 			cellhealth.Beat("proposal-expiry")
 		}
 	}
+}
+
+// isUniqueViolation reports whether an error is Postgres 23505.
+//
+// Checked by code rather than by message text: the message is localised
+// and the constraint name would tie this to a migration's naming.
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }

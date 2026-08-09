@@ -1070,6 +1070,9 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	// telemetry as the org). See handlers_ingest_keys.go.
 	// Which collector generated snippets target. Readable by anyone who
 	// can see a snippet: the YAML is not interpretable without it.
+	// Suggested integrations from the call graph. Deterministic, so a
+	// cell with no agent attached still gets them.
+	mux.HandleFunc("GET /api/v1/integration-candidates", h.integrationCandidates)
 	mux.HandleFunc("GET /api/v1/collector-target", h.getCollectorTarget)
 	mux.HandleFunc("GET /api/v1/ingest-keys", h.listIngestKeys)
 	if h.AuthMW != nil {

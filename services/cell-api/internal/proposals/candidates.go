@@ -230,3 +230,75 @@ func DedupKey(services []string) string {
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }
+
+// ── Drift for a create ───────────────────────────────────────────────
+
+// CreateDrift is why a create proposal can no longer be applied as
+// filed.
+//
+// The existing CheckDrift compares each change's Before against the
+// target's current value, which needs a target. A create has none, so
+// "the target changed" is not the question. What can go stale instead
+// is the WORLD the suggestion was made about:
+//
+//   - the slug it wants is now taken;
+//   - services it would capture have been claimed by another
+//     integration meanwhile;
+//   - services it names have stopped reporting, so approving would
+//     create an integration that watches nothing.
+//
+// Reported as a list rather than a boolean because they call for
+// different responses. A taken slug is a rename. Claimed services mean
+// somebody already did this by hand and the suggestion is redundant.
+// Services that went quiet mean the evidence has expired and the
+// grouping should be re-derived rather than approved on trust.
+type CreateDrift struct {
+	SlugTaken bool `json:"slug_taken,omitempty"`
+	// ClaimedServices are members that now belong to some integration.
+	ClaimedServices []string `json:"claimed_services,omitempty"`
+	// MissingServices are members that no longer report at all.
+	MissingServices []string `json:"missing_services,omitempty"`
+}
+
+// Any reports whether anything drifted.
+func (d CreateDrift) Any() bool {
+	return d.SlugTaken || len(d.ClaimedServices) > 0 || len(d.MissingServices) > 0
+}
+
+// Blocking reports whether the drift must stop an approval outright.
+//
+// A taken slug blocks: applying would fail or, worse, silently attach to
+// somebody else's integration.
+//
+// Claimed or missing services do NOT block. They make the suggestion
+// weaker, not impossible, and the reviewer is the right person to judge
+// that: an integration over four of the five services originally
+// proposed is usually still the integration they wanted. Blocking on it
+// would turn a useful suggestion into a dead row every time somebody
+// tidied one service in the meantime.
+func (d CreateDrift) Blocking() bool { return d.SlugTaken }
+
+// CheckCreateDrift compares a proposed integration against the world as
+// it is now.
+//
+// slugExists, assigned and reporting are supplied by the caller rather
+// than queried here, so this stays testable without a database and so
+// the caller controls the window "still reporting" is measured over.
+func CheckCreateDrift(services []string, slugExists bool, assigned map[string]bool, reporting map[string]bool) CreateDrift {
+	d := CreateDrift{SlugTaken: slugExists}
+	for _, s := range services {
+		if assigned[s] {
+			d.ClaimedServices = append(d.ClaimedServices, s)
+		}
+		// Checked only when the caller supplied a reporting set at all;
+		// an empty map means "not established", and treating that as
+		// "everything is missing" would block every approval on a cell
+		// whose catalog had not loaded.
+		if len(reporting) > 0 && !reporting[s] {
+			d.MissingServices = append(d.MissingServices, s)
+		}
+	}
+	sort.Strings(d.ClaimedServices)
+	sort.Strings(d.MissingServices)
+	return d
+}
