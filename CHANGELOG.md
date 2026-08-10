@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.96 — 2026-08-10
+
+- docs(testing): record what #14 verified, and the case it cannot (5cf9c4f)
+
 ## v0.11.95 — 2026-08-09
 
+- release v0.11.95 — refresh internal changelog (c281a70)
 - feat(proposals): stop a shared service fusing unrelated flows (260807d)
 
 ## v0.11.94 — 2026-08-09
