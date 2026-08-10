@@ -92,13 +92,21 @@ loop's last completed cycle), and a heartbeat on ten loops.
 
 **Where.** Endpoints only; there is no page yet.
 
-**Verified so far.** All three endpoints on the dev cell, the token
-gate (401 without, 200 with), and loops reporting `unknown` on a fresh
-start rather than `stale`.
+**Verified so far.** All three endpoints on a real cell (macmini01):
+dependencies answer, the token gate holds (401 without, 200 with), ten
+loops report, and a freshly restarted cell reports `unknown` rather than
+`stale` — including the useful detail that a slow first cycle can leave
+a 30s loop `unknown` for a minute after boot without that being a fault.
+No organisation names or per-org figures appear in the payload.
 
 **Not verified.** A loop actually going **stale**, which is the case the
 feature exists for and cannot be produced without breaking something on
 purpose.
+
+**Not built.** Capacity reporting. #14's design says capacity is
+reported but not judged; none of it shipped, so Case 14.7 below cannot
+be walked — there is nothing to check. Tracked in #21 rather than left
+looking like a passed case.
 
 | | |
 |--|--|
@@ -108,7 +116,7 @@ purpose.
 | **Case 14.4** | `GET /api/v1/cell-health` without `SLUICIO_HEALTH_TOKEN` set returns 401 even with a correct-looking bearer token. |
 | **Case 14.5** | With the token set, the report lists ten loops. After the cell has run a few minutes, the frequent ones (`alerting`, `demand-writer`, `event-subscriptions`) read `ok`. |
 | **Case 14.6** | A response contains **no organisation names and no per-org figures**. This is a privacy boundary, not a formatting preference: a cell operator and a tenant's admins can be different parties. |
-| **Case 14.7** | Capacity never moves `status`. Only a dead dependency or a stale loop does. |
+| **Case 14.7** | ~~Capacity never moves `status`.~~ **Not testable: capacity is not reported at all. See #21.** |
 
 ---
 
