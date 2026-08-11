@@ -813,14 +813,30 @@ func (h *Handlers) previewAlertRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	breached := samples > 0 && alerting.EvaluateBreach(req.Spec.Operator, value, req.Spec.Threshold)
-	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
+	resp := map[string]any{
 		"value":     value,
 		"samples":   samples,
 		"has_data":  samples > 0,
 		"breached":  breached,
 		"threshold": req.Spec.Threshold,
 		"window":    TimeRange{From: from, To: to}.Window(),
-	})
+	}
+	// How many series the filter left in the group. Only meaningful for
+	// the aggregations that pick one sample by timestamp — for the rest
+	// the group size is a design choice, not a hazard — so the extra
+	// query is only run where it can change what the builder says.
+	if samples > 0 && alerting.AggregationPicksBySample(string(req.Spec.Aggregation)) {
+		series, err := h.Store.MetricSeriesCount(
+			r.Context(), req.Spec.MetricName, ruleAttrsToStore(req.Spec.Attrs), from, to, pf.ServiceIn,
+		)
+		if err != nil {
+			// A missing count degrades the warning, not the preview.
+			h.Logger.Warn("alert preview series count failed", "err", err)
+		} else {
+			resp["series"] = series
+		}
+	}
+	httpserver.WriteJSON(w, http.StatusOK, resp)
 }
 
 // listAlertInstances: GET /api/v1/alert-instances — recent firing/

@@ -1902,6 +1902,11 @@ export interface AlertPreview {
   split_by?: string;
   breach_count?: number;
   groups?: AlertPreviewGroup[];
+  // How many distinct series the filter left in the group. Sent only
+  // for aggregations that pick one sample by timestamp (last, age),
+  // where more than one series means the pick is arbitrary. Absent for
+  // every other aggregation, and absent when the count query failed.
+  series?: number;
 }
 
 // AlertPreviewGroup is one split-by value's reading in a preview.

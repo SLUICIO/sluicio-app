@@ -177,15 +177,24 @@ type MetricGroup struct {
 	Samples uint64
 }
 
-// ForWindowDuration parses ForWindow, clamped to [1m, 24h] with a 5m
-// fallback so a bad value can't make evaluation degenerate.
+// ForWindowDuration parses ForWindow, clamped to [1m, maxCheckWindow]
+// with a 5m fallback so a bad value can't make evaluation degenerate.
+//
+// The ceiling used to be 24h while log and trace checks allowed 30d,
+// which meant "no file has arrived for a week" was expressible as a log
+// check and not as a metric check on file.mtime — the same question,
+// answerable or not depending on which signal you happened to reach
+// for. One ceiling for every check kind.
+//
+// Note ForWindow is a Go duration string, so it has no "d" unit: a
+// month is "720h", not "30d".
 func (s MetricRuleSpec) ForWindowDuration() time.Duration {
 	d, err := time.ParseDuration(s.ForWindow)
 	if err != nil || d < time.Minute {
 		return 5 * time.Minute
 	}
-	if d > 24*time.Hour {
-		return 24 * time.Hour
+	if d > maxCheckWindow {
+		return maxCheckWindow
 	}
 	return d
 }
@@ -255,6 +264,20 @@ func (s LogRuleSpec) WindowDuration() time.Duration {
 		return maxCheckWindow
 	}
 	return d
+}
+
+// AggregationPicksBySample reports whether an aggregation reduces the
+// window by picking ONE sample by timestamp rather than combining every
+// matching sample.
+//
+// "last" and "age" both compile to argMax(Value, Timestamp), so when
+// several series carry the same timestamp the pick is arbitrary and the
+// rule can read a value belonging to a series its author never meant to
+// select. min/max/p95 also return a single sample's value, but they
+// choose it by VALUE — well-defined across a group and stable — so they
+// are not affected and are deliberately not listed here.
+func AggregationPicksBySample(a string) bool {
+	return a == string(AggLast) || a == string(AggAge)
 }
 
 // Signal names — the kind of telemetry a rule watches. Stored in the

@@ -12,6 +12,8 @@ import { api } from "../../api/client";
 import SearchableSelect from "../SearchableSelect";
 import { displayUnit } from "../../lib/format";
 import { AGG_LABELS, ALERT_AGGREGATIONS } from "../../lib/aggregations";
+import { METRIC_WINDOWS } from "../../lib/metricWindows";
+import AmbiguousSeriesBanner from "../AmbiguousSeriesBanner";
 import { defaultRuleName } from "../../lib/ruleName";
 import AlertNotificationContent from "./AlertNotificationContent";
 import type {
@@ -36,7 +38,6 @@ const OPS: { op: AlertOperator; glyph: string }[] = [
   { op: "eq", glyph: "=" },
   { op: "neq", glyph: "≠" },
 ];
-const WINDOWS = ["1m", "5m", "10m", "30m", "1h"];
 const SEVERITIES: { v: AlertSeverity; label: string }[] = [
   { v: "info", label: "Info" },
   { v: "warning", label: "Warning" },
@@ -306,8 +307,8 @@ export default function AlertBuilder({
           {displayUnit(unit) && <span className="m-rs-prose muted">{displayUnit(unit)}</span>}
           <span className="m-rs-prose">for</span>
           <select className="m-rs-sel" value={forWindow} aria-label="Evaluation window" onChange={(e) => setForWindow(e.target.value)}>
-            {WINDOWS.map((wn) => (
-              <option key={wn} value={wn}>{wn}</option>
+            {METRIC_WINDOWS.map((wn) => (
+              <option key={wn.value} value={wn.value}>{wn.label}</option>
             ))}
           </select>
         </div>
@@ -427,6 +428,11 @@ export default function AlertBuilder({
 
         {/* live preview */}
         <PreviewBanner preview={preview} loading={previewLoading} op={opGlyph} unit={unit} splitBy={splitBy} />
+
+        {/* Sits under the preview because it says the preview's own
+            number is not trustworthy — a warning about a reading has to
+            be next to the reading. */}
+        <AmbiguousSeriesBanner aggregation={agg} series={preview?.series} splitBy={splitBy} />
 
         {/* severity */}
         <div className="m-field">

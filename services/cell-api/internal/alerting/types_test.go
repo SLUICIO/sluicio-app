@@ -35,6 +35,23 @@ func TestLogRuleSpecWindowDuration(t *testing.T) {
 	}
 }
 
+func TestAggregationPicksBySample(t *testing.T) {
+	// The distinction is not "returns one sample's value" — min, max and
+	// p95 do that too. It is "chooses that sample by TIMESTAMP", because
+	// only a timestamp can tie across series, and only a tie makes the
+	// choice arbitrary.
+	for _, a := range []string{"last", "age"} {
+		if !AggregationPicksBySample(a) {
+			t.Errorf("%q picks by timestamp and must be flagged", a)
+		}
+	}
+	for _, a := range []string{"max", "min", "avg", "sum", "p95", "increase", "rate", ""} {
+		if AggregationPicksBySample(a) {
+			t.Errorf("%q is well-defined across a group and must NOT be flagged", a)
+		}
+	}
+}
+
 func TestAlertLinkPath(t *testing.T) {
 	const base = "https://sluicio.example.com"
 	t.Setenv("SLUICIO_APP_URL", base)

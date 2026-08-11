@@ -32,6 +32,8 @@ import FilterChip from "../logs/FilterChip";
 import { AGG_LABELS, ALERT_AGGREGATIONS } from "../../lib/aggregations";
 import { alertCondition, alertSignalLabel } from "../../lib/alertRule";
 import { windowRetentionWarning } from "../../lib/checkWindow";
+import { METRIC_WINDOWS, metricWindowSeconds } from "../../lib/metricWindows";
+import AmbiguousSeriesBanner from "../AmbiguousSeriesBanner";
 import { formatRelative } from "../../lib/format";
 
 // CheckScope is what a health check governs. All three are first-class
@@ -101,7 +103,6 @@ const OPS: { op: AlertOperator; glyph: string }[] = [
   { op: "eq", glyph: "=" },
   { op: "neq", glyph: "≠" },
 ];
-const WINDOWS = ["1m", "5m", "10m", "30m", "1h"];
 const SEVERITIES: { v: AlertSeverity; label: string }[] = [
   { v: "info", label: "Info" },
   { v: "warning", label: "Warning" },
@@ -117,15 +118,17 @@ const opGlyphOf = (op: string) => OPS.find((o) => o.op === op)?.glyph ?? op;
 // The warning it feeds is only worth showing when we KNOW the numbers
 // disagree; inventing a retention would warn on every check on a cell
 // that simply did not answer.
+type RetentionKind = "traces" | "logs" | "metrics";
+
 let retentionOnce: Promise<RetentionResponse> | null = null;
-function useRetentionDays(kind: "traces" | "logs"): number | null {
+function useRetentionDays(kind: RetentionKind): number | null {
   const [days, setDays] = useState<number | null>(null);
   useEffect(() => {
     let live = true;
     const pending = (retentionOnce ??= api.getRetention());
     pending
       .then((r) => {
-        if (live) setDays((kind === "traces" ? r.traces?.days : r.logs?.days) ?? null);
+        if (live) setDays(r[kind]?.days ?? null);
       })
       .catch(() => {
         // Retry on the next mount rather than caching the failure.
@@ -149,7 +152,7 @@ function WindowRetentionNote({
   firesBelow,
 }: {
   windowSeconds: number;
-  kind: "traces" | "logs";
+  kind: RetentionKind;
   firesBelow: boolean;
 }) {
   const days = useRetentionDays(kind);
@@ -845,9 +848,12 @@ function HealthCheckEditor({
           <input className="m-rs-num" type="number" value={threshold} onChange={(e) => setThreshold(Number(e.target.value))} />
           <span className="m-rs-prose">for</span>
           <select className="m-rs-sel" value={forWindow} aria-label="Evaluation window" onChange={(e) => setForWindow(e.target.value)}>
-            {WINDOWS.map((wn) => <option key={wn} value={wn}>{wn}</option>)}
+            {METRIC_WINDOWS.map((wn) => <option key={wn.value} value={wn.value}>{wn.label}</option>)}
           </select>
         </div>
+      )}
+      {!pushed && metric && (
+        <WindowRetentionNote windowSeconds={metricWindowSeconds(forWindow)} kind="metrics" firesBelow={op === "lt" || op === "lte"} />
       )}
 
       {!pushed && metric && (
@@ -890,6 +896,12 @@ function HealthCheckEditor({
           </div>
         )
       )}
+
+      {/* Same warning as the metrics-page builder: the number above is a
+          tie-break, not a measurement, when several series are pooled. */}
+      {/* No splitBy argument: this editor does not offer split-by, so
+          the "split it instead" escape hatch never applies here. */}
+      {!pushed && metric && <AmbiguousSeriesBanner aggregation={agg} series={preview?.series} />}
 
       <div className="m-field">
         <label className="m-field-label">Severity</label>

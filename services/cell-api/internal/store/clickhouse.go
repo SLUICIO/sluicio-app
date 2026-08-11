@@ -3536,6 +3536,48 @@ func (s *Store) MetricAggregate(ctx context.Context, metricName string, attrs []
 	return safeFloat(v), n, nil
 }
 
+// MetricSeriesCount reports how many distinct SERIES a rule's filter
+// leaves in the group — one series being a (service, namespace, metric
+// attrs, resource attrs) stream, the same definition the increase/rate
+// branch of MetricAggregate already reduces over.
+//
+// This exists because a point-in-time aggregation (last, age) pools
+// every matching row and then picks one: argMax(Value, Timestamp). When
+// several series share a timestamp — which they do whenever one scrape
+// emits a fan-out, e.g. httpcheck.status emitting one point per HTTP
+// status class — the tie is broken arbitrarily and the rule reads a
+// value that belongs to a series the author never meant to select.
+//
+// The count is what lets the rule builder say so before the rule is
+// saved. Nothing about the aggregate itself changes.
+func (s *Store) MetricSeriesCount(ctx context.Context, metricName string, attrs []LogAttrFilter, from, to time.Time, serviceIn []string) (uint64, error) {
+	where := []string{"MetricName = ?", "Timestamp >= ?", "Timestamp <= ?"}
+	args := []any{metricName, from, to}
+	for _, f := range attrs {
+		clause, cargs := attrClauseIn("MetricAttributes", f)
+		where = append(where, clause)
+		args = append(args, cargs...)
+	}
+	if len(serviceIn) > 0 {
+		ph := make([]string, len(serviceIn))
+		for i, n := range serviceIn {
+			ph[i] = "?"
+			args = append(args, n)
+		}
+		where = append(where, "ServiceName IN ("+strings.Join(ph, ",")+")")
+	}
+	sql := fmt.Sprintf(`
+		SELECT toUInt64(uniqExact((ServiceName, ServiceNamespace, MetricAttributes, ResourceAttributes)))
+		FROM metrics
+		WHERE %s
+	`, strings.Join(where, " AND "))
+	var n uint64
+	if err := s.conn.QueryRow(ctx, sql, args...).Scan(&n); err != nil {
+		return 0, fmt.Errorf("metric series count: %w", err)
+	}
+	return n, nil
+}
+
 // MetricGroupAggregate is one (attribute value → aggregate) row from
 // MetricAggregateGrouped.
 type MetricGroupAggregate struct {
