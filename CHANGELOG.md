@@ -3,8 +3,14 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.97 — 2026-08-11
+
+- fix(health checks): warn when a point-in-time reading is a tie-break (87271a5)
+- feat(health checks): windows to 45d, and say which check is which (23ab273)
+
 ## v0.11.96 — 2026-08-10
 
+- release v0.11.96 — refresh internal changelog (220de9b)
 - docs(testing): record what #14 verified, and the case it cannot (5cf9c4f)
 
 ## v0.11.95 — 2026-08-09
