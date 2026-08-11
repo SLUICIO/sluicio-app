@@ -228,13 +228,21 @@ const (
 func (s LogRuleSpec) FiresBelow() bool { return s.Comparison == LogComparisonFewerThan }
 
 // maxCheckWindow caps a count/volume health check's trailing window.
-// Raised from 24h to 30d so checks can legitimately span days (e.g.
-// "fewer than N logs in the last 2 days").
-const maxCheckWindow = 30 * 24 * time.Hour
+// Raised from 24h to 30d so checks can legitimately span days, then to
+// 45d for the monthly case.
+//
+// 45 rather than a round 30 because 30 is the pathological value for a
+// flow that runs once a month. A trailing 30d window on a job that runs
+// on the 1st stops covering the previous run the moment the month is 31
+// days long, so a healthy monthly flow trips its own dead-man's-switch
+// for a day, every year, in seven months out of twelve. The ceiling has
+// to clear the longest month with room for the run to drift, or the
+// monthly flow is not expressible at all.
+const maxCheckWindow = 45 * 24 * time.Hour
 
 // MaxCheckWindowSeconds is maxCheckWindow in seconds, exported for the API
 // layer's request validation (same ceiling as WindowDuration's clamp).
-const MaxCheckWindowSeconds = 30 * 24 * 60 * 60
+const MaxCheckWindowSeconds = 45 * 24 * 60 * 60
 
 // WindowDuration parses WindowSeconds, clamped to [1m, maxCheckWindow] with
 // a 5m fallback so a bad value can't make evaluation degenerate.

@@ -19,7 +19,11 @@ func TestLogRuleSpecWindowDuration(t *testing.T) {
 		{"below 1m floor → 5m", 30, 5 * time.Minute},
 		{"normal 10m", 600, 10 * time.Minute},
 		{"exactly 1m", 60, time.Minute},
-		{"above 30d cap → 30d", 31 * 24 * 60 * 60, 30 * 24 * time.Hour},
+		// A monthly flow needs a window that clears a 31-day month with
+		// slack; 30d would false-fire on one. 45d must be accepted whole.
+		{"30d passes through", 30 * 24 * 60 * 60, 30 * 24 * time.Hour},
+		{"45d passes through", 45 * 24 * 60 * 60, 45 * 24 * time.Hour},
+		{"above 45d cap → 45d", 46 * 24 * 60 * 60, 45 * 24 * time.Hour},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

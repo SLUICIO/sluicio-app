@@ -20,6 +20,7 @@ import type {
   LogAttrFilter,
   LogFieldEntry,
   MetricRuleSpec,
+  RetentionResponse,
 } from "../../api/types";
 import SearchableSelect from "../SearchableSelect";
 import { EditDrawer } from "../primitives";
@@ -30,6 +31,7 @@ import AttributeSuggest from "../logs/AttributeSuggest";
 import FilterChip from "../logs/FilterChip";
 import { AGG_LABELS, ALERT_AGGREGATIONS } from "../../lib/aggregations";
 import { alertCondition, alertSignalLabel } from "../../lib/alertRule";
+import { windowRetentionWarning } from "../../lib/checkWindow";
 import { formatRelative } from "../../lib/format";
 
 // CheckScope is what a health check governs. All three are first-class
@@ -60,6 +62,13 @@ const editorKindOf = (r: AlertRule): CheckKind =>
   r.signal === "log" ? "log" : r.signal === "trace" ? "trace" : "metric";
 
 // Trailing-window choices for log/failed-trace checks, in seconds.
+//
+// The long end exists for flows that run on a human schedule rather than
+// a machine one: a nightly export, a weekly reconciliation, a monthly
+// invoice run. Those are exactly the flows nobody notices have stopped,
+// so they are the ones that most need a dead-man's-switch — and a 7d
+// ceiling could not express any of them. Capped at 45d to match
+// alerting.MaxCheckWindowSeconds on the server.
 const WINDOW_CHOICES: { label: string; seconds: number }[] = [
   { label: "1m", seconds: 60 },
   { label: "5m", seconds: 300 },
@@ -71,6 +80,9 @@ const WINDOW_CHOICES: { label: string; seconds: number }[] = [
   { label: "1d", seconds: 86400 },
   { label: "2d", seconds: 172800 },
   { label: "7d", seconds: 604800 },
+  { label: "14d", seconds: 1209600 },
+  { label: "30d", seconds: 2592000 },
+  { label: "45d", seconds: 3888000 },
 ];
 // OTLP SeverityNumber floors for the log-check severity picker.
 const SEV_FLOORS: { label: string; value: number }[] = [
@@ -96,6 +108,60 @@ const SEVERITIES: { v: AlertSeverity; label: string }[] = [
   { v: "critical", label: "Critical" },
 ];
 const opGlyphOf = (op: string) => OPS.find((o) => o.op === op)?.glyph ?? op;
+
+// Retention for the telemetry a check reads. Fetched once per page load
+// and shared: several editors can be open across a session and the
+// answer does not change between them.
+//
+// A failed fetch clears the cache and reports null rather than a guess.
+// The warning it feeds is only worth showing when we KNOW the numbers
+// disagree; inventing a retention would warn on every check on a cell
+// that simply did not answer.
+let retentionOnce: Promise<RetentionResponse> | null = null;
+function useRetentionDays(kind: "traces" | "logs"): number | null {
+  const [days, setDays] = useState<number | null>(null);
+  useEffect(() => {
+    let live = true;
+    const pending = (retentionOnce ??= api.getRetention());
+    pending
+      .then((r) => {
+        if (live) setDays((kind === "traces" ? r.traces?.days : r.logs?.days) ?? null);
+      })
+      .catch(() => {
+        // Retry on the next mount rather than caching the failure.
+        retentionOnce = null;
+      });
+    return () => {
+      live = false;
+    };
+  }, [kind]);
+  return days;
+}
+
+/**
+ * The note shown when a check's window reaches past its telemetry's
+ * retention. Rendered beside the window picker rather than on save,
+ * because the picker is where the choice is still cheap to change.
+ */
+function WindowRetentionNote({
+  windowSeconds,
+  kind,
+  firesBelow,
+}: {
+  windowSeconds: number;
+  kind: "traces" | "logs";
+  firesBelow: boolean;
+}) {
+  const days = useRetentionDays(kind);
+  const warn = windowRetentionWarning(windowSeconds, days, firesBelow);
+  if (!warn) return null;
+  return (
+    <div className="alert alert--warn" role="status" style={{ margin: 0, fontSize: 12, lineHeight: 1.5 }}>
+      {warn.message} A cell operator can raise retention under Settings → Retention, or shorten this
+      window to {warn.retentionDays}d or less.
+    </div>
+  );
+}
 
 type ResolveMode = "auto" | "manual";
 
@@ -1009,6 +1075,7 @@ function LogCheckEditor({
           source) counts as below, so this doubles as a dead-man's-switch.
         </p>
       )}
+      <WindowRetentionNote windowSeconds={windowSec} kind="logs" firesBelow={below} />
 
       <div className="m-field">
         <label className="m-field-label">Severity</label>
@@ -1196,6 +1263,7 @@ function TraceCheckEditor({
           <p className="muted" style={{ fontSize: 12, margin: 0 }}>
             Span durations on this {scope}'s services are aggregated over the window; {aggregation === "max" ? "the slowest span" : "the p95"} is compared to the threshold.
           </p>
+          <WindowRetentionNote windowSeconds={windowSec} kind="traces" firesBelow={false} />
         </>
       ) : mode === "volume" ? (
         <>
@@ -1210,6 +1278,17 @@ function TraceCheckEditor({
           <p className="muted" style={{ fontSize: 12, margin: 0 }}>
             Total traces on this {scope}'s services are counted over the window — zero (a fully silent {scope}) counts as below, so this catches a pipeline that has gone quiet.
           </p>
+          {/* The monthly trap. A trailing 30d window on a job that runs
+              on the 1st stops covering last month's run the moment the
+              month is 31 days long, so the healthy flow trips its own
+              alarm until the next run lands. 45d clears the longest
+              month with room for the run to drift. */}
+          <p className="muted" style={{ fontSize: 12, margin: 0 }}>
+            For a flow that runs monthly, pick <strong>45d</strong>, not 30d: a trailing 30-day window
+            stops covering last month's run in any 31-day month, so a working flow would fire this
+            check until the next run arrives.
+          </p>
+          <WindowRetentionNote windowSeconds={windowSec} kind="traces" firesBelow />
         </>
       ) : (
         <>
@@ -1224,6 +1303,7 @@ function TraceCheckEditor({
           <p className="muted" style={{ fontSize: 12, margin: 0 }}>
             A failed trace is one with at least one error span on this {scope}'s services.
           </p>
+          <WindowRetentionNote windowSeconds={windowSec} kind="traces" firesBelow={false} />
         </>
       )}
 

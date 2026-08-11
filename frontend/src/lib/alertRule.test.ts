@@ -13,6 +13,14 @@ describe("fmtWindow", () => {
     [7200, "2h"],
     [300, "5m"],
     [90, "90s"],
+    // Long windows read as days, not as three-digit hours.
+    [86400, "1d"],
+    [604800, "7d"],
+    [2592000, "30d"],
+    [3888000, "45d"],
+    // 36h is not a whole number of days, so it stays in hours rather
+    // than rounding to something the rule does not actually do.
+    [129600, "36h"],
   ] as const)("renders %i seconds as %s", (secs, out) => {
     expect(fmtWindow(secs)).toBe(out);
   });

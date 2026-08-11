@@ -1207,7 +1207,14 @@ code, .mono {
   background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
   background-position: right 9px center, right 5px center; background-size: 4px 4px, 4px 4px; background-repeat: no-repeat; }
 .m-rs-sel:hover { background-color: var(--surface-3); }
-.m-rs-num { appearance: none; width: 80px; padding: 4px 8px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--surface-2); color: var(--ink); font: 600 13px var(--mono); text-align: right; }
+.m-rs-num { appearance: none; -moz-appearance: textfield; width: 80px; padding: 4px 8px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--surface-2); color: var(--ink); font: 600 13px var(--mono); text-align: right; }
+/* `appearance: none` on the input does NOT remove WebKit's spinner — it
+   is a separate shadow-DOM part and needs its own rule. Without this the
+   spinner sits exactly where the right-aligned digits are, so a 5-digit
+   millisecond threshold reads as overlapping glyphs. Arrow-key stepping
+   still works; only the drawn control is gone. */
+.m-rs-num::-webkit-outer-spin-button,
+.m-rs-num::-webkit-inner-spin-button { -webkit-appearance: none; appearance: none; margin: 0; }
 .m-rs-num:focus { outline: none; box-shadow: var(--focus); border-color: var(--primary); }
 .m-preview { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-radius: 8px; font-size: 12.5px; }
 .m-preview .m-preview-pip { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }

@@ -204,8 +204,22 @@ export default function Alerts() {
   );
   const systemOptions = useMemo(() => systems.map((s) => s.id), [systems]);
 
+  // What a check WATCHES, resolved to a name a human recognises.
+  //
+  // Nothing forces check names to be unique, and nothing should: three
+  // integrations each sensibly own a check called "Failed traces". The
+  // list showed only service_name, so those three rendered as three
+  // identical rows — and an integration- or system-bound check showed no
+  // scope at all, which is most of them.
+  const ruleScope = (rule: AlertRule): { label: string; to: string } | null => {
+    if (rule.integration_id) return { label: integrationName(rule.integration_id), to: `/integrations/${rule.integration_id}` };
+    if (rule.system_id) return { label: systemName(rule.system_id), to: `/systems/${rule.system_id}` };
+    if (rule.service_name) return { label: rule.service_name, to: `/services/${encodeURIComponent(rule.service_name)}` };
+    return null;
+  };
+
   const ruleTitle = (rule: AlertRule) => {
-    const parts = [alertCondition(rule)];
+    const parts = [ruleScope(rule)?.label, alertCondition(rule)];
     parts.push(rule.group_id ? `team: ${groupName(rule.group_id)}` : "org-wide");
     if (rule.channel_ids.length) parts.push(`→ ${rule.channel_ids.map(channelName).join(", ")}`);
     return parts.filter(Boolean).join(" · ");
@@ -278,6 +292,7 @@ export default function Alerts() {
             onToggle={toggleRule}
             onDelete={deleteRule}
             ruleTitle={ruleTitle}
+            ruleScope={ruleScope}
             highlightRuleId={highlightRuleId}
           />
         )}
@@ -322,6 +337,7 @@ function HealthChecksColumn({
   onToggle,
   onDelete,
   ruleTitle,
+  ruleScope,
   highlightRuleId,
 }: {
   firing: AlertInstance[];
@@ -332,6 +348,7 @@ function HealthChecksColumn({
   onToggle: (r: AlertRule) => void;
   onDelete: (r: { id: string; name: string }) => void;
   ruleTitle: (r: AlertRule) => string;
+  ruleScope: (r: AlertRule) => { label: string; to: string } | null;
   // Rule whose row should pulse — resolved from the ?instance= deep link
   // that notification emails carry.
   highlightRuleId: string | null;
@@ -342,10 +359,19 @@ function HealthChecksColumn({
   const firingByRule = useMemo(() => new Map(firing.map((i) => [i.alert_rule_id, i])), [firing]);
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
-    const base = needle ? rules.filter((r) => r.name.toLowerCase().includes(needle) || (r.service_name ?? "").toLowerCase().includes(needle)) : rules;
+    // Searching the SCOPE as well as the name is what makes the box
+    // usable when a dozen checks share a name: typing the integration
+    // narrows to its own, which searching names alone could never do.
+    const base = needle
+      ? rules.filter(
+          (r) =>
+            r.name.toLowerCase().includes(needle) ||
+            (ruleScope(r)?.label ?? "").toLowerCase().includes(needle),
+        )
+      : rules;
     // Firing checks float to the top so a problem is the first thing you see.
     return [...base].sort((a, b) => (firingByRule.has(b.id) ? 1 : 0) - (firingByRule.has(a.id) ? 1 : 0));
-  }, [rules, q, firingByRule]);
+  }, [rules, q, firingByRule, ruleScope]);
 
   // name | actions — actions is a right-aligned flex cell so a firing row can
   // hold Ack/Resolve ahead of the On/Off toggle and delete without breaking
@@ -371,21 +397,38 @@ function HealthChecksColumn({
         loadMore={() => {}}
         gridTemplate={grid}
         height={440}
-        rowHeight={40}
+        rowHeight={54}
         itemKey={(r) => r.id}
         rowClassName={(r) => (r.id === highlightRuleId ? "instance-highlight" : "")}
         header={<><span>Name</span><span style={{ textAlign: "right" }}>Status</span></>}
         empty={<div className="placeholder" style={{ padding: 12 }}>No health checks. Create one from a metric in the Metrics explorer.</div>}
         renderRow={(rule) => {
           const inst = firingByRule.get(rule.id);
+          const scope = ruleScope(rule);
           return (
             <>
-              <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={inst?.summary ?? ruleTitle(rule)}>
-                {inst && <span className="m-rule-badge" style={{ marginRight: 6, fontSize: 10, background: "var(--err)", borderColor: "var(--err)", color: "#fff" }}>firing</span>}
-                <span className={`m-rule-badge sev-${rule.severity}`} style={{ marginRight: 6, fontSize: 10 }}>{rule.severity}</span>
-                {rule.name}
-                {alertSignalLabel(rule.signal) && <span className="muted" style={{ fontSize: 11, marginLeft: 6 }}>{alertSignalLabel(rule.signal)}</span>}
-                {rule.service_name && <span className="muted" style={{ fontSize: 11, marginLeft: 6 }}>♥ {rule.service_name}</span>}
+              {/* Two lines: what it is called, then what it watches and
+                  what it asserts. The second line used to live only in a
+                  title attribute, which meant a list of same-named checks
+                  could only be told apart by hovering each one. */}
+              <span style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 2, justifyContent: "center" }} title={inst?.summary ?? ruleTitle(rule)}>
+                <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {inst && <span className="m-rule-badge" style={{ marginRight: 6, fontSize: 10, background: "var(--err)", borderColor: "var(--err)", color: "#fff" }}>firing</span>}
+                  <span className={`m-rule-badge sev-${rule.severity}`} style={{ marginRight: 6, fontSize: 10 }}>{rule.severity}</span>
+                  {rule.name}
+                  {alertSignalLabel(rule.signal) && <span className="muted" style={{ fontSize: 11, marginLeft: 6 }}>{alertSignalLabel(rule.signal)}</span>}
+                </span>
+                <span className="muted" style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 11.5 }}>
+                  {scope && (
+                    <>
+                      <Link to={scope.to} style={{ color: "inherit", fontWeight: 600 }} onClick={(e) => e.stopPropagation()}>
+                        {scope.label}
+                      </Link>
+                      <span style={{ margin: "0 5px" }}>·</span>
+                    </>
+                  )}
+                  {alertCondition(rule)}
+                </span>
               </span>
               <span style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 6 }}>
                 {inst &&

@@ -18,7 +18,12 @@ export function logSevLabel(n: number): string {
 }
 
 // fmtWindow renders a trailing-window second-count compactly (e.g. "5m").
+//
+// Days come first because windows now run to 45d: without that branch a
+// monthly check reads "720h", which is a number the reader has to divide
+// before it means anything.
 export function fmtWindow(seconds: number): string {
+  if (seconds % 86400 === 0) return `${seconds / 86400}d`;
   if (seconds % 3600 === 0) return `${seconds / 3600}h`;
   if (seconds % 60 === 0) return `${seconds / 60}m`;
   return `${seconds}s`;
