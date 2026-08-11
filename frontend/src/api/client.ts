@@ -14,6 +14,7 @@ import type {
   AnnouncementInput,
   MaintenanceWindow,
   MaintenanceWindowInput,
+  MessageColumn,
   CreateDashboardRequest,
   CreateIntegrationRequest,
   CreateMessageViewRequest,
@@ -293,6 +294,16 @@ export const api = {
           ? `/systems/${encodeURIComponent(id)}/badge`
           : `/services/${encodeURIComponent(id)}/badge`,
       { public: isPublic },
+    ),
+
+  // Replace an integration's promoted message columns (issue #23).
+  // Whole-list PUT: order is the column order, so every edit rewrites
+  // it. The response is the STORED list, which can differ from what was
+  // sent — labels get filled in, duplicate keys collapse.
+  setMessageColumns: (integrationID: string, columns: MessageColumn[]) =>
+    put<{ message_columns: MessageColumn[] }>(
+      `/integrations/${encodeURIComponent(integrationID)}/message-columns`,
+      { columns },
     ),
 
   // Apply the built-in monitoring template for the service's system kind —

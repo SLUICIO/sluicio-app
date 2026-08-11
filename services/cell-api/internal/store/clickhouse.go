@@ -955,6 +955,41 @@ type MessagesSearchParams struct {
 	Args    []any
 	// Before is the keyset cursor; nil = first page.
 	Before *MessageCursor
+	// PromotedKeys are attribute keys to surface per trace, in column
+	// order (issue #23). Resolved against EVERY span of the trace, not
+	// only the matched one: the span carrying a business value is
+	// usually not the span the matcher selected, and requiring the two
+	// to coincide would push that constraint onto the customer's flow
+	// design. Capped by the caller; see integrations.MaxMessageColumns.
+	PromotedKeys []string
+}
+
+// promotedColumnSQL builds the aggregate expressions that resolve
+// PromotedKeys inside a per-trace GROUP BY, plus the args they bind.
+//
+// This is cheap in a way worth stating: it goes in a CTE that already
+// reads every span of every result trace and already groups by TraceId,
+// so each key is one more aggregate over a pass that is happening
+// regardless — no extra scan, no join.
+//
+// argMaxIf takes the value from the LAST span that carries the key.
+// Consistent with matched_span_attrs, which is already argMax by
+// timestamp, and it is the defensible answer when a key changes through
+// a flow: the final state is what a reader wants. A span attribute wins
+// over a resource attribute of the same name because it is specific to
+// the operation, matching mergeAttributes in the API layer.
+func promotedColumnSQL(keys []string) (selects string, args []any) {
+	if len(keys) == 0 {
+		return "", nil
+	}
+	var b strings.Builder
+	for i, k := range keys {
+		b.WriteString(fmt.Sprintf(
+			",\n\t\t           argMaxIf(if(has(SpanAttributes, ?), SpanAttributes[?], ResourceAttributes[?]), Timestamp, has(SpanAttributes, ?) OR has(ResourceAttributes, ?)) AS promoted_%d",
+			i))
+		args = append(args, k, k, k, k, k)
+	}
+	return b.String(), args
 }
 
 // SearchMessages is the structured-filter trace search. Behaves like
@@ -1007,6 +1042,15 @@ func (s *Store) SearchMessages(ctx context.Context, p MessagesSearchParams) ([]S
 
 	args = append(args, p.Limit)
 
+	// The promoted expressions live in `summary`, which appears AFTER
+	// `matching` in the statement, so their binds go last.
+	promotedSelects, promotedArgs := promotedColumnSQL(p.PromotedKeys)
+	args = append(args, promotedArgs...)
+	promotedOuter := ""
+	for i := range p.PromotedKeys {
+		promotedOuter += fmt.Sprintf(",\n\t\t    s.promoted_%d", i)
+	}
+
 	sql := fmt.Sprintf(`
 		WITH matching AS (
 		    SELECT TraceId,
@@ -1029,7 +1073,7 @@ func (s *Store) SearchMessages(ctx context.Context, p MessagesSearchParams) ([]S
 		           min(Timestamp)                                                                                     AS trace_start,
 		           (max(toUnixTimestamp64Nano(Timestamp) + DurationNs) - min(toUnixTimestamp64Nano(Timestamp))) / 1000000 AS duration_ms,
 		           toUInt64(count())                                                                                  AS total_spans,
-		           toUInt64(length(arrayDistinct(groupArray(ServiceName))))                                           AS service_count
+		           toUInt64(length(arrayDistinct(groupArray(ServiceName))))                                           AS service_count%s
 		    FROM traces
 		    WHERE TraceId IN (SELECT TraceId FROM matching)
 		    GROUP BY TraceId
@@ -1046,11 +1090,11 @@ func (s *Store) SearchMessages(ctx context.Context, p MessagesSearchParams) ([]S
 		    m.matched_resource_attrs,
 		    m.matched_span_attrs,
 		    m.matched_span_ids,
-		    m.latest_match
+		    m.latest_match%s
 		FROM summary AS s
 		INNER JOIN matching AS m ON s.TraceId = m.TraceId
 		ORDER BY m.latest_match DESC, m.TraceId DESC
-	`, matchedSpanIDsExpr(len(p.Clauses) > 0), strings.Join(whereClauses, " AND "), having)
+	`, matchedSpanIDsExpr(len(p.Clauses) > 0), strings.Join(whereClauses, " AND "), having, promotedSelects, promotedOuter)
 
 	rows, err := s.conn.Query(ctx, sql, args...)
 	if err != nil {
@@ -1061,16 +1105,25 @@ func (s *Store) SearchMessages(ctx context.Context, p MessagesSearchParams) ([]S
 	var out []SearchTraceRow
 	for rows.Next() {
 		var r SearchTraceRow
-		if err := rows.Scan(
+		// The promoted values are scanned into a slice sized to the
+		// request, then addressed positionally — the query built one
+		// column per key in the same order, so index i is key i.
+		promoted := make([]string, len(p.PromotedKeys))
+		dest := []any{
 			&r.TraceID, &r.TraceStart, &r.DurationMs, &r.HasError,
 			&r.TotalSpans, &r.ServiceCount,
 			&r.MatchedService, &r.MatchedSpanName,
 			&r.MatchedResourceAttrs, &r.MatchedSpanAttrs,
 			&r.MatchedSpanIDs,
 			&r.LatestMatch,
-		); err != nil {
+		}
+		for i := range promoted {
+			dest = append(dest, &promoted[i])
+		}
+		if err := rows.Scan(dest...); err != nil {
 			return nil, err
 		}
+		r.Promoted = promoted
 		out = append(out, r)
 	}
 	return out, rows.Err()
@@ -1340,6 +1393,12 @@ type SearchTraceRow struct {
 	// used as the keyset cursor key by SearchMessages. Unset (zero) by
 	// SearchTraces, which doesn't paginate.
 	LatestMatch time.Time
+	// Promoted holds the values of MessagesSearchParams.PromotedKeys, in
+	// the same order, one entry per requested key. An entry is the empty
+	// string when no span in the trace carried that key — a blank cell,
+	// not a missing column, because a column that disappears on some
+	// rows makes a table unreadable. Nil when none were requested.
+	Promoted []string
 }
 
 // matchedSpanIDsExpr builds the aggregate that collects matching span

@@ -414,6 +414,9 @@ func (h *Handlers) searchMessages(w http.ResponseWriter, r *http.Request) {
 
 	// Resolve integration filter → service-name allowlist.
 	serviceFilter := plan.ServiceNameLiterals
+	// Promoted message columns are a property of the integration, so a
+	// search that is not scoped to one has none (issue #23).
+	var messageColumns []integrations.MessageColumn
 	if plan.IntegrationName != "" {
 		names, err := h.resolveIntegrationServices(r.Context(), plan.IntegrationName, tr)
 		if err != nil {
@@ -429,6 +432,13 @@ func (h *Handlers) searchMessages(w http.ResponseWriter, r *http.Request) {
 			if clause, cargs := store.SpanAttrGroupsClause(h.integrationGroups(r.Context(), id)); clause != "" {
 				plan.Clauses = append(plan.Clauses, clause)
 				plan.Args = append(plan.Args, cargs...)
+			}
+			// Read the columns here rather than trusting the client to
+			// send them: the query and the headers then come from one
+			// source, so a stale client cannot label column 2 with
+			// column 1's heading.
+			if full, err := h.Integrations.Get(r.Context(), middleware.OrgID(r), id); err == nil {
+				messageColumns = full.MessageColumns
 			}
 		}
 		if len(serviceFilter) == 0 {
@@ -471,6 +481,7 @@ func (h *Handlers) searchMessages(w http.ResponseWriter, r *http.Request) {
 		Clauses:       plan.Clauses,
 		Args:          plan.Args,
 		Before:        parseMessageCursor(req.Cursor),
+		PromotedKeys:  integrations.MessageColumnKeys(messageColumns),
 	})
 	if err != nil {
 		h.Logger.Error("messages search failed", "err", err)
@@ -491,6 +502,7 @@ func (h *Handlers) searchMessages(w http.ResponseWriter, r *http.Request) {
 			MatchedSpanName: t.MatchedSpanName,
 			MatchedSpanIDs:  t.MatchedSpanIDs,
 			Attributes:      mergeAttributes(t.MatchedResourceAttrs, t.MatchedSpanAttrs),
+			Promoted:        promotedByKey(messageColumns, t.Promoted),
 		})
 	}
 
@@ -506,10 +518,11 @@ func (h *Handlers) searchMessages(w http.ResponseWriter, r *http.Request) {
 	h.recordDemandServices(r, demand.SignalTrace, serviceFilter, messageAttrKeys(req.Filters)...)
 
 	httpserver.WriteJSON(w, http.StatusOK, SearchResponse{
-		Window:     tr.Window(),
-		Total:      len(results),
-		Results:    results,
-		NextCursor: nextMessageCursor(rows, limit),
+		Window:         tr.Window(),
+		Total:          len(results),
+		Results:        results,
+		NextCursor:     nextMessageCursor(rows, limit),
+		MessageColumns: messageColumns,
 	})
 }
 

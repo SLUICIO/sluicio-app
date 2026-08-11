@@ -38,9 +38,13 @@ type Integration struct {
 	Description    string    `json:"description"`
 	// BadgePublic opts this integration into a public (unauthenticated) status
 	// badge at /api/v1/badges/integration/<id>. Only populated by Get.
-	BadgePublic bool      `json:"badge_public"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	BadgePublic bool `json:"badge_public"`
+	// MessageColumns are the span attributes promoted into this
+	// integration's message list, in column order. Only populated by
+	// Get. Empty = the default columns.
+	MessageColumns []MessageColumn `json:"message_columns,omitempty"`
+	CreatedAt      time.Time       `json:"created_at"`
+	UpdatedAt      time.Time       `json:"updated_at"`
 }
 
 // Matcher classifies a service into an integration by attribute pattern.

@@ -4,6 +4,7 @@ package integrations
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -53,17 +54,25 @@ func (s *Store) List(ctx context.Context, orgID uuid.UUID) ([]Integration, error
 // Get returns a single integration with its matchers.
 func (s *Store) Get(ctx context.Context, orgID, id uuid.UUID) (IntegrationWithMatchers, error) {
 	const q = `
-		SELECT id, organization_id, slug, name, COALESCE(description, ''), badge_public, created_at, updated_at
+		SELECT id, organization_id, slug, name, COALESCE(description, ''), badge_public,
+		       COALESCE(message_columns, '[]'::jsonb), created_at, updated_at
 		FROM integrations
 		WHERE organization_id = $1 AND id = $2
 	`
 	var i Integration
-	err := s.pool.QueryRow(ctx, q, orgID, id).Scan(&i.ID, &i.OrganizationID, &i.Slug, &i.Name, &i.Description, &i.BadgePublic, &i.CreatedAt, &i.UpdatedAt)
+	var cols []byte
+	err := s.pool.QueryRow(ctx, q, orgID, id).Scan(&i.ID, &i.OrganizationID, &i.Slug, &i.Name, &i.Description, &i.BadgePublic, &cols, &i.CreatedAt, &i.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return IntegrationWithMatchers{}, ErrNotFound
 	}
 	if err != nil {
 		return IntegrationWithMatchers{}, fmt.Errorf("get integration: %w", err)
+	}
+	// A column list that fails to parse must not take the integration
+	// down with it: the detail page still works, it just shows the
+	// default columns. Nothing else on this screen depends on it.
+	if err := json.Unmarshal(cols, &i.MessageColumns); err != nil {
+		i.MessageColumns = nil
 	}
 
 	matchers, err := s.MatchersForIntegration(ctx, id)
@@ -81,6 +90,39 @@ func (s *Store) SetBadgePublic(ctx context.Context, orgID, id uuid.UUID, public 
 		 WHERE organization_id = $1 AND id = $2`, orgID, id, public)
 	if err != nil {
 		return fmt.Errorf("set integration badge_public: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// SetMessageColumns replaces the integration's promoted message columns.
+//
+// A whole-list replace rather than add/remove/reorder endpoints: the
+// order IS the column order, so every mutation is a rewrite of the list
+// anyway, and three endpoints that each have to agree about ordering is
+// three chances to disagree.
+func (s *Store) SetMessageColumns(ctx context.Context, orgID, id uuid.UUID, cols []MessageColumn) error {
+	normalized, err := NormalizeMessageColumns(cols)
+	if err != nil {
+		return err
+	}
+	// Marshal the empty list as [] rather than null — the column is NOT
+	// NULL, and a reader that has to handle both is a reader that will
+	// eventually handle one of them wrong.
+	if normalized == nil {
+		normalized = []MessageColumn{}
+	}
+	raw, err := json.Marshal(normalized)
+	if err != nil {
+		return fmt.Errorf("encode message columns: %w", err)
+	}
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE integrations SET message_columns = $3, updated_at = now()
+		 WHERE organization_id = $1 AND id = $2`, orgID, id, raw)
+	if err != nil {
+		return fmt.Errorf("set message columns: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrNotFound

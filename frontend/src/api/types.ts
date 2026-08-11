@@ -633,6 +633,10 @@ export interface Integration {
   // Public status-badge opt-in. Present on single-integration (detail)
   // responses; absent on the list endpoint.
   badge_public?: boolean;
+  // Span attributes promoted to columns in this integration's message
+  // list, in column order. Detail responses only; empty/absent means
+  // the default columns.
+  message_columns?: MessageColumn[];
   created_at: string;
   updated_at: string;
   // Present on the list endpoint (IntegrationSummary), absent on
@@ -978,7 +982,23 @@ export interface TraceSearchResult {
   // hour"), which means "no opinion" rather than "nothing matched" —
   // the trace view keeps its own default selection in that case.
   matched_span_ids?: string[];
+  // The integration's promoted column values, keyed by attribute key.
+  // Resolved against EVERY span of the trace, not only the matched one,
+  // so a value set deep in a flow still reaches the list. A key no span
+  // carried is absent; the column stays and the cell is blank.
+  promoted?: Record<string, string>;
 }
+
+// MessageColumn promotes one span attribute to a named column in an
+// integration's message list. Order is the column order.
+export interface MessageColumn {
+  key: string;
+  label: string;
+}
+
+// The server's cap, mirrored so the picker can stop offering "add"
+// before a request it knows will be refused.
+export const MAX_MESSAGE_COLUMNS = 5;
 
 // Keyset cursor for the next page of message search results. Both
 // fields are opaque strings the client round-trips unchanged.
@@ -999,6 +1019,11 @@ export interface SearchResponse {
   // Set by /messages/search when more rows may follow; absent on the
   // free-text /search endpoint.
   next_cursor?: MessageCursor;
+  // The promoted columns this result set was queried under, in column
+  // order. Comes back with the rows so headers and values always agree;
+  // taking them from a separately-fetched integration could label a
+  // column from a configuration the rows were not queried with.
+  message_columns?: MessageColumn[];
 }
 
 // Global search (top-navbar "search everything", #28) ------------------

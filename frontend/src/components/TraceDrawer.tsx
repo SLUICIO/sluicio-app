@@ -14,7 +14,9 @@ import { pickInitialSpan } from "../lib/spanSelection";
 import { api } from "../api/client";
 import TraceWaterfall from "./TraceWaterfall";
 import { KVTable, StatusPip, attributeRows } from "./primitives";
+import PromoteAttributeButton from "./integrations/PromoteAttributeButton";
 import type {
+  MessageColumn,
   SpanSummary,
   TraceCompletionFiring,
   TraceDetailResponse,
@@ -63,6 +65,11 @@ export default function TraceDrawer({
   const [loading, setLoading] = useState(false);
   const [selectedSpan, setSelectedSpan] = useState<string | null>(null);
   const [firings, setFirings] = useState<TraceCompletionFiring[]>([]);
+  // The integration's promoted columns, so each attribute row can show
+  // whether it is already one (issue #23). Only meaningful when the
+  // drawer was opened from inside an integration; a trace opened from
+  // global Messages has no integration to promote INTO.
+  const [msgColumns, setMsgColumns] = useState<MessageColumn[]>([]);
   // "open full view" forwards where the drawer was opened (path +
   // filters) so the full trace page can render a breadcrumb back to
   // the exact list the user came from.
@@ -105,6 +112,24 @@ export default function TraceDrawer({
     if (!data) return;
     setSelectedSpan(pickInitialSpan(data.spans, matchedSpanIds));
   }, [data, matchedSpanIds]);
+
+  // The integration's current columns, so the attribute rows can show
+  // which keys are already promoted. Fetched per open rather than
+  // cached: another tab (or the settings page) may have changed them.
+  useEffect(() => {
+    if (!traceId || !integrationContextId) {
+      setMsgColumns([]);
+      return;
+    }
+    let cancelled = false;
+    api
+      .getIntegration(integrationContextId)
+      .then((d) => !cancelled && setMsgColumns(d.integration.message_columns ?? []))
+      .catch(() => !cancelled && setMsgColumns([]));
+    return () => {
+      cancelled = true;
+    };
+  }, [traceId, integrationContextId]);
 
   // Close on Escape.
   useEffect(() => {
@@ -347,8 +372,20 @@ export default function TraceDrawer({
                     </Link>
                   </div>
                   <div className="p-4" style={{ overflowY: "auto" }}>
-                    <AttrTable label="Span attributes" attrs={selected.span_attributes} />
-                    <AttrTable label="Resource attributes" attrs={selected.resource_attributes} />
+                    <AttrTable
+                      label="Span attributes"
+                      attrs={selected.span_attributes}
+                      integrationID={integrationContextId}
+                      columns={msgColumns}
+                      onColumnsChanged={setMsgColumns}
+                    />
+                    <AttrTable
+                      label="Resource attributes"
+                      attrs={selected.resource_attributes}
+                      integrationID={integrationContextId}
+                      columns={msgColumns}
+                      onColumnsChanged={setMsgColumns}
+                    />
                     {emptyAttrs(selected) && (
                       <div className="text-sm text-muted">No attributes on this span.</div>
                     )}
@@ -373,7 +410,23 @@ function emptyAttrs(span: SpanSummary): boolean {
   return a + b === 0;
 }
 
-function AttrTable({ label, attrs }: { label: string; attrs?: Record<string, string> }) {
+function AttrTable({
+  label,
+  attrs,
+  integrationID,
+  columns,
+  onColumnsChanged,
+}: {
+  label: string;
+  attrs?: Record<string, string>;
+  // Absent when the drawer was opened outside an integration (global
+  // Messages, Logs, Search). There is then no integration to promote
+  // into, so the control is not rendered at all rather than rendered
+  // disabled — an affordance you can never use is worse than none.
+  integrationID?: string;
+  columns: MessageColumn[];
+  onColumnsChanged: (cols: MessageColumn[]) => void;
+}) {
   if (!attrs || Object.keys(attrs).length === 0) return null;
   const rows = attributeRows(attrs);
   return (
@@ -381,7 +434,34 @@ function AttrTable({ label, attrs }: { label: string; attrs?: Record<string, str
       <div className="kv__section">
         {label} <span className="text-muted">· {rows.length}</span>
       </div>
-      <KVTable rows={rows} />
+      <KVTable
+        rows={
+          integrationID
+            ? rows.map((r) => {
+                const key = String(r.k);
+                return {
+                  ...r,
+                  rowKey: key,
+                  // The control rides in the KEY cell, which already
+                  // accepts JSX for exactly this. Keeps the shared
+                  // primitive free of a feature only this caller has.
+                  k: (
+                    <span style={{ display: "inline-flex", alignItems: "baseline", flexWrap: "wrap" }}>
+                      <span>{key}</span>
+                      <PromoteAttributeButton
+                        attrKey={key}
+                        value={attrs[key] ?? ""}
+                        integrationID={integrationID}
+                        columns={columns}
+                        onChanged={onColumnsChanged}
+                      />
+                    </span>
+                  ),
+                };
+              })
+            : rows
+        }
+      />
     </div>
   );
 }

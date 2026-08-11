@@ -23,6 +23,7 @@ import { Link, useParams } from "react-router-dom";
 import { api } from "../api/client";
 import IntegrationPageHeader from "../components/IntegrationPageHeader";
 import PublicBadgeControl from "../components/PublicBadgeControl";
+import MessageColumnsEditor from "../components/integrations/MessageColumnsEditor";
 import MatcherConfig from "../components/MatcherConfig";
 import { EditDrawer } from "../components/primitives";
 import type {
@@ -281,6 +282,15 @@ export default function IntegrationSettings() {
           />
         </div>
       </section>
+
+      {/* Which span attributes this integration shows as columns in its
+          Messages list (issue #23). */}
+      <MessageColumnsEditor
+        integrationID={integration.integration.id}
+        value={integration.integration.message_columns ?? []}
+        canWrite={canWrite}
+        onSaved={refresh}
+      />
 
       {/* Health checks for the INTEGRATION itself. The rule row has
           carried integration_id for every signal all along, and each

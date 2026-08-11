@@ -34,6 +34,7 @@ import type {
   Integration,
   IntegrationDetail,
   MessageAttributeKey,
+  MessageColumn,
   MessageCursor,
   MessageFilter,
   MessageView,
@@ -164,6 +165,8 @@ export default function IntegrationMessagesPage() {
   const [showSaveDialog, setShowSaveDialog] = useState(false);
 
   const [results, setResults] = useState<TraceSearchResult[]>([]);
+  // The promoted columns this result set was queried under (issue #23).
+  const [messageColumns, setMessageColumns] = useState<MessageColumn[]>([]);
   const [hasResults, setHasResults] = useState(false);
   const [nextCursor, setNextCursor] = useState<MessageCursor | undefined>(undefined);
   const [hasMore, setHasMore] = useState(false);
@@ -392,6 +395,10 @@ export default function IntegrationMessagesPage() {
         setNextCursor(r.next_cursor);
         setHasMore(!!r.next_cursor);
         setHasResults(true);
+        // Headers come from the same response as the values, so a
+        // configuration change between requests can never label a
+        // column with a heading the rows were not queried under.
+        setMessageColumns(r.message_columns ?? []);
       })
       .catch((e) => setError(String(e.message ?? e)))
       .finally(() => setLoading(false));
@@ -725,7 +732,21 @@ export default function IntegrationMessagesPage() {
             hasMore={hasMore}
             loadingMore={loadingMore}
             loadMore={loadMore}
-            gridTemplate="24px 110px 160px 1fr 1fr 80px 56px"
+            // Promoted columns displace the "matched fields" dump: it
+            // showed the three alphabetically-first attributes, which on
+            // most telemetry is host/process trivia. When the user has
+            // said which attributes matter, showing that instead as well
+            // would be noise competing with signal.
+            // The promoted columns get the wider share: they are the
+            // reason someone configured this, and "service · matched"
+            // repeats what the integration name already says. Their
+            // minimum fits a date, which is the widest short value these
+            // columns usually hold.
+            gridTemplate={
+              messageColumns.length > 0
+                ? `24px 110px 150px minmax(120px,0.8fr) ${messageColumns.map(() => "minmax(112px,1fr)").join(" ")} 80px 56px`
+                : "24px 110px 160px 1fr 1fr 80px 56px"
+            }
             rowHeight={40}
             height={messagesListHeight}
             itemKey={(r) => r.trace_id}
@@ -750,7 +771,18 @@ export default function IntegrationMessagesPage() {
                 <span>time</span>
                 <span>msg id</span>
                 <span>service · matched</span>
-                <span>matched fields</span>
+                {messageColumns.length > 0 ? (
+                  messageColumns.map((c) => (
+                    // The tooltip carries both, because either can be
+                    // the thing you need: a long label clips, and the
+                    // key is what disambiguates two similar headings.
+                    <span key={c.key} title={`${c.label} — ${c.key}`} className="truncate">
+                      {c.label}
+                    </span>
+                  ))
+                ) : (
+                  <span>matched fields</span>
+                )}
                 <span className="text-right">duration</span>
                 <span></span>
               </>
@@ -816,13 +848,34 @@ export default function IntegrationMessagesPage() {
                     </span>
                   )}
                 </span>
-                <span className="truncate font-mono text-xs text-muted">
-                  {r.attributes &&
-                    Object.entries(r.attributes)
-                      .slice(0, 3)
-                      .map(([k, v]) => `${k}=${v}`)
-                      .join(" · ")}
-                </span>
+                {messageColumns.length > 0 ? (
+                  messageColumns.map((c) => {
+                    const v = r.promoted?.[c.key];
+                    // An em-dash for "this message never carried it",
+                    // not a blank: an empty cell in a table reads as a
+                    // rendering failure, and the distinction between
+                    // "absent" and "broken" is the whole reason the
+                    // column stays rather than collapsing.
+                    return (
+                      <span
+                        key={c.key}
+                        className="truncate font-mono text-xs"
+                        style={{ color: v ? "var(--ink)" : "var(--muted)" }}
+                        title={v ? `${c.key} = ${v}` : `${c.key} — not set on this message`}
+                      >
+                        {v || "–"}
+                      </span>
+                    );
+                  })
+                ) : (
+                  <span className="truncate font-mono text-xs text-muted">
+                    {r.attributes &&
+                      Object.entries(r.attributes)
+                        .slice(0, 3)
+                        .map(([k, v]) => `${k}=${v}`)
+                        .join(" · ")}
+                  </span>
+                )}
                 <span className="text-right font-mono text-xs text-muted">
                   {formatDurationMs(r.duration_ms)}
                 </span>

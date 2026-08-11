@@ -900,6 +900,7 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	// (org-viewer) publish any service in the org.
 	mux.HandleFunc("GET /api/v1/badges/{kind}/{id}", h.badgeSVG)
 	mux.HandleFunc("PUT /api/v1/integrations/{id}/badge", h.writeService(h.putIntegrationBadge))
+	mux.HandleFunc("PUT /api/v1/integrations/{id}/message-columns", h.writeService(h.putIntegrationMessageColumns))
 	mux.HandleFunc("PUT /api/v1/systems/{id}/badge", h.writeService(h.putSystemBadge))
 	mux.HandleFunc("PUT /api/v1/services/{name}/badge", h.writeService(h.putServiceBadge))
 	mux.HandleFunc("GET /api/v1/errors", h.errorsFeed)
@@ -2422,6 +2423,34 @@ func toSpanSummaries(rows []store.SpanRow) []SpanSummary {
 			Links:              links,
 			LinksTotal:         r.LinksTotal,
 		})
+	}
+	return out
+}
+
+// promotedByKey pairs a store row's positional promoted values with the
+// column definitions they were queried for (issue #23).
+//
+// Positional in the query, keyed in the response: the query needs an
+// order (one column per key) and the client needs to look values up by
+// key, and converting once here is cheaper than making every consumer
+// track the index. Empty values are dropped rather than sent as ""; the
+// UI renders a missing key and an empty string identically, and omitting
+// keeps a page of mostly-blank cells out of the payload.
+func promotedByKey(cols []integrations.MessageColumn, values []string) map[string]string {
+	if len(cols) == 0 || len(values) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(cols))
+	for i, c := range cols {
+		if i >= len(values) {
+			break
+		}
+		if values[i] != "" {
+			out[c.Key] = values[i]
+		}
+	}
+	if len(out) == 0 {
+		return nil
 	}
 	return out
 }

@@ -416,6 +416,11 @@ type TraceSearchResult struct {
 	// span "matched" and the field would assert something false. Absent
 	// means "no opinion", not "nothing matched".
 	MatchedSpanIDs []string `json:"matched_span_ids,omitempty"`
+	// Promoted holds the integration's promoted column values keyed by
+	// attribute key (issue #23). Resolved against every span of the
+	// trace, not only the matched one. A key the trace never carried is
+	// absent, which the UI renders as a blank cell.
+	Promoted map[string]string `json:"promoted,omitempty"`
 }
 
 // MessageCursorJSON is the keyset cursor for the next page of message
@@ -437,6 +442,12 @@ type SearchResponse struct {
 	Total      int                 `json:"total"`
 	Results    []TraceSearchResult `json:"results"`
 	NextCursor *MessageCursorJSON  `json:"next_cursor,omitempty"`
+	// MessageColumns are the promoted columns this result set was built
+	// with, in column order (issue #23). Returned alongside the rows so
+	// the headers and the values come from one answer — a client that
+	// took the headers from a separately-fetched integration could label
+	// them from a configuration the rows were not queried under.
+	MessageColumns []integrations.MessageColumn `json:"message_columns,omitempty"`
 }
 
 // LogEntry is one row in the service logs table. Attributes is the
