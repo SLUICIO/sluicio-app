@@ -40,6 +40,19 @@ func (h *Handlers) serviceNeighbors(w http.ResponseWriter, r *http.Request) {
 		httpserver.WriteError(w, http.StatusInternalServerError, "query failed")
 		return
 	}
+	// Hand-off neighbours too (issue #25). A service reached only by a
+	// span link is a real dependency — the .NET detached-activity
+	// pattern and Node-RED's delay/catch retries both produce exactly
+	// that — and leaving it out meant "you probably want these too"
+	// omitted half of some integrations.
+	//
+	// A failure here degrades the answer rather than replacing it: call
+	// neighbours are still worth returning on their own.
+	if linkRows, err := h.Store.ServiceLinkNeighbors(r.Context(), name, tr.From, tr.To); err != nil {
+		h.Logger.Warn("service link neighbors failed", "err", err, "service", name)
+	} else {
+		rows = append(rows, linkRows...)
+	}
 
 	upstream, downstream := groupNeighborRows(rows)
 	// RBAC: neighbors reveal OTHER services' names + traffic. The route
@@ -81,28 +94,18 @@ func groupNeighborRows(rows []store.ServiceNeighborRow) (upstream, downstream []
 		switch r.Direction {
 		case "upstream":
 			if idx, ok := upIndex[r.ServiceName]; ok {
-				upstream[idx].TraceCount += r.TraceCount
-				upstream[idx].ErrorCount += r.ErrorCount
+				addNeighborCounts(&upstream[idx], r)
 				continue
 			}
 			upIndex[r.ServiceName] = len(upstream)
-			upstream = append(upstream, ServiceNeighbor{
-				ServiceName: r.ServiceName,
-				TraceCount:  r.TraceCount,
-				ErrorCount:  r.ErrorCount,
-			})
+			upstream = append(upstream, newNeighbor(r))
 		case "downstream":
 			if idx, ok := downIndex[r.ServiceName]; ok {
-				downstream[idx].TraceCount += r.TraceCount
-				downstream[idx].ErrorCount += r.ErrorCount
+				addNeighborCounts(&downstream[idx], r)
 				continue
 			}
 			downIndex[r.ServiceName] = len(downstream)
-			downstream = append(downstream, ServiceNeighbor{
-				ServiceName: r.ServiceName,
-				TraceCount:  r.TraceCount,
-				ErrorCount:  r.ErrorCount,
-			})
+			downstream = append(downstream, newNeighbor(r))
 		}
 		// Unknown directions are silently dropped — the query controls
 		// the vocabulary, so this branch is unreachable in practice.
@@ -128,4 +131,26 @@ func filterVisibleNeighbors(in []ServiceNeighbor, visible map[string]struct{}) [
 		}
 	}
 	return out
+}
+
+// newNeighbor / addNeighborCounts route a row's counts by edge kind.
+//
+// A service can be BOTH a caller and a hand-off partner, and the two
+// have to stay separable: summing them would report a single number
+// that answers neither "how often did it call" nor "how often did it
+// hand off". Same reason the store keeps the queries apart.
+func newNeighbor(r store.ServiceNeighborRow) ServiceNeighbor {
+	n := ServiceNeighbor{ServiceName: r.ServiceName}
+	addNeighborCounts(&n, r)
+	return n
+}
+
+func addNeighborCounts(n *ServiceNeighbor, r store.ServiceNeighborRow) {
+	if r.Kind == store.EdgeKindLink {
+		n.LinkTraceCount += r.TraceCount
+		n.LinkErrorCount += r.ErrorCount
+		return
+	}
+	n.TraceCount += r.TraceCount
+	n.ErrorCount += r.ErrorCount
 }

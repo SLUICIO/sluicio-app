@@ -286,8 +286,20 @@ type FlowResponse struct {
 // (downstream). Counts are at trace granularity, matching FlowEdge.
 type ServiceNeighbor struct {
 	ServiceName string `json:"service_name"`
-	TraceCount  uint64 `json:"trace_count"`
-	ErrorCount  uint64 `json:"error_count"`
+	// TraceCount / ErrorCount are CALL traffic: parent/child nesting
+	// inside one trace.
+	TraceCount uint64 `json:"trace_count"`
+	ErrorCount uint64 `json:"error_count"`
+	// LinkTraceCount / LinkErrorCount are HAND-OFF traffic: an
+	// asynchronous link to another trace (issue #25).
+	//
+	// Kept apart from the call counts rather than summed, because they
+	// are not the same quantity — one counts traces that crossed a
+	// service boundary, the other counts traces that handed off to a
+	// different trace. Adding them gives a figure that is neither, and
+	// a queue is not a function call.
+	LinkTraceCount uint64 `json:"link_trace_count,omitempty"`
+	LinkErrorCount uint64 `json:"link_error_count,omitempty"`
 }
 
 // NeighborsResponse is the body of GET /services/{name}/neighbors.

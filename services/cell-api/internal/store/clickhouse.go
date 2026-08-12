@@ -1631,7 +1631,21 @@ type ServiceEdgeRow struct {
 	Target     string
 	TraceCount uint64
 	ErrorCount uint64
+	// Kind distinguishes a CALL (parent/child nesting inside one trace)
+	// from a LINK (an asynchronous hand-off to another trace). Empty
+	// means call, so every existing producer keeps working.
+	//
+	// They are not interchangeable and must not be summed: a queue is
+	// not a function call, and the counts measure different things —
+	// traces that crossed a boundary versus traces that handed off.
+	Kind string
 }
+
+// Edge kinds. See ServiceEdgeRow.Kind.
+const (
+	EdgeKindCall = "call"
+	EdgeKindLink = "link"
+)
 
 // ServiceEdges returns the set of cross-service edges (parent→child
 // span service hops) observed in the supplied range, restricted to
@@ -1730,6 +1744,10 @@ type ServiceNeighborRow struct {
 	ServiceName string
 	TraceCount  uint64
 	ErrorCount  uint64
+	// Kind is EdgeKindCall or EdgeKindLink; empty means call. A
+	// suggestion that folds the two together without saying which is
+	// which loses the distinction between a function call and a queue.
+	Kind string
 }
 
 // ServiceNeighbors returns every service that talks directly to the
@@ -1821,6 +1839,155 @@ func (s *Store) SpansForTrace(ctx context.Context, traceID string, limit int) ([
 		LIMIT ?
 	`
 	return s.querySpans(ctx, q, traceID, limit)
+}
+
+// ServiceLinkEdges returns cross-service edges derived from span LINKS
+// rather than parent/child nesting (issue #25).
+//
+// The counterpart to ServiceEdges, and it has to be a separate query
+// rather than a widened join. ServiceEdges joins on
+// `parent.TraceId = child.TraceId`, which confines it to a single
+// trace — and a link, by definition, points at a different one. No
+// adjustment to that join can ever reach a linked service.
+//
+// Direction is the FLOW: source ran first and handed to target. The
+// link itself points the other way (an OTel link is written on the span
+// that was caused, pointing back at its cause), so the join reads
+// "producer = the trace being pointed AT, consumer = the trace doing
+// the pointing" and emits producer → consumer.
+//
+// Counts are distinct CONSUMER traces, and are deliberately not
+// comparable to ServiceEdges' counts: a call edge counts traces that
+// crossed a boundary, a link edge counts traces that handed off to
+// another trace. Summing the two would produce a number that is
+// neither.
+func (s *Store) ServiceLinkEdges(ctx context.Context, services []string, from, to time.Time) ([]ServiceEdgeRow, error) {
+	if len(services) < 2 {
+		return nil, nil
+	}
+	ph := make([]string, len(services))
+	for i := range services {
+		ph[i] = "?"
+	}
+	in := strings.Join(ph, ",")
+
+	args := []any{from, to}
+	for _, n := range services {
+		args = append(args, n)
+	}
+	args = append(args, from, to)
+	for _, n := range services {
+		args = append(args, n)
+	}
+
+	// consumer: the spans carrying links, expanded one row per link.
+	// producer: the spans of the traces those links point at.
+	//
+	// Both sides are window-bounded so ClickHouse can prune partitions,
+	// which does mean a hand-off spanning the window boundary is missed
+	// for that window — the same trade ServiceEdges already makes, and
+	// the same reasoning: monitoring traffic is short-lived.
+	// Joined on the linked SPAN, not just the linked trace. A link
+	// records both, and the span is the precise one: the producer trace
+	// can involve several services, and attributing the hand-off to all
+	// of them would invent edges from services that merely happened to
+	// take part in the trace the message came from.
+	sql := fmt.Sprintf(`
+		SELECT
+		    producer.ServiceName AS source,
+		    consumer.ServiceName AS target,
+		    toUInt64(uniqExact(consumer.TraceId)) AS trace_count,
+		    toUInt64(uniqExactIf(consumer.TraceId, consumer.StatusCode = 'Error' OR producer.StatusCode = 'Error')) AS error_count
+		FROM (
+		    SELECT TraceId, ServiceName, StatusCode,
+		           arrayJoin(arrayZip(LinkTraceIds, LinkSpanIds)) AS link
+		    FROM traces
+		    WHERE Timestamp >= ? AND Timestamp <= ?
+		      AND ServiceName IN (%s)
+		      AND notEmpty(LinkTraceIds)
+		) AS consumer
+		INNER JOIN (
+		    SELECT DISTINCT TraceId, SpanId, ServiceName, StatusCode
+		    FROM traces
+		    WHERE Timestamp >= ? AND Timestamp <= ?
+		      AND ServiceName IN (%s)
+		) AS producer
+		    ON producer.TraceId = consumer.link.1 AND producer.SpanId = consumer.link.2
+		WHERE producer.ServiceName != consumer.ServiceName
+		GROUP BY source, target
+	`, in, in)
+
+	rows, err := s.conn.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, fmt.Errorf("service link edges: %w", err)
+	}
+	defer rows.Close()
+
+	var out []ServiceEdgeRow
+	for rows.Next() {
+		var r ServiceEdgeRow
+		if err := rows.Scan(&r.Source, &r.Target, &r.TraceCount, &r.ErrorCount); err != nil {
+			return nil, err
+		}
+		r.Kind = EdgeKindLink
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// ServiceLinkNeighbors is ServiceNeighbors for hand-offs: the services
+// this one exchanges messages with by LINK rather than by call.
+//
+// Same shape and same direction convention as ServiceNeighbors, so the
+// suggestion surfaces can merge the two lists and only have to say
+// which kind each row is.
+func (s *Store) ServiceLinkNeighbors(ctx context.Context, serviceName string, from, to time.Time) ([]ServiceNeighborRow, error) {
+	if serviceName == "" {
+		return nil, nil
+	}
+	const q = `
+		SELECT
+		    if(producer.ServiceName = ?, 'downstream', 'upstream') AS direction,
+		    if(producer.ServiceName = ?, consumer.ServiceName, producer.ServiceName) AS service_name,
+		    toUInt64(uniqExact(consumer.TraceId)) AS trace_count,
+		    toUInt64(uniqExactIf(consumer.TraceId, consumer.StatusCode = 'Error' OR producer.StatusCode = 'Error')) AS error_count
+		FROM (
+		    SELECT TraceId, ServiceName, StatusCode,
+		           arrayJoin(arrayZip(LinkTraceIds, LinkSpanIds)) AS link
+		    FROM traces
+		    WHERE Timestamp >= ? AND Timestamp <= ? AND notEmpty(LinkTraceIds)
+		) AS consumer
+		INNER JOIN (
+		    SELECT DISTINCT TraceId, SpanId, ServiceName, StatusCode
+		    FROM traces
+		    WHERE Timestamp >= ? AND Timestamp <= ?
+		) AS producer
+		    ON producer.TraceId = consumer.link.1 AND producer.SpanId = consumer.link.2
+		WHERE (producer.ServiceName = ? OR consumer.ServiceName = ?)
+		  AND producer.ServiceName != consumer.ServiceName
+		GROUP BY direction, service_name
+		ORDER BY direction ASC, trace_count DESC
+	`
+	rows, err := s.conn.Query(ctx, q,
+		serviceName, serviceName,
+		from, to, from, to,
+		serviceName, serviceName,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("service link neighbors: %w", err)
+	}
+	defer rows.Close()
+
+	var out []ServiceNeighborRow
+	for rows.Next() {
+		var r ServiceNeighborRow
+		if err := rows.Scan(&r.Direction, &r.ServiceName, &r.TraceCount, &r.ErrorCount); err != nil {
+			return nil, err
+		}
+		r.Kind = EdgeKindLink
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }
 
 // TraceHead summarises another trace in one line — enough to render the
