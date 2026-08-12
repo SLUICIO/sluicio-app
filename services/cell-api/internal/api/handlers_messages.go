@@ -36,11 +36,15 @@ type MessageViewWire struct {
 	Filters     []messageviews.Filter `json:"filters"`
 	// Scope is always emitted (even when empty) so the frontend can
 	// safely read view.scope.integrationId without checking presence.
-	Scope        messageviews.Scope `json:"scope"`
-	ResultCount  *int64             `json:"resultCount,omitempty"`
-	LastEditedAt time.Time          `json:"lastEditedAt"`
-	CreatedAt    time.Time          `json:"createdAt"`
-	UpdatedAt    time.Time          `json:"updatedAt"`
+	Scope messageviews.Scope `json:"scope"`
+	// MessageColumns is this view's own column set, absent when the
+	// view has no opinion and inherits the integration's. Absent and
+	// empty are DIFFERENT and both round-trip.
+	MessageColumns *json.RawMessage `json:"messageColumns,omitempty"`
+	ResultCount    *int64           `json:"resultCount,omitempty"`
+	LastEditedAt   time.Time        `json:"lastEditedAt"`
+	CreatedAt      time.Time        `json:"createdAt"`
+	UpdatedAt      time.Time        `json:"updatedAt"`
 }
 
 // validateScope enforces the shape of a scope object on inbound
@@ -60,20 +64,52 @@ func validateScope(s messageviews.Scope) error {
 	return nil
 }
 
+// normalizeViewColumns validates and normalises a view's column set,
+// so a view and an integration cannot disagree about what a column set
+// is. Without it a view could store a key with no label and render a
+// blank heading — the integration path has normalised since day one,
+// and two paths to the same stored shape must apply the same rules.
+//
+// nil in, nil out: the view is inheriting, and there is nothing to
+// check. An explicit empty list stays empty — that is a decision.
+func normalizeViewColumns(raw *json.RawMessage) (*json.RawMessage, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	var cols []integrations.MessageColumn
+	if err := json.Unmarshal(*raw, &cols); err != nil {
+		return nil, errors.New("messageColumns must be an array of {kind,key,label}")
+	}
+	normalized, err := integrations.NormalizeMessageColumns(cols)
+	if err != nil {
+		return nil, err
+	}
+	if normalized == nil {
+		normalized = []integrations.MessageColumn{}
+	}
+	encoded, err := json.Marshal(normalized)
+	if err != nil {
+		return nil, err
+	}
+	out := json.RawMessage(encoded)
+	return &out, nil
+}
+
 func toWire(v messageviews.View) MessageViewWire {
 	return MessageViewWire{
-		ID:           v.ID.String(),
-		Name:         v.Name,
-		Description:  v.Description,
-		Mine:         v.Mine,
-		Pinned:       v.Pinned,
-		Shared:       v.Shared,
-		Filters:      v.Filters,
-		Scope:        v.Scope,
-		ResultCount:  v.ResultCount,
-		LastEditedAt: v.LastEditedAt,
-		CreatedAt:    v.CreatedAt,
-		UpdatedAt:    v.UpdatedAt,
+		ID:             v.ID.String(),
+		Name:           v.Name,
+		Description:    v.Description,
+		Mine:           v.Mine,
+		Pinned:         v.Pinned,
+		Shared:         v.Shared,
+		Filters:        v.Filters,
+		Scope:          v.Scope,
+		MessageColumns: v.MessageColumns,
+		ResultCount:    v.ResultCount,
+		LastEditedAt:   v.LastEditedAt,
+		CreatedAt:      v.CreatedAt,
+		UpdatedAt:      v.UpdatedAt,
 	}
 }
 
@@ -131,6 +167,12 @@ func (h *Handlers) createMessageView(w http.ResponseWriter, r *http.Request) {
 		httpserver.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	cols, err := normalizeViewColumns(req.MessageColumns)
+	if err != nil {
+		httpserver.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	req.MessageColumns = cols
 	v, err := h.MessageViews.Create(r.Context(), middleware.OrgID(r), nil, req)
 	if err != nil {
 		// Surface validation errors as 400 — they come from
@@ -170,6 +212,12 @@ func (h *Handlers) updateMessageView(w http.ResponseWriter, r *http.Request) {
 		httpserver.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	cols, err := normalizeViewColumns(req.MessageColumns)
+	if err != nil {
+		httpserver.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	req.MessageColumns = cols
 	v, err := h.MessageViews.Update(r.Context(), middleware.OrgID(r), id, nil, req)
 	if errors.Is(err, messageviews.ErrNotFound) {
 		httpserver.WriteError(w, http.StatusNotFound, "view not found")
@@ -414,9 +462,15 @@ func (h *Handlers) searchMessages(w http.ResponseWriter, r *http.Request) {
 
 	// Resolve integration filter → service-name allowlist.
 	serviceFilter := plan.ServiceNameLiterals
-	// Promoted message columns are a property of the integration, so a
-	// search that is not scoped to one has none (issue #23).
+	// The column set for this result. Sourced from the integration when
+	// the search is scoped to one, then overridden by the saved view
+	// when the view has an opinion — see resolveMessageColumns.
+	//
+	// Resolved for EVERY search, not only integration-scoped ones: a
+	// view can be pinned to a service or be global, and its columns are
+	// no less its own for that.
 	var messageColumns []integrations.MessageColumn
+	resolvedColumns := false
 	if plan.IntegrationName != "" {
 		names, err := h.resolveIntegrationServices(r.Context(), plan.IntegrationName, tr)
 		if err != nil {
@@ -440,14 +494,9 @@ func (h *Handlers) searchMessages(w http.ResponseWriter, r *http.Request) {
 			if full, err := h.Integrations.Get(r.Context(), middleware.OrgID(r), id); err == nil {
 				messageColumns = full.MessageColumns
 			}
-			// Empty means "nobody configured this", not "no columns".
-			// Resolving the default here rather than in the client keeps
-			// one definition of the default set: a client that filled it
-			// in itself would drift the moment the default changed.
-			if len(messageColumns) == 0 {
-				messageColumns = integrations.DefaultMessageColumns()
-			}
 		}
+		messageColumns = h.resolveMessageColumns(r, req.ViewID, messageColumns)
+		resolvedColumns = true
 		if len(serviceFilter) == 0 {
 			serviceFilter = names
 		} else {
@@ -466,6 +515,11 @@ func (h *Handlers) searchMessages(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
+	}
+	// The non-integration paths — a service-scoped or global search —
+	// reach here without having resolved anything yet.
+	if !resolvedColumns {
+		messageColumns = h.resolveMessageColumns(r, req.ViewID, nil)
 	}
 
 	// G5: enforce policy-based service visibility. Intersect the
@@ -536,6 +590,43 @@ func (h *Handlers) searchMessages(w http.ResponseWriter, r *http.Request) {
 		NextCursor:     nextMessageCursor(rows, limit),
 		MessageColumns: messageColumns,
 	})
+}
+
+// resolveMessageColumns applies the column precedence: a saved view's
+// own set, then the integration's, then the defaults.
+//
+// A view overrides because that is what a view is FOR — two people
+// watching the same integration for different reasons want different
+// columns, and a view is where that difference belongs. But only when
+// it has an opinion: a view with no column set inherits, so improving
+// an integration's default reaches every view that never disagreed.
+//
+// The distinction between "no opinion" and "chose nothing" is carried
+// all the way from the database (NULL vs '[]') to here, because
+// collapsing it would turn every view that predates this into one that
+// shows no columns at all.
+func (h *Handlers) resolveMessageColumns(r *http.Request, viewID string, fromIntegration []integrations.MessageColumn) []integrations.MessageColumn {
+	if id := strings.TrimSpace(viewID); id != "" {
+		if vid, err := uuid.Parse(id); err == nil {
+			v, err := h.MessageViews.Get(r.Context(), middleware.OrgID(r), vid, nil)
+			if err == nil && v.MessageColumns != nil {
+				var cols []integrations.MessageColumn
+				if err := json.Unmarshal(*v.MessageColumns, &cols); err == nil {
+					// Returned even when empty: this view deliberately
+					// shows only the fixed chrome, and falling through
+					// to the defaults would overrule the user.
+					if cols == nil {
+						cols = []integrations.MessageColumn{}
+					}
+					return cols
+				}
+			}
+		}
+	}
+	if len(fromIntegration) > 0 {
+		return fromIntegration
+	}
+	return integrations.DefaultMessageColumns()
 }
 
 // parseMessageCursor turns the request's keyset cursor into the store

@@ -8,6 +8,7 @@
 package messageviews
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -134,12 +135,24 @@ type View struct {
 	// Scope pins the view to a specific entity. The JSON object is
 	// always emitted (even when empty) so the frontend doesn't have to
 	// distinguish "field absent" from "no scope".
-	Scope        Scope     `json:"scope"`
-	Mine         bool      `json:"mine"`
-	ResultCount  *int64    `json:"resultCount,omitempty"`
-	LastEditedAt time.Time `json:"lastEditedAt"`
-	CreatedAt    time.Time `json:"createdAt"`
-	UpdatedAt    time.Time `json:"updatedAt"`
+	Scope Scope `json:"scope"`
+	// MessageColumns is this view's own column set, in column order.
+	//
+	// A POINTER because nil and empty mean different things, and the
+	// difference is the feature: nil is "this view has no opinion, use
+	// the integration's columns", empty is "this view deliberately shows
+	// none". Collapsing them would turn every existing view into one
+	// that shows nothing.
+	//
+	// Typed as a raw message rather than the integrations.MessageColumn
+	// slice to keep this package free of that dependency — it is
+	// validated and normalised by the API layer, which owns both.
+	MessageColumns *json.RawMessage `json:"messageColumns,omitempty"`
+	Mine           bool             `json:"mine"`
+	ResultCount    *int64           `json:"resultCount,omitempty"`
+	LastEditedAt   time.Time        `json:"lastEditedAt"`
+	CreatedAt      time.Time        `json:"createdAt"`
+	UpdatedAt      time.Time        `json:"updatedAt"`
 }
 
 // CreateRequest is the body of POST /api/v1/message-views.
@@ -153,6 +166,10 @@ type CreateRequest struct {
 	// typically the IntegrationMessages page — sets this so the saved
 	// view surfaces in both the entity's tab and the global rail.
 	Scope Scope `json:"scope,omitempty"`
+	// MessageColumns is this view's own column set. Omit the field to
+	// leave the view inheriting the integration's columns; send `[]` to
+	// say the view shows none. See View.MessageColumns.
+	MessageColumns *json.RawMessage `json:"messageColumns,omitempty"`
 }
 
 // UpdateRequest is the body of PUT /api/v1/message-views/{id}. Every
@@ -166,6 +183,10 @@ type UpdateRequest struct {
 	Shared      bool     `json:"shared"`
 	Filters     []Filter `json:"filters"`
 	Scope       Scope    `json:"scope,omitempty"`
+	// MessageColumns is this view's own column set. Omit the field to
+	// leave the view inheriting the integration's columns; send `[]` to
+	// say the view shows none. See View.MessageColumns.
+	MessageColumns *json.RawMessage `json:"messageColumns,omitempty"`
 }
 
 // SearchRequest is the body of POST /api/v1/messages/search. Range is
@@ -177,6 +198,13 @@ type SearchRequest struct {
 	Filters []Filter      `json:"filters"`
 	Limit   int           `json:"limit,omitempty"`
 	Cursor  *SearchCursor `json:"cursor,omitempty"`
+	// ViewID, when set, names the saved view being run. It does not
+	// affect WHICH messages come back — the filters already say that —
+	// only which columns. Sent so the server resolves the column set
+	// from stored state rather than trusting the client to echo it: the
+	// query and the headers then come from one answer, and a client
+	// holding a stale view cannot label a column it did not query.
+	ViewID string `json:"viewId,omitempty"`
 }
 
 // SearchCursor is the keyset position for the next page of results.

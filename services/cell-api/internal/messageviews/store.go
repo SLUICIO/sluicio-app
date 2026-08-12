@@ -32,7 +32,7 @@ func NewStore(pool *pgxpool.Pool) *Store {
 const listColumns = `id, organization_id, owner_user_id, name,
 	COALESCE(description, ''), pinned, shared,
 	filters, scope_integration_id, scope_service_id,
-	last_result_count,
+	last_result_count, message_columns,
 	last_edited_at, created_at, updated_at`
 
 // List returns every view visible to the given org. With ownerUserID
@@ -100,13 +100,14 @@ func (s *Store) Create(ctx context.Context, orgID uuid.UUID, ownerUserID *uuid.U
 		INSERT INTO message_views
 			(organization_id, owner_user_id, name, description,
 			 pinned, shared, filters,
-			 scope_integration_id, scope_service_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+			 scope_integration_id, scope_service_id, message_columns)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		RETURNING ` + listColumns
 	row := s.pool.QueryRow(ctx, q,
 		orgID, ownerUserID, req.Name, nilIfEmpty(req.Description),
 		req.Pinned, req.Shared, bytes,
 		uuidOrNil(req.Scope.IntegrationID), nilIfEmpty(req.Scope.ServiceID),
+		rawOrNil(req.MessageColumns),
 	)
 	v, err := scanView(row, ownerUserID)
 	if err != nil {
@@ -134,6 +135,7 @@ func (s *Store) Update(ctx context.Context, orgID, id uuid.UUID, ownerUserID *uu
 		SET name = $3, description = $4,
 		    pinned = $5, shared = $6, filters = $7,
 		    scope_integration_id = $8, scope_service_id = $9,
+		    message_columns = $10,
 		    last_edited_at = now(), updated_at = now()
 		WHERE organization_id = $1 AND id = $2
 		RETURNING ` + listColumns
@@ -141,6 +143,7 @@ func (s *Store) Update(ctx context.Context, orgID, id uuid.UUID, ownerUserID *uu
 		orgID, id, req.Name, nilIfEmpty(req.Description),
 		req.Pinned, req.Shared, bytes,
 		uuidOrNil(req.Scope.IntegrationID), nilIfEmpty(req.Scope.ServiceID),
+		rawOrNil(req.MessageColumns),
 	)
 	v, err := scanView(row, ownerUserID)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -196,6 +199,7 @@ func scanView(s scanner, callerID *uuid.UUID) (View, error) {
 		scopeIntegrate *uuid.UUID
 		scopeService   *string
 		resultCount    *int64
+		columnsBytes   []byte
 		lastEdited     time.Time
 		createdAt      time.Time
 		updatedAt      time.Time
@@ -204,10 +208,17 @@ func scanView(s scanner, callerID *uuid.UUID) (View, error) {
 		&v.ID, &v.OrganizationID, &ownerNullable, &v.Name,
 		&v.Description, &v.Pinned, &v.Shared,
 		&filtersBytes, &scopeIntegrate, &scopeService,
-		&resultCount,
+		&resultCount, &columnsBytes,
 		&lastEdited, &createdAt, &updatedAt,
 	); err != nil {
 		return View{}, err
+	}
+	// SQL NULL scans to a nil slice, which is exactly the "no opinion"
+	// case — left as a nil pointer so it round-trips as absent rather
+	// than as an empty list, which would mean "show no columns".
+	if columnsBytes != nil {
+		raw := json.RawMessage(columnsBytes)
+		v.MessageColumns = &raw
 	}
 	v.OwnerUserID = ownerNullable
 	v.ResultCount = resultCount
@@ -242,6 +253,21 @@ func nilIfEmpty(s string) any {
 		return nil
 	}
 	return s
+}
+
+// rawOrNil binds an optional JSON document, preserving the difference
+// between "not set" and "set to empty".
+//
+// A nil pointer becomes SQL NULL — the view has no opinion and inherits
+// the integration's columns. A pointer to `[]` is stored as `[]`, which
+// means the view deliberately shows no columns. Flattening the two would
+// make "I have not chosen" indistinguishable from "I chose nothing",
+// and every existing view would take the second reading.
+func rawOrNil(raw *json.RawMessage) any {
+	if raw == nil {
+		return nil
+	}
+	return []byte(*raw)
 }
 
 // uuidOrNil parses an optional UUID string for binding to a UUID
