@@ -3,8 +3,17 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.101 — 2026-08-12
+
+- feat(discovery): hand-offs reach topology, candidates and the flow graph (#25) (16273d4)
+- feat(discovery): a hand-off is a dependency too (#25) (68f766b)
+- feat(views): choose a view's columns where you are looking (#23) (e980a86)
+- feat(views): a saved view carries its own columns (#23) (5b838f6)
+- feat(traces): follow a whole hand-off chain at once (#24) (dd089de)
+
 ## v0.11.100 — 2026-08-12
 
+- release v0.11.100 — refresh internal changelog (e19016e)
 - feat(traces): follow a hand-off chain in both directions (#24) (9ce20ce)
 - feat(traces): name the far side of a hand-off (#24) (5ee3af8)
 
