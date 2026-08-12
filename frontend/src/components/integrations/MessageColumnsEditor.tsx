@@ -33,14 +33,35 @@ const BUILTIN_LABELS: Record<BuiltinColumnID, string> = {
 };
 
 interface Props {
+  /** Whose attribute vocabulary to offer in the picker. */
   integrationID: string;
   /** The stored list; the editor keeps its own draft until saved. */
   value: MessageColumn[];
   canWrite: boolean;
   onSaved: (cols: MessageColumn[]) => void;
+  /**
+   * Where a save goes. Defaults to the integration's own column set.
+   *
+   * The Messages page passes a saver that writes to the ACTIVE VIEW
+   * instead, so you can change columns where you are looking rather
+   * than having to go to settings and come back. Same editor either
+   * way — the difference is only what the list belongs to.
+   */
+  save?: (cols: MessageColumn[]) => Promise<MessageColumn[]>;
+  /** Overrides for the framing when the target is not the integration. */
+  title?: string;
+  hint?: React.ReactNode;
 }
 
-export default function MessageColumnsEditor({ integrationID, value, canWrite, onSaved }: Props) {
+export default function MessageColumnsEditor({
+  integrationID,
+  value,
+  canWrite,
+  onSaved,
+  save: saveOverride,
+  title,
+  hint,
+}: Props) {
   const [draft, setDraft] = useState<MessageColumn[]>(value);
   const [keys, setKeys] = useState<{ key: string; source: string; useCount: number }[]>([]);
   const [adding, setAdding] = useState(false);
@@ -69,11 +90,14 @@ export default function MessageColumnsEditor({ integrationID, value, canWrite, o
     setSaving(true);
     setErr(null);
     try {
-      const res = await api.setMessageColumns(integrationID, next);
       // Render what was STORED, not what was sent: the server fills
-      // blank labels and collapses duplicate keys.
-      setDraft(res.message_columns);
-      onSaved(res.message_columns);
+      // blank labels and collapses duplicate keys, whichever target
+      // the list belongs to.
+      const stored = saveOverride
+        ? await saveOverride(next)
+        : (await api.setMessageColumns(integrationID, next)).message_columns;
+      setDraft(stored);
+      onSaved(stored);
     } catch (e) {
       setErr(String((e as Error).message ?? e));
     } finally {
@@ -99,14 +123,18 @@ export default function MessageColumnsEditor({ integrationID, value, canWrite, o
 
   return (
     <section className="card" style={{ marginTop: 16 }}>
-      <div className="card__header">Message columns</div>
+      <div className="card__header">{title ?? "Message columns"}</div>
       <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 12 }}>
         <p className="muted" style={{ fontSize: 13, lineHeight: 1.55, margin: 0 }}>
-          The columns of this integration&rsquo;s Messages list, left to right. Remove the ones you
-          don&rsquo;t read, and add span attributes that matter — how many documents a run exported,
-          which month an archive covered. An attribute&rsquo;s value is read from{" "}
-          <strong>any span in the message</strong>, so it does not have to sit on the span the
-          matchers select. Up to {MAX_MESSAGE_COLUMNS} attribute columns.
+          {hint ?? (
+            <>
+              The columns of this integration&rsquo;s Messages list, left to right. Remove the ones
+              you don&rsquo;t read, and add span attributes that matter — how many documents a run
+              exported, which month an archive covered. An attribute&rsquo;s value is read from{" "}
+              <strong>any span in the message</strong>, so it does not have to sit on the span the
+              matchers select. Up to {MAX_MESSAGE_COLUMNS} attribute columns.
+            </>
+          )}
         </p>
         <p className="muted" style={{ fontSize: 12, margin: 0 }}>
           The status dot, the timestamp and <span className="mono">open ›</span> are always shown: a

@@ -29,6 +29,7 @@ import { integrationProblemCount } from "../lib/integrationHealth";
 import IntegrationPageHeader from "../components/IntegrationPageHeader";
 import { StatusPip } from "../components/primitives";
 import VirtualInfiniteList from "../components/VirtualInfiniteList";
+import MessageColumnsEditor from "../components/integrations/MessageColumnsEditor";
 import TraceDrawer from "../components/TraceDrawer";
 import type {
   Integration,
@@ -142,6 +143,7 @@ function viewFromWire(v: MessageView): SavedView {
     scope: v.scope?.integrationId
       ? { integrationId: v.scope.integrationId, serviceId: v.scope.serviceId }
       : undefined,
+    messageColumns: v.messageColumns,
     // Drop any legacy time filter — time is the header's job now.
     filters: v.filters
       .filter((f) => f.field !== "time")
@@ -204,6 +206,7 @@ export default function IntegrationMessagesPage() {
   // only before the first response has landed; the server resolves the
   // default, so the client never has to know what it is.
   const [messageColumns, setMessageColumns] = useState<MessageColumn[]>([]);
+  const [showColumns, setShowColumns] = useState(false);
   const columns = messageColumns.length > 0 ? messageColumns : DEFAULT_COLUMNS_WHILE_LOADING;
   const [hasResults, setHasResults] = useState(false);
   const [nextCursor, setNextCursor] = useState<MessageCursor | undefined>(undefined);
@@ -427,6 +430,10 @@ export default function IntegrationMessagesPage() {
         range: windowVal,
         filters: filtersToWire(composedFilters),
         limit: PAGE,
+        // Names the view so the SERVER resolves its columns. Sending
+        // the columns themselves would let a stale client label a
+        // heading the rows were not queried under.
+        viewId: activeView?.id,
       })
       .then((r) => {
         setResults(r.results ?? []);
@@ -440,7 +447,11 @@ export default function IntegrationMessagesPage() {
       })
       .catch((e) => setError(String(e.message ?? e)))
       .finally(() => setLoading(false));
-  }, [composedFilters, lockedFilter, windowVal]);
+    // activeView is a dependency for the COLUMNS, not the rows: two
+    // views can carry identical filters and different column sets, and
+    // without this switching between them would leave the table showing
+    // the previous view's headings.
+  }, [composedFilters, lockedFilter, windowVal, activeView?.id]);
 
   useEffect(() => {
     const t = window.setTimeout(run, 350);
@@ -457,6 +468,7 @@ export default function IntegrationMessagesPage() {
         filters: filtersToWire(composedFilters),
         limit: PAGE,
         cursor: nextCursor,
+        viewId: activeView?.id,
       })
       .then((r) => {
         setResults((prev) => [...prev, ...(r.results ?? [])]);
@@ -468,7 +480,7 @@ export default function IntegrationMessagesPage() {
         loadingRef.current = false;
         setLoadingMore(false);
       });
-  }, [nextCursor, composedFilters, windowVal]);
+  }, [nextCursor, composedFilters, windowVal, activeView?.id]);
 
   // Export the whole filtered result set to CSV. Paginates the same
   // /messages/search endpoint the table uses (up to CSV_EXPORT_CAP) so the
@@ -540,6 +552,11 @@ export default function IntegrationMessagesPage() {
         shared: values.visibility !== "private",
         filters: filtersToWire(composedFilters),
         scope: { integrationId: id },
+        // The columns you were looking at when you saved. A view is
+        // "this is how I want to look at this", and the column set is
+        // half of that — saving the filters without them would restore
+        // the wrong table.
+        messageColumns: messageColumns.length > 0 ? messageColumns : undefined,
       });
       const v = viewFromWire(created);
       setAllViews((curr) => [v, ...curr]);
@@ -712,6 +729,44 @@ export default function IntegrationMessagesPage() {
             </button>
           </div>
         </div>
+      )}
+
+      {/* Columns, editable where you are looking rather than only in
+          settings. Saves to the ACTIVE VIEW when one is loaded — that
+          is what makes a view's columns its own — and to the
+          integration's default otherwise. */}
+      {showColumns && (
+        <MessageColumnsEditor
+          integrationID={id}
+          value={messageColumns}
+          canWrite={canWrite}
+          title={activeView ? `Columns · ${activeView.name}` : "Columns · integration default"}
+          hint={
+            activeView
+              ? "These columns belong to this saved view. Other views of the same integration keep their own."
+              : "No view is loaded, so this sets the integration's default — what every view that has no columns of its own will show."
+          }
+          save={
+            activeView
+              ? async (cols) => {
+                  const updated = await api.updateMessageView(activeView.id, {
+                    name: activeView.name,
+                    pinned: activeView.pinned,
+                    shared: (activeView.sharedWith?.length ?? 0) > 0,
+                    filters: filtersToWire(composedFilters),
+                    scope: { integrationId: id },
+                    messageColumns: cols,
+                  });
+                  setActiveView(viewFromWire(updated));
+                  setAllViews((curr) =>
+                    curr.map((v) => (v.id === updated.id ? viewFromWire(updated) : v)),
+                  );
+                  return updated.messageColumns ?? [];
+                }
+              : undefined
+          }
+          onSaved={(cols) => setMessageColumns(cols)}
+        />
       )}
 
       <FilterEditor
@@ -967,6 +1022,18 @@ export default function IntegrationMessagesPage() {
               : "Set up filters above to run a search."}
           </span>
           <div className="flex items-center gap-3">
+            <button
+              type="button"
+              className="hover:underline"
+              title={
+                activeView
+                  ? `Choose the columns for the view "${activeView.name}"`
+                  : "Choose this integration's default columns"
+              }
+              onClick={() => setShowColumns((v) => !v)}
+            >
+              {showColumns ? "hide columns" : "columns"}
+            </button>
             <button
               type="button"
               className="hover:underline disabled:opacity-50"

@@ -1189,6 +1189,11 @@ export interface MessageView {
   // Always emitted by the server (even when empty) so the UI can do
   // `view.scope.integrationId` without a presence check.
   scope: MessageViewScope;
+  /** This view's own column set. Absent means the view has no opinion
+   *  and inherits the integration's; an empty array means it
+   *  deliberately shows only the fixed chrome. The two are different
+   *  and both round-trip. */
+  messageColumns?: MessageColumn[];
   resultCount?: number;
   lastEditedAt: string;
   createdAt: string;
@@ -1206,6 +1211,8 @@ export interface CreateMessageViewRequest {
   shared: boolean;
   filters: MessageFilter[];
   scope?: MessageViewScope;
+  /** Omit to leave the view inheriting; send [] to show no columns. */
+  messageColumns?: MessageColumn[];
 }
 
 export interface UpdateMessageViewRequest extends CreateMessageViewRequest {}
@@ -1235,6 +1242,11 @@ export interface MessageSearchRequest {
   limit?: number;
   filters: MessageFilter[];
   cursor?: MessageCursor;
+  /** The saved view being run. Does not affect WHICH messages come
+   *  back — the filters say that — only which columns. Sent as an id so
+   *  the server resolves the set from stored state; a client echoing
+   *  columns could label a heading the rows were not queried under. */
+  viewId?: string;
 }
 
 // Identity, organizations, roles --------------------------------------
