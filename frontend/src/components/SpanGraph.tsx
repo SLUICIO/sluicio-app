@@ -14,7 +14,7 @@
 // dependency for a small problem.
 
 import { useMemo } from "react";
-import type { SpanSummary } from "../api/types";
+import type { LinkedTrace, SpanSummary } from "../api/types";
 import { buildSpanGraph, graphRefusal, type SpanNode } from "../lib/spanGraph";
 
 const NODE_W = 168;
@@ -29,6 +29,15 @@ interface Props {
   linksRecordedSince?: string;
   selectedSpanId?: string | null;
   onSelect?: (spanId: string) => void;
+  /**
+   * Summaries of the traces this one hands off to, so the far side can
+   * be named. A hand-off with no entry here is still drawn — it just
+   * says less: the trace is either outside the caller's policy or aged
+   * out of retention, and both are honest answers.
+   */
+  linkedTraces?: LinkedTrace[];
+  /** Opens a linked trace. Omit to render the far side unclickable. */
+  onOpenTrace?: (traceId: string) => void;
 }
 
 /** Depth of each node from its root, for column placement. */
@@ -59,10 +68,21 @@ function depths(nodes: SpanNode[]): Map<string, number> {
   return out;
 }
 
-export default function SpanGraph({ spans, linksRecordedSince, selectedSpanId, onSelect }: Props) {
+export default function SpanGraph({
+  spans,
+  linksRecordedSince,
+  selectedSpanId,
+  onSelect,
+  linkedTraces,
+  onOpenTrace,
+}: Props) {
   const graph = useMemo(
     () => buildSpanGraph(spans, linksRecordedSince),
     [spans, linksRecordedSince],
+  );
+  const linkedByTrace = useMemo(
+    () => new Map((linkedTraces ?? []).map((t) => [t.trace_id, t])),
+    [linkedTraces],
   );
   const refusal = graphRefusal(graph);
 
@@ -91,9 +111,14 @@ export default function SpanGraph({ spans, linksRecordedSince, selectedSpanId, o
     }
     const cols = Math.max(...[...perCol.keys()], 0) + 1;
     const rows = Math.max(...[...perCol.values()], 1);
+    // A hand-off's node sits one column to the RIGHT of the node it
+    // leaves, which can be the rightmost node there is. Without this the
+    // viewBox ends at the last real column and the far side of every
+    // hand-off is clipped away — the exact thing this is meant to show.
+    const handoffOverhang = graph.handoffs.length > 0 ? COL_GAP + NODE_W : 0;
     return {
       pos,
-      width: PAD * 2 + cols * NODE_W + (cols - 1) * COL_GAP,
+      width: PAD * 2 + cols * NODE_W + (cols - 1) * COL_GAP + handoffOverhang,
       height: PAD * 2 + rows * NODE_H + (rows - 1) * ROW_GAP,
       sorted,
     };
@@ -157,24 +182,68 @@ export default function SpanGraph({ spans, linksRecordedSince, selectedSpanId, o
             });
         })}
 
-        {/* Hand-offs leave the picture, because their target is in
-            another trace. Drawn dashed and stubbed rather than as an
-            edge to nowhere: an arrow pointing at empty space reads as a
-            rendering bug, while a stub reads as "it continued
-            elsewhere". */}
+        {/* Hand-offs leave this trace, because their target is another
+            message. The first version drew a dashed stub into empty
+            space, on the reasoning that an arrow pointing at nothing
+            reads as a rendering bug. True, and not enough: a stub says
+            something continued without saying what, which leaves the
+            reader copying a trace id out of a tooltip.
+
+            So the far side gets a NODE — named, dated, clickable. Drawn
+            dashed and set apart, because it is a doorway into a
+            different message and not part of this picture. Inlining its
+            spans would erase the distinction the whole model rests on.
+
+            Neutral, not warn-coloured: a hand-off is normal. Warning
+            and error colours stay reserved for actual failure, or
+            people learn to ignore them. */}
         {graph.handoffs.map((h, i) => {
           const p = l.pos.get(h.from);
           if (!p) return null;
+          const head = linkedByTrace?.get(h.traceId);
+          const x = p.x + NODE_W + COL_GAP;
+          const y = p.y;
+          const mid = p.x + NODE_W + COL_GAP / 2;
           return (
             <g key={`${h.from}-${h.traceId}-${i}`}>
               <path
-                d={`M${p.x + NODE_W},${p.y + NODE_H / 2} l 28,0`}
-                stroke="var(--warn)"
+                d={`M${p.x + NODE_W},${p.y + NODE_H / 2} C${mid},${p.y + NODE_H / 2} ${mid},${y + NODE_H / 2} ${x},${y + NODE_H / 2}`}
+                stroke="var(--border-strong)"
                 strokeWidth={1.5}
                 strokeDasharray="4 3"
                 fill="none"
+                markerEnd="url(#sg-arrow)"
               />
-              <title>Handed off to another trace: {h.traceId}</title>
+              <g
+                transform={`translate(${x},${y})`}
+                style={{ cursor: onOpenTrace ? "pointer" : "default" }}
+                onClick={() => onOpenTrace?.(h.traceId)}
+              >
+                <rect
+                  width={NODE_W}
+                  height={NODE_H}
+                  rx={6}
+                  fill="var(--surface)"
+                  stroke={head?.has_error ? "var(--err)" : "var(--border-strong)"}
+                  strokeWidth={head?.has_error ? 2 : 1}
+                  strokeDasharray="5 3"
+                />
+                <text x={10} y={17} fontSize={10} fill="var(--muted)">
+                  {head ? head.service_name : "another message"}
+                </text>
+                <text x={10} y={32} fontSize={12} fontWeight={600} fill="var(--ink)">
+                  {head
+                    ? head.span_name.length > 20
+                      ? head.span_name.slice(0, 19) + "…"
+                      : head.span_name
+                    : `${h.traceId.slice(0, 12)}…`}
+                </text>
+                <title>
+                  {head
+                    ? `Handed off to another message: ${head.service_name} · ${head.span_name} (${head.span_count} spans). Click to open.`
+                    : `Handed off to trace ${h.traceId} — not visible to you, or aged out of retention.`}
+                </title>
+              </g>
             </g>
           );
         })}

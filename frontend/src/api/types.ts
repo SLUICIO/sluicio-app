@@ -421,6 +421,26 @@ export interface TraceDetailResponse {
   // cap. UI renders a banner so a 50K-span runaway trace doesn't look
   // identical to a complete 5K-span trace.
   truncated?: boolean;
+  /** The traces this one hands off to, summarised — enough to name the
+   *  far side of a link instead of drawing a stroke into empty space. */
+  linked_traces?: LinkedTrace[];
+  /** Hand-offs withheld because the caller cannot see any service in
+   *  the linked trace. Shown, never swallowed: a chain that is quietly
+   *  short looks complete. */
+  linked_traces_hidden?: number;
+}
+
+// The far side of a hand-off. A summary on purpose — one message is one
+// trace, and inlining the other side's spans would erase the distinction
+// the product's counting, SLAs and health all rest on. A doorway.
+export interface LinkedTrace {
+  trace_id: string;
+  /** What STARTED over there: the linked trace's first span. */
+  service_name: string;
+  span_name: string;
+  started_at: string;
+  span_count: number;
+  has_error: boolean;
 }
 
 // Flow graph types (used for the integration-level service map and the

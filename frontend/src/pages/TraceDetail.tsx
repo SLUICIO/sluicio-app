@@ -6,7 +6,7 @@
 // received timestamp, hop count, total duration, and a status pip.
 
 import { useEffect, useMemo, useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import IntegrationFlow from "../components/IntegrationFlow";
 import SpanGraph from "../components/SpanGraph";
@@ -65,6 +65,7 @@ function traceRange(spans: SpanSummary[]): Range {
 
 export default function TraceDetail() {
   const { traceId = "" } = useParams();
+  const navigate = useNavigate();
   // ?integration=<uuid> — when present, the trace's status is
   // scoped to that integration. A trace can participate in many
   // integrations; one being late doesn't make it late everywhere.
@@ -482,6 +483,8 @@ export default function TraceDetail() {
                     linksRecordedSince={data.links_recorded_since}
                     selectedSpanId={selectedSpan}
                     onSelect={(id) => setSelectedSpan(id)}
+                    linkedTraces={data.linked_traces}
+                    onOpenTrace={(id) => navigate(`/traces/${id}`)}
                   />
                 ) : (
                 <IntegrationFlow

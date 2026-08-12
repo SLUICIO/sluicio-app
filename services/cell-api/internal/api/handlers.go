@@ -2390,7 +2390,79 @@ func (h *Handlers) traceDetail(w http.ResponseWriter, r *http.Request) {
 	if since, err := h.Store.LinksRecordedSince(r.Context()); err == nil && !since.IsZero() {
 		out.LinksRecordedSince = &since
 	}
+	out.LinkedTraces, out.LinkedTracesHidden = h.linkedTraceHeads(r, rows)
 	httpserver.WriteJSON(w, http.StatusOK, out)
+}
+
+// linkedTraceHeads summarises the traces this one hands off to, so the
+// far side of a link can be named instead of drawn as a stroke into
+// empty space (issue #24).
+//
+// Returns the visible heads and a count of those withheld. The count
+// matters as much as the list: a chain that is silently short looks
+// complete, and "3 more you cannot see" is the difference between a
+// permission boundary and a bug in the eyes of whoever is reading it.
+func (h *Handlers) linkedTraceHeads(r *http.Request, spans []store.SpanRow) ([]LinkedTrace, int) {
+	seen := map[string]bool{}
+	var ids []string
+	for _, s := range spans {
+		for _, id := range s.LinkTraceIDs {
+			if id == "" || seen[id] {
+				continue
+			}
+			seen[id] = true
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) == 0 {
+		return nil, 0
+	}
+	heads, err := h.Store.TraceHeads(r.Context(), ids)
+	if err != nil {
+		// A hand-off we cannot summarise is still a hand-off: the span's
+		// own link list is already in the response, so the view degrades
+		// to what it drew before rather than losing the fact.
+		h.Logger.Warn("linked trace heads failed", "err", err)
+		return nil, 0
+	}
+
+	allowed, hasFilter := h.signalServiceFilter(r, identity.SignalTraces)
+	allowedSet := make(map[string]struct{}, len(allowed))
+	for _, n := range allowed {
+		allowedSet[n] = struct{}{}
+	}
+
+	out := make([]LinkedTrace, 0, len(heads))
+	hidden := 0
+	for _, hd := range heads {
+		if hasFilter && !anyVisible(hd.Services, allowedSet) {
+			// Not even the head's existence: naming the service would
+			// leak the thing the policy exists to withhold.
+			hidden++
+			continue
+		}
+		out = append(out, LinkedTrace{
+			TraceID:     hd.TraceID,
+			ServiceName: hd.ServiceName,
+			SpanName:    hd.SpanName,
+			StartedAt:   hd.StartedAt,
+			SpanCount:   hd.SpanCount,
+			HasError:    hd.HasError,
+		})
+	}
+	// A trace id with no head at all is one whose spans have aged out of
+	// retention. That is not a permission problem and must not be
+	// reported as one; the span's link list still shows the id.
+	return out, hidden
+}
+
+func anyVisible(services []string, allowed map[string]struct{}) bool {
+	for _, s := range services {
+		if _, ok := allowed[s]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 // helpers

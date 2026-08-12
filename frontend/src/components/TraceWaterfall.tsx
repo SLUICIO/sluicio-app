@@ -194,7 +194,23 @@ export default function TraceWaterfall({
                     </span>
                   )}
                 </div>
-                <div className="truncate text-xs text-muted">{h.span.span_name}</div>
+                <div className="truncate text-xs text-muted">
+                  {h.span.span_name}
+                  {/* A hand-off is a fact about this span, and the
+                      waterfall is the DEFAULT view — leaving it only in
+                      Steps meant most readers never learned the message
+                      continued somewhere else. Neutral styling: handing
+                      off is normal, not a warning. */}
+                  {(h.span.links?.length ?? 0) > 0 && (
+                    <span
+                      className="badge"
+                      style={{ marginLeft: 6, fontSize: 10 }}
+                      title={`Hands off to ${h.span.links!.length} other message${h.span.links!.length === 1 ? "" : "s"} — see the Steps view to follow it`}
+                    >
+                      → hands off
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
             <div className="relative h-5">

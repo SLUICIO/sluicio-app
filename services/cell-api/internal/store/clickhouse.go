@@ -1823,6 +1823,75 @@ func (s *Store) SpansForTrace(ctx context.Context, traceID string, limit int) ([
 	return s.querySpans(ctx, q, traceID, limit)
 }
 
+// TraceHead summarises another trace in one line — enough to render the
+// far side of a hand-off without opening it (issue #24).
+type TraceHead struct {
+	TraceID string
+	// ServiceName and SpanName come from the trace's FIRST span: the
+	// thing that started over there, which is what a reader following a
+	// hand-off wants to know.
+	ServiceName string
+	SpanName    string
+	StartedAt   time.Time
+	SpanCount   uint64
+	HasError    bool
+	// Services is every distinct service in the linked trace, used to
+	// apply the caller's policy allowlist. Not rendered.
+	Services []string
+}
+
+// TraceHeads summarises a set of traces by id.
+//
+// Deliberately NOT time-bounded. A hand-off is asynchronous by nature —
+// the producer trace of a delayed delivery can be hours or days older
+// than the consumer — so bounding this to the view's window would hide
+// exactly the links that matter most. The TraceId bloom filter
+// (idx_trace_id) is what keeps that affordable; SpansForTrace already
+// relies on the same thing.
+func (s *Store) TraceHeads(ctx context.Context, traceIDs []string) ([]TraceHead, error) {
+	if len(traceIDs) == 0 {
+		return nil, nil
+	}
+	ph := make([]string, len(traceIDs))
+	args := make([]any, 0, len(traceIDs))
+	for i, id := range traceIDs {
+		ph[i] = "?"
+		args = append(args, id)
+	}
+	// argMin over (Timestamp, SpanId), not Timestamp alone: spans that
+	// start in the same instant tie, and an arbitrary winner would make
+	// the same hand-off describe itself differently between reads. Same
+	// rule as the promoted-column aggregate.
+	sql := `
+		SELECT TraceId,
+		       argMin(ServiceName, (Timestamp, SpanId)) AS head_service,
+		       argMin(SpanName, (Timestamp, SpanId))    AS head_span,
+		       min(Timestamp)                           AS started_at,
+		       toUInt64(count())                        AS span_count,
+		       countIf(StatusCode = 'Error') > 0        AS has_error,
+		       arrayDistinct(groupArray(ServiceName))   AS services
+		FROM traces
+		WHERE TraceId IN (` + strings.Join(ph, ",") + `)
+		GROUP BY TraceId
+	`
+	rows, err := s.conn.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, fmt.Errorf("trace heads: %w", err)
+	}
+	defer rows.Close()
+
+	var out []TraceHead
+	for rows.Next() {
+		var h TraceHead
+		if err := rows.Scan(&h.TraceID, &h.ServiceName, &h.SpanName, &h.StartedAt,
+			&h.SpanCount, &h.HasError, &h.Services); err != nil {
+			return nil, err
+		}
+		out = append(out, h)
+	}
+	return out, rows.Err()
+}
+
 // Bounds for the SpansForTrace query. The default works for ~99% of
 // integration traces we've seen; the ceiling is a hard server-side
 // cap so a misbehaving client can't ask for everything.

@@ -189,6 +189,16 @@ type TraceDetail struct {
 	// guessed wrong -- every hand-off-free trace claimed to predate the
 	// feature.
 	LinksRecordedSince *time.Time `json:"links_recorded_since,omitempty"`
+	// LinkedTraces summarises the traces this one hands off to, one per
+	// distinct linked trace id, so the far side of a link can be named
+	// rather than drawn as a stroke into empty space (issue #24).
+	// Absent when the trace has no links, or when none survive the
+	// caller's policy filter.
+	LinkedTraces []LinkedTrace `json:"linked_traces,omitempty"`
+	// LinkedTracesHidden counts hand-offs withheld because the caller
+	// cannot see any service in the linked trace. Reported so the UI can
+	// say the chain is incomplete: a silently short chain looks whole.
+	LinkedTracesHidden int `json:"linked_traces_hidden,omitempty"`
 }
 
 // FlowNode is one service in the flow graph.
@@ -391,6 +401,24 @@ type SpanSummary struct {
 type SpanLink struct {
 	TraceID string `json:"trace_id"`
 	SpanID  string `json:"span_id"`
+}
+
+// LinkedTrace names the far side of a hand-off: enough of the other
+// trace to render it as a labelled door rather than a stroke into empty
+// space (issue #24).
+//
+// Deliberately a SUMMARY, not the trace. One message is one trace, and
+// inlining the other side's spans would erase the distinction the
+// product's counting, SLAs and health all rest on. This is a doorway.
+type LinkedTrace struct {
+	TraceID string `json:"trace_id"`
+	// ServiceName and SpanName describe what STARTED over there — the
+	// linked trace's first span.
+	ServiceName string    `json:"service_name"`
+	SpanName    string    `json:"span_name"`
+	StartedAt   time.Time `json:"started_at"`
+	SpanCount   uint64    `json:"span_count"`
+	HasError    bool      `json:"has_error"`
 }
 
 // TraceSearchResult is one row in the search response. The "matched"
