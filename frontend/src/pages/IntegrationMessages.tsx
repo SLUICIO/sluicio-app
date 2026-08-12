@@ -64,6 +64,41 @@ import { uid } from "../lib/uid";
 // redundant. Everything else stays available.
 const INTEGRATION_FILTER_FIELDS: Field[] = ["payload", "status", "service", "errorType", "traceId", "spanId"];
 
+// Shown for the instant between mount and the first response. The
+// server owns the real default; this only exists so the table does not
+// render zero columns and jump. Deliberately the same shape, so the
+// layout does not move when the answer arrives.
+const DEFAULT_COLUMNS_WHILE_LOADING: MessageColumn[] = [
+  { kind: "builtin", key: "msg_id", label: "msg id" },
+  { kind: "builtin", key: "service", label: "service" },
+  { kind: "builtin", key: "step", label: "step" },
+  { kind: "builtin", key: "duration", label: "duration" },
+];
+
+/**
+ * The grid width for one column.
+ *
+ * Per-column rather than uniform because these hold different things: a
+ * trace id needs room a duration never will, and a step name is usually
+ * longer than a service name. `minmax` throughout so a narrow window
+ * shrinks the flexible ones instead of overflowing the row.
+ */
+function columnWidth(c: MessageColumn): string {
+  if (c.kind !== "builtin") return "minmax(112px,1fr)";
+  switch (c.key) {
+    case "msg_id":
+      return "150px";
+    case "service":
+      return "minmax(110px,0.9fr)";
+    case "step":
+      return "minmax(110px,0.9fr)";
+    case "duration":
+      return "80px";
+    default:
+      return "minmax(90px,1fr)";
+  }
+}
+
 // makeLockedIntegrationFilter builds the locked row for this page.
 // integrationName is what the search engine matches against, so we
 // use the human-readable name rather than the UUID id — same as the
@@ -165,8 +200,11 @@ export default function IntegrationMessagesPage() {
   const [showSaveDialog, setShowSaveDialog] = useState(false);
 
   const [results, setResults] = useState<TraceSearchResult[]>([]);
-  // The promoted columns this result set was queried under (issue #23).
+  // The column set this result set was queried under (issue #23). Empty
+  // only before the first response has landed; the server resolves the
+  // default, so the client never has to know what it is.
   const [messageColumns, setMessageColumns] = useState<MessageColumn[]>([]);
+  const columns = messageColumns.length > 0 ? messageColumns : DEFAULT_COLUMNS_WHILE_LOADING;
   const [hasResults, setHasResults] = useState(false);
   const [nextCursor, setNextCursor] = useState<MessageCursor | undefined>(undefined);
   const [hasMore, setHasMore] = useState(false);
@@ -737,16 +775,11 @@ export default function IntegrationMessagesPage() {
             // most telemetry is host/process trivia. When the user has
             // said which attributes matter, showing that instead as well
             // would be noise competing with signal.
-            // The promoted columns get the wider share: they are the
-            // reason someone configured this, and "service · matched"
-            // repeats what the integration name already says. Their
-            // minimum fits a date, which is the widest short value these
-            // columns usually hold.
-            gridTemplate={
-              messageColumns.length > 0
-                ? `24px 110px 150px minmax(120px,0.8fr) ${messageColumns.map(() => "minmax(112px,1fr)").join(" ")} 80px 56px`
-                : "24px 110px 160px 1fr 1fr 80px 56px"
-            }
+            // pip · time · [configured columns] · badge · open.
+            // Each column carries its own width: an id needs room a
+            // duration does not, and an attribute's minimum fits a date,
+            // which is the widest short value they usually hold.
+            gridTemplate={`24px 110px ${columns.map(columnWidth).join(" ")} minmax(0,auto) 56px`}
             rowHeight={40}
             height={messagesListHeight}
             itemKey={(r) => r.trace_id}
@@ -769,21 +802,19 @@ export default function IntegrationMessagesPage() {
               <>
                 <span></span>
                 <span>time</span>
-                <span>msg id</span>
-                <span>service · matched</span>
-                {messageColumns.length > 0 ? (
-                  messageColumns.map((c) => (
-                    // The tooltip carries both, because either can be
-                    // the thing you need: a long label clips, and the
-                    // key is what disambiguates two similar headings.
-                    <span key={c.key} title={`${c.label} — ${c.key}`} className="truncate">
-                      {c.label}
-                    </span>
-                  ))
-                ) : (
-                  <span>matched fields</span>
-                )}
-                <span className="text-right">duration</span>
+                {columns.map((c) => (
+                  // The tooltip carries both, because either can be the
+                  // thing you need: a long label clips, and the key is
+                  // what disambiguates two similar headings.
+                  <span
+                    key={`${c.kind ?? "attribute"}:${c.key}`}
+                    title={c.kind === "builtin" ? c.label : `${c.label} — ${c.key}`}
+                    className={c.key === "duration" && c.kind === "builtin" ? "truncate text-right" : "truncate"}
+                  >
+                    {c.label}
+                  </span>
+                ))}
+                <span></span>
                 <span></span>
               </>
             }
@@ -817,27 +848,73 @@ export default function IntegrationMessagesPage() {
               const showBadge = Boolean(sev) || wasDelayed;
               return (
               <>
+                {/* The pip and the timestamp are not columns: they are
+                    fixed chrome, so no configuration can remove them. */}
                 <StatusPip kind={pipKind} />
                 <span className="font-mono text-xs text-muted">
                   {formatDateTime(r.trace_start)}
                 </span>
-                {r.trace_id ? (
-                  <span className="truncate font-mono text-xs" style={{ color: "var(--primary)" }}>
-                    {r.trace_id.slice(0, 16)}…
-                  </span>
-                ) : (
-                  <span
-                    className="truncate font-mono text-xs text-muted"
-                    title="This span was ingested without a trace ID, so the full trace can't be opened. Set trace_id / span_id on the producer's OpenTelemetry spans."
-                  >
-                    no trace ID — can't open
-                  </span>
-                )}
-                <span className="truncate" style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
-                  <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {r.matched_service}
-                    <span className="text-muted"> · {r.matched_span_name}</span>
-                  </span>
+                {columns.map((c) => {
+                  if (c.kind === "builtin") {
+                    switch (c.key) {
+                      case "msg_id":
+                        return r.trace_id ? (
+                          <span key={c.key} className="truncate font-mono text-xs" style={{ color: "var(--primary)" }}>
+                            {r.trace_id.slice(0, 16)}…
+                          </span>
+                        ) : (
+                          <span
+                            key={c.key}
+                            className="truncate font-mono text-xs text-muted"
+                            title="This span was ingested without a trace ID, so the full trace can't be opened. Set trace_id / span_id on the producer's OpenTelemetry spans."
+                          >
+                            no trace ID — can&rsquo;t open
+                          </span>
+                        );
+                      case "service":
+                        return (
+                          <span key={c.key} className="truncate text-xs" title={r.matched_service}>
+                            {r.matched_service}
+                          </span>
+                        );
+                      case "step":
+                        return (
+                          <span key={c.key} className="truncate text-xs text-muted" title={r.matched_span_name}>
+                            {r.matched_span_name}
+                          </span>
+                        );
+                      case "duration":
+                        return (
+                          <span key={c.key} className="text-right font-mono text-xs text-muted">
+                            {formatDurationMs(r.duration_ms)}
+                          </span>
+                        );
+                      default:
+                        return <span key={c.key} />;
+                    }
+                  }
+                  const v = r.promoted?.[c.key];
+                  // A dash for "this message never carried it", not a
+                  // blank: an empty cell in a table reads as a rendering
+                  // failure, and the distinction between "absent" and
+                  // "broken" is the whole reason the column stays rather
+                  // than collapsing.
+                  return (
+                    <span
+                      key={`attr:${c.key}`}
+                      className="truncate font-mono text-xs"
+                      style={{ color: v ? "var(--ink)" : "var(--muted)" }}
+                      title={v ? `${c.key} = ${v}` : `${c.key} — not set on this message`}
+                    >
+                      {v || "–"}
+                    </span>
+                  );
+                })}
+                {/* The delayed badge rides in its own cell rather than
+                    inside the service column, which the user can now
+                    remove — a badge that disappears with an unrelated
+                    column would hide a real status. */}
+                <span style={{ display: "flex", alignItems: "center", minWidth: 0 }}>
                   {showBadge && (
                     <span
                       className={badgeClass}
@@ -847,37 +924,6 @@ export default function IntegrationMessagesPage() {
                       {badgeLabel}
                     </span>
                   )}
-                </span>
-                {messageColumns.length > 0 ? (
-                  messageColumns.map((c) => {
-                    const v = r.promoted?.[c.key];
-                    // An em-dash for "this message never carried it",
-                    // not a blank: an empty cell in a table reads as a
-                    // rendering failure, and the distinction between
-                    // "absent" and "broken" is the whole reason the
-                    // column stays rather than collapsing.
-                    return (
-                      <span
-                        key={c.key}
-                        className="truncate font-mono text-xs"
-                        style={{ color: v ? "var(--ink)" : "var(--muted)" }}
-                        title={v ? `${c.key} = ${v}` : `${c.key} — not set on this message`}
-                      >
-                        {v || "–"}
-                      </span>
-                    );
-                  })
-                ) : (
-                  <span className="truncate font-mono text-xs text-muted">
-                    {r.attributes &&
-                      Object.entries(r.attributes)
-                        .slice(0, 3)
-                        .map(([k, v]) => `${k}=${v}`)
-                        .join(" · ")}
-                  </span>
-                )}
-                <span className="text-right font-mono text-xs text-muted">
-                  {formatDurationMs(r.duration_ms)}
                 </span>
                 {delayedOnly && sev && canWrite ? (
                   // In delayed-only mode the trailing cell becomes the

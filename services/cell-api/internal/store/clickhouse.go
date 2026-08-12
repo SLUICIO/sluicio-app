@@ -978,6 +978,19 @@ type MessagesSearchParams struct {
 // a flow: the final state is what a reader wants. A span attribute wins
 // over a resource attribute of the same name because it is specific to
 // the operation, matching mergeAttributes in the API layer.
+//
+// The ordering key is (Timestamp, SpanId), not Timestamp alone, and that
+// second element is the whole point. Timestamp is the span's START, so
+// two spans that begin in the same instant tie — a fan-out emitted in
+// one loop iteration, or any runtime whose clock is coarser than the
+// nanosecond column that stores it. argMax over tied rows picks
+// arbitrarily: stable within a query plan, and free to change when the
+// parts underneath merge. That is exactly the defect that made a
+// health check on httpcheck.status fire 69 times against a site that
+// was up (issue #22), and a column that changes value on refresh
+// without the data changing would be the same defect wearing different
+// clothes. SpanId is an arbitrary tiebreak but a FIXED one, which is
+// the property that matters.
 func promotedColumnSQL(keys []string) (selects string, args []any) {
 	if len(keys) == 0 {
 		return "", nil
@@ -985,7 +998,7 @@ func promotedColumnSQL(keys []string) (selects string, args []any) {
 	var b strings.Builder
 	for i, k := range keys {
 		b.WriteString(fmt.Sprintf(
-			",\n\t\t           argMaxIf(if(has(SpanAttributes, ?), SpanAttributes[?], ResourceAttributes[?]), Timestamp, has(SpanAttributes, ?) OR has(ResourceAttributes, ?)) AS promoted_%d",
+			",\n\t\t           argMaxIf(if(has(SpanAttributes, ?), SpanAttributes[?], ResourceAttributes[?]), (Timestamp, SpanId), has(SpanAttributes, ?) OR has(ResourceAttributes, ?)) AS promoted_%d",
 			i))
 		args = append(args, k, k, k, k, k)
 	}

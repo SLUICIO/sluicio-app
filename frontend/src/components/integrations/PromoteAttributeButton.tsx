@@ -19,7 +19,7 @@
 
 import { useState } from "react";
 import { api } from "../../api/client";
-import { MAX_MESSAGE_COLUMNS, type MessageColumn } from "../../api/types";
+import { MAX_MESSAGE_COLUMNS, isAttributeColumn, type MessageColumn } from "../../api/types";
 import { humanizeAttributeKey } from "../../lib/humanizeAttributeKey";
 
 interface Props {
@@ -43,8 +43,13 @@ export default function PromoteAttributeButton({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  const promoted = columns.some((c) => c.key === attrKey);
-  const full = columns.length >= MAX_MESSAGE_COLUMNS;
+  // Kind-aware throughout: an attribute literally named "service" and
+  // the built-in service column share a word and nothing else. Matching
+  // on key alone would report the attribute as already promoted, and
+  // removing it would delete the built-in instead.
+  const promoted = columns.some((c) => isAttributeColumn(c) && c.key === attrKey);
+  // Built-ins do not count against the attribute cap.
+  const full = columns.filter(isAttributeColumn).length >= MAX_MESSAGE_COLUMNS;
 
   const write = async (next: MessageColumn[]) => {
     setBusy(true);
@@ -68,7 +73,7 @@ export default function PromoteAttributeButton({
         style={{ fontSize: 10, marginLeft: 6, cursor: "pointer" }}
         disabled={busy}
         title="Shown as a column in this integration's Messages list — click to remove"
-        onClick={() => void write(columns.filter((c) => c.key !== attrKey))}
+        onClick={() => void write(columns.filter((c) => !(isAttributeColumn(c) && c.key === attrKey)))}
       >
         column ×
       </button>
@@ -84,7 +89,7 @@ export default function PromoteAttributeButton({
         disabled={full}
         title={
           full
-            ? `This integration already shows ${MAX_MESSAGE_COLUMNS} columns — remove one first`
+            ? `This integration already shows ${MAX_MESSAGE_COLUMNS} attribute columns — remove one first`
             : "Show this attribute as a column in the Messages list"
         }
         onClick={() => setOpen(true)}
@@ -116,7 +121,7 @@ export default function PromoteAttributeButton({
           onChange={(e) => setLabel(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && label.trim()) {
-              void write([...columns, { key: attrKey, label: label.trim() }]);
+              void write([...columns, { kind: "attribute" as const, key: attrKey, label: label.trim() }]);
             }
             if (e.key === "Escape") setOpen(false);
           }}
@@ -142,7 +147,7 @@ export default function PromoteAttributeButton({
           type="button"
           className="btn btn--sm btn--primary"
           disabled={busy || !label.trim()}
-          onClick={() => void write([...columns, { key: attrKey, label: label.trim() }])}
+          onClick={() => void write([...columns, { kind: "attribute" as const, key: attrKey, label: label.trim() }])}
         >
           {busy ? "Adding…" : "Add"}
         </button>

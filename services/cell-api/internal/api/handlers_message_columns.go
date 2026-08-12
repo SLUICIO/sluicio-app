@@ -61,5 +61,12 @@ func (h *Handlers) putIntegrationMessageColumns(w http.ResponseWriter, r *http.R
 	}
 	h.recordAudit(r, "integration.message_columns_set", "integration", id.String(),
 		map[string]any{"count": len(full.MessageColumns)})
-	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"message_columns": full.MessageColumns})
+	cols := full.MessageColumns
+	if len(cols) == 0 {
+		// Saving an empty list is how you reset to defaults, so echo
+		// what the list will actually render rather than the empty
+		// array — the editor shows what it gets back.
+		cols = integrations.DefaultMessageColumns()
+	}
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"message_columns": cols})
 }

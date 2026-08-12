@@ -440,6 +440,13 @@ func (h *Handlers) searchMessages(w http.ResponseWriter, r *http.Request) {
 			if full, err := h.Integrations.Get(r.Context(), middleware.OrgID(r), id); err == nil {
 				messageColumns = full.MessageColumns
 			}
+			// Empty means "nobody configured this", not "no columns".
+			// Resolving the default here rather than in the client keeps
+			// one definition of the default set: a client that filled it
+			// in itself would drift the moment the default changed.
+			if len(messageColumns) == 0 {
+				messageColumns = integrations.DefaultMessageColumns()
+			}
 		}
 		if len(serviceFilter) == 0 {
 			serviceFilter = names
@@ -447,11 +454,15 @@ func (h *Handlers) searchMessages(w http.ResponseWriter, r *http.Request) {
 			serviceFilter = intersectStrings(serviceFilter, names)
 		}
 		if len(serviceFilter) == 0 {
-			// Integration matched nothing → empty result.
+			// Integration matched nothing → empty result. The columns
+			// still travel: an empty list should show the headers it
+			// WOULD have, not fall back to a different table shape the
+			// moment there is nothing in it.
 			httpserver.WriteJSON(w, http.StatusOK, SearchResponse{
-				Window:  tr.Window(),
-				Total:   0,
-				Results: []TraceSearchResult{},
+				Window:         tr.Window(),
+				Total:          0,
+				Results:        []TraceSearchResult{},
+				MessageColumns: messageColumns,
 			})
 			return
 		}
@@ -463,9 +474,10 @@ func (h *Handlers) searchMessages(w http.ResponseWriter, r *http.Request) {
 	pf := h.resolveServiceFilterSignal(r, "", serviceFilter, identity.SignalMessages)
 	if pf.Blocked || pf.EmptyAccess {
 		httpserver.WriteJSON(w, http.StatusOK, SearchResponse{
-			Window:  tr.Window(),
-			Total:   0,
-			Results: []TraceSearchResult{},
+			Window:         tr.Window(),
+			Total:          0,
+			Results:        []TraceSearchResult{},
+			MessageColumns: messageColumns,
 		})
 		return
 	}

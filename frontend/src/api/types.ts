@@ -989,15 +989,28 @@ export interface TraceSearchResult {
   promoted?: Record<string, string>;
 }
 
-// MessageColumn promotes one span attribute to a named column in an
-// integration's message list. Order is the column order.
+// MessageColumn is one column of an integration's message list: either
+// a built-in fact or a promoted span attribute. Order is the column
+// order. An entry with no `kind` is an attribute — that is what rows
+// written before built-ins were configurable contain.
 export interface MessageColumn {
+  kind?: "builtin" | "attribute";
   key: string;
   label: string;
 }
 
-// The server's cap, mirrored so the picker can stop offering "add"
-// before a request it knows will be refused.
+export const isAttributeColumn = (c: MessageColumn) => c.kind !== "builtin";
+
+// The built-in column ids, mirroring the Go constants. The status pip,
+// the timestamp and the "open" affordance are deliberately NOT here:
+// they are not columns and cannot be removed. A message list with no
+// time cannot be read and one with no way in cannot be used.
+export const BUILTIN_COLUMNS = ["msg_id", "service", "step", "duration"] as const;
+export type BuiltinColumnID = (typeof BUILTIN_COLUMNS)[number];
+
+// The server's cap on ATTRIBUTE columns, mirrored so the picker can
+// stop offering "add" before a request it knows will be refused.
+// Built-ins do not count against it.
 export const MAX_MESSAGE_COLUMNS = 5;
 
 // Keyset cursor for the next page of message search results. Both

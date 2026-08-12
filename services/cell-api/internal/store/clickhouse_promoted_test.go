@@ -98,9 +98,8 @@ func TestPromotedColumnSQLFallsBackToResourceAttributes(t *testing.T) {
 }
 
 func TestPromotedColumnSQLTakesTheLastSpanThatCarriesTheKey(t *testing.T) {
-	// argMaxIf on Timestamp, not any(): with a key that changes through
-	// a flow, an arbitrary pick is the same defect this release fixed in
-	// health checks.
+	// argMaxIf, not any(): with a key that changes through a flow, an
+	// arbitrary pick is the same defect fixed in health checks (#22).
 	sql, _ := promotedColumnSQL([]string{"k"})
 	if !strings.Contains(sql, "argMaxIf") {
 		t.Errorf("want argMaxIf so the newest value wins deterministically: %q", sql)
@@ -109,5 +108,17 @@ func TestPromotedColumnSQLTakesTheLastSpanThatCarriesTheKey(t *testing.T) {
 	// only some spans carry the key still resolves.
 	if !strings.Contains(sql, "has(SpanAttributes, ?) OR has(ResourceAttributes, ?)") {
 		t.Errorf("want an existence-gated aggregate: %q", sql)
+	}
+}
+
+func TestPromotedColumnSQLBreaksTimestampTiesDeterministically(t *testing.T) {
+	// Timestamp is the span's START, so a fan-out emitted in one loop
+	// iteration ties. Ordering by Timestamp alone lets ClickHouse pick
+	// arbitrarily among the tied rows — stable within a query plan, free
+	// to change when parts merge. A column whose value changes on
+	// refresh without the data changing is issue #22 again.
+	sql, _ := promotedColumnSQL([]string{"k"})
+	if !strings.Contains(sql, "(Timestamp, SpanId)") {
+		t.Errorf("want a (Timestamp, SpanId) ordering key so ties resolve the same way every time: %q", sql)
 	}
 }

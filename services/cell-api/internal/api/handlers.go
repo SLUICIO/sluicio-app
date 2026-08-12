@@ -2436,18 +2436,30 @@ func toSpanSummaries(rows []store.SpanRow) []SpanSummary {
 // track the index. Empty values are dropped rather than sent as ""; the
 // UI renders a missing key and an empty string identically, and omitting
 // keeps a page of mostly-blank cells out of the payload.
+//
+// It walks ATTRIBUTE columns only, and must: the values come from
+// MessageColumnKeys, which skips built-ins. Zipping the full column
+// list against that slice shifts every value one place to the left for
+// each built-in ahead of it — a bug that produces plausible-looking
+// data (the right values, under the wrong headings) rather than an
+// error, so it survives everything except reading the table.
 func promotedByKey(cols []integrations.MessageColumn, values []string) map[string]string {
 	if len(cols) == 0 || len(values) == 0 {
 		return nil
 	}
-	out := make(map[string]string, len(cols))
-	for i, c := range cols {
+	out := make(map[string]string, len(values))
+	i := 0
+	for _, c := range cols {
+		if !c.IsAttribute() {
+			continue
+		}
 		if i >= len(values) {
 			break
 		}
 		if values[i] != "" {
 			out[c.Key] = values[i]
 		}
+		i++
 	}
 	if len(out) == 0 {
 		return nil

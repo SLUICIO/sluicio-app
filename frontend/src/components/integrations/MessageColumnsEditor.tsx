@@ -13,8 +13,24 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../api/client";
-import { MAX_MESSAGE_COLUMNS, type MessageColumn } from "../../api/types";
+import {
+  BUILTIN_COLUMNS,
+  MAX_MESSAGE_COLUMNS,
+  isAttributeColumn,
+  type BuiltinColumnID,
+  type MessageColumn,
+} from "../../api/types";
 import { humanizeAttributeKey } from "../../lib/humanizeAttributeKey";
+
+// Mirrors builtinLabels in the Go package. The server fills a blank
+// label from the same table, so a column added here and one added by
+// PUTting a bare key come out identically.
+const BUILTIN_LABELS: Record<BuiltinColumnID, string> = {
+  msg_id: "msg id",
+  service: "service",
+  step: "step",
+  duration: "duration",
+};
 
 interface Props {
   integrationID: string;
@@ -73,31 +89,38 @@ export default function MessageColumnsEditor({ integrationID, value, canWrite, o
     setDraft(next);
   };
 
-  const used = new Set(draft.map((c) => c.key));
-  const available = keys.filter((k) => !used.has(k.key));
-  const full = draft.length >= MAX_MESSAGE_COLUMNS;
+  const usedAttrs = new Set(draft.filter(isAttributeColumn).map((c) => c.key));
+  const usedBuiltins = new Set(draft.filter((c) => c.kind === "builtin").map((c) => c.key));
+  const available = keys.filter((k) => !usedAttrs.has(k.key));
+  const missingBuiltins = BUILTIN_COLUMNS.filter((b) => !usedBuiltins.has(b));
+  // Built-ins do not count: the cap exists to keep the table readable
+  // and the built-ins are a fixed set of four, not an open-ended budget.
+  const full = draft.filter(isAttributeColumn).length >= MAX_MESSAGE_COLUMNS;
 
   return (
     <section className="card" style={{ marginTop: 16 }}>
       <div className="card__header">Message columns</div>
       <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 12 }}>
         <p className="muted" style={{ fontSize: 13, lineHeight: 1.55, margin: 0 }}>
-          Show a span attribute as its own column in this integration&rsquo;s Messages list — how
-          many documents a run exported, which month an archive covered. The value is read from{" "}
+          The columns of this integration&rsquo;s Messages list, left to right. Remove the ones you
+          don&rsquo;t read, and add span attributes that matter — how many documents a run exported,
+          which month an archive covered. An attribute&rsquo;s value is read from{" "}
           <strong>any span in the message</strong>, so it does not have to sit on the span the
-          matchers select. Up to {MAX_MESSAGE_COLUMNS} columns.
+          matchers select. Up to {MAX_MESSAGE_COLUMNS} attribute columns.
+        </p>
+        <p className="muted" style={{ fontSize: 12, margin: 0 }}>
+          The status dot, the timestamp and <span className="mono">open ›</span> are always shown: a
+          message list with no time can&rsquo;t be read, and one with no way in can&rsquo;t be used.
         </p>
 
         {draft.length === 0 && (
           <div className="placeholder" style={{ padding: 10, fontSize: 13 }}>
-            No columns yet. The list shows the first few attributes of the matched span, which is
-            rarely the interesting part. Add one below, or promote an attribute from a message&rsquo;s
-            span detail.
+            No columns — every message will show only its time. Add one below.
           </div>
         )}
 
         {draft.map((c, i) => (
-          <div key={c.key} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <div key={`${c.kind ?? "attribute"}:${c.key}`} style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
               <button
                 type="button"
@@ -131,8 +154,12 @@ export default function MessageColumnsEditor({ integrationID, value, canWrite, o
                 setDraft(draft.map((d, j) => (j === i ? { ...d, label: e.target.value } : d)))
               }
             />
-            <span className="mono muted" style={{ flex: 1, fontSize: 12, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
-              {c.key}
+            <span style={{ flex: 1, fontSize: 12, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
+              {c.kind === "builtin" ? (
+                <span className="badge" style={{ fontSize: 10 }}>built-in</span>
+              ) : (
+                <span className="mono muted">{c.key}</span>
+              )}
             </span>
             {canWrite && (
               <button
@@ -149,11 +176,17 @@ export default function MessageColumnsEditor({ integrationID, value, canWrite, o
 
         {canWrite && adding && (
           <AttributePicker
-            options={available}
+            options={full ? [] : available}
+            builtins={missingBuiltins}
+            attributesFull={full}
             onCancel={() => setAdding(false)}
+            onPickBuiltin={(key) => {
+              setAdding(false);
+              setDraft([...draft, { kind: "builtin", key, label: BUILTIN_LABELS[key] }]);
+            }}
             onPick={(key) => {
               setAdding(false);
-              setDraft([...draft, { key, label: humanizeAttributeKey(key) }]);
+              setDraft([...draft, { kind: "attribute", key, label: humanizeAttributeKey(key) }]);
             }}
           />
         )}
@@ -166,8 +199,12 @@ export default function MessageColumnsEditor({ integrationID, value, canWrite, o
               <button
                 type="button"
                 className="btn btn--sm"
-                disabled={full}
-                title={full ? `At most ${MAX_MESSAGE_COLUMNS} columns` : undefined}
+                disabled={full && missingBuiltins.length === 0}
+                title={
+                  full && missingBuiltins.length === 0
+                    ? `At most ${MAX_MESSAGE_COLUMNS} attribute columns, and every built-in is already shown`
+                    : undefined
+                }
                 onClick={() => setAdding(true)}
               >
                 + Add column
@@ -194,22 +231,33 @@ export default function MessageColumnsEditor({ integrationID, value, canWrite, o
 }
 
 /**
- * The key picker: substring filter over the attributes this integration
- * has actually emitted.
+ * The column picker: the built-ins not currently shown, then a
+ * substring filter over the attributes this integration has emitted.
  *
- * Ranked by how many spans carry the key, because a key seen on three
- * spans out of thousands will render a mostly-empty column and the user
- * should be able to see that coming. The count is a SPAN count with no
- * denominator, so it is shown as a raw figure rather than a percentage
- * we cannot honestly compute.
+ * Built-ins come first and unfiltered. They are four known things, and
+ * the common reason to open this picker after the first time is "I
+ * removed the service column and want it back" — making that a search
+ * would be a worse answer than a list.
+ *
+ * Attributes are ranked by how many spans carry the key, because a key
+ * seen on three spans out of thousands will render a mostly-empty
+ * column and the user should be able to see that coming. The count is a
+ * SPAN count with no denominator, so it is shown as a raw figure rather
+ * than a percentage we cannot honestly compute.
  */
 function AttributePicker({
   options,
+  builtins,
+  attributesFull,
   onPick,
+  onPickBuiltin,
   onCancel,
 }: {
   options: { key: string; source: string; useCount: number }[];
+  builtins: readonly string[];
+  attributesFull: boolean;
   onPick: (key: string) => void;
+  onPickBuiltin: (key: BuiltinColumnID) => void;
   onCancel: () => void;
 }) {
   const [q, setQ] = useState("");
@@ -223,16 +271,41 @@ function AttributePicker({
 
   return (
     <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: 10 }}>
-      <input
-        className="search__input"
-        style={{ width: "100%", fontSize: 13 }}
-        autoFocus
-        placeholder="Filter attributes…"
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-      />
+      {builtins.length > 0 && (
+        <div style={{ marginBottom: 10 }}>
+          <div className="muted" style={{ fontSize: 11, marginBottom: 4 }}>Built-in</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+            {builtins.map((b) => (
+              <button
+                key={b}
+                type="button"
+                className="btn btn--sm"
+                onClick={() => onPickBuiltin(b as BuiltinColumnID)}
+              >
+                {BUILTIN_LABELS[b as BuiltinColumnID]}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="muted" style={{ fontSize: 11, marginBottom: 4 }}>Span attribute</div>
+      {attributesFull ? (
+        <div className="muted" style={{ fontSize: 12.5, padding: 6 }}>
+          Already showing {MAX_MESSAGE_COLUMNS} attribute columns — remove one to add another.
+        </div>
+      ) : (
+        <input
+          className="search__input"
+          style={{ width: "100%", fontSize: 13 }}
+          autoFocus
+          placeholder="Filter attributes…"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+        />
+      )}
       <div style={{ maxHeight: 220, overflowY: "auto", marginTop: 8 }}>
-        {shown.length === 0 && (
+        {!attributesFull && shown.length === 0 && (
           <div className="muted" style={{ fontSize: 12.5, padding: 6 }}>
             {options.length === 0
               ? "No attributes seen on this integration in the last 30 days."
