@@ -189,15 +189,24 @@ type TraceDetail struct {
 	// guessed wrong -- every hand-off-free trace claimed to predate the
 	// feature.
 	LinksRecordedSince *time.Time `json:"links_recorded_since,omitempty"`
-	// LinkedTraces summarises the traces this one hands off to, one per
-	// distinct linked trace id, so the far side of a link can be named
-	// rather than drawn as a stroke into empty space (issue #24).
-	// Absent when the trace has no links, or when none survive the
-	// caller's policy filter.
-	LinkedTraces []LinkedTrace `json:"linked_traces,omitempty"`
-	// LinkedTracesHidden counts hand-offs withheld because the caller
-	// cannot see any service in the linked trace. Reported so the UI can
-	// say the chain is incomplete: a silently short chain looks whole.
+	// ContinuedFrom are the messages this one follows on from: read
+	// straight off this trace's own span links (issue #24).
+	//
+	// An OpenTelemetry link is recorded on the span that was CAUSED and
+	// points back at its cause, so a trace's own links are its
+	// PREDECESSORS. Naming this field for the direction of the pointer
+	// rather than the direction of the flow is what produced the first
+	// version's backwards label.
+	ContinuedFrom []LinkedTrace `json:"continued_from,omitempty"`
+	// ContinuedInto are the messages that follow on from this one,
+	// found by searching for traces whose links point here. This is the
+	// direction the product's central question runs in — "where did my
+	// message go" — and the only one a trace cannot answer about itself.
+	ContinuedInto []LinkedTrace `json:"continued_into,omitempty"`
+	// LinkedTracesHidden counts hand-offs in either direction withheld
+	// because the caller cannot see any service in the other trace.
+	// Reported so the UI can say the chain is incomplete: a silently
+	// short chain looks whole.
 	LinkedTracesHidden int `json:"linked_traces_hidden,omitempty"`
 }
 
@@ -405,7 +414,8 @@ type SpanLink struct {
 
 // LinkedTrace names the far side of a hand-off: enough of the other
 // trace to render it as a labelled door rather than a stroke into empty
-// space (issue #24).
+// space (issue #24). Used for both directions — see ContinuedFrom and
+// ContinuedInto, which say which way this one goes.
 //
 // Deliberately a SUMMARY, not the trace. One message is one trace, and
 // inlining the other side's spans would erase the distinction the

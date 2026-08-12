@@ -30,14 +30,84 @@ interface Props {
   selectedSpanId?: string | null;
   onSelect?: (spanId: string) => void;
   /**
-   * Summaries of the traces this one hands off to, so the far side can
-   * be named. A hand-off with no entry here is still drawn — it just
-   * says less: the trace is either outside the caller's policy or aged
-   * out of retention, and both are honest answers.
+   * Messages this one follows on from. Drawn to the LEFT of the roots,
+   * because that is where "before" belongs in a picture that reads
+   * left to right. A hand-off with no entry here is still drawn — it
+   * just says less: the trace is either outside the caller's policy or
+   * aged out of retention, and both are honest answers.
    */
-  linkedTraces?: LinkedTrace[];
+  continuedFrom?: LinkedTrace[];
+  /** Messages that follow on from this one. Drawn to the right. */
+  continuedInto?: LinkedTrace[];
   /** Opens a linked trace. Omit to render the far side unclickable. */
   onOpenTrace?: (traceId: string) => void;
+}
+
+/**
+ * A neighbouring MESSAGE — one this trace continued from, or into.
+ *
+ * Dashed and set apart on purpose: it is a doorway into a different
+ * message, not part of this picture. Inlining the other trace's spans
+ * would erase the distinction the whole model rests on — one message is
+ * one trace, and the counting, SLAs and health all follow from it.
+ *
+ * Neutral by default. Handing off is normal; only a failure over there
+ * earns the error colour. The first version drew these in var(--warn),
+ * which reads as red and claimed something was wrong about an ordinary
+ * queue hop.
+ */
+function NeighbourMessage({
+  x,
+  y,
+  traceId,
+  head,
+  direction,
+  onOpen,
+}: {
+  x: number;
+  y: number;
+  traceId: string;
+  /** Absent when the trace is outside the caller's policy, or aged out. */
+  head?: LinkedTrace;
+  direction: "from" | "into";
+  onOpen?: (traceId: string) => void;
+}) {
+  const verb = direction === "from" ? "Continued from" : "Continued into";
+  return (
+    <g
+      transform={`translate(${x},${y})`}
+      style={{ cursor: onOpen ? "pointer" : "default" }}
+      onClick={() => onOpen?.(traceId)}
+    >
+      <rect
+        width={NODE_W}
+        height={NODE_H}
+        rx={6}
+        fill="var(--surface)"
+        stroke={head?.has_error ? "var(--err)" : "var(--border-strong)"}
+        strokeWidth={head?.has_error ? 2 : 1}
+        strokeDasharray="5 3"
+      />
+      <text x={10} y={16} fontSize={9} fill="var(--muted)">
+        {direction === "from" ? "◀ from" : "into ▶"}
+      </text>
+      <text x={10} y={30} fontSize={11} fill="var(--muted)">
+        {head ? head.service_name : "another message"}
+      </text>
+      <text x={10} y={42} fontSize={11.5} fontWeight={600} fill="var(--ink)">
+        {head
+          ? head.span_name.length > 20
+            ? head.span_name.slice(0, 19) + "…"
+            : head.span_name
+          : `${traceId.slice(0, 12)}…`}
+      </text>
+      <title>
+        {head
+          ? `${verb} another message: ${head.service_name} · ${head.span_name} (${head.span_count} spans). Click to open.`
+          : `${verb} trace ${traceId} — not visible to you, or aged out of retention.`}
+      </title>
+    </g>
+  );
 }
 
 /** Depth of each node from its root, for column placement. */
@@ -73,17 +143,39 @@ export default function SpanGraph({
   linksRecordedSince,
   selectedSpanId,
   onSelect,
-  linkedTraces,
+  continuedFrom,
+  continuedInto,
   onOpenTrace,
 }: Props) {
   const graph = useMemo(
     () => buildSpanGraph(spans, linksRecordedSince),
     [spans, linksRecordedSince],
   );
-  const linkedByTrace = useMemo(
-    () => new Map((linkedTraces ?? []).map((t) => [t.trace_id, t])),
-    [linkedTraces],
+  // Predecessors: the resolved heads, plus any link this trace carries
+  // whose head we could not resolve. The second group still gets a node
+  // — an unresolvable hand-off is a fact, and dropping it would report
+  // "nothing came before" when what we mean is "we cannot say".
+  const predecessors = useMemo(() => {
+    const known = new Map((continuedFrom ?? []).map((t) => [t.trace_id, t]));
+    const out: { traceId: string; head?: LinkedTrace }[] = (continuedFrom ?? []).map((t) => ({
+      traceId: t.trace_id,
+      head: t,
+    }));
+    const seen = new Set(known.keys());
+    for (const h of graph.handoffs) {
+      if (!seen.has(h.traceId)) {
+        seen.add(h.traceId);
+        out.push({ traceId: h.traceId });
+      }
+    }
+    return out;
+  }, [continuedFrom, graph.handoffs]);
+
+  const successors = useMemo(
+    () => (continuedInto ?? []).map((t) => ({ traceId: t.trace_id, head: t })),
+    [continuedInto],
   );
+
   const refusal = graphRefusal(graph);
 
   const layout = useMemo(() => {
@@ -102,27 +194,36 @@ export default function SpanGraph({
       rowOf.set(n.id, row);
       perCol.set(d, row + 1);
     }
+    // Gutters for the neighbouring messages. Left for what came before,
+    // right for what came after — the picture reads left to right, and
+    // putting "before" on the left is the whole reason the direction is
+    // legible without a label.
+    const gutter = NODE_W + COL_GAP;
+    const leftGutter = predecessors.length > 0 ? gutter : 0;
+    const rightGutter = successors.length > 0 ? gutter : 0;
+
     const pos = new Map<string, { x: number; y: number }>();
     for (const n of graph.nodes) {
       pos.set(n.id, {
-        x: PAD + (depth.get(n.id) ?? 0) * (NODE_W + COL_GAP),
+        x: PAD + leftGutter + (depth.get(n.id) ?? 0) * (NODE_W + COL_GAP),
         y: PAD + (rowOf.get(n.id) ?? 0) * (NODE_H + ROW_GAP),
       });
     }
     const cols = Math.max(...[...perCol.keys()], 0) + 1;
     const rows = Math.max(...[...perCol.values()], 1);
-    // A hand-off's node sits one column to the RIGHT of the node it
-    // leaves, which can be the rightmost node there is. Without this the
-    // viewBox ends at the last real column and the far side of every
-    // hand-off is clipped away — the exact thing this is meant to show.
-    const handoffOverhang = graph.handoffs.length > 0 ? COL_GAP + NODE_W : 0;
+    const bodyRight = PAD + leftGutter + cols * NODE_W + (cols - 1) * COL_GAP;
+    // The tallest of the three stacks decides the height: a trace with
+    // one span and four successors still has to fit all four.
+    const tallest = Math.max(rows, predecessors.length, successors.length, 1);
     return {
       pos,
-      width: PAD * 2 + cols * NODE_W + (cols - 1) * COL_GAP + handoffOverhang,
-      height: PAD * 2 + rows * NODE_H + (rows - 1) * ROW_GAP,
+      leftX: PAD,
+      rightX: bodyRight + COL_GAP,
+      width: bodyRight + rightGutter + PAD,
+      height: PAD * 2 + tallest * NODE_H + (tallest - 1) * ROW_GAP,
       sorted,
     };
-  }, [graph, refusal]);
+  }, [graph, refusal, predecessors, successors]);
 
   if (graph.nodes.length === 0) {
     return <div className="placeholder">No spans to draw.</div>;
@@ -197,56 +298,28 @@ export default function SpanGraph({
             Neutral, not warn-coloured: a hand-off is normal. Warning
             and error colours stay reserved for actual failure, or
             people learn to ignore them. */}
-        {graph.handoffs.map((h, i) => {
-          const p = l.pos.get(h.from);
-          if (!p) return null;
-          const head = linkedByTrace?.get(h.traceId);
-          const x = p.x + NODE_W + COL_GAP;
-          const y = p.y;
-          const mid = p.x + NODE_W + COL_GAP / 2;
-          return (
-            <g key={`${h.from}-${h.traceId}-${i}`}>
-              <path
-                d={`M${p.x + NODE_W},${p.y + NODE_H / 2} C${mid},${p.y + NODE_H / 2} ${mid},${y + NODE_H / 2} ${x},${y + NODE_H / 2}`}
-                stroke="var(--border-strong)"
-                strokeWidth={1.5}
-                strokeDasharray="4 3"
-                fill="none"
-                markerEnd="url(#sg-arrow)"
-              />
-              <g
-                transform={`translate(${x},${y})`}
-                style={{ cursor: onOpenTrace ? "pointer" : "default" }}
-                onClick={() => onOpenTrace?.(h.traceId)}
-              >
-                <rect
-                  width={NODE_W}
-                  height={NODE_H}
-                  rx={6}
-                  fill="var(--surface)"
-                  stroke={head?.has_error ? "var(--err)" : "var(--border-strong)"}
-                  strokeWidth={head?.has_error ? 2 : 1}
-                  strokeDasharray="5 3"
-                />
-                <text x={10} y={17} fontSize={10} fill="var(--muted)">
-                  {head ? head.service_name : "another message"}
-                </text>
-                <text x={10} y={32} fontSize={12} fontWeight={600} fill="var(--ink)">
-                  {head
-                    ? head.span_name.length > 20
-                      ? head.span_name.slice(0, 19) + "…"
-                      : head.span_name
-                    : `${h.traceId.slice(0, 12)}…`}
-                </text>
-                <title>
-                  {head
-                    ? `Handed off to another message: ${head.service_name} · ${head.span_name} (${head.span_count} spans). Click to open.`
-                    : `Handed off to trace ${h.traceId} — not visible to you, or aged out of retention.`}
-                </title>
-              </g>
-            </g>
-          );
-        })}
+        {predecessors.map((p, i) => (
+          <NeighbourMessage
+            key={`from-${p.traceId}`}
+            x={l.leftX}
+            y={PAD + i * (NODE_H + ROW_GAP)}
+            traceId={p.traceId}
+            head={p.head}
+            direction="from"
+            onOpen={onOpenTrace}
+          />
+        ))}
+        {successors.map((s, i) => (
+          <NeighbourMessage
+            key={`into-${s.traceId}`}
+            x={l.rightX}
+            y={PAD + i * (NODE_H + ROW_GAP)}
+            traceId={s.traceId}
+            head={s.head}
+            direction="into"
+            onOpen={onOpenTrace}
+          />
+        ))}
 
         {l.sorted.map((n) => {
           const p = l.pos.get(n.id)!;

@@ -2390,70 +2390,99 @@ func (h *Handlers) traceDetail(w http.ResponseWriter, r *http.Request) {
 	if since, err := h.Store.LinksRecordedSince(r.Context()); err == nil && !since.IsZero() {
 		out.LinksRecordedSince = &since
 	}
-	out.LinkedTraces, out.LinkedTracesHidden = h.linkedTraceHeads(r, rows)
+	out.ContinuedFrom, out.ContinuedInto, out.LinkedTracesHidden = h.linkedTraces(r, traceID, rows)
 	httpserver.WriteJSON(w, http.StatusOK, out)
 }
 
-// linkedTraceHeads summarises the traces this one hands off to, so the
-// far side of a link can be named instead of drawn as a stroke into
-// empty space (issue #24).
+// linkedTraces resolves BOTH directions of a trace's hand-offs (issue
+// #24), returning what it continued from, what it continued into, and
+// how many of either were withheld.
 //
-// Returns the visible heads and a count of those withheld. The count
-// matters as much as the list: a chain that is silently short looks
-// complete, and "3 more you cannot see" is the difference between a
-// permission boundary and a bug in the eyes of whoever is reading it.
-func (h *Handlers) linkedTraceHeads(r *http.Request, spans []store.SpanRow) ([]LinkedTrace, int) {
+// The two directions come from different places, and that asymmetry is
+// the reason this is not one lookup. An OpenTelemetry link is written on
+// the span that was caused, pointing back at its cause — so a trace's
+// predecessors are on its own spans, and its successors exist only in
+// somebody else's. Reading the first is free; the second needs a search.
+//
+// The hidden count matters as much as the lists: a chain that is
+// silently short looks complete, and "3 more you cannot see" is the
+// difference between a permission boundary and a bug in the eyes of
+// whoever is reading it.
+func (h *Handlers) linkedTraces(r *http.Request, traceID string, spans []store.SpanRow) (from, into []LinkedTrace, hidden int) {
+	allowed, hasFilter := h.signalServiceFilter(r, identity.SignalTraces)
+	allowedSet := make(map[string]struct{}, len(allowed))
+	for _, n := range allowed {
+		allowedSet[n] = struct{}{}
+	}
+	visible := func(services []string) bool {
+		return !hasFilter || anyVisible(services, allowedSet)
+	}
+
+	// ── Predecessors: straight off this trace's own links.
 	seen := map[string]bool{}
 	var ids []string
 	for _, s := range spans {
 		for _, id := range s.LinkTraceIDs {
-			if id == "" || seen[id] {
+			if id == "" || id == traceID || seen[id] {
 				continue
 			}
 			seen[id] = true
 			ids = append(ids, id)
 		}
 	}
-	if len(ids) == 0 {
-		return nil, 0
+	if len(ids) > 0 {
+		heads, err := h.Store.TraceHeads(r.Context(), ids)
+		if err != nil {
+			// A hand-off we cannot summarise is still a hand-off: the
+			// span's own link list is already in the response, so the
+			// view degrades rather than losing the fact.
+			h.Logger.Warn("linked trace heads failed", "err", err)
+		}
+		for _, hd := range heads {
+			if !visible(hd.Services) {
+				// Not even the head's existence: naming the service
+				// would leak what the policy exists to withhold.
+				hidden++
+				continue
+			}
+			from = append(from, LinkedTrace{
+				TraceID: hd.TraceID, ServiceName: hd.ServiceName, SpanName: hd.SpanName,
+				StartedAt: hd.StartedAt, SpanCount: hd.SpanCount, HasError: hd.HasError,
+			})
+		}
+		// A trace id with no head is one that aged out of retention.
+		// Not a permission problem, and not reported as one.
 	}
-	heads, err := h.Store.TraceHeads(r.Context(), ids)
+
+	// ── Successors: search for traces pointing at this one.
+	//
+	// Bounded below by this trace's own start: an effect cannot precede
+	// its cause, so nothing that links here began before we did.
+	var earliest time.Time
+	for _, s := range spans {
+		if earliest.IsZero() || s.Timestamp.Before(earliest) {
+			earliest = s.Timestamp
+		}
+	}
+	incoming, err := h.Store.TracesLinkingTo(r.Context(), []string{traceID}, earliest)
 	if err != nil {
-		// A hand-off we cannot summarise is still a hand-off: the span's
-		// own link list is already in the response, so the view degrades
-		// to what it drew before rather than losing the fact.
-		h.Logger.Warn("linked trace heads failed", "err", err)
-		return nil, 0
+		h.Logger.Warn("traces linking to failed", "err", err)
+		return from, into, hidden
 	}
-
-	allowed, hasFilter := h.signalServiceFilter(r, identity.SignalTraces)
-	allowedSet := make(map[string]struct{}, len(allowed))
-	for _, n := range allowed {
-		allowedSet[n] = struct{}{}
-	}
-
-	out := make([]LinkedTrace, 0, len(heads))
-	hidden := 0
-	for _, hd := range heads {
-		if hasFilter && !anyVisible(hd.Services, allowedSet) {
-			// Not even the head's existence: naming the service would
-			// leak the thing the policy exists to withhold.
+	for _, in := range incoming {
+		if in.TraceID == traceID {
+			continue // a self-link is not a continuation
+		}
+		if !visible(in.Services) {
 			hidden++
 			continue
 		}
-		out = append(out, LinkedTrace{
-			TraceID:     hd.TraceID,
-			ServiceName: hd.ServiceName,
-			SpanName:    hd.SpanName,
-			StartedAt:   hd.StartedAt,
-			SpanCount:   hd.SpanCount,
-			HasError:    hd.HasError,
+		into = append(into, LinkedTrace{
+			TraceID: in.TraceID, ServiceName: in.ServiceName, SpanName: in.SpanName,
+			StartedAt: in.StartedAt, SpanCount: in.SpanCount, HasError: in.HasError,
 		})
 	}
-	// A trace id with no head at all is one whose spans have aged out of
-	// retention. That is not a permission problem and must not be
-	// reported as one; the span's link list still shows the id.
-	return out, hidden
+	return from, into, hidden
 }
 
 func anyVisible(services []string, allowed map[string]struct{}) bool {

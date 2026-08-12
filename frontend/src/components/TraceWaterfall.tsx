@@ -199,15 +199,22 @@ export default function TraceWaterfall({
                   {/* A hand-off is a fact about this span, and the
                       waterfall is the DEFAULT view — leaving it only in
                       Steps meant most readers never learned the message
-                      continued somewhere else. Neutral styling: handing
-                      off is normal, not a warning. */}
+                      was part of a chain. Neutral styling: continuing is
+                      normal, not a warning.
+
+                      "from", not "to". An OTel link is written on the
+                      span that was CAUSED and points back at its cause,
+                      so a span's own links are the messages it FOLLOWS.
+                      Where it went next is not on this span at all — it
+                      is on somebody else's, and the Steps view shows it
+                      by searching. */}
                   {(h.span.links?.length ?? 0) > 0 && (
                     <span
                       className="badge"
                       style={{ marginLeft: 6, fontSize: 10 }}
-                      title={`Hands off to ${h.span.links!.length} other message${h.span.links!.length === 1 ? "" : "s"} — see the Steps view to follow it`}
+                      title={`Continues ${h.span.links!.length} earlier message${h.span.links!.length === 1 ? "" : "s"} — see the Steps view to follow the chain`}
                     >
-                      → hands off
+                      ◀ continues
                     </span>
                   )}
                 </div>

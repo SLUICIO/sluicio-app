@@ -483,7 +483,8 @@ export default function TraceDetail() {
                     linksRecordedSince={data.links_recorded_since}
                     selectedSpanId={selectedSpan}
                     onSelect={(id) => setSelectedSpan(id)}
-                    linkedTraces={data.linked_traces}
+                    continuedFrom={data.continued_from}
+                    continuedInto={data.continued_into}
                     onOpenTrace={(id) => navigate(`/traces/${id}`)}
                   />
                 ) : (

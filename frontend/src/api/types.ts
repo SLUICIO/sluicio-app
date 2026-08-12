@@ -421,12 +421,18 @@ export interface TraceDetailResponse {
   // cap. UI renders a banner so a 50K-span runaway trace doesn't look
   // identical to a complete 5K-span trace.
   truncated?: boolean;
-  /** The traces this one hands off to, summarised — enough to name the
-   *  far side of a link instead of drawing a stroke into empty space. */
-  linked_traces?: LinkedTrace[];
-  /** Hand-offs withheld because the caller cannot see any service in
-   *  the linked trace. Shown, never swallowed: a chain that is quietly
-   *  short looks complete. */
+  /** Messages this one follows on from — read off this trace's own span
+   *  links. An OTel link is written on the span that was CAUSED and
+   *  points back at its cause, so a trace's own links are its
+   *  predecessors. */
+  continued_from?: LinkedTrace[];
+  /** Messages that follow on from this one, found by searching for
+   *  traces whose links point here. The direction "where did my message
+   *  go" runs in, and the only one a trace cannot answer about itself. */
+  continued_into?: LinkedTrace[];
+  /** Hand-offs in either direction withheld because the caller cannot
+   *  see any service in the other trace. Shown, never swallowed: a
+   *  chain that is quietly short looks complete. */
   linked_traces_hidden?: number;
 }
 
