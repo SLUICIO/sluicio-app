@@ -108,6 +108,16 @@ func (h *Handlers) integrationCandidates(w http.ResponseWriter, r *http.Request)
 		httpserver.WriteError(w, http.StatusInternalServerError, "query failed")
 		return
 	}
+	// Hand-off edges count towards a grouping too (issue #25). Two
+	// services joined only by a queue are as much one integration as
+	// two joined by a call — arguably more so, since an asynchronous
+	// hand-off is usually a deliberate boundary in a business flow
+	// rather than an implementation detail.
+	if linkRows, e := h.Store.ServiceLinkEdges(r.Context(), unassigned, tr.From, tr.To); e != nil {
+		h.Logger.Warn("service link edges for candidates failed", "err", e)
+	} else {
+		edgeRows = append(edgeRows, linkRows...)
+	}
 	edges := make([]proposals.Edge, 0, len(edgeRows))
 	for _, e := range edgeRows {
 		edges = append(edges, proposals.Edge{Source: e.Source, Target: e.Target, Traces: e.TraceCount})

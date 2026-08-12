@@ -451,6 +451,11 @@ function Inner({
                 : "var(--ink-2)",
             strokeWidth: isPath ? 2 : 1.4,
             opacity: isError || isPath ? 1 : 0.55,
+            // A hand-off is dashed. It is a real dependency and gets a
+            // real edge, but a queue is not a function call: the second
+            // service may run seconds or hours later, and a solid line
+            // would claim a tightness that is not there.
+            ...(e.kind === "link" ? { strokeDasharray: "6 4" } : {}),
           },
           markerEnd: {
             type: MarkerType.ArrowClosed,

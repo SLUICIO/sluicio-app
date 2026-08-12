@@ -228,6 +228,12 @@ type FlowEdge struct {
 	Target     string `json:"target"`
 	CallCount  uint64 `json:"call_count"`
 	ErrorCount uint64 `json:"error_count"`
+	// Kind is "link" for an asynchronous hand-off (a span link to
+	// another trace) and empty for an ordinary call. A queue and a
+	// function call are different facts about a dependency, and a graph
+	// that draws them identically says something false about latency,
+	// coupling and what a failure means (issue #25).
+	Kind string `json:"kind,omitempty"`
 }
 
 // FlowSchemaRef is one schema pinned to a service, with the direction

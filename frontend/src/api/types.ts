@@ -493,6 +493,11 @@ export interface FlowEdge {
   target: string;
   call_count: number;
   error_count: number;
+  /** "link" when the dependency is an asynchronous hand-off (a span
+   *  link to another trace) rather than a call. A queue and a function
+   *  call are different facts about a dependency; drawing them the same
+   *  says something false about latency and coupling. */
+  kind?: "link";
 }
 
 // FlowSchemaRef — a schema pinned to a service with its direction

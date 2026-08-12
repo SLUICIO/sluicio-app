@@ -74,12 +74,25 @@ func (h *Handlers) topologyGraph(w http.ResponseWriter, r *http.Request) {
 		httpserver.WriteError(w, http.StatusInternalServerError, "query failed")
 		return
 	}
+	// Hand-off edges alongside the call edges (issue #25). A service
+	// reached only by a span link is a real dependency, and a topology
+	// that omits it draws a disconnected island where there is a flow.
+	// Degraded, not fatal: call edges are worth drawing on their own.
+	if linkRows, e := h.Store.ServiceLinkEdges(r.Context(), names, tr.From, tr.To); e != nil {
+		h.Logger.Warn("topology: service link edges failed", "err", e)
+	} else {
+		edgeRows = append(edgeRows, linkRows...)
+	}
 	historical := false
 	if len(edgeRows) == 0 && len(names) > 1 {
 		histFrom := time.Now().UTC().Add(-90 * 24 * time.Hour)
 		histTo := time.Now().UTC()
 		if he, e := h.Store.ServiceEdges(r.Context(), names, histFrom, histTo, nil); e == nil && len(he) > 0 {
 			edgeRows = he
+			historical = true
+		}
+		if hl, e := h.Store.ServiceLinkEdges(r.Context(), names, histFrom, histTo); e == nil && len(hl) > 0 {
+			edgeRows = append(edgeRows, hl...)
 			historical = true
 		}
 	}
@@ -101,7 +114,7 @@ func (h *Handlers) topologyGraph(w http.ResponseWriter, r *http.Request) {
 		if historical {
 			cc, ec = 0, 0
 		}
-		edges = append(edges, FlowEdge{Source: e.Source, Target: e.Target, CallCount: cc, ErrorCount: ec})
+		edges = append(edges, FlowEdge{Source: e.Source, Target: e.Target, CallCount: cc, ErrorCount: ec, Kind: e.Kind})
 	}
 	httpserver.WriteJSON(w, http.StatusOK, FlowResponse{Window: tr.Window(), Nodes: nodes, Edges: edges, Historical: historical})
 }
@@ -169,6 +182,7 @@ func (h *Handlers) writeIntegrationTopology(w http.ResponseWriter, r *http.Reque
 
 	type ekey struct{ s, t string }
 	edgeAgg := map[ekey]*[2]uint64{}
+	allLinks := map[ekey]bool{}
 	for _, e := range edgeRows {
 		for _, a := range svcToInts[e.Source] {
 			for _, b := range svcToInts[e.Target] {
@@ -180,9 +194,14 @@ func (h *Handlers) writeIntegrationTopology(w http.ResponseWriter, r *http.Reque
 				if v == nil {
 					v = &[2]uint64{}
 					edgeAgg[k] = v
+					// Assume link until a call hop proves otherwise.
+					allLinks[k] = true
 				}
 				v[0] += e.TraceCount
 				v[1] += e.ErrorCount
+				if e.Kind != store.EdgeKindLink {
+					allLinks[k] = false
+				}
 			}
 		}
 	}
@@ -192,7 +211,15 @@ func (h *Handlers) writeIntegrationTopology(w http.ResponseWriter, r *http.Reque
 		if historical {
 			cc, ec = 0, 0
 		}
-		edges = append(edges, FlowEdge{Source: k.s, Target: k.t, CallCount: cc, ErrorCount: ec})
+		// An integration edge is a hand-off only when EVERY underlying
+		// hop was one. Mixed reads as a call, because a pair connected
+		// by both a call and a queue is not purely asynchronous and
+		// drawing it as such would understate the coupling.
+		kind := ""
+		if allLinks[k] {
+			kind = store.EdgeKindLink
+		}
+		edges = append(edges, FlowEdge{Source: k.s, Target: k.t, CallCount: cc, ErrorCount: ec, Kind: kind})
 	}
 
 	httpserver.WriteJSON(w, http.StatusOK, FlowResponse{Window: tr.Window(), Nodes: nodes, Edges: edges, Historical: historical})

@@ -457,6 +457,14 @@ func (h *Handlers) integrationFlow(w http.ResponseWriter, r *http.Request) {
 		httpserver.WriteError(w, http.StatusInternalServerError, "query failed")
 		return
 	}
+	// Hand-off hops belong in an integration's own flow graph too
+	// (issue #25): a member reached only by a link would otherwise sit
+	// in the picture with nothing joining it to the rest.
+	if linkRows, e := h.Store.ServiceLinkEdges(r.Context(), serviceNames, edgesFrom, edgesTo); e != nil {
+		h.Logger.Warn("service link edges failed", "err", e)
+	} else {
+		edgeRows = append(edgeRows, linkRows...)
+	}
 	if len(edgeRows) == 0 && len(serviceNames) > 1 {
 		// No hops in this window — fall back to the structural shape
 		// over a wide historical window. Per-edge counts get zeroed
@@ -465,6 +473,11 @@ func (h *Handlers) integrationFlow(w http.ResponseWriter, r *http.Request) {
 		histTo := time.Now().UTC()
 		if histEdges, errH := h.Store.ServiceEdges(r.Context(), serviceNames, histFrom, histTo, flowAttrs); errH == nil && len(histEdges) > 0 {
 			edgeRows = histEdges
+			edgesFrom, edgesTo = histFrom, histTo
+			historical = true
+		}
+		if histLinks, errH := h.Store.ServiceLinkEdges(r.Context(), serviceNames, histFrom, histTo); errH == nil && len(histLinks) > 0 {
+			edgeRows = append(edgeRows, histLinks...)
 			edgesFrom, edgesTo = histFrom, histTo
 			historical = true
 		}
@@ -487,6 +500,7 @@ func (h *Handlers) integrationFlow(w http.ResponseWriter, r *http.Request) {
 			Target:     e.Target,
 			CallCount:  callCount,
 			ErrorCount: errorCount,
+			Kind:       e.Kind,
 		})
 	}
 
