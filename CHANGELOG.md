@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
-## v0.11.98 — 2026-08-11
+## v0.11.99 — 2026-08-12
 
+- feat(messages): make the whole column set configurable (#23) (9351dae)
+
+## v0.11.98 — 2026-08-12
+
+- release v0.11.98 — refresh internal changelog (16ad086)
 - feat(messages): promote a span attribute to a column (#23) (d23a5ba)
 
 ## v0.11.97 — 2026-08-11
