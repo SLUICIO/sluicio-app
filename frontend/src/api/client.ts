@@ -132,6 +132,7 @@ import type {
   ServiceWidgetsResponse,
   Tag,
   TagWithUsage,
+  TraceChainResponse,
   TraceDetailResponse,
   UpdateDashboardRequest,
   UpdateFacetOverridesRequest,
@@ -403,6 +404,13 @@ export const api = {
 
   traceDetail: (traceId: string) =>
     get<TraceDetailResponse>(`/traces/${encodeURIComponent(traceId)}`),
+
+  // The whole hand-off chain around a message — "Include all". Fetched
+  // on demand rather than with the trace: the common case is one
+  // message, and a walk in both directions is not worth paying for on
+  // every trace anyone opens.
+  traceChain: (traceId: string) =>
+    get<TraceChainResponse>(`/traces/${encodeURIComponent(traceId)}/chain`),
 
   // Per-user UI preferences (column layouts, view defaults). Values are
   // small JSON blobs owned by the frontend; null means "nothing stored".

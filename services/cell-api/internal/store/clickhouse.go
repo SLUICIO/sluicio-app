@@ -1882,7 +1882,15 @@ func (s *Store) TracesLinkingTo(ctx context.Context, traceIDs []string, notBefor
 		ph[i] = "?"
 		args = append(args, id)
 	}
-	args = append(args, notBefore)
+	// A zero notBefore means "no lower bound" — used by the chain walk,
+	// where the frontier holds traces with different starts and the
+	// cheapest correct answer is not to bound at all. Binding a zero
+	// time would ask ClickHouse for everything since year zero.
+	timeClause := ""
+	if !notBefore.IsZero() {
+		timeClause = "\n\t\t      AND Timestamp >= ?"
+		args = append(args, notBefore)
+	}
 	for _, id := range traceIDs {
 		args = append(args, id)
 	}
@@ -1904,8 +1912,7 @@ func (s *Store) TracesLinkingTo(ctx context.Context, traceIDs []string, notBefor
 		    SELECT TraceId, ServiceName, SpanName, SpanId, Timestamp, StatusCode,
 		           arrayJoin(LinkTraceIds) AS links_to
 		    FROM traces
-		    WHERE hasAny(LinkTraceIds, [` + list + `])
-		      AND Timestamp >= ?
+		    WHERE hasAny(LinkTraceIds, [` + list + `])` + timeClause + `
 		)
 		WHERE links_to IN (` + list + `)
 		GROUP BY TraceId, links_to
@@ -1924,6 +1931,46 @@ func (s *Store) TracesLinkingTo(ctx context.Context, traceIDs []string, notBefor
 			return nil, err
 		}
 		out = append(out, l)
+	}
+	return out, rows.Err()
+}
+
+// LinksFrom returns, per trace, the distinct traces its spans link to —
+// its predecessors, since a link points from effect to cause.
+//
+// The counterpart to TracesLinkingTo. Walking a chain needs both: one
+// step back is a read of your own spans, one step forward is a search.
+func (s *Store) LinksFrom(ctx context.Context, traceIDs []string) (map[string][]string, error) {
+	if len(traceIDs) == 0 {
+		return nil, nil
+	}
+	ph := make([]string, len(traceIDs))
+	args := make([]any, 0, len(traceIDs))
+	for i, id := range traceIDs {
+		ph[i] = "?"
+		args = append(args, id)
+	}
+	sql := `
+		SELECT TraceId, arrayDistinct(groupArrayArray(LinkTraceIds))
+		FROM traces
+		WHERE TraceId IN (` + strings.Join(ph, ",") + `)
+		  AND notEmpty(LinkTraceIds)
+		GROUP BY TraceId
+	`
+	rows, err := s.conn.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, fmt.Errorf("links from: %w", err)
+	}
+	defer rows.Close()
+
+	out := map[string][]string{}
+	for rows.Next() {
+		var id string
+		var links []string
+		if err := rows.Scan(&id, &links); err != nil {
+			return nil, err
+		}
+		out[id] = links
 	}
 	return out, rows.Err()
 }

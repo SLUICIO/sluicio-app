@@ -436,6 +436,32 @@ export interface TraceDetailResponse {
   linked_traces_hidden?: number;
 }
 
+// One hand-off in a chain, always oriented along the FLOW: `from` ran
+// first and handed to `into`. Not along the link pointer, which runs the
+// other way.
+export interface ChainEdge {
+  from: string;
+  into: string;
+}
+
+export interface ChainNode extends LinkedTrace {
+  /** Hops from the origin; 0 is the origin itself. */
+  depth: number;
+}
+
+// The whole reachable chain around one message — "Include all".
+export interface TraceChainResponse {
+  origin: string;
+  nodes: ChainNode[];
+  edges: ChainEdge[];
+  /** Messages withheld by policy. Shown, never swallowed. */
+  hidden?: number;
+  /** Which bound stopped the walk. They mean different things to a
+   *  reader: one says the chain is longer, the other that it is wider. */
+  truncated_depth?: boolean;
+  truncated_nodes?: boolean;
+}
+
 // The far side of a hand-off. A summary on purpose — one message is one
 // trace, and inlining the other side's spans would erase the distinction
 // the product's counting, SLAs and health all rest on. A doorway.

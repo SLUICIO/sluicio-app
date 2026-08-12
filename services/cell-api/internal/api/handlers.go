@@ -935,6 +935,7 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/search", h.search)
 	mux.HandleFunc("GET /api/v1/global-search", h.globalSearch)
 	mux.HandleFunc("GET /api/v1/traces/{traceId}", h.traceDetail)
+	mux.HandleFunc("GET /api/v1/traces/{traceId}/chain", h.traceChain)
 
 	mux.HandleFunc("GET /api/v1/service-facets", h.listServiceFacets)
 	mux.HandleFunc("GET /api/v1/service-facets/{slug}", h.getServiceFacet)

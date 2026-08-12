@@ -10,6 +10,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { api } from "../api/client";
 import IntegrationFlow from "../components/IntegrationFlow";
 import SpanGraph from "../components/SpanGraph";
+import MessageChain from "../components/MessageChain";
 import TraceErrorPanel from "../components/TraceErrorPanel";
 import TraceWaterfall from "../components/TraceWaterfall";
 import TraceTrimPanel from "../components/traces/TraceTrimPanel";
@@ -93,7 +94,11 @@ export default function TraceDetail() {
   // through from one. The service view stays one click away rather than
   // being removed; it is the better picture when a trace spans many
   // services and you care about the boundaries rather than the steps.
-  const [graphView, setGraphView] = useState(true);
+  // Chain is a third view rather than an expansion of Steps, because it
+  // answers a question about a different unit: Steps is about THIS
+  // message, Chain is about the sequence it belongs to.
+  const [traceView, setTraceView] = useState<"services" | "steps" | "chain">("steps");
+  const graphView = traceView === "steps";
   const [integrationContextName, setIntegrationContextName] = useState<string | null>(null);
   const [trimOpen, setTrimOpen] = useState(false);
   const keyAttrs = useKeyAttributes();
@@ -450,12 +455,18 @@ export default function TraceDetail() {
               <div className="flex items-baseline justify-between border-b border-border px-4 py-3">
                 <div>
                   <h2 className="text-base font-semibold">
-                    {graphView ? "Steps · what ran, and what ran together" : "Flow · this message's path"}
+                    {traceView === "steps"
+                      ? "Steps · what ran, and what ran together"
+                      : traceView === "chain"
+                        ? "Chain · the messages this one belongs to"
+                        : "Flow · this message's path"}
                   </h2>
                   <p className="text-xs text-muted">
-                    {graphView
+                    {traceView === "steps"
                       ? "Every step this message took, repeats folded together. The waterfall below shows the same thing in time order."
-                      : "Highlighted edges show the hops this message took."}
+                      : traceView === "chain"
+                        ? "Messages handed off to and from this one, shown together — each stays a separate message."
+                        : "Highlighted edges show the hops this message took."}
                   </p>
                 </div>
                 {/* Two views of one trace, because they answer different
@@ -463,21 +474,25 @@ export default function TraceDetail() {
                     crossed, the span graph says what actually ran inside
                     them and what overlapped. */}
                 <div className="level-seg" role="tablist" aria-label="Trace view">
-                  {([["services", "Services"], ["steps", "Steps"]] as const).map(([k, label]) => (
-                    <button
-                      key={k}
-                      role="tab"
-                      aria-selected={graphView === (k === "steps")}
-                      className={`level-seg__btn${graphView === (k === "steps") ? " is-active" : ""}`}
-                      onClick={() => setGraphView(k === "steps")}
-                    >
-                      {label}
-                    </button>
-                  ))}
+                  {([["services", "Services"], ["steps", "Steps"], ["chain", "Chain"]] as const).map(
+                    ([k, label]) => (
+                      <button
+                        key={k}
+                        role="tab"
+                        aria-selected={traceView === k}
+                        className={`level-seg__btn${traceView === k ? " is-active" : ""}`}
+                        onClick={() => setTraceView(k)}
+                      >
+                        {label}
+                      </button>
+                    ),
+                  )}
                 </div>
               </div>
               <div style={{ height: 320, position: "relative", overflow: "auto" }}>
-                {graphView ? (
+                {traceView === "chain" ? (
+                  <MessageChain traceId={traceId} onOpenTrace={(id) => navigate(`/traces/${id}`)} />
+                ) : graphView ? (
                   <SpanGraph
                     spans={data.spans}
                     linksRecordedSince={data.links_recorded_since}
