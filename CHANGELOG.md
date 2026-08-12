@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.98 — 2026-08-11
+
+- feat(messages): promote a span attribute to a column (#23) (d23a5ba)
+
 ## v0.11.97 — 2026-08-11
 
+- release v0.11.97 — refresh internal changelog (64a8e24)
 - fix(health checks): warn when a point-in-time reading is a tie-break (87271a5)
 - feat(health checks): windows to 45d, and say which check is which (23ab273)
 
