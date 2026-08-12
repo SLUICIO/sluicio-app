@@ -3,8 +3,14 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.100 — 2026-08-12
+
+- feat(traces): follow a hand-off chain in both directions (#24) (9ce20ce)
+- feat(traces): name the far side of a hand-off (#24) (5ee3af8)
+
 ## v0.11.99 — 2026-08-12
 
+- release v0.11.99 — refresh internal changelog (69c2c80)
 - feat(messages): make the whole column set configurable (#23) (9351dae)
 
 ## v0.11.98 — 2026-08-12
