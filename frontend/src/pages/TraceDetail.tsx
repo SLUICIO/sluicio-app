@@ -489,16 +489,21 @@ export default function TraceDetail() {
                   )}
                 </div>
               </div>
-              {/* Grows with the drawing instead of reserving 320px.
-                  A two-node trace left most of the box empty and pushed
-                  the caption under it far from what it describes. */}
+              {/* Steps and Chain draw their own height, so the box grows
+                  with the drawing rather than reserving 320px and
+                  stranding the caption below an empty area.
+
+                  Services CANNOT: React Flow measures its container and
+                  renders into it, so a box with no fixed height
+                  collapses to zero and the graph disappears — nodes in
+                  the DOM, nothing on screen. It keeps an explicit
+                  height, which is what it always had. */}
               <div
-                style={{
-                  minHeight: 160,
-                  maxHeight: 420,
-                  position: "relative",
-                  overflow: "auto",
-                }}
+                style={
+                  traceView === "services"
+                    ? { height: 320, position: "relative", overflow: "auto" }
+                    : { minHeight: 160, maxHeight: 420, position: "relative", overflow: "auto" }
+                }
               >
                 {traceView === "chain" ? (
                   <MessageChain traceId={traceId} onOpenTrace={(id) => navigate(`/traces/${id}`)} />
