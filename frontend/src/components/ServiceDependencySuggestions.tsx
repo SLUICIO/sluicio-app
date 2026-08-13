@@ -322,11 +322,28 @@ function NeighborList({
                 <span
                   className="muted"
                   style={{ fontSize: 11, fontVariantNumeric: "tabular-nums" }}
-                  title={`${formatNumber(n.trace_count)} traces · ${formatNumber(
-                    n.error_count,
-                  )} with errors`}
+                  title={
+                    (n.link_trace_count ?? 0) > 0 && n.trace_count > 0
+                      ? `${formatNumber(n.trace_count)} traces by call, ${formatNumber(n.link_trace_count ?? 0)} by hand-off`
+                      : (n.link_trace_count ?? 0) > 0
+                        ? `${formatNumber(n.link_trace_count ?? 0)} traces handed off to or from this service — an asynchronous link, not a call`
+                        : `${formatNumber(n.trace_count)} traces · ${formatNumber(n.error_count)} with errors`
+                  }
                 >
-                  {formatNumber(n.trace_count)}
+                  {/* A hand-off-only neighbour has no CALL traces.
+                      Rendering trace_count alone printed "0" beside a
+                      service with 40 real hand-offs, which reads as
+                      "irrelevant" — the exact opposite of true. */}
+                  {n.trace_count > 0 && formatNumber(n.trace_count)}
+                  {(n.link_trace_count ?? 0) > 0 && (
+                    <span
+                      className="badge"
+                      style={{ marginLeft: n.trace_count > 0 ? 6 : 0, fontSize: 10 }}
+                      title="Reached by an asynchronous hand-off (a span link), not by a call"
+                    >
+                      ⇢ {formatNumber(n.link_trace_count ?? 0)}
+                    </span>
+                  )}
                   {n.error_count > 0 && (
                     <span
                       style={{ color: "var(--err)", marginLeft: 6 }}

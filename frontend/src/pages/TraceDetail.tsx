@@ -489,7 +489,17 @@ export default function TraceDetail() {
                   )}
                 </div>
               </div>
-              <div style={{ height: 320, position: "relative", overflow: "auto" }}>
+              {/* Grows with the drawing instead of reserving 320px.
+                  A two-node trace left most of the box empty and pushed
+                  the caption under it far from what it describes. */}
+              <div
+                style={{
+                  minHeight: 160,
+                  maxHeight: 420,
+                  position: "relative",
+                  overflow: "auto",
+                }}
+              >
                 {traceView === "chain" ? (
                   <MessageChain traceId={traceId} onOpenTrace={(id) => navigate(`/traces/${id}`)} />
                 ) : graphView ? (

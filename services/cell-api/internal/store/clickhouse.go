@@ -2020,7 +2020,11 @@ type IncomingLink struct {
 	// TraceID is the trace that CONTAINS the link: the successor.
 	TraceID string
 	// LinksTo is which of the queried traces it points at.
-	LinksTo     string
+	LinksTo string
+	// LinksToSpan is the SPAN it points at, so the trace view can draw
+	// the hand-off leaving the step it actually left rather than
+	// floating unattached beside the picture.
+	LinksToSpan string
 	ServiceName string
 	SpanName    string
 	StartedAt   time.Time
@@ -2068,7 +2072,8 @@ func (s *Store) TracesLinkingTo(ctx context.Context, traceIDs []string, notBefor
 	// summarise each linking trace in the same shape as TraceHeads.
 	sql := `
 		SELECT TraceId,
-		       links_to,
+		       link.1 AS links_to,
+		       link.2 AS links_to_span,
 		       argMin(ServiceName, (Timestamp, SpanId)) AS head_service,
 		       argMin(SpanName, (Timestamp, SpanId))    AS head_span,
 		       min(Timestamp)                           AS started_at,
@@ -2077,12 +2082,12 @@ func (s *Store) TracesLinkingTo(ctx context.Context, traceIDs []string, notBefor
 		       arrayDistinct(groupArray(ServiceName))   AS services
 		FROM (
 		    SELECT TraceId, ServiceName, SpanName, SpanId, Timestamp, StatusCode,
-		           arrayJoin(LinkTraceIds) AS links_to
+		           arrayJoin(arrayZip(LinkTraceIds, LinkSpanIds)) AS link
 		    FROM traces
 		    WHERE hasAny(LinkTraceIds, [` + list + `])` + timeClause + `
 		)
-		WHERE links_to IN (` + list + `)
-		GROUP BY TraceId, links_to
+		WHERE link.1 IN (` + list + `)
+		GROUP BY links_to, links_to_span, TraceId
 	`
 	rows, err := s.conn.Query(ctx, sql, args...)
 	if err != nil {
@@ -2093,7 +2098,7 @@ func (s *Store) TracesLinkingTo(ctx context.Context, traceIDs []string, notBefor
 	var out []IncomingLink
 	for rows.Next() {
 		var l IncomingLink
-		if err := rows.Scan(&l.TraceID, &l.LinksTo, &l.ServiceName, &l.SpanName,
+		if err := rows.Scan(&l.TraceID, &l.LinksTo, &l.LinksToSpan, &l.ServiceName, &l.SpanName,
 			&l.StartedAt, &l.SpanCount, &l.HasError, &l.Services); err != nil {
 			return nil, err
 		}

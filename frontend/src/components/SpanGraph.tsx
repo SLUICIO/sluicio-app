@@ -19,6 +19,42 @@ import { buildSpanGraph, graphRefusal, type SpanNode } from "../lib/spanGraph";
 
 const NODE_W = 168;
 const NODE_H = 46;
+// A neighbouring message carries a third line (the direction), so it
+// needs more room than a span node. Sharing NODE_H put the last
+// baseline on the border.
+const NEIGHBOUR_H = 62;
+
+/**
+ * SVG text does not wrap and a growing box would break the column
+ * grid, so long names are cut with an ellipsis. The full value is
+ * always in the node's tooltip — truncation here costs nothing that
+ * hovering does not recover.
+ */
+function truncate(s: string, max: number): string {
+  return s.length > max ? s.slice(0, max - 1) + "…" : s;
+}
+
+/**
+ * A connector routed under the row: down from the source, across, up
+ * into the target. Rounded corners so it reads as one line rather than
+ * three segments.
+ */
+function detour(
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+  lane: number,
+): string {
+  const r = 8;
+  const dir = to.x > from.x ? 1 : -1;
+  return [
+    `M${from.x},${from.y}`,
+    `V${lane - r}`,
+    `Q${from.x},${lane} ${from.x + r * dir},${lane}`,
+    `H${to.x - r * dir}`,
+    `Q${to.x},${lane} ${to.x},${lane - r}`,
+    `V${to.y}`,
+  ].join(" ");
+}
 const COL_GAP = 56;
 const ROW_GAP = 14;
 const PAD = 16;
@@ -81,25 +117,24 @@ function NeighbourMessage({
     >
       <rect
         width={NODE_W}
-        height={NODE_H}
+        height={NEIGHBOUR_H}
         rx={6}
         fill="var(--surface)"
         stroke={head?.has_error ? "var(--err)" : "var(--border-strong)"}
         strokeWidth={head?.has_error ? 2 : 1}
         strokeDasharray="5 3"
       />
-      <text x={10} y={16} fontSize={9} fill="var(--muted)">
+      {/* Three lines need their own height. Reusing the 46px span node
+          put the last baseline 4px from the bottom edge, so descenders
+          sat on the border. */}
+      <text x={10} y={17} fontSize={9} fill="var(--muted)">
         {direction === "from" ? "◀ from" : "into ▶"}
       </text>
-      <text x={10} y={30} fontSize={11} fill="var(--muted)">
-        {head ? head.service_name : "another message"}
+      <text x={10} y={33} fontSize={11} fill="var(--muted)">
+        {truncate(head ? head.service_name : "another message", 22)}
       </text>
-      <text x={10} y={42} fontSize={11.5} fontWeight={600} fill="var(--ink)">
-        {head
-          ? head.span_name.length > 20
-            ? head.span_name.slice(0, 19) + "…"
-            : head.span_name
-          : `${traceId.slice(0, 12)}…`}
+      <text x={10} y={49} fontSize={11.5} fontWeight={600} fill="var(--ink)">
+        {head ? truncate(head.span_name, 22) : `${traceId.slice(0, 12)}…`}
       </text>
       <title>
         {head
@@ -156,25 +191,42 @@ export default function SpanGraph({
   // — an unresolvable hand-off is a fact, and dropping it would report
   // "nothing came before" when what we mean is "we cannot say".
   const predecessors = useMemo(() => {
-    const known = new Map((continuedFrom ?? []).map((t) => [t.trace_id, t]));
-    const out: { traceId: string; head?: LinkedTrace }[] = (continuedFrom ?? []).map((t) => ({
-      traceId: t.trace_id,
-      head: t,
-    }));
-    const seen = new Set(known.keys());
+    // anchorNodeId: the node whose span carries the link. That is the
+    // step the message continued FROM, so the connector leaves there
+    // rather than from the trace as a whole.
+    const anchorFor = new Map<string, string>();
+    for (const h of graph.handoffs) {
+      if (!anchorFor.has(h.traceId)) anchorFor.set(h.traceId, h.from);
+    }
+    const out: { traceId: string; head?: LinkedTrace; anchorNodeId?: string }[] = (
+      continuedFrom ?? []
+    ).map((t) => ({ traceId: t.trace_id, head: t, anchorNodeId: anchorFor.get(t.trace_id) }));
+    const seen = new Set(out.map((o) => o.traceId));
     for (const h of graph.handoffs) {
       if (!seen.has(h.traceId)) {
         seen.add(h.traceId);
-        out.push({ traceId: h.traceId });
+        out.push({ traceId: h.traceId, anchorNodeId: h.from });
       }
     }
     return out;
   }, [continuedFrom, graph.handoffs]);
 
-  const successors = useMemo(
-    () => (continuedInto ?? []).map((t) => ({ traceId: t.trace_id, head: t })),
-    [continuedInto],
-  );
+  const successors = useMemo(() => {
+    // For a successor the linked span is one of OURS — the step that
+    // handed over. Fall back to the last node so the connector still
+    // has somewhere to leave from when the span is not in this trace's
+    // loaded window.
+    const bySpan = new Map<string, string>();
+    for (const n of graph.nodes) {
+      for (const sid of n.spanIds) bySpan.set(sid, n.id);
+    }
+    const fallback = graph.nodes.length > 0 ? graph.nodes[graph.nodes.length - 1].id : undefined;
+    return (continuedInto ?? []).map((t) => ({
+      traceId: t.trace_id,
+      head: t,
+      anchorNodeId: (t.from_span_id && bySpan.get(t.from_span_id)) || fallback,
+    }));
+  }, [continuedInto, graph.nodes]);
 
   const refusal = graphRefusal(graph);
 
@@ -199,6 +251,9 @@ export default function SpanGraph({
     // putting "before" on the left is the whole reason the direction is
     // legible without a label.
     const gutter = NODE_W + COL_GAP;
+    // Neighbour rows are taller than span rows, so the stack height has
+    // to be measured in their own units or the box under-reports and
+    // the last one is clipped.
     const leftGutter = predecessors.length > 0 ? gutter : 0;
     const rightGutter = successors.length > 0 ? gutter : 0;
 
@@ -214,13 +269,21 @@ export default function SpanGraph({
     const bodyRight = PAD + leftGutter + cols * NODE_W + (cols - 1) * COL_GAP;
     // The tallest of the three stacks decides the height: a trace with
     // one span and four successors still has to fit all four.
-    const tallest = Math.max(rows, predecessors.length, successors.length, 1);
+    const spanStack = rows * NODE_H + (rows - 1) * ROW_GAP;
+    const neighbourRows = Math.max(predecessors.length, successors.length)
+    const neighbourStack =
+      neighbourRows > 0 ? neighbourRows * NEIGHBOUR_H + (neighbourRows - 1) * ROW_GAP : 0;
+    const content = Math.max(spanStack, neighbourStack, NODE_H);
+    // The connector lane sits below everything drawn, and the box grows
+    // to hold it — otherwise the routing is clipped by the viewBox.
+    const detourY = PAD + content + 18;
     return {
       pos,
       leftX: PAD,
       rightX: bodyRight + COL_GAP,
+      detourY,
       width: bodyRight + rightGutter + PAD,
-      height: PAD * 2 + tallest * NODE_H + (tallest - 1) * ROW_GAP,
+      height: detourY + PAD,
       sorted,
     };
   }, [graph, refusal, predecessors, successors]);
@@ -298,11 +361,58 @@ export default function SpanGraph({
             Neutral, not warn-coloured: a hand-off is normal. Warning
             and error colours stay reserved for actual failure, or
             people learn to ignore them. */}
+        {/* Connectors. Without these the neighbour boxes float beside
+            the picture with nothing joining them to it, which reads as
+            two unrelated diagrams rather than one flow. Anchored to the
+            SPAN the link actually touches, so the line leaves the step
+            it really left — not the trace in general. */}
+        {/* Routed BELOW the span row rather than straight across.
+            A direct line from the anchor to the gutter passes behind
+            whatever nodes sit between them, so it appears to leave the
+            last box it crossed — the picture then attributes the
+            hand-off to the wrong step, which is worse than no line. */}
+        {predecessors.map((p, i) => {
+          const anchor = p.anchorNodeId ? l.pos.get(p.anchorNodeId) : undefined;
+          if (!anchor) return null;
+          const y = PAD + i * (NEIGHBOUR_H + ROW_GAP);
+          const from = { x: l.leftX + NODE_W / 2, y: y + NEIGHBOUR_H };
+          const to = { x: anchor.x + NODE_W / 2, y: anchor.y + NODE_H };
+          return (
+            <path
+              key={`from-edge-${p.traceId}`}
+              d={detour(from, to, l.detourY)}
+              stroke="var(--border-strong)"
+              strokeWidth={1.5}
+              strokeDasharray="4 3"
+              fill="none"
+              markerEnd="url(#sg-arrow)"
+            />
+          );
+        })}
+        {successors.map((s, i) => {
+          const anchor = s.anchorNodeId ? l.pos.get(s.anchorNodeId) : undefined;
+          if (!anchor) return null;
+          const y = PAD + i * (NEIGHBOUR_H + ROW_GAP);
+          const from = { x: anchor.x + NODE_W / 2, y: anchor.y + NODE_H };
+          const to = { x: l.rightX + NODE_W / 2, y: y + NEIGHBOUR_H };
+          return (
+            <path
+              key={`into-edge-${s.traceId}`}
+              d={detour(from, to, l.detourY)}
+              stroke="var(--border-strong)"
+              strokeWidth={1.5}
+              strokeDasharray="4 3"
+              fill="none"
+              markerEnd="url(#sg-arrow)"
+            />
+          );
+        })}
+
         {predecessors.map((p, i) => (
           <NeighbourMessage
             key={`from-${p.traceId}`}
             x={l.leftX}
-            y={PAD + i * (NODE_H + ROW_GAP)}
+            y={PAD + i * (NEIGHBOUR_H + ROW_GAP)}
             traceId={p.traceId}
             head={p.head}
             direction="from"
@@ -313,7 +423,7 @@ export default function SpanGraph({
           <NeighbourMessage
             key={`into-${s.traceId}`}
             x={l.rightX}
-            y={PAD + i * (NODE_H + ROW_GAP)}
+            y={PAD + i * (NEIGHBOUR_H + ROW_GAP)}
             traceId={s.traceId}
             head={s.head}
             direction="into"

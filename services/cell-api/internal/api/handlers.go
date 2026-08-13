@@ -2481,6 +2481,7 @@ func (h *Handlers) linkedTraces(r *http.Request, traceID string, spans []store.S
 		into = append(into, LinkedTrace{
 			TraceID: in.TraceID, ServiceName: in.ServiceName, SpanName: in.SpanName,
 			StartedAt: in.StartedAt, SpanCount: in.SpanCount, HasError: in.HasError,
+			FromSpanID: in.LinksToSpan,
 		})
 	}
 	return from, into, hidden

@@ -473,6 +473,10 @@ export interface LinkedTrace {
   started_at: string;
   span_count: number;
   has_error: boolean;
+  /** On a continued_into entry: the span in THIS trace that was linked
+   *  to — the step that handed over. Lets the graph draw the hand-off
+   *  leaving that step rather than the trace in general. */
+  from_span_id?: string;
 }
 
 // Flow graph types (used for the integration-level service map and the
@@ -591,8 +595,15 @@ export interface TraceProjection {
 // Counts are at trace granularity, matching FlowEdge.
 export interface ServiceNeighbor {
   service_name: string;
+  /** CALL traffic: parent/child nesting inside one trace. */
   trace_count: number;
   error_count: number;
+  /** HAND-OFF traffic: an asynchronous span link to another trace.
+   *  Kept apart from the call counts rather than summed — one counts
+   *  traces that crossed a service boundary, the other traces that
+   *  handed off to a different trace, and a queue is not a call. */
+  link_trace_count?: number;
+  link_error_count?: number;
 }
 
 // NeighborsResponse is the body of GET /services/{name}/neighbors.

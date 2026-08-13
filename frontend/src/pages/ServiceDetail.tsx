@@ -1037,18 +1037,49 @@ function Dependencies({
       if (!prev) {
         byName.set(n.service_name, {
           service_name: n.service_name,
-          trace_count: n.trace_count,
-          error_trace_count: n.error_count,
+          // A hand-off-only neighbour has no CALL traces; showing 0
+          // beside its name would read as "never ran".
+          trace_count: n.trace_count || n.link_trace_count || 0,
+          error_trace_count: n.error_count || n.link_error_count || 0,
         });
       } else if (prev.service_name !== name) {
         prev.trace_count = Math.max(prev.trace_count, n.trace_count);
         prev.error_trace_count = Math.max(prev.error_trace_count, n.error_count);
       }
     }
-    const edges: FlowEdge[] = [
-      ...up.map((u) => ({ source: u.service_name, target: name, call_count: u.trace_count, error_count: u.error_count })),
-      ...down.map((d) => ({ source: name, target: d.service_name, call_count: d.trace_count, error_count: d.error_count })),
-    ];
+    // Up to TWO edges per neighbour: a call edge and a hand-off edge.
+    // A service can be both — it calls you and also hands messages to
+    // you by queue — and folding those into one line would have to
+    // pick a count, which would be neither of the two real numbers.
+    const edges: FlowEdge[] = [];
+    for (const u of up) {
+      if (u.trace_count > 0) {
+        edges.push({ source: u.service_name, target: name, call_count: u.trace_count, error_count: u.error_count });
+      }
+      if ((u.link_trace_count ?? 0) > 0) {
+        edges.push({
+          source: u.service_name,
+          target: name,
+          call_count: u.link_trace_count ?? 0,
+          error_count: u.link_error_count ?? 0,
+          kind: "link",
+        });
+      }
+    }
+    for (const d of down) {
+      if (d.trace_count > 0) {
+        edges.push({ source: name, target: d.service_name, call_count: d.trace_count, error_count: d.error_count });
+      }
+      if ((d.link_trace_count ?? 0) > 0) {
+        edges.push({
+          source: name,
+          target: d.service_name,
+          call_count: d.link_trace_count ?? 0,
+          error_count: d.link_error_count ?? 0,
+          kind: "link",
+        });
+      }
+    }
     return { nodes: [...byName.values()], edges };
   }, [neighbors, name, ownTraceCount, ownStatus]);
 
@@ -1060,7 +1091,9 @@ function Dependencies({
       </div>
       <div className="svc-deps">
         {up.length === 0 && down.length === 0 ? (
-          <div className="placeholder" style={{ margin: 0 }}>No service-to-service calls in this window.</div>
+          <div className="placeholder" style={{ margin: 0 }}>
+            No calls or hand-offs to other services in this window.
+          </div>
         ) : (
           <ServiceFlowGraph nodes={nodes} edges={edges} highlight={name} />
         )}

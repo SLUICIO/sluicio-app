@@ -136,8 +136,18 @@ export default function ServiceFlowGraph({ nodes, edges, singleTrace = false, hi
                 fill="none"
                 strokeWidth={1.5}
                 markerEnd={`url(#${isError ? "flow-arrow-error" : "flow-arrow"})`}
-                style={{ stroke: strokeVar }}
-              />
+                // Dashed for an asynchronous hand-off. It is a real
+                // dependency and gets a real edge, but a queue is not a
+                // call: the far side may run much later, and a solid
+                // line would claim a tightness that is not there.
+                style={{ stroke: strokeVar, ...(e.kind === "link" ? { strokeDasharray: "6 4" } : {}) }}
+              >
+                <title>
+                  {e.kind === "link"
+                    ? `${e.source} hands off to ${e.target} — asynchronous, ${e.call_count} messages`
+                    : `${e.source} calls ${e.target} — ${e.call_count} traces`}
+                </title>
+              </path>
               {e.call_count > 1 && (
                 <text
                   x={(x1 + x2) / 2}

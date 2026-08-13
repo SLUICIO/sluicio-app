@@ -447,6 +447,12 @@ type LinkedTrace struct {
 	StartedAt   time.Time `json:"started_at"`
 	SpanCount   uint64    `json:"span_count"`
 	HasError    bool      `json:"has_error"`
+	// FromSpanID, on a ContinuedInto entry, is the span in THIS trace
+	// that the other one linked to — the step that handed over. Lets
+	// the graph draw the hand-off leaving that step instead of the
+	// trace in general. Empty on ContinuedFrom, where the anchor is
+	// already known from the span carrying the link.
+	FromSpanID string `json:"from_span_id,omitempty"`
 }
 
 // TraceSearchResult is one row in the search response. The "matched"
