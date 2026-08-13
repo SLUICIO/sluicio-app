@@ -3,8 +3,14 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.102 — 2026-08-13
+
+- fix(traces): the Services view needs a real height (9d044e6)
+- fix(traces): a hand-off you can actually see (#24, #25) (56a12a1)
+
 ## v0.11.101 — 2026-08-12
 
+- release v0.11.101 — refresh internal changelog (099711a)
 - feat(discovery): hand-offs reach topology, candidates and the flow graph (#25) (16273d4)
 - feat(discovery): a hand-off is a dependency too (#25) (68f766b)
 - feat(views): choose a view's columns where you are looking (#23) (e980a86)
