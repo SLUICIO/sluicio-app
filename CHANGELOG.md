@@ -3,8 +3,14 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.103 — 2026-08-15
+
+- feat(facets): persist the classification, stop deriving it from the window (#26) (851f246)
+- feat(integrations): service facets on the list, and a filter for them (3f25878)
+
 ## v0.11.102 — 2026-08-13
 
+- release v0.11.102 — refresh internal changelog (459df5b)
 - fix(traces): the Services view needs a real height (9d044e6)
 - fix(traces): a hand-off you can actually see (#24, #25) (56a12a1)
 
