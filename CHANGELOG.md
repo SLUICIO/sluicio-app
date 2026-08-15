@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.104 — 2026-08-15
+
+- build: Go 1.25.13, for seven stdlib vulnerabilities (f478c87)
+
 ## v0.11.103 — 2026-08-15
 
+- release v0.11.103 — refresh internal changelog (c1e7494)
 - feat(facets): persist the classification, stop deriving it from the window (#26) (851f246)
 - feat(integrations): service facets on the list, and a filter for them (3f25878)
 
