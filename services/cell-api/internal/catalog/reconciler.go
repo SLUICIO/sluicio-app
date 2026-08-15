@@ -79,6 +79,21 @@ type Reconciler struct {
 	// query) and catalog must not depend on it — the same shape as
 	// OnServiceDiscovered.
 	DetectFacets func(ctx context.Context, services []string, from, to time.Time) map[string][]string
+	// DetectIntegrationFacets, when set, classifies each INTEGRATION over
+	// its own slice of its members' traffic and returns integration id →
+	// facet slugs.
+	//
+	// Separate from DetectFacets because it answers a different question.
+	// A service's facets describe everything that service does; an
+	// integration's describe the part of it the integration selects. For
+	// a runtime hosting several flows those are not the same set, and
+	// unioning the members' facets — what the integrations list used to
+	// do — gave every integration on that runtime the same answer.
+	//
+	// The hook resolves its own scopes (members + attribute predicate)
+	// because that is integration matcher logic the API layer already
+	// owns; catalog only supplies the window and stores the answer.
+	DetectIntegrationFacets func(ctx context.Context, orgID uuid.UUID, from, to time.Time) map[uuid.UUID][]string
 	// FacetEvidenceWindow is how far back a detection pass looks, and
 	// how long a facet survives without being seen again. Should track
 	// the telemetry retention: a facet lasts exactly as long as the
@@ -299,6 +314,9 @@ func (r *Reconciler) detectFacets(ctx context.Context, serviceNames []string, no
 	if r.DetectFacets == nil || len(serviceNames) == 0 {
 		return
 	}
+	// One cadence gate covers both passes below, so integration facets
+	// are refreshed on exactly the same schedule as service ones and the
+	// two can never disagree about how recent the evidence is.
 	interval := r.FacetInterval
 	if interval <= 0 {
 		interval = 15 * time.Minute
@@ -325,12 +343,32 @@ func (r *Reconciler) detectFacets(ctx context.Context, serviceNames []string, no
 			r.logger.Warn("store detected facets failed", "err", err, "service", svc)
 		}
 	}
+	// Integrations are classified from their own slice, not by unioning
+	// the services above: a service in several integrations does
+	// different work in each, and the attribute matchers are what say
+	// which part is which.
+	if r.DetectIntegrationFacets != nil {
+		for id, slugs := range r.DetectIntegrationFacets(ctx, r.orgID, now.Add(-evidence), now) {
+			if len(slugs) == 0 {
+				continue
+			}
+			if err := r.catalog.ReplaceDetectedIntegrationFacets(ctx, r.orgID, id, slugs, now); err != nil {
+				r.logger.Warn("store detected integration facets failed", "err", err, "integration", id)
+			}
+		}
+	}
+
 	// Expire on evidence, not on absence: a facet survives exactly as
 	// long as the spans that could re-detect it.
 	if removed, err := r.catalog.PruneDetectedFacets(ctx, r.orgID, now.Add(-evidence)); err != nil {
 		r.logger.Warn("prune detected facets failed", "err", err)
 	} else if removed > 0 {
 		r.logger.Debug("expired detected facets", "removed", removed)
+	}
+	if removed, err := r.catalog.PruneDetectedIntegrationFacets(ctx, r.orgID, now.Add(-evidence)); err != nil {
+		r.logger.Warn("prune detected integration facets failed", "err", err)
+	} else if removed > 0 {
+		r.logger.Debug("expired detected integration facets", "removed", removed)
 	}
 }
 

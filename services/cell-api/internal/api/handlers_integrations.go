@@ -348,27 +348,52 @@ func (h *Handlers) listIntegrations(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	// Service facets, rolled up per integration (the union of its
-	// members'). Classified in ONE pass over the distinct member
-	// services rather than per integration, because integrations share
-	// services and the same one would otherwise be profiled repeatedly.
-	distinct := map[string]struct{}{}
+	// Facets per integration, from the integration's OWN slice of its
+	// members' traffic rather than the union of its members' facets.
+	//
+	// The rollup this replaces was wrong wherever a service belongs to
+	// several integrations: three flows on one Node-RED runtime are three
+	// integrations distinguished only by an attribute matcher, and each
+	// of them inherited everything the runtime does. The stored answer is
+	// computed against the attribute predicate, so they now differ.
+	//
+	// Stored, not window-scoped (issue #26): which facets an integration
+	// has must not change with the time picker.
+	scopes := make([]IntegrationFacetScope, 0, len(summaries))
 	for _, s := range summaries {
-		for _, n := range s.Services {
-			distinct[n] = struct{}{}
+		if len(s.Services) == 0 {
+			continue
 		}
+		scopes = append(scopes, IntegrationFacetScope{
+			ID:       s.ID,
+			Services: s.Services,
+			Groups:   AttrGroupsFromMatchers(matchersByIntegration[s.ID]),
+		})
 	}
-	if len(distinct) > 0 {
-		names := make([]string, 0, len(distinct))
-		for n := range distinct {
-			names = append(names, n)
-		}
-		// Stored classification, not a window-scoped one (issue #26):
-		// which facets an integration has must not change with the time
-		// picker.
-		byService := h.serviceFacetsFor(r.Context(), names, tr)
-		for i := range summaries {
-			summaries[i].ServiceFacets = rollUpFacets(summaries[i].Services, byService)
+	if len(scopes) > 0 {
+		byIntegration, ok := h.storedIntegrationFacets(r.Context(), scopes)
+		if ok {
+			for i := range summaries {
+				summaries[i].ServiceFacets = withoutCore(byIntegration[summaries[i].ID])
+			}
+		} else {
+			// No detection pass has stored anything yet. Fall back to the
+			// member rollup so the column is populated (if bluntly) rather
+			// than empty for up to one cadence after an upgrade.
+			distinct := map[string]struct{}{}
+			for _, s := range summaries {
+				for _, n := range s.Services {
+					distinct[n] = struct{}{}
+				}
+			}
+			names := make([]string, 0, len(distinct))
+			for n := range distinct {
+				names = append(names, n)
+			}
+			byService := h.serviceFacetsFor(r.Context(), names, tr)
+			for i := range summaries {
+				summaries[i].ServiceFacets = rollUpFacets(summaries[i].Services, byService)
+			}
 		}
 	}
 
@@ -379,8 +404,30 @@ func (h *Handlers) listIntegrations(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// withoutCore drops the always-on "core" facet and sorts for a stable
+// list. core matches every service by definition, so a chip for it would
+// appear on every row and distinguish nothing; offering it in the filter
+// would be worse still, since it selects everything.
+func withoutCore(refs []ServiceFacetRef) []ServiceFacetRef {
+	out := make([]ServiceFacetRef, 0, len(refs))
+	for _, f := range refs {
+		if f.Slug == servicetypes.CoreSlug {
+			continue
+		}
+		out = append(out, f)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
 // rollUpFacets is the union of a set of services' facets, sorted for a
 // stable list, with the always-on "core" facet dropped.
+//
+// Superseded as the primary path by the per-integration classification
+// in handlers_integration_facets.go, which slices by the integration's
+// attribute predicate instead of unioning whole services. Kept as the
+// fallback for the window between an upgrade and the first detection
+// pass, where the alternative is an empty column.
 //
 // core matches every service by definition, so a chip for it would
 // appear on every row and distinguish nothing — it is a baseline, not a

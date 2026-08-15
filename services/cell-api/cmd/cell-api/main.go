@@ -281,6 +281,11 @@ func main() {
 	// over a wide window and stored, rather than derived from whichever
 	// window a reader happens to have selected.
 	catalogReconciler.DetectFacets = handlers.DetectServiceFacets
+	// Integrations are classified separately, from their own slice of
+	// their members' traffic. Unioning the members' facets gave every
+	// integration on a shared runtime the same answer, which is the
+	// common case for a host running several flows.
+	catalogReconciler.DetectIntegrationFacets = handlers.DetectIntegrationFacetsForOrg
 	catalogReconciler.FacetInterval = 15 * time.Minute
 	// Evidence window tracks telemetry retention: a facet lasts exactly
 	// as long as the spans that could re-detect it.

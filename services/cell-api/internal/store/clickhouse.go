@@ -2352,6 +2352,86 @@ func (s *Store) ServiceProfiles(ctx context.Context, resolver facetmappings.Reso
 	return out, rows.Err()
 }
 
+// IntegrationProfile profiles ONE integration's own slice of traffic:
+// the spans of its member services that also satisfy its attribute
+// predicate.
+//
+// This is deliberately not ServiceProfiles-then-union. A service can
+// belong to several integrations, and the attribute matchers are exactly
+// how those integrations are told apart — three Node-RED flows on one
+// runtime are three integrations distinguished only by
+// `node_red.flow.id`. Unioning the member service's facets hands all
+// three the union of everything that runtime does, so the facet column
+// reads the same on every row and the facet filter selects all or
+// nothing.
+//
+// `groups` is the integration's DNF attribute predicate (nil when it has
+// none). With no predicate the slice is all of the members' traffic and
+// the result matches the old rollup exactly, so callers need no special
+// case for the simple integration.
+//
+// The per-service sample cap is kept even though the result is one
+// profile: a chatty member would otherwise consume the whole sample and
+// the integration would be classified as if its quiet members did not
+// exist.
+func (s *Store) IntegrationProfile(ctx context.Context, resolver facetmappings.Resolver, services []string, groups [][]LogAttrFilter, from, to time.Time) (ServiceProfileRow, error) {
+	var out ServiceProfileRow
+	if len(services) == 0 {
+		return out, nil
+	}
+	ph := make([]string, len(services))
+	for i := range services {
+		ph[i] = "?"
+	}
+
+	attrSQL, attrArgs := SpanAttrGroupsClause(groups)
+	predicate := ""
+	if attrSQL != "" {
+		predicate = " AND " + attrSQL
+	}
+
+	q := fmt.Sprintf(`
+		SELECT
+		    groupUniqArray(SpanKind) AS kinds,
+		    arrayDistinct(arrayFlatten(groupArray(mapKeys(ResourceAttributes)))) AS resource_keys,
+		    arrayDistinct(arrayFlatten(groupArray(mapKeys(SpanAttributes)))) AS span_keys,
+		    arrayFilter(x -> x != '', groupUniqArray(io_facet)) AS io_facets
+		FROM (
+		    SELECT
+		        ServiceName,
+		        SpanKind,
+		        ResourceAttributes,
+		        SpanAttributes,
+		        if((%[1]s) != '' AND (%[2]s) != '',
+		           concat((%[1]s), ':', (%[2]s)),
+		           '') AS io_facet
+		    FROM traces
+		    WHERE ServiceName IN (%[3]s) AND Timestamp >= ? AND Timestamp <= ?%[4]s
+		    LIMIT 500 BY ServiceName
+		)
+	`, resolver.KindExpr, resolver.RoleExpr, strings.Join(ph, ","), predicate)
+
+	args := make([]any, 0, 4*len(resolver.KindArgs)+len(services)+2+len(attrArgs))
+	// Same left-to-right pairing as ServiceProfiles: kind, role, kind,
+	// role, then the WHERE clause, then the attribute predicate last
+	// because it is appended to the end of that clause.
+	args = append(args, resolver.KindArgs...)
+	args = append(args, resolver.RoleArgs...)
+	args = append(args, resolver.KindArgs...)
+	args = append(args, resolver.RoleArgs...)
+	for _, n := range services {
+		args = append(args, n)
+	}
+	args = append(args, from, to)
+	args = append(args, attrArgs...)
+
+	row := s.conn.QueryRow(ctx, q, args...)
+	if err := row.Scan(&out.SpanKinds, &out.ResourceAttrKeys, &out.SpanAttrKeys, &out.IOFacets); err != nil {
+		return ServiceProfileRow{}, fmt.Errorf("integration profile: %w", err)
+	}
+	return out, nil
+}
+
 // DistinctServiceNames returns the distinct service names seen in the
 // range. Used to enumerate candidates when resolving services for
 // an integration.
