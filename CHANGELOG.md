@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.106 — 2026-08-15
+
+- fix(ui): rebuild the facet rule form so its submit button fits (ffd42e2)
+
 ## v0.11.105 — 2026-08-15
 
+- release v0.11.105 — refresh internal changelog (2814bca)
 - fix(facets): classify an integration by its own slice, not its members' union (#27) (7584ae3)
 
 ## v0.11.104 — 2026-08-15
