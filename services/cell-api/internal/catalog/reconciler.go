@@ -70,6 +70,28 @@ type Reconciler struct {
 	// com.sluicio.service.discovered event subscriptions. Optional;
 	// fire-and-forget.
 	OnServiceDiscovered func(ctx context.Context, serviceName string)
+
+	// DetectFacets, when set, classifies services for the persisted
+	// facet store (issue #26). Returns service name → facet slugs.
+	//
+	// A hook rather than a direct call because classification lives in
+	// the API layer (the registry, the facet mappings, the profile
+	// query) and catalog must not depend on it — the same shape as
+	// OnServiceDiscovered.
+	DetectFacets func(ctx context.Context, services []string, from, to time.Time) map[string][]string
+	// FacetEvidenceWindow is how far back a detection pass looks, and
+	// how long a facet survives without being seen again. Should track
+	// the telemetry retention: a facet lasts exactly as long as the
+	// spans that could re-detect it.
+	FacetEvidenceWindow time.Duration
+	// FacetInterval is how often detection runs. Much slower than the
+	// reconcile tick — profiling every service is real work and a
+	// classification does not change by the second.
+	FacetInterval time.Duration
+
+	// lastFacetPass gates the cadence above. Not mutex-guarded: RunOnce
+	// is only ever called from the single Run goroutine, or by tests.
+	lastFacetPass time.Time
 }
 
 // NewReconciler builds a reconciler. interval is the tick cadence;
@@ -257,10 +279,59 @@ func (r *Reconciler) RunOnce(ctx context.Context) error {
 		}
 	}
 
+	// 4) Facet detection, on its own much slower cadence (issue #26).
+	//    Profiling every service is real work and a classification does
+	//    not change by the second; the reconcile tick is 30s.
+	r.detectFacets(ctx, serviceNames, now)
+
 	r.logger.Debug("catalog reconciled",
 		"services", len(services),
 		"integrations", len(byInteg))
 	return nil
+}
+
+// detectFacets refreshes the persisted classification for every service.
+//
+// Best-effort in the same sense as the attribute snapshot: a failure
+// leaves the previous answer in place, which is the right degradation
+// for a store whose whole purpose is to stop the answer flickering.
+func (r *Reconciler) detectFacets(ctx context.Context, serviceNames []string, now time.Time) {
+	if r.DetectFacets == nil || len(serviceNames) == 0 {
+		return
+	}
+	interval := r.FacetInterval
+	if interval <= 0 {
+		interval = 15 * time.Minute
+	}
+	if !r.lastFacetPass.IsZero() && now.Sub(r.lastFacetPass) < interval {
+		return
+	}
+	evidence := r.FacetEvidenceWindow
+	if evidence <= 0 {
+		evidence = 14 * 24 * time.Hour
+	}
+
+	// The pass looks back over the whole evidence window, not over the
+	// reconcile window: a monthly flow has to be visible to the thing
+	// that decides whether it is still classified.
+	detected := r.DetectFacets(ctx, serviceNames, now.Add(-evidence), now)
+	r.lastFacetPass = now
+
+	for svc, slugs := range detected {
+		if len(slugs) == 0 {
+			continue
+		}
+		if err := r.catalog.ReplaceDetectedFacets(ctx, r.orgID, svc, slugs, now); err != nil {
+			r.logger.Warn("store detected facets failed", "err", err, "service", svc)
+		}
+	}
+	// Expire on evidence, not on absence: a facet survives exactly as
+	// long as the spans that could re-detect it.
+	if removed, err := r.catalog.PruneDetectedFacets(ctx, r.orgID, now.Add(-evidence)); err != nil {
+		r.logger.Warn("prune detected facets failed", "err", err)
+	} else if removed > 0 {
+		r.logger.Debug("expired detected facets", "removed", removed)
+	}
 }
 
 // projectMatchers returns the subset of services that any of the

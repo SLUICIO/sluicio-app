@@ -1712,6 +1712,12 @@ func (h *Handlers) serviceSummaries(r *http.Request, tr TimeRange) ([]ServiceSum
 		h.Logger.Warn("list tags for services failed", "err", err)
 		tagsByService = map[string][]tags.Tag{}
 	}
+	// Facets for the whole list in one go, from the stored
+	// classification (issue #26). This used to be one ClickHouse
+	// profile per service inside the loop below — 70+ round-trips on a
+	// modest cell — and it also made a service's classification depend
+	// on the window the reader picked.
+	facetsByService := h.serviceFacetsFor(r.Context(), serviceNames, tr)
 
 	out := make([]ServiceSummary, 0, len(catalogServices))
 	for _, cs := range catalogServices {
@@ -1763,7 +1769,7 @@ func (h *Handlers) serviceSummaries(r *http.Request, tr TimeRange) ([]ServiceSum
 			TraceCount:       win.TraceCount,
 			ErrorTraceCount:  effErr,
 			Integrations:     toIntegrationRefs(ints),
-			ServiceFacets:    h.classifyServiceFacets(r.Context(), cs.ServiceName, tr),
+			ServiceFacets:    facetsByService[cs.ServiceName],
 			Tags:             svcTags,
 			Status:           status,
 			IsSystem:         cs.IsSystem,
@@ -2092,6 +2098,89 @@ func (h *Handlers) classifyServiceFacetsBulk(ctx context.Context, services []str
 	return out
 }
 
+// DetectServiceFacets is the reconciler's classification hook (issue
+// #26): profile these services over the given window and return the
+// AUTO-detected facet slugs per service.
+//
+// Auto only. Manual overrides live in their own table and are layered
+// on at read time — persisting them here would duplicate a decision a
+// human already made and let the two copies drift.
+func (h *Handlers) DetectServiceFacets(ctx context.Context, services []string, from, to time.Time) map[string][]string {
+	refs := h.classifyServiceFacetsBulk(ctx, services, TimeRange{From: from, To: to})
+	out := make(map[string][]string, len(refs))
+	for svc, list := range refs {
+		slugs := make([]string, 0, len(list))
+		for _, f := range list {
+			if f.Source == FacetSourceManual {
+				continue
+			}
+			slugs = append(slugs, f.Slug)
+		}
+		out[svc] = slugs
+	}
+	return out
+}
+
+// storedServiceFacets returns the persisted classification for a set of
+// services, with manual overrides layered on top — the read-side twin
+// of DetectServiceFacets.
+//
+// Returns ok=false when no detection pass has stored anything yet, so
+// callers fall back to computing live. Between deploying this and the
+// first pass the table is empty, and reading it regardless would blank
+// every facet in the product for up to a cadence.
+func (h *Handlers) storedServiceFacets(ctx context.Context, services []string) (map[string][]ServiceFacetRef, bool) {
+	if h.Catalog == nil {
+		return nil, false
+	}
+	orgID := middleware.OrgIDFromContext(ctx)
+	any, err := h.Catalog.AnyDetectedFacets(ctx, orgID)
+	if err != nil || !any {
+		return nil, false
+	}
+	stored, err := h.Catalog.DetectedFacetsFor(ctx, orgID, services)
+	if err != nil {
+		h.Logger.Warn("read detected facets failed", "err", err)
+		return nil, false
+	}
+	merged := h.mergedFacets(ctx, orgID)
+	bySlug := make(map[string]servicetypes.ServiceFacet, len(merged))
+	for _, f := range merged {
+		bySlug[f.Slug] = f
+	}
+	out := make(map[string][]ServiceFacetRef, len(services))
+	for _, svc := range services {
+		// resolveFacets takes the matched facets, not their slugs — the
+		// stored rows are slugs, so they are looked back up against the
+		// current registry. A facet that no longer exists (a custom one
+		// the user deleted) simply drops out, which is correct: the
+		// registry is the vocabulary, the store is only the evidence.
+		auto := make([]servicetypes.ServiceFacet, 0, len(stored[svc]))
+		for _, f := range stored[svc] {
+			if def, ok := bySlug[f.FacetSlug]; ok {
+				auto = append(auto, def)
+			}
+		}
+		resolved := h.resolveFacets(merged, auto, h.facetOverridesFor(ctx, svc))
+		refs := make([]ServiceFacetRef, 0, len(resolved))
+		for _, rf := range resolved {
+			refs = append(refs, ServiceFacetRef{Slug: rf.facet.Slug, Name: rf.facet.Name, Source: rf.source})
+		}
+		out[svc] = refs
+	}
+	return out, true
+}
+
+// serviceFacetsFor is what every read path should call: the stored
+// classification, falling back to a live profile until the first
+// detection pass has run.
+func (h *Handlers) serviceFacetsFor(ctx context.Context, services []string, tr TimeRange) map[string][]ServiceFacetRef {
+	if out, ok := h.storedServiceFacets(ctx, services); ok {
+		return out
+	}
+	return h.classifyServiceFacetsBulk(ctx, services, tr)
+}
+
 // serviceDetail: GET /api/v1/services/{name}?range=1h
 func (h *Handlers) serviceDetail(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
@@ -2186,7 +2275,7 @@ func (h *Handlers) serviceDetail(w http.ResponseWriter, r *http.Request) {
 		},
 		StatsSeries:    statsSeries,
 		Integrations:   toIntegrationRefs(ints),
-		ServiceFacets:  h.classifyServiceFacets(r.Context(), name, tr),
+		ServiceFacets:  h.serviceFacetsFor(r.Context(), []string{name}, tr)[name],
 		Tags:           svcTags,
 		RecentSpans:    toSpanSummaries(recent),
 		ErrorAck:       h.errorAckView(r.Context(), name, errAcks),

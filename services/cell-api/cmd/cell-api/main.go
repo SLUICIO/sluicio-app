@@ -276,6 +276,15 @@ func main() {
 			eventsubs.Audience{ServiceNames: []string{serviceName}},
 			map[string]any{"service": serviceName})
 	}
+	// Persisted facet detection (issue #26). Classification is a
+	// property of the SERVICE, so it is computed here on a slow cadence
+	// over a wide window and stored, rather than derived from whichever
+	// window a reader happens to have selected.
+	catalogReconciler.DetectFacets = handlers.DetectServiceFacets
+	catalogReconciler.FacetInterval = 15 * time.Minute
+	// Evidence window tracks telemetry retention: a facet lasts exactly
+	// as long as the spans that could re-detect it.
+	catalogReconciler.FacetEvidenceWindow = 14 * 24 * time.Hour
 	go catalogReconciler.Run(bgCtx)
 	logger.Info("catalog reconciler started")
 

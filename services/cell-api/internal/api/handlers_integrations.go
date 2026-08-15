@@ -363,7 +363,10 @@ func (h *Handlers) listIntegrations(w http.ResponseWriter, r *http.Request) {
 		for n := range distinct {
 			names = append(names, n)
 		}
-		byService := h.classifyServiceFacetsBulk(r.Context(), names, tr)
+		// Stored classification, not a window-scoped one (issue #26):
+		// which facets an integration has must not change with the time
+		// picker.
+		byService := h.serviceFacetsFor(r.Context(), names, tr)
 		for i := range summaries {
 			summaries[i].ServiceFacets = rollUpFacets(summaries[i].Services, byService)
 		}
