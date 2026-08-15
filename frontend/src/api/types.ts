@@ -694,6 +694,11 @@ export type MatcherOperator = "equals" | "prefix" | "suffix" | "contains" | "reg
 
 export interface Integration {
   id: string;
+  /** The union of the member services' facets — what KINDS of work this
+   *  integration does (HTTP input, file output, …). Present on the LIST
+   *  endpoint. The always-on "core" facet is excluded server-side: it
+   *  matches every service and would appear on every row. */
+  service_facets?: ServiceFacetRef[];
   organization_id: string;
   slug: string;
   name: string;

@@ -207,6 +207,16 @@ export default function Integrations() {
   // dashboard KPI drill-in. "unhealthy" spans both problem states —
   // errors and unhealthy — to match the dashboard's unhealthy count.
   const statusFilter = searchParams.get("status") ?? "";
+  // Service-facet filter (?facet=http-input): "which integrations take
+  // HTTP in". Matches when ANY member service carries the facet — an
+  // integration does a kind of work if any part of it does.
+  const facetFilter = searchParams.get("facet") ?? "";
+  const setFacetFilter = (slug: string) => {
+    const p = new URLSearchParams(searchParams);
+    if (slug) p.set("facet", slug);
+    else p.delete("facet");
+    setSearchParams(p, { replace: true });
+  };
   const clearStatus = () => {
     const p = new URLSearchParams(searchParams);
     p.delete("status");
@@ -224,6 +234,10 @@ export default function Integrations() {
         const hit = statusFilter === "unhealthy" ? s === "unhealthy" || s === "errors" : s === statusFilter;
         if (!hit) return false;
       }
+      // Service-facet filter.
+      if (facetFilter && !(i.service_facets ?? []).some((f) => f.slug === facetFilter)) {
+        return false;
+      }
       // Tag filter (existing chip-strip semantics).
       if (activeTagIds.size > 0) {
         const ids = new Set((i.tags ?? []).map((t) => t.id));
@@ -237,7 +251,7 @@ export default function Integrations() {
       }
       return true;
     });
-  }, [items, activeTagIds, filters, statusFilter]);
+  }, [items, activeTagIds, filters, statusFilter, facetFilter]);
 
   const totalCount = items?.length ?? 0;
   const visibleCount = visibleItems.length;
@@ -287,6 +301,7 @@ export default function Integrations() {
       { id: "description", label: "Description", group: "Identity" },
       { id: "slug", label: "Slug", group: "Identity" },
       { id: "tags", label: "Tags", group: "Identity" },
+      { id: "facets", label: "Service facets", group: "Identity" },
       { id: "service_count", label: "Services", group: "Operational" },
       { id: "trace_count", label: "Traces", group: "Operational" },
       { id: "error_trace_count", label: "Errors", group: "Operational" },
@@ -502,6 +517,41 @@ export default function Integrations() {
         return <td key={id}>{i.description ? i.description : <span className="muted">—</span>}</td>;
       case "slug":
         return <td key={id} className="muted mono">{i.slug}</td>;
+      case "facets": {
+        const fs = i.service_facets ?? [];
+        return (
+          <td key={id}>
+            {fs.length === 0 ? (
+              <span className="muted">—</span>
+            ) : (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                {fs.map((f) => (
+                  // Clicking a facet filters to it. The column answers
+                  // "what does this integration do"; the click turns
+                  // that into "show me every integration that does it".
+                  <button
+                    key={f.slug}
+                    type="button"
+                    className="badge"
+                    style={{ cursor: "pointer", fontSize: 11 }}
+                    title={
+                      f.source === "manual"
+                        ? `${f.name} — assigned by hand on a member service. Click to filter.`
+                        : `${f.name} — detected from telemetry. Click to filter.`
+                    }
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setFacetFilter(facetFilter === f.slug ? "" : f.slug);
+                    }}
+                  >
+                    {f.name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </td>
+        );
+      }
       case "tags":
         return (
           <td key={id}>
@@ -744,6 +794,26 @@ export default function Integrations() {
         <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "0 0 12px" }}>
           <span className="chip">Showing {statusFilter === "unhealthy" ? "unhealthy" : statusFilter} integrations</span>
           <button type="button" className="btn btn--link" onClick={clearStatus}>Clear filter</button>
+        </div>
+      )}
+
+      {/* A filter you cannot see is a filter you cannot undo, and an
+          integrations list that is quietly narrowed reads as an
+          integrations list that is short. */}
+      {facetFilter && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "0 0 12px" }}>
+          <span className="chip">
+            Integrations with{" "}
+            <strong>
+              {(items ?? [])
+                .flatMap((i) => i.service_facets ?? [])
+                .find((f) => f.slug === facetFilter)?.name ?? facetFilter}
+            </strong>{" "}
+            on at least one service
+          </span>
+          <button type="button" className="btn btn--link" onClick={() => setFacetFilter("")}>
+            Clear filter
+          </button>
         </div>
       )}
 

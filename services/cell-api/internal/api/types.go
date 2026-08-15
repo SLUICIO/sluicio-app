@@ -59,6 +59,14 @@ type IntegrationSummary struct {
 	// keys that have a saved value (the schema lives at the response
 	// top level under metadata_fields).
 	MetadataValues map[string]string `json:"metadata_values,omitempty"`
+	// ServiceFacets is the union of the member services' facets — what
+	// KINDS of work this integration does (HTTP input, file output, …),
+	// so the list can answer "which integrations take HTTP in".
+	//
+	// The always-on "core" facet is excluded: it matches every service
+	// by definition, so a chip for it would appear on every row and
+	// distinguish nothing.
+	ServiceFacets []ServiceFacetRef `json:"service_facets,omitempty"`
 }
 
 // ServiceFacetRef is a compact reference to a service facet, attached

@@ -4,6 +4,7 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"sort"
@@ -2029,6 +2030,64 @@ func (h *Handlers) classifyServiceFacets(ctx context.Context, serviceName string
 	out := make([]ServiceFacetRef, 0, len(resolved))
 	for _, rf := range resolved {
 		out = append(out, ServiceFacetRef{Slug: rf.facet.Slug, Name: rf.facet.Name, Source: rf.source})
+	}
+	return out
+}
+
+// classifyServiceFacetsBulk classifies many services with as few
+// ClickHouse round-trips as the org's configuration allows.
+//
+// The resolver is per-service — facet mappings are rules a user can pin
+// to one service — so services are grouped by the SQL their resolver
+// produces and one profile query runs per distinct group. Most orgs
+// have no mappings at all, in which case every service shares the
+// identity resolver and this is a single query for the whole list.
+//
+// The naive version (one query per service) is what the services list
+// still does. It is fine for one page of services and not fine for a
+// list of integrations, where the same service appears under several
+// integrations and the count multiplies.
+func (h *Handlers) classifyServiceFacetsBulk(ctx context.Context, services []string, tr TimeRange) map[string][]ServiceFacetRef {
+	out := make(map[string][]ServiceFacetRef, len(services))
+	if len(services) == 0 {
+		return out
+	}
+	// Group by resolver signature. Two services with identical rules
+	// can share a query; two with different rules cannot, because the
+	// io_facet expression is baked into the SQL.
+	type group struct {
+		resolver facetmappings.Resolver
+		names    []string
+	}
+	groups := map[string]*group{}
+	for _, name := range services {
+		r := h.ioResolverFor(ctx, name)
+		key := r.KindExpr + "\x00" + r.RoleExpr + "\x00" + fmt.Sprint(r.KindArgs, r.RoleArgs)
+		g := groups[key]
+		if g == nil {
+			g = &group{resolver: r}
+			groups[key] = g
+		}
+		g.names = append(g.names, name)
+	}
+
+	merged := h.mergedFacets(ctx, middleware.OrgIDFromContext(ctx))
+	for _, g := range groups {
+		profiles, err := h.Store.ServiceProfiles(ctx, g.resolver, g.names, tr.From, tr.To)
+		if err != nil {
+			h.Logger.Warn("bulk service profiles failed", "err", err, "services", len(g.names))
+			continue
+		}
+		for _, name := range g.names {
+			profile := toProfile(name, profiles[name])
+			auto := h.ServiceFacets.MatchAll(profile)
+			resolved := h.resolveFacets(merged, auto, h.facetOverridesFor(ctx, name))
+			refs := make([]ServiceFacetRef, 0, len(resolved))
+			for _, rf := range resolved {
+				refs = append(refs, ServiceFacetRef{Slug: rf.facet.Slug, Name: rf.facet.Name, Source: rf.source})
+			}
+			out[name] = refs
+		}
 	}
 	return out
 }

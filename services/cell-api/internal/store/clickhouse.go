@@ -2279,6 +2279,79 @@ func (s *Store) ServiceProfile(ctx context.Context, resolver facetmappings.Resol
 	return p, nil
 }
 
+// ServiceProfiles is ServiceProfile for many services at once, for
+// callers that classify a whole list (the integrations list needs the
+// facets of every member service).
+//
+// One query instead of one per service. The per-service sample cap is
+// preserved with `LIMIT n BY ServiceName`, so each service is profiled
+// from its own 500 spans exactly as the single-service version does —
+// a plain LIMIT would let one chatty service consume the whole sample
+// and leave the quiet ones unclassified.
+//
+// All services in one call must share a resolver. The caller groups by
+// resolver first; see classifyServiceFacetsBulk.
+func (s *Store) ServiceProfiles(ctx context.Context, resolver facetmappings.Resolver, services []string, from, to time.Time) (map[string]ServiceProfileRow, error) {
+	if len(services) == 0 {
+		return map[string]ServiceProfileRow{}, nil
+	}
+	ph := make([]string, len(services))
+	for i := range services {
+		ph[i] = "?"
+	}
+	q := fmt.Sprintf(`
+		SELECT
+		    ServiceName,
+		    groupUniqArray(SpanKind) AS kinds,
+		    arrayDistinct(arrayFlatten(groupArray(mapKeys(ResourceAttributes)))) AS resource_keys,
+		    arrayDistinct(arrayFlatten(groupArray(mapKeys(SpanAttributes)))) AS span_keys,
+		    arrayFilter(x -> x != '', groupUniqArray(io_facet)) AS io_facets
+		FROM (
+		    SELECT
+		        ServiceName,
+		        SpanKind,
+		        ResourceAttributes,
+		        SpanAttributes,
+		        if((%[1]s) != '' AND (%[2]s) != '',
+		           concat((%[1]s), ':', (%[2]s)),
+		           '') AS io_facet
+		    FROM traces
+		    WHERE ServiceName IN (%[3]s) AND Timestamp >= ? AND Timestamp <= ?
+		    LIMIT 500 BY ServiceName
+		)
+		GROUP BY ServiceName
+	`, resolver.KindExpr, resolver.RoleExpr, strings.Join(ph, ","))
+
+	args := make([]any, 0, 4*len(resolver.KindArgs)+len(services)+2)
+	// Same left-to-right pairing as ServiceProfile: kind, role, kind,
+	// role, then the WHERE clause.
+	args = append(args, resolver.KindArgs...)
+	args = append(args, resolver.RoleArgs...)
+	args = append(args, resolver.KindArgs...)
+	args = append(args, resolver.RoleArgs...)
+	for _, n := range services {
+		args = append(args, n)
+	}
+	args = append(args, from, to)
+
+	rows, err := s.conn.Query(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("service profiles: %w", err)
+	}
+	defer rows.Close()
+
+	out := make(map[string]ServiceProfileRow, len(services))
+	for rows.Next() {
+		var name string
+		var p ServiceProfileRow
+		if err := rows.Scan(&name, &p.SpanKinds, &p.ResourceAttrKeys, &p.SpanAttrKeys, &p.IOFacets); err != nil {
+			return nil, err
+		}
+		out[name] = p
+	}
+	return out, rows.Err()
+}
+
 // DistinctServiceNames returns the distinct service names seen in the
 // range. Used to enumerate candidates when resolving services for
 // an integration.

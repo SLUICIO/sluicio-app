@@ -18,6 +18,7 @@ import (
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/erroracks"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/identity"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/integrations"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/servicetypes"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/store"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/tags"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/tracecompletion"
@@ -347,11 +348,65 @@ func (h *Handlers) listIntegrations(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	// Service facets, rolled up per integration (the union of its
+	// members'). Classified in ONE pass over the distinct member
+	// services rather than per integration, because integrations share
+	// services and the same one would otherwise be profiled repeatedly.
+	distinct := map[string]struct{}{}
+	for _, s := range summaries {
+		for _, n := range s.Services {
+			distinct[n] = struct{}{}
+		}
+	}
+	if len(distinct) > 0 {
+		names := make([]string, 0, len(distinct))
+		for n := range distinct {
+			names = append(names, n)
+		}
+		byService := h.classifyServiceFacetsBulk(r.Context(), names, tr)
+		for i := range summaries {
+			summaries[i].ServiceFacets = rollUpFacets(summaries[i].Services, byService)
+		}
+	}
+
 	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
 		"integrations":    summaries,
 		"window":          tr.Window(),
 		"metadata_fields": integrationFields,
 	})
+}
+
+// rollUpFacets is the union of a set of services' facets, sorted for a
+// stable list, with the always-on "core" facet dropped.
+//
+// core matches every service by definition, so a chip for it would
+// appear on every row and distinguish nothing — it is a baseline, not a
+// classification. Excluding it here rather than in the UI keeps the
+// filter honest too: offering a facet that selects everything is worse
+// than not offering it.
+func rollUpFacets(services []string, byService map[string][]ServiceFacetRef) []ServiceFacetRef {
+	seen := map[string]ServiceFacetRef{}
+	for _, svc := range services {
+		for _, f := range byService[svc] {
+			if f.Slug == servicetypes.CoreSlug {
+				continue
+			}
+			// A facet manually assigned on ANY member is reported as
+			// manual: it is the stronger claim, and hiding it behind an
+			// auto-detection on a sibling would misreport why the
+			// integration carries it.
+			if prev, ok := seen[f.Slug]; ok && prev.Source == FacetSourceManual {
+				continue
+			}
+			seen[f.Slug] = f
+		}
+	}
+	out := make([]ServiceFacetRef, 0, len(seen))
+	for _, f := range seen {
+		out = append(out, f)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
 }
 
 // integrationFlow: GET /api/v1/integrations/{id}/flow?range=...
