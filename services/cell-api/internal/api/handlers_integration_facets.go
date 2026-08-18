@@ -166,6 +166,10 @@ func (h *Handlers) DetectIntegrationFacetsForOrg(ctx context.Context, orgID uuid
 	if h.Integrations == nil || h.Catalog == nil {
 		return nil
 	}
+	// Background tick: no principal, so the org has to be put on the
+	// context or every per-org lookup below (facet mappings above all)
+	// silently reads nothing. See withOrg.
+	ctx = withOrg(ctx, orgID)
 	all, err := h.Integrations.AllMatchersWithIntegration(ctx, orgID)
 	if err != nil {
 		h.Logger.Warn("integration facet detection: matchers failed", "err", err)

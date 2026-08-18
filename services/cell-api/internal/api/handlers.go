@@ -208,6 +208,21 @@ type Handlers struct {
 // rules. A fetch failure logs a warning and falls back to the
 // identity resolver — the worst case is that classification reverts
 // to the un-overridden behaviour for one request, which is fine.
+// withOrg puts an org onto a background context.
+//
+// Everything below the HTTP layer reads the org from the principal in
+// the context, which a request carries and a reconciler tick does not.
+// Without this the detection pass looked up the org's facet MAPPINGS
+// under the nil UUID, found none, and classified every service as if no
+// mapping existed — so a service whose spans carry no io.kind / io.role
+// (Node-RED, most homegrown instrumentation) could never be classified
+// at all, however many rules were configured. It read as "the rules do
+// nothing", because since the classification was persisted the stored
+// answer is what the UI shows.
+func withOrg(ctx context.Context, orgID uuid.UUID) context.Context {
+	return middleware.WithPrincipal(ctx, identity.Principal{OrgID: orgID})
+}
+
 func (h *Handlers) ioResolverFor(ctx context.Context, serviceName string) facetmappings.Resolver {
 	if h.FacetMappings == nil {
 		return facetmappings.IdentityResolver()
@@ -2105,8 +2120,8 @@ func (h *Handlers) classifyServiceFacetsBulk(ctx context.Context, services []str
 // Auto only. Manual overrides live in their own table and are layered
 // on at read time — persisting them here would duplicate a decision a
 // human already made and let the two copies drift.
-func (h *Handlers) DetectServiceFacets(ctx context.Context, services []string, from, to time.Time) map[string][]string {
-	refs := h.classifyServiceFacetsBulk(ctx, services, TimeRange{From: from, To: to})
+func (h *Handlers) DetectServiceFacets(ctx context.Context, orgID uuid.UUID, services []string, from, to time.Time) map[string][]string {
+	refs := h.classifyServiceFacetsBulk(withOrg(ctx, orgID), services, TimeRange{From: from, To: to})
 	out := make(map[string][]string, len(refs))
 	for svc, list := range refs {
 		slugs := make([]string, 0, len(list))

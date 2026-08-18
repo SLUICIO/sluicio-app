@@ -78,7 +78,7 @@ type Reconciler struct {
 	// the API layer (the registry, the facet mappings, the profile
 	// query) and catalog must not depend on it — the same shape as
 	// OnServiceDiscovered.
-	DetectFacets func(ctx context.Context, services []string, from, to time.Time) map[string][]string
+	DetectFacets func(ctx context.Context, orgID uuid.UUID, services []string, from, to time.Time) map[string][]string
 	// DetectIntegrationFacets, when set, classifies each INTEGRATION over
 	// its own slice of its members' traffic and returns integration id →
 	// facet slugs.
@@ -332,7 +332,7 @@ func (r *Reconciler) detectFacets(ctx context.Context, serviceNames []string, no
 	// The pass looks back over the whole evidence window, not over the
 	// reconcile window: a monthly flow has to be visible to the thing
 	// that decides whether it is still classified.
-	detected := r.DetectFacets(ctx, serviceNames, now.Add(-evidence), now)
+	detected := r.DetectFacets(ctx, r.orgID, serviceNames, now.Add(-evidence), now)
 	r.lastFacetPass = now
 
 	for svc, slugs := range detected {
