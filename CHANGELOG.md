@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.107 — 2026-08-18
+
+- fix(traces): wrap the Steps graph instead of running it off the page (3ac62fa)
+
 ## v0.11.106 — 2026-08-15
 
+- release v0.11.106 — refresh internal changelog (b3444b9)
 - fix(ui): rebuild the facet rule form so its submit button fits (ffd42e2)
 
 ## v0.11.105 — 2026-08-15
