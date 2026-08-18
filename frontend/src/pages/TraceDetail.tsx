@@ -447,7 +447,12 @@ export default function TraceDetail() {
       {data && services.length > 0 && (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1.5fr_1fr]">
           {/* Left: flow + waterfall (and optionally logs from the error span) */}
-          <div className="flex flex-col gap-4">
+          {/* min-w-0: a grid item defaults to min-width:auto, so it
+              refuses to shrink below its widest content. A deep trace
+              draws a wide graph, and that width was pushing this whole
+              column past its grid track — dragging the entire page
+              right rather than staying inside its own card. */}
+          <div className="flex min-w-0 flex-col gap-4">
             <section
               className="overflow-hidden rounded-lg border bg-surface-2"
               style={{ borderColor: "var(--border)" }}
@@ -502,7 +507,13 @@ export default function TraceDetail() {
                 style={
                   traceView === "services"
                     ? { height: 320, position: "relative", overflow: "auto" }
-                    : { minHeight: 160, maxHeight: 420, position: "relative", overflow: "auto" }
+                    : // Steps wraps its bands to the available width, so
+                      // depth now costs height instead of running off to
+                      // the right. The budget is raised to match: a
+                      // dozen-step chain draws about 500px and should be
+                      // readable in one piece rather than through a
+                      // nested scrollbar.
+                      { minHeight: 160, maxHeight: 640, position: "relative", overflow: "auto" }
                 }
               >
                 {traceView === "chain" ? (

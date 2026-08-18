@@ -13,7 +13,7 @@
 // count is capped before we draw, and a layout engine would be a large
 // dependency for a small problem.
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { LinkedTrace, SpanSummary } from "../api/types";
 import { buildSpanGraph, graphRefusal, type SpanNode } from "../lib/spanGraph";
 
@@ -58,6 +58,9 @@ function detour(
 const COL_GAP = 56;
 const ROW_GAP = 14;
 const PAD = 16;
+// Vertical space between wrapped bands, wide enough to carry the
+// carriage-return connector without it grazing either row.
+const WRAP_GAP = 34;
 
 interface Props {
   spans: SpanSummary[];
@@ -186,6 +189,24 @@ export default function SpanGraph({
     () => buildSpanGraph(spans, linksRecordedSince),
     [spans, linksRecordedSince],
   );
+
+  // How much width the drawing actually gets. A trace is usually a
+  // chain, and one column per depth marched it off the right edge: a
+  // 12-step Node-RED flow drew 2664px wide inside a 900px card, so two
+  // thirds of it sat outside the viewport and the only way to it was a
+  // hidden overlay scrollbar. Measuring the container lets the bands
+  // wrap instead, so the whole message fits without scrolling anywhere.
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [availWidth, setAvailWidth] = useState(0);
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(([entry]) => {
+      setAvailWidth(entry.contentRect.width);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   // Predecessors: the resolved heads, plus any link this trace carries
   // whose head we could not resolve. The second group still gets a node
   // — an unresolvable hand-off is a fact, and dropping it would report
@@ -257,19 +278,54 @@ export default function SpanGraph({
     const leftGutter = predecessors.length > 0 ? gutter : 0;
     const rightGutter = successors.length > 0 ? gutter : 0;
 
+    const cols = Math.max(...[...perCol.keys()], 0) + 1;
+
+    // How many depth columns fit across before wrapping. The gutters
+    // are reserved first: a neighbouring message must keep its lane
+    // whatever the span columns do. Zero avail means we have not
+    // measured yet, in which case nothing wraps and the first paint is
+    // the old single-band layout.
+    const usable = availWidth - 2 * PAD - leftGutter - rightGutter;
+    const fits = Math.floor((usable + COL_GAP) / (NODE_W + COL_GAP));
+    const perBand = availWidth > 0 ? Math.max(1, Math.min(cols, fits)) : cols;
+    const bands = Math.ceil(cols / perBand);
+
+    // Each band is as tall as the deepest column in it, so a band
+    // holding a fan-out is not measured by a sibling that holds one
+    // node. bandTop is the cumulative offset.
+    const bandRows: number[] = [];
+    for (let d = 0; d < cols; d++) {
+      const b = Math.floor(d / perBand);
+      bandRows[b] = Math.max(bandRows[b] ?? 1, perCol.get(d) ?? 1);
+    }
+    const bandTop: number[] = [];
+    let acc = 0;
+    for (let b = 0; b < bands; b++) {
+      bandTop[b] = acc;
+      acc += bandRows[b] * NODE_H + (bandRows[b] - 1) * ROW_GAP + (b < bands - 1 ? WRAP_GAP : 0);
+    }
+    const spanStack = acc;
+
+    const bandOf = (d: number) => Math.floor(d / perBand);
     const pos = new Map<string, { x: number; y: number }>();
     for (const n of graph.nodes) {
+      const d = depth.get(n.id) ?? 0;
       pos.set(n.id, {
-        x: PAD + leftGutter + (depth.get(n.id) ?? 0) * (NODE_W + COL_GAP),
-        y: PAD + (rowOf.get(n.id) ?? 0) * (NODE_H + ROW_GAP),
+        x: PAD + leftGutter + (d % perBand) * (NODE_W + COL_GAP),
+        y: PAD + bandTop[bandOf(d)] + (rowOf.get(n.id) ?? 0) * (NODE_H + ROW_GAP),
       });
     }
-    const cols = Math.max(...[...perCol.keys()], 0) + 1;
-    const rows = Math.max(...[...perCol.values()], 1);
-    const bodyRight = PAD + leftGutter + cols * NODE_W + (cols - 1) * COL_GAP;
+
+    // A lane under each band, for the carriage-return connector from
+    // the end of one band to the start of the next.
+    const bandLane = bandTop.map(
+      (top, b) => PAD + top + bandRows[b] * NODE_H + (bandRows[b] - 1) * ROW_GAP + WRAP_GAP / 2,
+    );
+
+    const bandCols = Math.min(cols, perBand);
+    const bodyRight = PAD + leftGutter + bandCols * NODE_W + (bandCols - 1) * COL_GAP;
     // The tallest of the three stacks decides the height: a trace with
     // one span and four successors still has to fit all four.
-    const spanStack = rows * NODE_H + (rows - 1) * ROW_GAP;
     const neighbourRows = Math.max(predecessors.length, successors.length)
     const neighbourStack =
       neighbourRows > 0 ? neighbourRows * NEIGHBOUR_H + (neighbourRows - 1) * ROW_GAP : 0;
@@ -279,6 +335,10 @@ export default function SpanGraph({
     const detourY = PAD + content + 18;
     return {
       pos,
+      depth,
+      bandOf,
+      bandLane,
+      bands,
       leftX: PAD,
       rightX: bodyRight + COL_GAP,
       detourY,
@@ -286,7 +346,7 @@ export default function SpanGraph({
       height: detourY + PAD,
       sorted,
     };
-  }, [graph, refusal, predecessors, successors]);
+  }, [graph, refusal, predecessors, successors, availWidth]);
 
   if (graph.nodes.length === 0) {
     return <div className="placeholder">No spans to draw.</div>;
@@ -308,7 +368,7 @@ export default function SpanGraph({
   const selectedNode = graph.nodes.find((n) => n.spanIds.includes(selectedSpanId ?? ""));
 
   return (
-    <div style={{ overflowX: "auto" }}>
+    <div ref={wrapRef} style={{ overflowX: "auto" }}>
       <svg
         width={l.width}
         height={l.height}
@@ -328,6 +388,30 @@ export default function SpanGraph({
             .filter((e) => e.to === n.id)
             .map((e) => {
               const p = l.pos.get(e.from)!;
+              const fromBand = l.bandOf(l.depth.get(e.from) ?? 0);
+              const toBand = l.bandOf(l.depth.get(n.id) ?? 0);
+              // A step that wrapped onto the next band. A bezier here
+              // would sweep back across the whole picture and read as
+              // an edge to everything it passed; the carriage return
+              // drops out of the source, runs along a lane of its own
+              // and rises into the target, so every arrow still points
+              // right and the wrap is visibly a wrap.
+              if (fromBand !== toBand) {
+                return (
+                  <path
+                    key={`${e.from}-${e.to}`}
+                    d={detour(
+                      { x: p.x + NODE_W / 2, y: p.y + NODE_H },
+                      { x: from.x + NODE_W / 2, y: from.y },
+                      l.bandLane[fromBand],
+                    )}
+                    fill="none"
+                    stroke="var(--border)"
+                    strokeWidth={1.5}
+                    markerEnd="url(#sg-arrow)"
+                  />
+                );
+              }
               const x1 = p.x + NODE_W;
               const y1 = p.y + NODE_H / 2;
               const x2 = from.x;
