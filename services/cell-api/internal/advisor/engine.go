@@ -27,7 +27,9 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/google/uuid"
+
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/collectorversion"
 )
 
 // ObservationWindow is how far back an evaluation looks when deciding
@@ -68,6 +70,11 @@ type Engine struct {
 	// IntegrationServices reports which services belong to an
 	// integration, so the completeness promise can be enforced.
 	IntegrationServices func(ctx context.Context, orgID uuid.UUID) (map[string]bool, error)
+	// CollectorTarget resolves which collector a service runs, so a
+	// snippet is written in that version's syntax (issue #16). The empty
+	// service name asks for the org default. Optional; nil means the
+	// newest version this build knows.
+	CollectorTarget func(ctx context.Context, orgID uuid.UUID, service string) collectorversion.Target
 	// Every defaults to 24h.
 	Every time.Duration
 	// Window overrides the observation window. Zero means the shipped
@@ -221,9 +228,16 @@ func (e *Engine) RunOrg(ctx context.Context, orgID uuid.UUID) error {
 	var found []Suggestion
 
 	if e.CH != nil {
+		var target func(string) collectorversion.Target
+		if e.CollectorTarget != nil {
+			target = func(service string) collectorversion.Target {
+				return e.CollectorTarget(ctx, orgID, service)
+			}
+		}
 		tele, err := EvaluateTelemetry(ctx, TelemetryInput{
 			OrgID: orgID, Conn: e.CH, Demand: dem,
 			From: from, To: now, IntegrationServices: intSvcs,
+			Target: target,
 		})
 		if err != nil {
 			// A ClickHouse hiccup must not wipe the alerting findings

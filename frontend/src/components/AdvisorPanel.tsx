@@ -248,9 +248,28 @@ function SuggestionCard({
         </p>
       )}
 
+      {/* No snippet, and a reason. The finding still stands - the cost
+          it describes is real whether or not we can write the fix - but
+          the YAML is withheld rather than shown with a caveat. A config
+          that does not start is not improved by a warning beside it:
+          the reader weighs it at the moment they are pasting into
+          production. */}
+      {!s.snippet && s.snippet_unavailable && (
+        <div className="alert alert--warn" style={{ marginBottom: 10, fontSize: 12.5 }}>
+          {s.snippet_unavailable}
+        </div>
+      )}
+
       {s.snippet && (
         <details style={{ marginBottom: 10 }}>
-          <summary style={{ cursor: "pointer", fontSize: 13 }}>Collector config</summary>
+          <summary style={{ cursor: "pointer", fontSize: 13 }}>
+            Collector config
+            {s.snippet_target && (
+              <span className="muted" style={{ marginLeft: 8, fontSize: 12 }}>
+                · written for collector {s.snippet_target}
+              </span>
+            )}
+          </summary>
           <pre
             style={{ fontSize: 12, overflowX: "auto", padding: 12, borderRadius: 6, marginTop: 8 }}
             className="code-block"

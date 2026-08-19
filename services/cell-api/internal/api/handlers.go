@@ -1092,10 +1092,14 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	// cell with no agent attached still gets them.
 	mux.HandleFunc("GET /api/v1/integration-candidates", h.integrationCandidates)
 	mux.HandleFunc("GET /api/v1/collector-target", h.getCollectorTarget)
+	mux.HandleFunc("GET /api/v1/services/{name}/collector-target",
+		h.gateServiceRoute(h.getServiceCollectorTarget))
 	mux.HandleFunc("GET /api/v1/ingest-keys", h.listIngestKeys)
 	if h.AuthMW != nil {
 		mux.HandleFunc("PATCH /api/v1/collector-target",
 			h.AuthMW.RequireRole(identity.Role.CanAdmin, h.patchCollectorTarget))
+		mux.HandleFunc("PATCH /api/v1/services/{name}/collector-target",
+			h.AuthMW.RequireRole(identity.Role.CanAdmin, h.patchServiceCollectorTarget))
 		mux.HandleFunc("POST /api/v1/ingest-keys", h.AuthMW.RequireRole(identity.Role.CanAdmin, h.blockDemo(h.createIngestKey)))
 		mux.HandleFunc("DELETE /api/v1/ingest-keys/{id}", h.AuthMW.RequireRole(identity.Role.CanAdmin, h.blockDemo(h.revokeIngestKey)))
 	} else {

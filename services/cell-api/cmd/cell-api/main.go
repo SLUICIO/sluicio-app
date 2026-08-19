@@ -58,6 +58,7 @@ import (
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/api"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/api/middleware"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/catalog"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/collectorversion"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/dashboards"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/demand"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/erroracks"
@@ -598,6 +599,12 @@ func main() {
 			}
 			return out, nil
 		},
+		// Which collector each service runs, so a suggestion's YAML is
+		// written in that version's syntax rather than one fixed dialect
+		// (issue #16).
+		CollectorTarget: func(ctx context.Context, orgID uuid.UUID, service string) collectorversion.Target {
+			return handlers.CollectorTargetFor(ctx, orgID, service)
+		},
 	}
 	// ADVISOR_WINDOW_DAYS shortens the observation window for testing and
 	// demos, where waiting a month to see the feature is not an option.
@@ -703,7 +710,7 @@ type metricEvaluatorAdapter struct {
 	// orgID scopes system membership lookups — SystemMemberNames is
 	// org-qualified, and a scope resolver must not be the one place that
 	// forgets which tenant it is answering for.
-	orgID   uuid.UUID
+	orgID uuid.UUID
 }
 
 // metricScope resolves a rule's binding to the store's serviceIn allowlist,
@@ -817,7 +824,7 @@ type logCounterAdapter struct {
 	// orgID scopes system membership lookups — SystemMemberNames is
 	// org-qualified, and a scope resolver must not be the one place that
 	// forgets which tenant it is answering for.
-	orgID   uuid.UUID
+	orgID uuid.UUID
 }
 
 func (a logCounterAdapter) CountLogs(ctx context.Context, q alerting.LogCountQuery) (uint64, error) {
@@ -951,7 +958,7 @@ type traceLatencyEvaluatorAdapter struct {
 	// orgID scopes system membership lookups — SystemMemberNames is
 	// org-qualified, and a scope resolver must not be the one place that
 	// forgets which tenant it is answering for.
-	orgID   uuid.UUID
+	orgID uuid.UUID
 }
 
 func (a traceLatencyEvaluatorAdapter) TraceLatencyMs(ctx context.Context, q alerting.TraceLatencyQuery) (float64, uint64, error) {
@@ -1006,11 +1013,11 @@ type traceVolumeEvaluatorAdapter struct {
 	// low-traffic check on an integration whose services have all gone
 	// silent — or never spoke at all — must still fire, and members
 	// alone cannot tell that apart from "nothing was ever declared".
-	integs  *integrations.Store
+	integs *integrations.Store
 	// orgID scopes system membership lookups — SystemMemberNames is
 	// org-qualified, and a scope resolver must not be the one place that
 	// forgets which tenant it is answering for.
-	orgID   uuid.UUID
+	orgID uuid.UUID
 }
 
 func (a traceVolumeEvaluatorAdapter) TotalTraces(ctx context.Context, q alerting.TraceVolumeQuery) (uint64, bool, error) {

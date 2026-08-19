@@ -18,6 +18,7 @@ import ServiceReadingTiles from "../components/health/ServiceReadingTiles";
 import HealthChecks, { HealthCheckEditDrawer } from "../components/health/HealthChecks";
 import HealthCheckResultDrawer from "../components/health/HealthCheckResultDrawer";
 import FacetMappingsEditor from "../components/FacetMappingsEditor";
+import CollectorTargetEditor from "../components/CollectorTargetEditor";
 import UserMetadataPanel from "../components/MetadataPanel";
 import ServiceFacetsEditor from "../components/ServiceFacetsEditor";
 import ServiceSchemasPanel from "../components/ServiceSchemasPanel";
@@ -1798,6 +1799,21 @@ function ServiceEdit({
         <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 16 }}>
           <ServiceFacetsEditor serviceName={name} onChanged={onChanged} />
           <FacetMappingsEditor serviceName={name} onChanged={onChanged} />
+          {/* Per-service collector version (issue #16). Here rather than
+              on the org page because it is an exception to the org
+              default, and an exception belongs next to the thing it is
+              an exception for. */}
+          <div className="card">
+            <div className="card__header">
+              Collector version
+              <span className="muted" style={{ marginLeft: 8, fontWeight: 400, fontSize: 13 }}>
+                · overrides the organization default
+              </span>
+            </div>
+            <div style={{ padding: "12px 16px" }}>
+              <CollectorTargetEditor service={name} />
+            </div>
+          </div>
         </div>
       </div>
 

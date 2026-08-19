@@ -40,6 +40,8 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/google/uuid"
+
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/collectorversion"
 )
 
 // Thresholds are the volume floors below which a finding is not worth
@@ -102,6 +104,53 @@ type TelemetryInput struct {
 	// Their spans are never proposed for sampling or dropping — the
 	// completeness promise — though their ATTRIBUTES still can be.
 	IntegrationServices map[string]bool
+	// Target resolves which collector a suggestion's snippet is written
+	// for (issue #16). Per service, because a snippet always targets one
+	// service's pipeline and an estate can run different collectors on
+	// different hosts; the empty string asks for the org default, which
+	// is what a metric-scoped suggestion needs.
+	//
+	// Optional. Nil resolves to the newest version this build knows,
+	// which is what an unconfigured cell should emit.
+	Target func(service string) collectorversion.Target
+}
+
+// targetFor is Target with the nil case folded in, so call sites read as
+// one expression.
+func (in TelemetryInput) targetFor(service string) collectorversion.Target {
+	if in.Target == nil {
+		return collectorversion.Default()
+	}
+	return in.Target(service)
+}
+
+// withSnippet attaches a generated snippet to a suggestion, or records
+// why there is none.
+//
+// The rule this enforces is the one the issue turns on: a snippet that
+// cannot be expressed for the target collector is NOT rendered with a
+// warning beside it. YAML that does not start is not improved by a
+// caveat — the reader is pasting into production at the moment they
+// would have to weigh it, and the cost of our uncertainty lands on
+// them.
+//
+// The FINDING still stands. The cost it describes is real whether or
+// not we can write the fix, and withholding the whole suggestion would
+// hide a real bill because of a limitation of ours. So the suggestion
+// is kept and says plainly that it cannot be expressed here.
+func (in TelemetryInput) withSnippet(s Suggestion, service string, gen func(collectorversion.Target) (string, error)) Suggestion {
+	t := in.targetFor(service)
+	s.SnippetTarget = t.Version
+	snippet, err := gen(t)
+	if err != nil {
+		s.SnippetUnavailable = fmt.Sprintf(
+			"Sluicio cannot write this change for collector %s: %v. "+
+				"The finding stands; the configuration for it has to be made by hand.",
+			t.Version, err)
+		return s
+	}
+	s.Snippet = snippet
+	return s
 }
 
 // EvaluateTelemetry runs T1–T6 and returns the findings, most valuable
@@ -180,7 +229,7 @@ func evalUnusedMetrics(in TelemetryInput, metrics []MetricSupply) []Suggestion {
 		if perDayRows < minMetricRowsPerDay {
 			continue
 		}
-		out = append(out, Suggestion{
+		out = append(out, in.withSnippet(Suggestion{
 			Fingerprint: "T1|metric|" + m.Name,
 			Class:       "T1",
 			Advisor:     "telemetry",
@@ -189,8 +238,7 @@ func evalUnusedMetrics(in TelemetryInput, metrics []MetricSupply) []Suggestion {
 			Title:       fmt.Sprintf("Nothing reads the %q metric", m.Name),
 			Loss: fmt.Sprintf("You lose the ability to chart %s or alert on it without collecting it again. "+
 				"Existing data is untouched and stays for its retention period.", m.Name),
-			Snippet: snippetDropMetric(m.Name),
-			Weight:  int64(m.EstBytesPerDay),
+			Weight: int64(m.EstBytesPerDay),
 			Evidence: map[string]any{
 				"rows_per_day":      perDayRows,
 				"series":            m.Series,
@@ -199,7 +247,7 @@ func evalUnusedMetrics(in TelemetryInput, metrics []MetricSupply) []Suggestion {
 				"first_seen":        m.FirstSeen.Format(time.RFC3339),
 				"demand":            lastSeenPhrase(in.Demand.LastConsumed("metric", "", m.Name), in.To),
 			},
-		})
+		}, "", func(t collectorversion.Target) (string, error) { return snippetDropMetric(m.Name, t) }))
 	}
 	return out
 }
@@ -241,7 +289,7 @@ func evalUnviewedLogs(in TelemetryInput, streams []LogStreamSupply) []Suggestion
 		if perDayRows < minLogRowsPerDay {
 			continue
 		}
-		out = append(out, Suggestion{
+		out = append(out, in.withSnippet(Suggestion{
 			Fingerprint: fmt.Sprintf("T2|log|%s|%s", s.Service, bandName),
 			Class:       "T2",
 			Advisor:     "telemetry",
@@ -252,8 +300,7 @@ func evalUnviewedLogs(in TelemetryInput, streams []LogStreamSupply) []Suggestion
 				"Warnings and errors keep flowing, so alerting is unaffected — but if this service is "+
 				"debugged by reading its %s output, you will want that back before the next incident.",
 				s.Service, strings.ToUpper(floor), bandName),
-			Snippet: snippetLogFloor(s.Service, floor),
-			Weight:  int64(s.EstBytesPerDay),
+			Weight: int64(s.EstBytesPerDay),
 			Evidence: map[string]any{
 				"severity_band":     bandName,
 				"rows_per_day":      perDayRows,
@@ -261,7 +308,7 @@ func evalUnviewedLogs(in TelemetryInput, streams []LogStreamSupply) []Suggestion
 				"first_seen":        s.FirstSeen.Format(time.RFC3339),
 				"demand":            lastSeenPhrase(in.Demand.LastConsumed("log", s.Service, ""), in.To),
 			},
-		})
+		}, s.Service, func(t collectorversion.Target) (string, error) { return snippetLogFloor(s.Service, floor, t) }))
 	}
 	return out
 }
@@ -296,7 +343,7 @@ func evalSpanAttributes(in TelemetryInput, attrs []SpanAttrSupply) []Suggestion 
 				s.Evidence["keys"] = s.Evidence["keys"].(int) + 1
 				continue
 			}
-			echoed[k] = &Suggestion{
+			sug := in.withSnippet(Suggestion{
 				Fingerprint: fmt.Sprintf("T5|attr-family|%s|%s", a.Service, prefix),
 				Class:       "T5",
 				Advisor:     "telemetry",
@@ -305,15 +352,17 @@ func evalSpanAttributes(in TelemetryInput, attrs []SpanAttrSupply) []Suggestion 
 				Title:       fmt.Sprintf("%s echoes %s* into every span", a.Service, prefix),
 				Loss: fmt.Sprintf("Request metadata under %s* stops being searchable for %s. "+
 					"Nothing in Sluicio reads these today.", prefix, a.Service),
-				Snippet: snippetDeleteAttrPattern(a.Service, prefix),
-				Weight:  int64(a.EstBytesPerDay),
+				Weight: int64(a.EstBytesPerDay),
 				Evidence: map[string]any{
 					"prefix":            prefix,
 					"keys":              1,
 					"est_bytes_per_day": a.EstBytesPerDay,
 					"demand":            "no rule, facet, matcher or query references these keys",
 				},
-			}
+			}, a.Service, func(t collectorversion.Target) (string, error) {
+				return snippetDeleteAttrPattern(a.Service, prefix, t)
+			})
+			echoed[k] = &sug
 			continue
 		}
 
@@ -327,7 +376,7 @@ func evalSpanAttributes(in TelemetryInput, attrs []SpanAttrSupply) []Suggestion 
 		// id), and the honest framing is "this is expensive, is it
 		// worth it" rather than "delete this".
 		if a.DistinctValues >= highCardinalityValues && a.EstBytesPerDay >= minAttrBytesPerDay {
-			out = append(out, Suggestion{
+			out = append(out, in.withSnippet(Suggestion{
 				Fingerprint: fmt.Sprintf("T4|attr|%s|%s", a.Service, a.Key),
 				Class:       "T4",
 				Advisor:     "telemetry",
@@ -338,8 +387,7 @@ func evalSpanAttributes(in TelemetryInput, attrs []SpanAttrSupply) []Suggestion 
 				Loss: fmt.Sprintf("Worth a look before acting: a high-cardinality attribute is often the "+
 					"useful one (an order or correlation id). If %q is how you find a specific message, "+
 					"keep it — this is flagged because it is expensive, not because it is useless.", a.Key),
-				Snippet: snippetDeleteSpanAttr(a.Service, a.Key),
-				Weight:  int64(a.EstBytesPerDay),
+				Weight: int64(a.EstBytesPerDay),
 				Evidence: map[string]any{
 					"distinct_values":   a.DistinctValues,
 					"present_on_spans":  fmt.Sprintf("%.0f%%", presence*100),
@@ -347,13 +395,13 @@ func evalSpanAttributes(in TelemetryInput, attrs []SpanAttrSupply) []Suggestion 
 					"review_required":   true,
 					"demand":            lastSeenPhrase(in.Demand.LastConsumed("trace", a.Service, a.Key), in.To),
 				},
-			})
+			}, a.Service, func(t collectorversion.Target) (string, error) { return snippetDeleteSpanAttr(a.Service, a.Key, t) }))
 			continue
 		}
 
 		// T3 — dead weight: structural, sizeable, unread.
 		if presence >= attrPresenceFloor && a.EstBytesPerDay >= minAttrBytesPerDay {
-			out = append(out, Suggestion{
+			out = append(out, in.withSnippet(Suggestion{
 				Fingerprint: fmt.Sprintf("T3|attr|%s|%s", a.Service, a.Key),
 				Class:       "T3",
 				Advisor:     "telemetry",
@@ -363,15 +411,14 @@ func evalSpanAttributes(in TelemetryInput, attrs []SpanAttrSupply) []Suggestion 
 				Loss: fmt.Sprintf("You can no longer filter or group %s's messages by %q. "+
 					"The messages themselves are untouched — this removes one field, not the record.",
 					a.Service, a.Key),
-				Snippet: snippetDeleteSpanAttr(a.Service, a.Key),
-				Weight:  int64(a.EstBytesPerDay),
+				Weight: int64(a.EstBytesPerDay),
 				Evidence: map[string]any{
 					"present_on_spans":  fmt.Sprintf("%.0f%%", presence*100),
 					"avg_value_bytes":   int(a.AvgValueBytes),
 					"est_bytes_per_day": a.EstBytesPerDay,
 					"demand":            lastSeenPhrase(in.Demand.LastConsumed("trace", a.Service, a.Key), in.To),
 				},
-			})
+			}, a.Service, func(t collectorversion.Target) (string, error) { return snippetDeleteSpanAttr(a.Service, a.Key, t) }))
 		}
 	}
 	for _, s := range echoed {
@@ -402,7 +449,7 @@ func evalPIIAttributes(ctx context.Context, in TelemetryInput, attrs []SpanAttrS
 		if kind == "" || hits*2 <= len(values) {
 			continue
 		}
-		out = append(out, Suggestion{
+		out = append(out, in.withSnippet(Suggestion{
 			Fingerprint: fmt.Sprintf("T6|pii|%s|%s", a.Service, a.Key),
 			Class:       "T6",
 			Advisor:     "telemetry",
@@ -412,12 +459,11 @@ func evalPIIAttributes(ctx context.Context, in TelemetryInput, attrs []SpanAttrS
 			Loss: "Hashing keeps correlation working (the same value still matches itself) while the " +
 				"original stops being retained. If the readable value is needed for support, this is a " +
 				"retention decision rather than a collector one.",
-			Snippet: snippetRedactAttr(a.Service, a.Key),
 			// Compliance findings rank above cost ones: a big number
 			// should not push a personal-data finding down the page.
 			Weight:   int64(a.EstBytesPerDay) + 1<<40,
 			Evidence: piiEvidence(kind, hits, len(values), a.SpansWithKey),
-		})
+		}, a.Service, func(t collectorversion.Target) (string, error) { return snippetRedactAttr(a.Service, a.Key, t) }))
 	}
 	return out
 }

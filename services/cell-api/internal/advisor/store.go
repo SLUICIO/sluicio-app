@@ -47,18 +47,28 @@ const reopenFactor = 2.0
 
 // Suggestion is one finding plus whatever a human decided about it.
 type Suggestion struct {
-	ID          uuid.UUID      `json:"id"`
-	Fingerprint string         `json:"fingerprint"`
-	Class       string         `json:"class"`
-	Advisor     string         `json:"advisor"`
-	ScopeKind   string         `json:"scope_kind,omitempty"`
-	ScopeID     string         `json:"scope_id,omitempty"`
-	Title       string         `json:"title"`
-	Loss        string         `json:"loss,omitempty"`
-	Snippet     string         `json:"snippet,omitempty"`
-	Evidence    map[string]any `json:"evidence"`
-	Weight      int64          `json:"weight"`
-	State       string         `json:"state"`
+	ID          uuid.UUID `json:"id"`
+	Fingerprint string    `json:"fingerprint"`
+	Class       string    `json:"class"`
+	Advisor     string    `json:"advisor"`
+	ScopeKind   string    `json:"scope_kind,omitempty"`
+	ScopeID     string    `json:"scope_id,omitempty"`
+	Title       string    `json:"title"`
+	Loss        string    `json:"loss,omitempty"`
+	Snippet     string    `json:"snippet,omitempty"`
+	// SnippetTarget is the collector version the snippet was written
+	// for (issue #16). Stored rather than derived: on an ACCEPTED
+	// suggestion the snippet is the audit trail of what was advised, and
+	// re-deriving the target later would make that record describe a
+	// decision nobody made.
+	SnippetTarget string `json:"snippet_target,omitempty"`
+	// SnippetUnavailable is why there is no snippet, when the change
+	// cannot be expressed for the target collector. The finding still
+	// stands; only the YAML is withheld.
+	SnippetUnavailable string         `json:"snippet_unavailable,omitempty"`
+	Evidence           map[string]any `json:"evidence"`
+	Weight             int64          `json:"weight"`
+	State              string         `json:"state"`
 
 	DecidedBy    *uuid.UUID `json:"decided_by,omitempty"`
 	DecidedAt    *time.Time `json:"decided_at,omitempty"`
@@ -74,14 +84,15 @@ type Store struct{ pool *pgxpool.Pool }
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 const suggestionCols = `id, fingerprint, class, advisor, scope_kind, scope_id, title, loss,
-	snippet, evidence, weight, state, decided_by, decided_at, decision_note,
-	first_seen_at, last_seen_at`
+	snippet, snippet_target, snippet_unavailable, evidence, weight, state,
+	decided_by, decided_at, decision_note, first_seen_at, last_seen_at`
 
 func scanSuggestion(row pgx.Row) (Suggestion, error) {
 	var s Suggestion
 	var evidence []byte
 	if err := row.Scan(&s.ID, &s.Fingerprint, &s.Class, &s.Advisor, &s.ScopeKind, &s.ScopeID,
-		&s.Title, &s.Loss, &s.Snippet, &evidence, &s.Weight, &s.State,
+		&s.Title, &s.Loss, &s.Snippet, &s.SnippetTarget, &s.SnippetUnavailable,
+		&evidence, &s.Weight, &s.State,
 		&s.DecidedBy, &s.DecidedAt, &s.DecisionNote, &s.FirstSeenAt, &s.LastSeenAt); err != nil {
 		return Suggestion{}, err
 	}
@@ -110,13 +121,15 @@ func (s *Store) Upsert(ctx context.Context, orgID uuid.UUID, f Suggestion) error
 	_, err = s.pool.Exec(ctx, `
 		INSERT INTO advisor_suggestions
 			(org_id, fingerprint, class, advisor, scope_kind, scope_id, title, loss,
-			 snippet, evidence, weight, state)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'open')
+			 snippet, snippet_target, snippet_unavailable, evidence, weight, state)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$13,$14,$10,$11,'open')
 		ON CONFLICT (org_id, fingerprint) DO UPDATE SET
 			-- Refresh the display and the facts…
 			title      = EXCLUDED.title,
 			loss       = EXCLUDED.loss,
 			snippet    = EXCLUDED.snippet,
+			snippet_target      = EXCLUDED.snippet_target,
+			snippet_unavailable = EXCLUDED.snippet_unavailable,
 			evidence   = EXCLUDED.evidence,
 			-- Weight is the re-open baseline, so a DISMISSED row keeps
 			-- the value the human saw rather than tracking the finding.
@@ -147,7 +160,7 @@ func (s *Store) Upsert(ctx context.Context, orgID uuid.UUID, f Suggestion) error
 				ELSE advisor_suggestions.dismissed_facts
 			END`,
 		orgID, f.Fingerprint, f.Class, f.Advisor, f.ScopeKind, f.ScopeID, f.Title, f.Loss,
-		f.Snippet, evidence, f.Weight, reopenFactor)
+		f.Snippet, evidence, f.Weight, reopenFactor, f.SnippetTarget, f.SnippetUnavailable)
 	return err
 }
 

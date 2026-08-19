@@ -43,6 +43,7 @@ import type {
 } from "../api/types";
 import { EditDrawer } from "../components/primitives";
 import { versionAtLeast } from "../lib/collectorVersion";
+import CollectorTargetEditor from "../components/CollectorTargetEditor";
 import NotificationTemplateEditor from "../components/alerts/NotificationTemplateEditor";
 import TrimIngestionPanel from "../components/metrics/TrimIngestionPanel";
 import MetricAttributesInline from "../components/metrics/MetricAttributesInline";
@@ -1441,6 +1442,21 @@ function IngestKeysTab() {
 
   return (
     <div>
+      {/* The target belongs beside the keys, because this is where a
+          user meets generated YAML for the first time and the snippet
+          below is written for whatever this says. */}
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card__header">
+          Collector version
+          <span className="muted" style={{ marginLeft: 8, fontWeight: 400, fontSize: 13 }}>
+            · what generated config is written for
+          </span>
+        </div>
+        <div style={{ padding: "12px 16px" }}>
+          <CollectorTargetEditor onChanged={(t) => setCollectorTarget(t)} />
+        </div>
+      </div>
+
       <div className="muted" style={{ fontSize: 13, marginBottom: 12 }}>
         Ingest keys authenticate your OpenTelemetry collectors. Send the key as{" "}
         <code>Authorization: Bearer &lt;key&gt;</code> to the cell's OTLP/HTTP endpoint;

@@ -2837,6 +2837,13 @@ export interface AdvisorSuggestion {
   /** Ready-to-paste collector config. Empty for alerting findings, where
    *  the change is inside Sluicio rather than in a collector. */
   snippet?: string;
+  /** The collector version the snippet was written for. Collector
+   *  configuration is not version-stable, so a snippet only means
+   *  something alongside the version it targets. */
+  snippet_target?: string;
+  /** Why there is no snippet, when the change cannot be expressed for
+   *  the target collector. The finding still stands. */
+  snippet_unavailable?: string;
   evidence: Record<string, unknown>;
   /** Ranking key: est. bytes/day (telemetry) or firings (alerting). */
   weight: number;
@@ -2875,6 +2882,16 @@ export interface CollectorTarget {
   /** The configured version is newer than this Sluicio release can
    *  reason about. A limit of ours, never a fault of theirs. */
   beyond_known?: boolean;
+
+  /** Service-scoped reads only: which service this is for. */
+  service?: string;
+  /** The value comes from this service rather than the org. Distinct
+   *  from "set to the same value as the org", which looks identical on
+   *  screen and behaves differently the next time the org default
+   *  moves. */
+  overridden?: boolean;
+  /** The org default this service would fall back to. */
+  org_version?: string;
 }
 
 /** One bucket of an integration's error attribution (issue #12). */

@@ -475,6 +475,14 @@ export const api = {
   getCollectorTarget: () => get<CollectorTarget>(`/collector-target`),
   setCollectorTarget: (body: { version?: string; distribution?: string }) =>
     patch<CollectorTarget>(`/collector-target`, body),
+  getServiceCollectorTarget: (service: string) =>
+    get<CollectorTarget>(`/services/${encodeURIComponent(service)}/collector-target`),
+  // Both fields null clears the override, which is how a service goes
+  // back to following the org default.
+  setServiceCollectorTarget: (
+    service: string,
+    body: { version?: string | null; distribution?: string | null },
+  ) => patch<CollectorTarget>(`/services/${encodeURIComponent(service)}/collector-target`, body),
   integrationErrorBreakdown: (id: string, window: string = "1h") =>
     get<ErrorBreakdownResponse>(
       `/integrations/${encodeURIComponent(id)}/error-breakdown?range=${encodeURIComponent(window)}`
