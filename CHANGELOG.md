@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.114 — 2026-08-20
+
+- fix(#31): narrow the picker the Messages tab actually reads (1bae3db)
+
 ## v0.11.113 — 2026-08-20
 
+- release v0.11.113 — refresh internal changelog (85ec8de)
 - feat(ui): editors for filter fields and the cell's mark (#29, #31) (657f590)
 - feat: navigation reach, per-integration filter fields, white-label mark (#29, #30, #31) (4413a04)
 
