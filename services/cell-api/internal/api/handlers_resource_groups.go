@@ -8,7 +8,10 @@
 //   PUT /api/v1/systems/{id}/groups
 //
 // This is the CE-facing visibility grant: attaching a group makes the
-// resource and its member services viewable by the group's members.
+// resource and, unless told otherwise, its member services viewable by
+// the group's members. Send grant_services:false to grant the
+// integration alone — the case from issue #28, where the services carry
+// sibling integrations the group should not reach.
 // Deliberately NOT gated on the rbac_advanced entitlement — it's the
 // Community way to grant visibility; the richer policy kinds stay EE.
 // Both endpoints are a restricted façade over single-resource policies
@@ -29,6 +32,12 @@ import (
 
 type setResourceGroupsBody struct {
 	GroupIDs []string `json:"group_ids"`
+	// GrantServices: integrations only. Omitted means true, which is the
+	// documented CE meaning of an attachment — the group may view the
+	// integration AND its member services. Send false to grant the
+	// integration alone, which is what you want when the services are
+	// shared with integrations this group should not reach (issue #28).
+	GrantServices *bool `json:"grant_services,omitempty"`
 }
 
 func parseGroupIDs(raw []string) ([]uuid.UUID, error) {
@@ -75,11 +84,15 @@ func (h *Handlers) putIntegrationGroups(w http.ResponseWriter, r *http.Request) 
 	if !h.integrationInOrg(w, r, id) {
 		return
 	}
-	gids, ok := h.decodeGroupIDs(w, r)
+	gids, body, ok := h.decodeGroupIDs(w, r)
 	if !ok {
 		return
 	}
-	if err := h.Identity.SetIntegrationGroups(r.Context(), middleware.OrgID(r), id, gids); err != nil {
+	grantServices := true
+	if body.GrantServices != nil {
+		grantServices = *body.GrantServices
+	}
+	if err := h.Identity.SetIntegrationGroups(r.Context(), middleware.OrgID(r), id, gids, grantServices); err != nil {
 		h.writeSetGroupsError(w, err)
 		return
 	}
@@ -115,7 +128,7 @@ func (h *Handlers) putSystemGroups(w http.ResponseWriter, r *http.Request) {
 	if !h.systemInOrg(w, r, id) {
 		return
 	}
-	gids, ok := h.decodeGroupIDs(w, r)
+	gids, _, ok := h.decodeGroupIDs(w, r)
 	if !ok {
 		return
 	}
@@ -130,18 +143,21 @@ func (h *Handlers) putSystemGroups(w http.ResponseWriter, r *http.Request) {
 
 // ── shared helpers ─────────────────────────────────────────────────
 
-func (h *Handlers) decodeGroupIDs(w http.ResponseWriter, r *http.Request) ([]uuid.UUID, bool) {
+// decodeGroupIDs returns the parsed group ids and the decoded body, so
+// a caller that needs more than the ids (the integration attachment,
+// which also reads grant_services) does not have to re-read the stream.
+func (h *Handlers) decodeGroupIDs(w http.ResponseWriter, r *http.Request) ([]uuid.UUID, setResourceGroupsBody, bool) {
 	var body setResourceGroupsBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		httpserver.WriteError(w, http.StatusBadRequest, "invalid JSON body")
-		return nil, false
+		return nil, body, false
 	}
 	gids, err := parseGroupIDs(body.GroupIDs)
 	if err != nil {
 		httpserver.WriteError(w, http.StatusBadRequest, err.Error())
-		return nil, false
+		return nil, body, false
 	}
-	return gids, true
+	return gids, body, true
 }
 
 func (h *Handlers) writeSetGroupsError(w http.ResponseWriter, err error) {

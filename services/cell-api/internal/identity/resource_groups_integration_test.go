@@ -41,14 +41,14 @@ func TestResourceGroupAttachment(t *testing.T) {
 	sys := seedSystem(f, "warehouse-rabbit")
 
 	t.Run("replace-set on integration", func(t *testing.T) {
-		if err := f.store.SetIntegrationGroups(f.ctx, f.org, integ, []uuid.UUID{g1, g2}); err != nil {
+		if err := f.store.SetIntegrationGroups(f.ctx, f.org, integ, []uuid.UUID{g1, g2}, true); err != nil {
 			t.Fatalf("set: %v", err)
 		}
 		got, err := f.store.ListGroupsForIntegration(f.ctx, f.org, integ)
 		if err != nil || len(got) != 2 {
 			t.Fatalf("list after set = %v (err %v), want 2", got, err)
 		}
-		if err := f.store.SetIntegrationGroups(f.ctx, f.org, integ, []uuid.UUID{g2}); err != nil {
+		if err := f.store.SetIntegrationGroups(f.ctx, f.org, integ, []uuid.UUID{g2}, true); err != nil {
 			t.Fatalf("replace: %v", err)
 		}
 		got, _ = f.store.ListGroupsForIntegration(f.ctx, f.org, integ)
@@ -66,7 +66,7 @@ func TestResourceGroupAttachment(t *testing.T) {
 		f.policy(g1, identity.AccessPolicyInput{Kind: identity.PolicySystem, TargetSystemKind: "rabbitmq"})
 
 		// Clearing the integration attachment must leave all three intact.
-		if err := f.store.SetIntegrationGroups(f.ctx, f.org, integ, nil); err != nil {
+		if err := f.store.SetIntegrationGroups(f.ctx, f.org, integ, nil, true); err != nil {
 			t.Fatalf("clear: %v", err)
 		}
 		policies, err := f.store.ListPoliciesForGroup(f.ctx, g1)
@@ -90,7 +90,7 @@ func TestResourceGroupAttachment(t *testing.T) {
 			otherOrg).Scan(&foreignGroup); err != nil {
 			t.Fatalf("seed foreign group: %v", err)
 		}
-		err := f.store.SetIntegrationGroups(f.ctx, f.org, integ, []uuid.UUID{g2, foreignGroup})
+		err := f.store.SetIntegrationGroups(f.ctx, f.org, integ, []uuid.UUID{g2, foreignGroup}, true)
 		if err == nil {
 			t.Fatal("foreign group accepted — cross-org leak")
 		}

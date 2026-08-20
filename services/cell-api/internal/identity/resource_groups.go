@@ -65,20 +65,34 @@ func (s *Store) listResourceGroups(ctx context.Context, orgID uuid.UUID, cond st
 }
 
 // SetIntegrationGroups replaces the set of groups granted this integration.
-func (s *Store) SetIntegrationGroups(ctx context.Context, orgID, integrationID uuid.UUID, groupIDs []uuid.UUID) error {
+// grantServices decides whether the attachment also makes the member
+// services viewable in their own right.
+//
+// TRUE is the default and the documented CE contract: attaching a group
+// to an integration makes the resource AND its member services
+// viewable, and Community has no other route to grant service
+// visibility because the richer policy kinds are EE. Silently
+// redefining it to integration-only would take a capability away from
+// exactly the users with no alternative.
+//
+// FALSE is the least-privilege option added by issue #28, for the case
+// that motivated it: several flows on one runtime, where granting the
+// service hands over every sibling integration it carries. Chosen per
+// attachment, because whether the services should come along depends on
+// whether they are shared, and only the person attaching knows that.
+func (s *Store) SetIntegrationGroups(ctx context.Context, orgID, integrationID uuid.UUID, groupIDs []uuid.UUID, grantServices bool) error {
+	insert := `INSERT INTO group_access_policies (group_id, kind, target_integration_id, grant_services)
+		 VALUES ($1, 'integration', $2, TRUE)`
+	if !grantServices {
+		insert = `INSERT INTO group_access_policies (group_id, kind, target_integration_id, grant_services)
+		 VALUES ($1, 'integration', $2, FALSE)`
+	}
 	return s.setResourceGroups(ctx, orgID, groupIDs,
 		`DELETE FROM group_access_policies p
 		 USING groups g
 		 WHERE g.id = p.group_id AND g.org_id = $1
 		   AND p.kind = 'integration' AND p.target_integration_id = $2`,
-		// grant_services is set EXPLICITLY rather than left to the column
-		// default (issue #28). The default is TRUE only so the migration
-		// preserves policies written before the flag existed; an
-		// attachment made from here on grants the integration and not
-		// the services under it, which is the whole point — on a shared
-		// runtime those services carry every sibling integration too.
-		`INSERT INTO group_access_policies (group_id, kind, target_integration_id, grant_services)
-		 VALUES ($1, 'integration', $2, FALSE)`,
+		insert,
 		integrationID)
 }
 
