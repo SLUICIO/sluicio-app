@@ -3,8 +3,15 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.109 — 2026-08-20
+
+- fix(rbac): integration-only grants reach their own slice, not the service (#28 phase 2) (7ae289f)
+- fix(rbac): an integration grant stays an integration grant (#28) (a825342)
+- feat(collector): finish version-aware config generation (#16) (87137f5)
+
 ## v0.11.108 — 2026-08-18
 
+- release v0.11.108 — refresh internal changelog (094245b)
 - fix(facets): give the detection pass an org, so facet rules take effect (cd7921d)
 
 ## v0.11.107 — 2026-08-18
