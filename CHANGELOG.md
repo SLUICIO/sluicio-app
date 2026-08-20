@@ -3,8 +3,14 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.113 — 2026-08-20
+
+- feat(ui): editors for filter fields and the cell's mark (#29, #31) (657f590)
+- feat: navigation reach, per-integration filter fields, white-label mark (#29, #30, #31) (4413a04)
+
 ## v0.11.112 — 2026-08-20
 
+- release v0.11.112 — refresh internal changelog (7c07143)
 - fix(rbac): attachment keeps its CE meaning, with an opt-out (#28) (e206288)
 
 ## v0.11.111 — 2026-08-20
