@@ -1219,15 +1219,22 @@ test.describe("RBAC — MCP surface", () => {
   });
 });
 
-// ── Attach-before-telemetry: pin the current semantics ──────────────────
+// ── Attach before telemetry ─────────────────────────────────────────────
 //
-// Visibility flows through MEMBER SERVICES (canSeeIntegration): a group
-// attached to a service-less integration grants nothing until telemetry
-// arrives. Deliberate pin of today's behaviour — if the product decides
-// direct attachment should reveal the integration row, flip this test
-// with that change.
+// Visibility used to flow through MEMBER SERVICES, so a group attached
+// to an integration that had no telemetry yet was granted nothing: you
+// set up access ahead of the data, and it silently did nothing until
+// spans arrived. The previous version of this test pinned that as
+// "current semantics" and said to flip it if the product decided direct
+// attachment should reveal the row. Issue #28 decided exactly that.
+//
+// Integrations are now granted as themselves, so the attachment works
+// immediately and the row is visible while still empty. The service
+// stays invisible — attaching an integration is not a grant of the
+// services under it, which is what kept every sibling integration on a
+// shared runtime reachable.
 test.describe("RBAC — attach before telemetry", () => {
-  test("group attached to a service-less integration grants nothing (current semantics)", async ({ page, browser }) => {
+  test("group attached to a service-less integration sees that integration", async ({ page, browser }) => {
     await logIn(page);
     const admin = page.request;
     await ensureViewer(admin);
@@ -1252,7 +1259,13 @@ test.describe("RBAC — attach before telemetry", () => {
 
     const viewer = await viewerContext(browser);
     const seen = (await (await viewer.request.get("/api/v1/integrations?range=30d")).json()).integrations ?? [];
-    expect(seen.map((i: { id: string }) => i.id)).not.toContain(integID);
+    expect(seen.map((i: { id: string }) => i.id)).toContain(integID);
+
+    // Granted the integration, not the services beneath it. With no
+    // telemetry there are none yet, so the assertion that carries weight
+    // is that the grant did not become a service grant on the way in.
+    const svcs = (await (await viewer.request.get("/api/v1/services?range=30d")).json()).services ?? [];
+    expect(svcs.length).toBe(0);
     await viewer.context().close();
 
     await admin.delete(`/api/v1/integrations/${integID}`);

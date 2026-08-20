@@ -71,8 +71,14 @@ func (s *Store) SetIntegrationGroups(ctx context.Context, orgID, integrationID u
 		 USING groups g
 		 WHERE g.id = p.group_id AND g.org_id = $1
 		   AND p.kind = 'integration' AND p.target_integration_id = $2`,
-		`INSERT INTO group_access_policies (group_id, kind, target_integration_id)
-		 VALUES ($1, 'integration', $2)`,
+		// grant_services is set EXPLICITLY rather than left to the column
+		// default (issue #28). The default is TRUE only so the migration
+		// preserves policies written before the flag existed; an
+		// attachment made from here on grants the integration and not
+		// the services under it, which is the whole point — on a shared
+		// runtime those services carry every sibling integration too.
+		`INSERT INTO group_access_policies (group_id, kind, target_integration_id, grant_services)
+		 VALUES ($1, 'integration', $2, FALSE)`,
 		integrationID)
 }
 
