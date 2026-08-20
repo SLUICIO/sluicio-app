@@ -267,10 +267,55 @@ func TestVisibilityScoping(t *testing.T) {
 		assertVisible(t, set, wildcard, false, "checkout")
 	})
 
-	t.Run("integration policy expands to member services", func(t *testing.T) {
+	// Issue #28. An integration grant used to be lowered to its member
+	// service names, which made a grant of ONE integration
+	// indistinguishable from a grant of every integration those services
+	// carry — on a shared runtime, all of them. So the default is now
+	// that the services do NOT come along, and the visible SERVICE set
+	// from an integration-only policy is empty.
+	t.Run("integration policy alone grants no services", func(t *testing.T) {
 		u := f.user("v-int@acme", identity.RoleViewer)
 		g := f.group("int-team", u, identity.RoleViewer)
 		f.policy(g, identity.AccessPolicyInput{Kind: identity.PolicyIntegration, TargetIntegrationID: integID.String()})
+		set, wildcard := resolve(u)
+		assertVisible(t, set, wildcard, false)
+	})
+
+	// The integration itself is granted, which is what the object
+	// visibility checks read. Asserted here because the service set
+	// above is deliberately empty, and "empty" must not be mistaken for
+	// "this policy does nothing".
+	t.Run("integration policy grants the integration itself", func(t *testing.T) {
+		u := f.user("v-int-id@acme", identity.RoleViewer)
+		g := f.group("int-id-team", u, identity.RoleViewer)
+		f.policy(g, identity.AccessPolicyInput{Kind: identity.PolicyIntegration, TargetIntegrationID: integID.String()})
+		granted, wildcard, err := f.store.ResolveVisibleIntegrationsMember(
+			f.ctx, identity.UserRef(u), f.org, expand, expandSystem)
+		if err != nil {
+			t.Fatalf("ResolveVisibleIntegrationsMember: %v", err)
+		}
+		if wildcard {
+			t.Fatal("an integration policy resolved as a wildcard")
+		}
+		if _, ok := granted[integID]; !ok {
+			t.Errorf("granted integrations = %v, want it to contain %s", granted, integID)
+		}
+		if len(granted) != 1 {
+			t.Errorf("granted %d integrations, want exactly 1", len(granted))
+		}
+	})
+
+	// Opting in restores the old meaning. Policies written before the
+	// flag existed are migrated to true for exactly this reason: it was
+	// their meaning when somebody authored them.
+	t.Run("integration policy with grant_services expands to member services", func(t *testing.T) {
+		u := f.user("v-int-svc@acme", identity.RoleViewer)
+		g := f.group("int-svc-team", u, identity.RoleViewer)
+		f.policy(g, identity.AccessPolicyInput{
+			Kind:                identity.PolicyIntegration,
+			TargetIntegrationID: integID.String(),
+			GrantServices:       true,
+		})
 		set, wildcard := resolve(u)
 		assertVisible(t, set, wildcard, false, "orders-api", "orders-worker")
 	})
