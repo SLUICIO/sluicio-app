@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/identity"
 	"net/http"
 	"sort"
@@ -282,6 +283,11 @@ type AttributeKeyInfo struct {
 	Key      string `json:"key"`
 	Source   string `json:"source"`
 	UseCount uint64 `json:"useCount"`
+	// Label is what the picker shows instead of the raw key, when the
+	// integration in scope has given this attribute a name (issue #31).
+	// Display only — the query, the stored filter and the audit trail
+	// all keep Key.
+	Label string `json:"label,omitempty"`
 }
 
 // fieldsCatalog: GET /api/v1/messages/fields?range=24h
@@ -327,6 +333,49 @@ func (h *Handlers) fieldsCatalog(w http.ResponseWriter, r *http.Request) {
 			}
 			return flat[i].Key < flat[j].Key
 		})
+	}
+
+	// Narrow the attribute list to what this integration exposes, and
+	// label each one, when the caller says which integration they are
+	// filtering (issue #31). Where a service emits a hundred attributes
+	// the picker is a haystack; the point of the feature is that an
+	// editor names the handful worth filtering on.
+	//
+	// An integration with no list configured is unrestricted, so the
+	// full catalogue comes back and nothing changes for anyone who has
+	// not asked for this.
+	if want := strings.TrimSpace(r.URL.Query().Get("integration")); want != "" {
+		if id, ok := h.integrationIDByName(r.Context(), want); ok {
+			if full, err := h.Integrations.Get(r.Context(), middleware.OrgID(r), id); err == nil && len(full.MessageFilters) > 0 {
+				labels := make(map[string]string, len(full.MessageFilters))
+				for _, f := range full.MessageFilters {
+					labels[f.Key] = f.Label
+				}
+				narrowed := make([]AttributeKeyInfo, 0, len(full.MessageFilters))
+				for _, k := range flat {
+					if label, ok := labels[k.Key]; ok {
+						k.Label = label
+						narrowed = append(narrowed, k)
+					}
+				}
+				// A configured key with no telemetry yet still belongs in
+				// the picker: the editor put it there deliberately, and
+				// a monthly flow's attribute is absent most of the time.
+				for _, f := range full.MessageFilters {
+					found := false
+					for _, k := range narrowed {
+						if k.Key == f.Key {
+							found = true
+							break
+						}
+					}
+					if !found {
+						narrowed = append(narrowed, AttributeKeyInfo{Key: f.Key, Source: "span", Label: f.Label})
+					}
+				}
+				flat = narrowed
+			}
+		}
 	}
 
 	// List the integrations in the org for the integration field's
@@ -418,6 +467,33 @@ func (h *Handlers) fieldsCatalog(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// disallowedFilterField returns the first attribute key the request
+// filters on that the integration does not expose, or "" when every
+// filter is allowed.
+//
+// Only attribute filters are checked. The structural fields — time,
+// status, service, traceId and the rest — are part of the product's own
+// vocabulary rather than the customer's telemetry, and restricting them
+// would break the message view itself rather than tidy it.
+func disallowedFilterField(filters []messageviews.Filter, allowed []integrations.MessageFilter) string {
+	if len(allowed) == 0 {
+		return ""
+	}
+	for _, f := range filters {
+		if f.Field != messageviews.FieldPayload {
+			continue
+		}
+		key := strings.TrimSpace(f.FieldPath)
+		if key == "" {
+			continue
+		}
+		if !integrations.MessageFilterAllowed(allowed, key) {
+			return key
+		}
+	}
+	return ""
+}
+
 // searchMessages: POST /api/v1/messages/search
 //
 // Body shape (see messageviews.SearchRequest):
@@ -493,6 +569,18 @@ func (h *Handlers) searchMessages(w http.ResponseWriter, r *http.Request) {
 			// column 1's heading.
 			if full, err := h.Integrations.Get(r.Context(), middleware.OrgID(r), id); err == nil {
 				messageColumns = full.MessageColumns
+				// Enforce the integration's filter-field list, not merely
+				// offer it (issue #31). Curating the picker alone would
+				// leave the promise hollow for anyone calling the API,
+				// and "these are the fields you may use" would not be
+				// true. An empty list allows everything, so this only
+				// binds where somebody configured it.
+				if bad := disallowedFilterField(req.Filters, full.MessageFilters); bad != "" {
+					httpserver.WriteError(w, http.StatusBadRequest, fmt.Sprintf(
+						"this integration cannot be filtered by %q. Allowed fields: %s",
+						bad, strings.Join(integrations.MessageFilterKeys(full.MessageFilters), ", ")))
+					return
+				}
 			}
 		}
 		messageColumns = h.resolveMessageColumns(r, req.ViewID, messageColumns)

@@ -2873,6 +2873,35 @@ export interface AdvisorSuggestionsResponse {
  *  (issue #16). Collector configuration is not version-stable, so YAML
  *  written without a target is right for some customers and refuses to
  *  start for others. */
+/** Which monitor surfaces hold something for the caller (issue #30).
+ *  Every field answers "is there anything here for you", not "may you
+ *  write". A HINT for the navigation: the server remains the gate. */
+export interface NavigationReach {
+  integrations: boolean;
+  services: boolean;
+  systems: boolean;
+  topology: boolean;
+  messages: boolean;
+  metrics: boolean;
+  logs: boolean;
+  errors: boolean;
+  /** Admin or a wildcard policy: every field above is true. */
+  unrestricted: boolean;
+}
+
+/** The cell's mark, when a partner runs Sluicio under their own brand
+ *  (issue #29). Every field is optional and falls back to the Sluicio
+ *  default independently. An unentitled cell always reads back empty,
+ *  whatever is stored, so the presence of a logo IS the licence check. */
+export interface Branding {
+  logo: string;
+  logo_dark?: string;
+  wordmark?: string;
+  favicon?: string;
+  /** Whether white-labelling is licensed, for the operator form. */
+  entitled: boolean;
+}
+
 export interface CollectorTarget {
   version: string;
   distribution: string;

@@ -5,7 +5,9 @@
 
 import type {
   AdvisorLedger,
+  Branding,
   CollectorTarget,
+  NavigationReach,
   ErrorBreakdownResponse,
   AdvisorSuggestion,
   AdvisorSuggestionsResponse,
@@ -472,6 +474,14 @@ export const api = {
   getMetadataGraph: () => get<MetaGraphResponse>(`/metadata-graph`),
   // `trace` projects one message onto the graph (issue #15): the same
   // nodes and edges come back, plus a per-node state for that message.
+  getNavigationReach: () => get<NavigationReach>(`/me/navigation`),
+  getBranding: () => get<Branding>(`/cell-settings/branding`),
+  setBranding: (body: Partial<Branding>) => put<Branding>(`/cell-settings/branding`, body),
+  setIntegrationMessageFilters: (id: string, filters: { key: string; label: string }[]) =>
+    put<{ filters: { key: string; label: string }[] }>(
+      `/integrations/${encodeURIComponent(id)}/message-filters`,
+      { filters },
+    ),
   getCollectorTarget: () => get<CollectorTarget>(`/collector-target`),
   setCollectorTarget: (body: { version?: string; distribution?: string }) =>
     patch<CollectorTarget>(`/collector-target`, body),

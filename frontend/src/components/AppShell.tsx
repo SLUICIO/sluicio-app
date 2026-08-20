@@ -26,10 +26,11 @@ import { ReactNode, useEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import { onErrorCountsChanged } from "../lib/errorCountsChanged";
-import type { GlobalSearchGroup, Organization, OrganizationMembership } from "../api/types";
+import type { GlobalSearchGroup, NavigationReach, Organization, OrganizationMembership } from "../api/types";
 import { switchToOrg } from "../lib/activeOrg";
 import { BreadcrumbProvider, useBreadcrumbLeafValue, useBreadcrumbTrailValue, type Crumb } from "../lib/breadcrumb";
 import { useCurrentUser } from "../lib/useCurrentUser";
+import { useBranding, brandingLogoFor, applyBrandingToDocument } from "../lib/useBranding";
 import { LogoMark } from "./brand/Logo";
 import TimeWindowPicker from "./TimeWindowPicker";
 import DigestBell from "./DigestBell";
@@ -51,6 +52,16 @@ interface NavItem {
   requiresWrite?: boolean;
   // operatorOnly items are hidden for everyone but cell operators.
   operatorOnly?: boolean;
+  // reach names the field in GET /me/navigation that says whether this
+  // surface holds anything for the caller (issue #30). Absent means
+  // always shown: Dashboard is the landing page, and somebody with
+  // nothing to see still has to land somewhere that says so.
+  //
+  // A HINT, not a gate. The server decides access; this decides what is
+  // worth offering. Hiding an entry must never be the reason a page is
+  // unreachable, which is why every field here is derived from the same
+  // resolution the real gates use.
+  reach?: keyof NavigationReach;
 }
 
 interface NavGroup {
@@ -65,14 +76,14 @@ const navGroups: NavGroup[] = [
     header: "Monitor",
     items: [
       { to: "/health", label: "Dashboard", icon: <DashboardIcon /> },
-      { to: "/integrations", label: "Integrations", icon: <IntegrationsIcon /> },
-      { to: "/services", label: "Services", icon: <ServicesIcon /> },
-      { to: "/systems", label: "Systems", icon: <SystemsIcon /> },
-      { to: "/topology", label: "Topology", icon: <TopologyIcon /> },
-      { to: "/search", label: "Messages", icon: <MessageIcon /> },
-      { to: "/metrics", label: "Metrics", icon: <MetricsIcon /> },
-      { to: "/logs", label: "Logs", icon: <LogsIcon /> },
-      { to: "/stuck", label: "Errors", icon: <BellIcon /> },
+      { to: "/integrations", label: "Integrations", reach: "integrations", icon: <IntegrationsIcon /> },
+      { to: "/services", label: "Services", reach: "services", icon: <ServicesIcon /> },
+      { to: "/systems", label: "Systems", reach: "systems", icon: <SystemsIcon /> },
+      { to: "/topology", label: "Topology", reach: "topology", icon: <TopologyIcon /> },
+      { to: "/search", label: "Messages", reach: "messages", icon: <MessageIcon /> },
+      { to: "/metrics", label: "Metrics", reach: "metrics", icon: <MetricsIcon /> },
+      { to: "/logs", label: "Logs", reach: "logs", icon: <LogsIcon /> },
+      { to: "/stuck", label: "Errors", reach: "errors", icon: <BellIcon /> },
     ],
   },
   {
@@ -186,6 +197,36 @@ function Brand() {
   // Flow-S mark + "Sluicio" wordmark — the primary brand lockup per
   // the v2 design handoff. Mark inherits color via currentColor and
   // is set to var(--primary) for the standard on-surface use.
+  //
+  // A licensed cell may replace the lockup with a partner's own (issue
+  // #29). The server returns the Sluicio default whenever the cell is
+  // not entitled, whatever is stored, so there is nothing to check here:
+  // if a mark came back, it is licensed.
+  const branding = useBranding();
+  // The favicon and the tab title live outside the React tree, so they
+  // are applied imperatively once the answer lands.
+  useEffect(() => {
+    applyBrandingToDocument(branding);
+  }, [branding]);
+  if (branding?.logo) {
+    return (
+      <div className="flex items-center gap-2" aria-label={branding.wordmark || "Sluicio"}>
+        <img
+          src={brandingLogoFor(branding)}
+          alt=""
+          style={{ height: 22, width: "auto", maxWidth: 120 }}
+        />
+        {branding.wordmark && (
+          <span
+            className="text-sm font-bold tracking-tight"
+            style={{ color: "var(--primary)" }}
+          >
+            {branding.wordmark}
+          </span>
+        )}
+      </div>
+    );
+  }
   return (
     <div className="flex items-center gap-2" aria-label="Sluicio">
       <LogoMark size={22} style={{ color: "var(--primary)" }} />
@@ -851,6 +892,25 @@ function SideNav() {
   const { can, isOperator } = useCurrentUser();
   const canWrite = can("integration.write");
   const canManage = can("org.manage");
+  // Which monitor surfaces hold anything for this caller (issue #30).
+  // Null until the answer lands, which means "show everything" — see the
+  // filter below for why that is the right way round.
+  const [reach, setReach] = useState<NavigationReach | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .getNavigationReach()
+      .then((r) => {
+        if (!cancelled) setReach(r);
+      })
+      // A failure leaves reach null, so every entry stays offered. The
+      // pages are gated server-side, so the cost is an empty page rather
+      // than anything getting out.
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   // Org-wide failing-health-check count for the Errors nav pill — every
   // firing health check across all services + integrations. Refreshed on a
   // slow poll so it stays current without hammering the errors feed.
@@ -903,6 +963,16 @@ function SideNav() {
   // Drop admin-only items (Settings) for non-admins and write-only items
   // (the whole Config section) for read-only viewers, then any group left
   // empty. A viewer is left with just the Monitoring section.
+  //
+  // Monitor entries are additionally dropped when they hold nothing for
+  // this caller (issue #30): a viewer scoped to one integration was
+  // being offered Services, Systems, Topology, Metrics and Logs, all of
+  // which are empty or 404 for them.
+  //
+  // Until the answer arrives, everything is shown. Rendering an empty
+  // sidebar for a moment on every page load is worse than briefly
+  // offering an entry that turns out to be empty, and the pages behind
+  // them are gated server-side regardless.
   const visibleGroups = navGroups
     .map((g) => ({
       ...g,
@@ -910,7 +980,8 @@ function SideNav() {
         (it) =>
           (!it.adminOnly || canManage) &&
           (!it.requiresWrite || canWrite) &&
-          (!it.operatorOnly || isOperator),
+          (!it.operatorOnly || isOperator) &&
+          (!it.reach || !reach || reach[it.reach]),
       ),
     }))
     .filter((g) => g.items.length > 0);

@@ -980,6 +980,7 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/badges/{kind}/{id}", h.badgeSVG)
 	mux.HandleFunc("PUT /api/v1/integrations/{id}/badge", h.writeService(h.putIntegrationBadge))
 	mux.HandleFunc("PUT /api/v1/integrations/{id}/message-columns", h.writeService(h.putIntegrationMessageColumns))
+	mux.HandleFunc("PUT /api/v1/integrations/{id}/message-filters", h.writeService(h.putIntegrationMessageFilters))
 	mux.HandleFunc("PUT /api/v1/systems/{id}/badge", h.writeService(h.putSystemBadge))
 	mux.HandleFunc("PUT /api/v1/services/{name}/badge", h.writeService(h.putServiceBadge))
 	mux.HandleFunc("GET /api/v1/errors", h.errorsFeed)
@@ -1154,6 +1155,9 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	// Suggested integrations from the call graph. Deterministic, so a
 	// cell with no agent attached still gets them.
 	mux.HandleFunc("GET /api/v1/integration-candidates", h.integrationCandidates)
+	// What the caller can reach, for the navigation (issue #30). A hint
+	// for the UI; the gates elsewhere remain the boundary.
+	mux.HandleFunc("GET /api/v1/me/navigation", h.getNavigation)
 	mux.HandleFunc("GET /api/v1/collector-target", h.getCollectorTarget)
 	mux.HandleFunc("GET /api/v1/services/{name}/collector-target",
 		h.gateServiceRoute(h.getServiceCollectorTarget))
@@ -1314,6 +1318,7 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	// handlers_operator.go. In single-org self-hosted the bootstrap admin
 	// is the operator, so nothing here is out of reach for that deploy.
 	if h.AuthMW != nil {
+		mux.HandleFunc("PUT /api/v1/cell-settings/branding", h.AuthMW.RequireOperator(h.putBranding))
 		mux.HandleFunc("GET /api/v1/operator/orgs", h.AuthMW.RequireOperator(h.listOperatorOrgs))
 		mux.HandleFunc("POST /api/v1/operator/orgs", h.AuthMW.RequireOperator(h.createOperatorOrg))
 		mux.HandleFunc("PATCH /api/v1/operator/orgs/{id}", h.AuthMW.RequireOperator(h.updateOperatorOrg))
@@ -1336,6 +1341,10 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	// are operator-gated because they surface configuration detail.
 	mux.HandleFunc("GET /api/v1/cell-settings/retention", h.getRetention)
 	mux.HandleFunc("GET /api/v1/cell-settings/system", h.getSystemSettings)
+	// The cell's mark (issue #29). Readable by anyone who has to render
+	// the shell; writable only by an operator, because a partner's brand
+	// is a property of the deployment rather than of one org in it.
+	mux.HandleFunc("GET /api/v1/cell-settings/branding", h.getBranding)
 	if h.AuthMW != nil {
 		mux.HandleFunc("PATCH /api/v1/cell-settings/retention",
 			h.AuthMW.RequireOperator(h.patchRetention))

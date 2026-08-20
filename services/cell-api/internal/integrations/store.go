@@ -55,13 +55,14 @@ func (s *Store) List(ctx context.Context, orgID uuid.UUID) ([]Integration, error
 func (s *Store) Get(ctx context.Context, orgID, id uuid.UUID) (IntegrationWithMatchers, error) {
 	const q = `
 		SELECT id, organization_id, slug, name, COALESCE(description, ''), badge_public,
-		       COALESCE(message_columns, '[]'::jsonb), created_at, updated_at
+		       COALESCE(message_columns, '[]'::jsonb), COALESCE(message_filters, '[]'::jsonb),
+		       created_at, updated_at
 		FROM integrations
 		WHERE organization_id = $1 AND id = $2
 	`
 	var i Integration
-	var cols []byte
-	err := s.pool.QueryRow(ctx, q, orgID, id).Scan(&i.ID, &i.OrganizationID, &i.Slug, &i.Name, &i.Description, &i.BadgePublic, &cols, &i.CreatedAt, &i.UpdatedAt)
+	var cols, filters []byte
+	err := s.pool.QueryRow(ctx, q, orgID, id).Scan(&i.ID, &i.OrganizationID, &i.Slug, &i.Name, &i.Description, &i.BadgePublic, &cols, &filters, &i.CreatedAt, &i.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return IntegrationWithMatchers{}, ErrNotFound
 	}
@@ -73,6 +74,15 @@ func (s *Store) Get(ctx context.Context, orgID, id uuid.UUID) (IntegrationWithMa
 	// default columns. Nothing else on this screen depends on it.
 	if err := json.Unmarshal(cols, &i.MessageColumns); err != nil {
 		i.MessageColumns = nil
+	}
+	// Same reasoning for the filter list, with one difference worth
+	// naming: a filter list that fails to parse falls back to nil, which
+	// means UNRESTRICTED. That is the safe direction here — this is
+	// tidiness, not access control, and RBAC still decides what the
+	// caller may read. Failing closed would hide every filter on the
+	// integration over a malformed row.
+	if err := json.Unmarshal(filters, &i.MessageFilters); err != nil {
+		i.MessageFilters = nil
 	}
 
 	matchers, err := s.MatchersForIntegration(ctx, id)
@@ -123,6 +133,34 @@ func (s *Store) SetMessageColumns(ctx context.Context, orgID, id uuid.UUID, cols
 		 WHERE organization_id = $1 AND id = $2`, orgID, id, raw)
 	if err != nil {
 		return fmt.Errorf("set message columns: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// SetMessageFilters replaces the integration's filter-field list.
+//
+// An empty list is stored as [] and means unrestricted, so clearing the
+// list is how an editor goes back to offering every attribute.
+func (s *Store) SetMessageFilters(ctx context.Context, orgID, id uuid.UUID, filters []MessageFilter) error {
+	normalized, err := NormalizeMessageFilters(filters)
+	if err != nil {
+		return err
+	}
+	if normalized == nil {
+		normalized = []MessageFilter{}
+	}
+	raw, err := json.Marshal(normalized)
+	if err != nil {
+		return fmt.Errorf("encode message filters: %w", err)
+	}
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE integrations SET message_filters = $3, updated_at = now()
+		 WHERE organization_id = $1 AND id = $2`, orgID, id, raw)
+	if err != nil {
+		return fmt.Errorf("set message filters: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrNotFound

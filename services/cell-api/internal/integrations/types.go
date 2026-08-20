@@ -43,6 +43,11 @@ type Integration struct {
 	// integration's message list, in column order. Only populated by
 	// Get. Empty = the default columns.
 	MessageColumns []MessageColumn `json:"message_columns,omitempty"`
+	// MessageFilters is which attributes may be used as filter fields on
+	// this integration's messages, with the label each is shown under
+	// (issue #31). Only populated by Get. Empty = unrestricted, which is
+	// what an integration nobody has configured means.
+	MessageFilters []MessageFilter `json:"message_filters,omitempty"`
 	CreatedAt      time.Time       `json:"created_at"`
 	UpdatedAt      time.Time       `json:"updated_at"`
 }

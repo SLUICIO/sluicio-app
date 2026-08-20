@@ -70,3 +70,38 @@ func (h *Handlers) putIntegrationMessageColumns(w http.ResponseWriter, r *http.R
 	}
 	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"message_columns": cols})
 }
+
+// putIntegrationMessageFilters: PUT /api/v1/integrations/{id}/message-filters
+//
+// Replaces which attributes this integration may be filtered by, and
+// what each is labelled (issue #31). An empty list clears the
+// restriction and goes back to offering every attribute, which is how
+// an editor undoes the whole thing.
+func (h *Handlers) putIntegrationMessageFilters(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	var body struct {
+		Filters []integrations.MessageFilter `json:"filters"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if err := h.Integrations.SetMessageFilters(r.Context(), middleware.OrgID(r), id, body.Filters); err != nil {
+		if errors.Is(err, integrations.ErrNotFound) {
+			httpserver.WriteError(w, http.StatusNotFound, "integration not found")
+			return
+		}
+		// Over the cap is the caller's mistake and is reported verbatim,
+		// because "at most 20 filter fields" is actionable and "failed"
+		// is not.
+		httpserver.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	h.recordAudit(r, "integration.message_filters_updated", "integration", id.String(),
+		map[string]any{"count": len(body.Filters)})
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"filters": body.Filters})
+}

@@ -68,11 +68,24 @@ const (
 	// buys is the analysis — the suggestions, their evidence and the
 	// accept/dismiss trail — not the measurement.
 	FeatureAdvisor Feature = "advisor"
+	// FeatureWhiteLabel gates replacing the Sluicio mark with a
+	// partner's own (issue #29).
+	//
+	// An entitlement rather than a plain setting, and the reasoning is
+	// specific to this feature: the product is self-hosted, so a setting
+	// is something anyone running a cell can turn on. For a feature
+	// whose entire subject is the attribution of the product, that is
+	// the difference between a boundary and a request. The licence is
+	// signed; a boolean in a database is not.
+	//
+	// An unlicensed cell keeps the Sluicio mark. A licensed one may
+	// replace it.
+	FeatureWhiteLabel Feature = "white_label"
 )
 
 // AllFeatures is the canonical list, used to render the features map in the
 // status response so the frontend always sees every gate.
-var AllFeatures = []Feature{FeatureSSO, FeatureRBACAdvanced, FeatureAuditLog, FeatureRetentionLong, FeatureMFAPolicy, FeatureAdvisor}
+var AllFeatures = []Feature{FeatureSSO, FeatureRBACAdvanced, FeatureAuditLog, FeatureRetentionLong, FeatureMFAPolicy, FeatureAdvisor, FeatureWhiteLabel}
 
 // Limits are optional numeric caps carried by a license. Zero means "no
 // explicit limit from the license" (callers apply their own free-tier
