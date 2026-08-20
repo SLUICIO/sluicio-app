@@ -1247,7 +1247,8 @@ func (h *Handlers) integrationAttributeKeys(w http.ResponseWriter, r *http.Reque
 		httpserver.WriteError(w, http.StatusBadRequest, "invalid integration id")
 		return
 	}
-	if _, err := h.Integrations.Get(r.Context(), middleware.OrgID(r), id); err != nil {
+	full, err := h.Integrations.Get(r.Context(), middleware.OrgID(r), id)
+	if err != nil {
 		httpserver.WriteError(w, http.StatusNotFound, "integration not found")
 		return
 	}
@@ -1279,7 +1280,47 @@ func (h *Handlers) integrationAttributeKeys(w http.ResponseWriter, r *http.Reque
 	for _, k := range keys {
 		out = append(out, AttributeKeyInfo{Key: k.Key, Source: k.Source, UseCount: k.UseCount})
 	}
+	// Narrow and label by the integration's configured filter fields
+	// (issue #31). This is the endpoint the integration's Messages tab
+	// actually reads, so it is where the restriction has to bite; the
+	// same narrowing on /messages/fields serves the global search.
+	out = narrowToConfiguredFilters(out, full.MessageFilters)
 	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"attribute_keys": out})
+}
+
+// narrowToConfiguredFilters restricts an attribute-key list to what the
+// integration exposes as filter fields, and applies each one's label.
+//
+// An empty configuration returns the list untouched, which is what an
+// integration nobody has configured means.
+//
+// A configured key with no traffic in the window is still offered. The
+// editor put it there deliberately, and a monthly flow's attribute is
+// absent from a 24-hour window most of the time — dropping it would make
+// the field the editor chose vanish for reasons the reader cannot see.
+func narrowToConfiguredFilters(keys []AttributeKeyInfo, filters []integrations.MessageFilter) []AttributeKeyInfo {
+	if len(filters) == 0 {
+		return keys
+	}
+	labels := make(map[string]string, len(filters))
+	for _, f := range filters {
+		labels[f.Key] = f.Label
+	}
+	out := make([]AttributeKeyInfo, 0, len(filters))
+	seen := make(map[string]bool, len(filters))
+	for _, k := range keys {
+		if label, ok := labels[k.Key]; ok {
+			k.Label = label
+			out = append(out, k)
+			seen[k.Key] = true
+		}
+	}
+	for _, f := range filters {
+		if !seen[f.Key] {
+			out = append(out, AttributeKeyInfo{Key: f.Key, Source: "span", Label: f.Label})
+		}
+	}
+	return out
 }
 
 // integrationAttributeValues: GET /api/v1/integrations/{id}/attribute-values?key=order.id&range=24h

@@ -55,6 +55,12 @@ interface Props {
   // wins over fieldCatalog — the integration Messages tab passes the keys
   // scoped to that integration's traffic.
   attributeKeys?: MessageAttributeKey[];
+  /** The attribute list is the integration's configured set, not the
+   *  whole vocabulary (issue #31). Hides the free-text escape hatch:
+   *  offering a box that types anything, next to a list that restricts,
+   *  is a picker arguing with itself — and the server refuses the
+   *  result anyway. */
+  attributesRestricted?: boolean;
   // When set, the payload value picker becomes a typeahead: it calls this to
   // load the top-N observed values for the chosen attribute key (e.g.
   // integration-scoped). A free-text fallback always remains for exact values
@@ -97,6 +103,7 @@ export default function FilterEditor({
   fieldCatalog,
   fields = DEFAULT_PICKER_FIELDS,
   attributeKeys: attributeKeysProp,
+  attributesRestricted,
   fetchAttrValues,
 }: Props) {
   const summary = buildSummary(filters);
@@ -215,6 +222,7 @@ export default function FilterEditor({
             knownServices={narrowedServices}
             knownErrorTypes={knownErrorTypes}
             attributeKeys={attributeKeys}
+            attributesRestricted={attributesRestricted}
             pickerFields={fields}
             fetchAttrValues={fetchAttrValues}
           />
@@ -245,6 +253,12 @@ interface RowProps {
   knownServices?: string[];
   knownErrorTypes?: string[];
   attributeKeys?: MessageAttributeKey[];
+  /** The attribute list is the integration's configured set, not the
+   *  whole vocabulary (issue #31). Hides the free-text escape hatch:
+   *  offering a box that types anything, next to a list that restricts,
+   *  is a picker arguing with itself — and the server refuses the
+   *  result anyway. */
+  attributesRestricted?: boolean;
   pickerFields: Field[];
   fetchAttrValues?: (key: string) => Promise<AttrValueSuggestion[]>;
 }
@@ -259,6 +273,7 @@ function FilterRow({
   knownServices,
   knownErrorTypes,
   attributeKeys,
+  attributesRestricted,
   pickerFields,
   fetchAttrValues,
 }: RowProps) {
@@ -303,6 +318,7 @@ function FilterRow({
             current={filter.field}
             fieldPath={filter.fieldPath}
             attributeKeys={attributeKeys}
+            attributesRestricted={attributesRestricted}
             fields={pickerFields}
             onPick={(f, path) => {
               // trace/span id only support exact match — pin the op so the
@@ -475,6 +491,12 @@ interface FieldPickerProps {
   current: Field;
   fieldPath?: string;
   attributeKeys?: MessageAttributeKey[];
+  /** The attribute list is the integration's configured set, not the
+   *  whole vocabulary (issue #31). Hides the free-text escape hatch:
+   *  offering a box that types anything, next to a list that restricts,
+   *  is a picker arguing with itself — and the server refuses the
+   *  result anyway. */
+  attributesRestricted?: boolean;
   // The fields offered in this picker (see DEFAULT_PICKER_FIELDS). "time" is
   // never offered: the time range is controlled by the page-wide header
   // selector (useTimeWindow), so the search reuses that rather than a
@@ -483,7 +505,7 @@ interface FieldPickerProps {
   onPick: (f: Field, path?: string) => void;
 }
 
-function FieldPicker({ current, fieldPath, attributeKeys, fields, onPick }: FieldPickerProps) {
+function FieldPicker({ current, fieldPath, attributeKeys, attributesRestricted, fields, onPick }: FieldPickerProps) {
   const [path, setPath] = useState(fieldPath ?? "");
   const [attrFilter, setAttrFilter] = useState("");
   return (
@@ -520,12 +542,21 @@ function FieldPicker({ current, fieldPath, attributeKeys, fields, onPick }: Fiel
                 : setPath(e.target.value)
             }
             onKeyDown={(e) => {
-              if (e.key === "Enter") {
+              // Enter commits a typed key only when typing one is
+              // allowed. With a configured list the box narrows the
+              // list; it does not add to it.
+              if (e.key === "Enter" && !attributesRestricted) {
                 const v = attributeKeys && attributeKeys.length > 0 ? attrFilter : path;
                 if (v.trim()) onPick("payload", v.trim());
               }
             }}
-            placeholder={attributeKeys && attributeKeys.length > 0 ? "filter attributes… (or type a custom field)" : "attribute key (e.g. http.route)"}
+            placeholder={
+              attributesRestricted
+                ? "filter the fields below…"
+                : attributeKeys && attributeKeys.length > 0
+                  ? "filter attributes… (or type a custom field)"
+                  : "attribute key (e.g. http.route)"
+            }
             className="mt-1 w-full rounded border px-2 py-1 font-mono text-sm"
             style={{
               borderColor: "var(--border)",
@@ -536,7 +567,10 @@ function FieldPicker({ current, fieldPath, attributeKeys, fields, onPick }: Fiel
           {attributeKeys && attributeKeys.length > 0 && (
             <div className="mt-2 max-h-48 space-y-0.5 overflow-auto">
               {attributeKeys
-                .filter((k) => k.key.toLowerCase().includes(attrFilter.trim().toLowerCase()))
+                .filter((k) => {
+                  const q = attrFilter.trim().toLowerCase();
+                  return k.key.toLowerCase().includes(q) || (k.label ?? "").toLowerCase().includes(q);
+                })
                 .slice(0, 100)
                 .map((k) => (
                   <button
@@ -546,23 +580,37 @@ function FieldPicker({ current, fieldPath, attributeKeys, fields, onPick }: Fiel
                     className="flex w-full items-center justify-between gap-2 rounded px-2 py-1 text-left font-mono text-xs hover:bg-surface-elevated"
                     style={{ background: k.key === fieldPath ? "var(--surface-3)" : undefined }}
                   >
-                    <span className="truncate">{k.key}</span>
-                    <span className="shrink-0 text-[10px] uppercase text-muted">{k.source}</span>
+                    {/* The label is what the integration chose to call
+                        this attribute; the raw key stays visible beside
+                        it so somebody debugging can still see what is
+                        actually queried. */}
+                    <span className="truncate">{k.label || k.key}</span>
+                    {k.label ? (
+                      <span className="shrink-0 truncate font-mono text-[10px] text-muted">{k.key}</span>
+                    ) : (
+                      <span className="shrink-0 text-[10px] uppercase text-muted">{k.source}</span>
+                    )}
                   </button>
                 ))}
             </div>
           )}
-          <button
-            type="button"
-            onClick={() => {
-              const v = attributeKeys && attributeKeys.length > 0 ? attrFilter : path;
-              if (v.trim()) onPick("payload", v.trim());
-            }}
-            className="mt-2 rounded px-2 py-1 text-xs"
-            style={{ background: "var(--primary)", color: "var(--on-primary)" }}
-          >
-            use custom field
-          </button>
+          {/* Hidden when the integration has a configured field list:
+              a button that adds an arbitrary key, beside a list that
+              exists to restrict, promises something the server refuses.
+              Better to not offer it than to explain the rejection. */}
+          {!attributesRestricted && (
+            <button
+              type="button"
+              onClick={() => {
+                const v = attributeKeys && attributeKeys.length > 0 ? attrFilter : path;
+                if (v.trim()) onPick("payload", v.trim());
+              }}
+              className="mt-2 rounded px-2 py-1 text-xs"
+              style={{ background: "var(--primary)", color: "var(--on-primary)" }}
+            >
+              use custom field
+            </button>
+          )}
         </div>
       )}
     </div>

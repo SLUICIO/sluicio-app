@@ -775,6 +775,9 @@ export default function IntegrationMessagesPage() {
         knownIntegrations={integrations.map((i) => ({ id: i.id, name: i.name, services: i.services }))}
         fields={INTEGRATION_FILTER_FIELDS}
         attributeKeys={attrKeys}
+        // A configured filter list means the picker IS the vocabulary
+        // (issue #31), so the free-text escape hatch goes away with it.
+        attributesRestricted={(detail?.integration.message_filters ?? []).length > 0}
         fetchAttrValues={fetchAttrValues}
       />
 

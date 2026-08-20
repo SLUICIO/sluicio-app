@@ -1245,6 +1245,10 @@ export interface MessageAttributeKey {
   key: string;
   source: "span" | "resource";
   useCount: number;
+  /** What to show instead of the raw key, when the integration has
+   *  named this attribute (issue #31). Display only — the filter, the
+   *  query and the audit trail all keep `key`. */
+  label?: string;
 }
 
 export interface MessageFieldDescriptor {
