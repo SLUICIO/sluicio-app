@@ -113,6 +113,13 @@ func (h *Handlers) listIntegrations(w http.ResponseWriter, r *http.Request) {
 		}
 		services = visible
 	}
+	// Integrations granted directly (issue #28). Held alongside the
+	// service filter because they answer different questions: this one
+	// says which integrations are in scope, the other which services
+	// are. Collapsing the first into the second is what let a grant of
+	// one integration expose every sibling on the same runtime.
+	grantedIntegs, gFiltered := h.grantedIntegrations(r)
+
 	// Window traffic by service name, for layering counts/health onto the
 	// persisted membership below.
 	svcByName := make(map[string]store.ServiceRow, len(services))
@@ -221,12 +228,20 @@ func (h *Handlers) listIntegrations(w http.ResponseWriter, r *http.Request) {
 		// matched only this window (freshly discovered, not yet reconciled).
 		// Visibility-filtered. Drives ServiceCount/Services + the per-integration
 		// traffic queries below (quiet members contribute zero).
+		// A directly granted integration carries its whole member list,
+		// because the integration IS its slice of their traffic. Without
+		// this the row would come back with no members and no counts:
+		// visible, and empty, which reads as "nothing happened here".
+		_, integGranted := grantedIntegs[integ.ID]
+		if !gFiltered {
+			integGranted = true
+		}
 		memberSeen := make(map[string]bool)
 		addMember := func(name string) {
 			if memberSeen[name] {
 				return
 			}
-			if vFiltered {
+			if vFiltered && !integGranted {
 				if _, ok := allowed[name]; !ok {
 					return
 				}
@@ -247,7 +262,7 @@ func (h *Handlers) listIntegrations(w http.ResponseWriter, r *http.Request) {
 		// Visibility skip: a filtered (non-admin) caller with no visible
 		// service in this integration doesn't see it at all. Done before the
 		// per-integration ClickHouse queries below so we also skip that work.
-		if vFiltered && len(matchedNames) == 0 {
+		if vFiltered && !integGranted && len(matchedNames) == 0 {
 			continue
 		}
 
@@ -505,7 +520,7 @@ func (h *Handlers) integrationFlow(w http.ResponseWriter, r *http.Request) {
 	// and draw only the member services they're allowed to see (so a
 	// restricted caller can't read the graph of an integration outside their
 	// policy, nor see member nodes/errors they have no access to).
-	visibleMembers, anyVisible := h.filterVisibleMembers(r, memberNames)
+	visibleMembers, anyVisible := h.visibleIntegrationMembers(r, id, memberNames)
 	if !anyVisible {
 		httpserver.WriteError(w, http.StatusNotFound, "integration not found")
 		return
@@ -883,7 +898,7 @@ func (h *Handlers) getIntegration(w http.ResponseWriter, r *http.Request) {
 	// integration's services has no business viewing it — 404 so a direct
 	// URL can't enumerate or leak it. Otherwise restrict every downstream
 	// count/summary to the members they're allowed to see.
-	visibleMembers, anyVisible := h.filterVisibleMembers(r, memberNames)
+	visibleMembers, anyVisible := h.visibleIntegrationMembers(r, id, memberNames)
 	if !anyVisible {
 		httpserver.WriteError(w, http.StatusNotFound, "integration not found")
 		return
@@ -1583,7 +1598,7 @@ func (h *Handlers) integrationErrorBreakdown(w http.ResponseWriter, r *http.Requ
 	if mErr != nil {
 		h.Logger.Warn("read integration_services for error breakdown failed", "err", mErr)
 	}
-	visible, anyVisible := h.filterVisibleMembers(r, memberNames)
+	visible, anyVisible := h.visibleIntegrationMembers(r, id, memberNames)
 	if !anyVisible {
 		httpserver.WriteError(w, http.StatusNotFound, "integration not found")
 		return

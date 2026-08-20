@@ -2774,6 +2774,9 @@ export interface AccessPolicyInput {
   attribute_match: Record<string, string>;
   conditions?: PolicyExpr;
   signals?: ("traces" | "logs" | "metrics" | "messages")[];
+  /** kind=integration only: also grant the member services as objects.
+   *  Omitted means false, the least-privilege default. */
+  grant_services?: boolean;
 }
 
 // ── Proposals (issue #8, WS2) ────────────────────────────────────────

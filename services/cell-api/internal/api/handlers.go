@@ -663,20 +663,83 @@ func (h *Handlers) gateIntegrationMembers(w http.ResponseWriter, r *http.Request
 		h.Logger.Warn("integration members lookup for access gate failed; allowing", "err", err, "integration", integrationID)
 		return all, true
 	}
-	visible, anyVisible := h.filterVisibleMembers(r, all)
-	if !anyVisible {
+	members, ok := h.visibleIntegrationMembers(r, integrationID, all)
+	if !ok {
 		httpserver.WriteError(w, http.StatusNotFound, "integration not found")
 		return nil, false
 	}
-	return visible, true
+	return members, true
 }
 
-// canSeeIntegration is the non-writing predicate form of
-// gateIntegrationMembers: true iff the caller can see at least one of
-// the integration's member services. Fails open on lookup error (same
-// as the gate), so a DB blip never hides data the user is allowed to
-// see.
+// visibleIntegrationMembers is the non-writing core of
+// gateIntegrationMembers: which member services are in scope for this
+// integration, and whether the caller may see the integration at all.
+//
+// Every integration-scoped read must go through this rather than
+// filtering the member list directly, because filtering alone cannot
+// see a DIRECT integration grant (issue #28). A caller granted the
+// integration gets its whole member list — the integration IS a slice
+// of their traffic, so reading it necessarily means reading some of
+// their spans. That is not the same permission as reading the services
+// themselves, and it must not extend to the sibling integrations those
+// services also carry.
+func (h *Handlers) visibleIntegrationMembers(r *http.Request, integrationID uuid.UUID, members []string) ([]string, bool) {
+	granted, restricted := h.grantedIntegrations(r)
+	if !restricted {
+		return members, true
+	}
+	if _, ok := granted[integrationID]; ok {
+		return members, true
+	}
+	return h.filterVisibleMembers(r, members)
+}
+
+// grantedIntegrations is the set of integrations the caller was granted
+// DIRECTLY, and whether the caller is restricted at all (issue #28).
+//
+// restricted=false means an admin or a wildcard policy: no filtering
+// applies and the set is meaningless. Fails open on error, matching the
+// posture of the other visibility helpers, so a DB blip never hides data
+// somebody is entitled to.
+func (h *Handlers) grantedIntegrations(r *http.Request) (map[uuid.UUID]struct{}, bool) {
+	ref, restricted := h.visibilityMember(r)
+	if !restricted {
+		return nil, false
+	}
+	set, wildcard, err := h.Identity.ResolveVisibleIntegrationsMember(
+		r.Context(), ref, middleware.Principal(r).OrgID, h.integrationExpander, h.systemExpander)
+	if err != nil {
+		h.Logger.Warn("granted integrations resolve failed; allowing", "err", err)
+		return nil, false
+	}
+	if wildcard {
+		return nil, false
+	}
+	return set, true
+}
+
+// canSeeIntegration reports whether the caller may see one integration.
+//
+// Two independent routes in (issue #28):
+//
+//   - the integration was granted directly, which is the case that used
+//     to be impossible to express — the grant was lowered to member
+//     service names on the way in, and from there it was
+//     indistinguishable from a grant of every sibling integration on the
+//     same runtime;
+//   - a member service is visible in its own right, which still implies
+//     its integrations: if you may read the service outright there is
+//     nothing in them you could not already see.
+//
+// Fails open on lookup error, same as the gate.
 func (h *Handlers) canSeeIntegration(r *http.Request, integrationID uuid.UUID) bool {
+	granted, restricted := h.grantedIntegrations(r)
+	if !restricted {
+		return true
+	}
+	if _, ok := granted[integrationID]; ok {
+		return true
+	}
 	all, err := h.Catalog.IntegrationServices(r.Context(), integrationID)
 	if err != nil {
 		h.Logger.Warn("integration visibility check failed; allowing", "err", err, "integration", integrationID)

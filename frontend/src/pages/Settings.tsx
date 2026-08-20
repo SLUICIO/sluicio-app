@@ -2454,6 +2454,11 @@ function CreatePolicyForm({
   const [kind, setKind] = useState<PolicyKind>("attributes");
   const [serviceName, setServiceName] = useState("");
   const [integrationID, setIntegrationID] = useState("");
+  // Whether the integration's member services come with the grant
+  // (issue #28). Off by default: seeing an integration and seeing the
+  // services under it are different permissions, and on a shared
+  // runtime the second one hands over every other flow that runs there.
+  const [grantServices, setGrantServices] = useState(false);
   const [systemKind, setSystemKind] = useState("");
   const [attrPairs, setAttrPairs] = useState<{ k: string; v: string }[]>([{ k: "", v: "" }]);
   const [expr, setExpr] = useState<PolicyExpr>({ op: "and", children: [{ match: "prefix", value: "" }] });
@@ -2493,6 +2498,7 @@ function CreatePolicyForm({
         kind,
         target_service_name: wantsService ? serviceName.trim() : "",
         target_integration_id: wantsIntegration ? integrationID.trim() : "",
+        ...(kind === "integration" ? { grant_services: grantServices } : {}),
         target_system_kind: wantsSystem ? systemKind.trim() : "",
         attribute_match: wantsAttrs ? attribute_match : {},
         ...(wantsExpr ? { conditions: expr } : {}),
@@ -2562,6 +2568,29 @@ function CreatePolicyForm({
           <span className="form__hint">
             Copy from <code>/integrations</code> — a picker UI lands in a
             follow-up.
+          </span>
+        </label>
+      )}
+      {kind === "integration" && (
+        <label
+          className="form__label"
+          style={{ flexDirection: "row", alignItems: "flex-start", gap: 8 }}
+        >
+          <input
+            type="checkbox"
+            checked={grantServices}
+            onChange={(e) => setGrantServices(e.target.checked)}
+            style={{ marginTop: 3 }}
+          />
+          <span>
+            Also grant the services behind it
+            <span className="form__hint" style={{ display: "block" }}>
+              Leave off to grant the integration alone. The member services stay
+              invisible as objects, and any OTHER integration they carry stays
+              out of reach, which is the point on a runtime hosting several
+              flows. Turn it on when this group is also responsible for the
+              services themselves.
+            </span>
           </span>
         </label>
       )}

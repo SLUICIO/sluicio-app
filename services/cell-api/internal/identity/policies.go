@@ -96,8 +96,17 @@ type AccessPolicy struct {
 	Conditions *PolicyExpr `json:"conditions,omitempty"`
 	// Signals narrows the policy to a telemetry subset; empty = all
 	// signals (RBAC v2 §7). Signal-narrowed policies never grant manage.
-	Signals   []Signal  `json:"signals,omitempty"`
-	CreatedAt time.Time `json:"created_at,omitempty"`
+	Signals []Signal `json:"signals,omitempty"`
+	// GrantServices makes a kind=integration policy also grant the
+	// member services as objects in their own right (issue #28).
+	//
+	// False by default for anything written from here on: an operator
+	// responsible for one flow on a shared runtime usually has no
+	// business reading the runtime's other traffic. Policies that
+	// predate the column keep true, because that was their meaning when
+	// they were authored.
+	GrantServices bool      `json:"grant_services"`
+	CreatedAt     time.Time `json:"created_at,omitempty"`
 }
 
 // AccessPolicyInput is the write payload.
@@ -110,6 +119,10 @@ type AccessPolicyInput struct {
 	AttributeMatch      map[string]string `json:"attribute_match"`
 	Conditions          *PolicyExpr       `json:"conditions,omitempty"`
 	Signals             []Signal          `json:"signals,omitempty"`
+	// GrantServices: also grant the integration's member services as
+	// objects. Only meaningful for kind=integration. Omitted means
+	// false, which is the least-privilege default.
+	GrantServices bool `json:"grant_services"`
 }
 
 // validatePolicyInput enforces the same shape rules as the DB
@@ -283,10 +296,10 @@ func (s *Store) CreatePolicy(ctx context.Context, groupID uuid.UUID, in AccessPo
 	}
 	const q = `
 		INSERT INTO group_access_policies
-		    (group_id, kind, target_service_name, target_integration_id, target_system_kind, target_system_id, attribute_match, conditions, signals)
-		VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9)
-		RETURNING id, group_id, kind, target_service_name, target_integration_id, target_system_kind, target_system_id, attribute_match, conditions, signals, created_at`
-	row := s.pool.QueryRow(ctx, q, groupID, in.Kind, serviceArg, integrationArg, systemKindArg, systemIDArg, string(attrJSON), condArg, signalsArg)
+		    (group_id, kind, target_service_name, target_integration_id, target_system_kind, target_system_id, attribute_match, conditions, signals, grant_services)
+		VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $10)
+		RETURNING id, group_id, kind, target_service_name, target_integration_id, target_system_kind, target_system_id, attribute_match, conditions, signals, grant_services, created_at`
+	row := s.pool.QueryRow(ctx, q, groupID, in.Kind, serviceArg, integrationArg, systemKindArg, systemIDArg, string(attrJSON), condArg, signalsArg, in.GrantServices)
 	return scanPolicy(row)
 }
 
@@ -369,7 +382,7 @@ func (s *Store) DeletePolicy(ctx context.Context, id uuid.UUID) error {
 // newest first (a UI convenience — fresh edits float).
 func (s *Store) ListPoliciesForGroup(ctx context.Context, groupID uuid.UUID) ([]AccessPolicy, error) {
 	const q = `
-		SELECT id, group_id, kind, target_service_name, target_integration_id, target_system_kind, target_system_id, attribute_match, conditions, signals, created_at
+		SELECT id, group_id, kind, target_service_name, target_integration_id, target_system_kind, target_system_id, attribute_match, conditions, signals, grant_services, created_at
 		FROM group_access_policies
 		WHERE group_id = $1
 		ORDER BY created_at DESC`
@@ -426,7 +439,7 @@ func (s *Store) ListPoliciesForMember(ctx context.Context, ref MemberRef, orgID 
 		return nil, fmt.Errorf("identity: empty member ref")
 	}
 	q := `
-		SELECT p.id, p.group_id, p.kind, p.target_service_name, p.target_integration_id, p.target_system_kind, p.target_system_id, p.attribute_match, p.conditions, p.signals, p.created_at, gm.role
+		SELECT p.id, p.group_id, p.kind, p.target_service_name, p.target_integration_id, p.target_system_kind, p.target_system_id, p.attribute_match, p.conditions, p.signals, p.grant_services, p.created_at, gm.role
 		FROM group_access_policies p
 		JOIN groups g ON g.id = p.group_id
 		JOIN group_members gm ON gm.group_id = g.id
@@ -444,7 +457,7 @@ func (s *Store) ListPoliciesForMember(ctx context.Context, ref MemberRef, orgID 
 		var sigs []string
 		if err := rows.Scan(&up.ID, &up.GroupID, &up.Kind,
 			&up.TargetServiceName, &up.TargetIntegrationID, &up.TargetSystemKind, &up.TargetSystemID,
-			&attrBytes, &condBytes, &sigs, &up.CreatedAt, &up.GroupRole); err != nil {
+			&attrBytes, &condBytes, &sigs, &up.GrantServices, &up.CreatedAt, &up.GroupRole); err != nil {
 			return nil, err
 		}
 		hydratePolicy(&up.AccessPolicy, attrBytes, condBytes)
@@ -461,7 +474,7 @@ func scanPolicy(row pgx.Row) (AccessPolicy, error) {
 	var attrBytes, condBytes []byte
 	var sigs []string
 	if err := row.Scan(&p.ID, &p.GroupID, &p.Kind,
-		&p.TargetServiceName, &p.TargetIntegrationID, &p.TargetSystemKind, &p.TargetSystemID, &attrBytes, &condBytes, &sigs, &p.CreatedAt); err != nil {
+		&p.TargetServiceName, &p.TargetIntegrationID, &p.TargetSystemKind, &p.TargetSystemID, &attrBytes, &condBytes, &sigs, &p.GrantServices, &p.CreatedAt); err != nil {
 		return AccessPolicy{}, err
 	}
 	hydratePolicy(&p, attrBytes, condBytes)
@@ -476,7 +489,7 @@ func scanPolicyRows(row pgx.Rows) (AccessPolicy, error) {
 	var attrBytes, condBytes []byte
 	var sigs []string
 	if err := row.Scan(&p.ID, &p.GroupID, &p.Kind,
-		&p.TargetServiceName, &p.TargetIntegrationID, &p.TargetSystemKind, &p.TargetSystemID, &attrBytes, &condBytes, &sigs, &p.CreatedAt); err != nil {
+		&p.TargetServiceName, &p.TargetIntegrationID, &p.TargetSystemKind, &p.TargetSystemID, &attrBytes, &condBytes, &sigs, &p.GrantServices, &p.CreatedAt); err != nil {
 		return AccessPolicy{}, err
 	}
 	hydratePolicy(&p, attrBytes, condBytes)
@@ -519,9 +532,23 @@ type EffectiveAccess struct {
 	// escape hatch — used for "sees everything" groups.
 	AllOrg bool
 	// Services is the explicit allowlist resolved from kind=service
-	// + kind=integration (the latter expands via matchers) +
-	// kind=compound's target side. Stored as a set for O(1) checks.
+	// + kind=compound's target side, and from kind=integration only
+	// when that policy also grants its services. Stored as a set for
+	// O(1) checks.
 	Services map[string]struct{}
+	// Integrations is the set of integrations granted directly (issue
+	// #28). Kept as ids rather than dissolved into member service
+	// names, which is what the old code did and why it could not
+	// isolate: once an integration policy became a service name, a
+	// grant of one integration was indistinguishable from a grant of
+	// every integration that service carries, and on a runtime hosting
+	// several flows that is all of them.
+	//
+	// Seeing an integration and seeing the services under it are
+	// different grants. An operator responsible for one flow usually
+	// has no business reading the runtime's other traffic, and often no
+	// interest in the service as an object at all.
+	Integrations map[uuid.UUID]struct{}
 	// AttributePredicates is the list of attribute_match maps from
 	// kind=attributes + kind=compound. Each predicate is AND-internal
 	// (all kv must match); predicates between themselves are OR.
@@ -551,7 +578,8 @@ type CompoundPredicate struct {
 // HasNoAccess reports whether the user has no policies at all —
 // strict-isolation case where every read filter returns nothing.
 func (e EffectiveAccess) HasNoAccess() bool {
-	return !e.AllOrg && len(e.Services) == 0 && len(e.AttributePredicates) == 0 &&
+	return !e.AllOrg && len(e.Services) == 0 && len(e.Integrations) == 0 &&
+		len(e.AttributePredicates) == 0 &&
 		len(e.CompoundPredicates) == 0 && len(e.Expressions) == 0
 }
 
@@ -659,7 +687,10 @@ func (s *Store) ResolveGroupVisibleServices(ctx context.Context, orgID, groupID 
 // composeAccess folds a policy list into EffectiveAccess (the shared
 // composition path for both the Visible and Managed resolutions).
 func (s *Store) composeAccess(ctx context.Context, orgID uuid.UUID, policies []AccessPolicy, expand integrationExpander, expandSystem systemExpander) (EffectiveAccess, error) {
-	out := EffectiveAccess{Services: map[string]struct{}{}}
+	out := EffectiveAccess{
+		Services:     map[string]struct{}{},
+		Integrations: map[uuid.UUID]struct{}{},
+	}
 	for _, p := range policies {
 		switch p.Kind {
 		case PolicyAllOrg:
@@ -684,13 +715,24 @@ func (s *Store) composeAccess(ctx context.Context, orgID uuid.UUID, policies []A
 				}
 			}
 		case PolicyIntegration:
-			if p.TargetIntegrationID != nil && expand != nil {
-				svcs, err := expand(ctx, orgID, *p.TargetIntegrationID)
-				if err != nil {
-					return EffectiveAccess{}, fmt.Errorf("expand integration: %w", err)
-				}
-				for _, name := range svcs {
-					out.Services[name] = struct{}{}
+			if p.TargetIntegrationID != nil {
+				// The integration is recorded as itself. Expanding it to
+				// member service names is what leaked every sibling
+				// integration on a shared runtime (issue #28).
+				out.Integrations[*p.TargetIntegrationID] = struct{}{}
+				// The services under it come too only when the policy
+				// says so. Least privilege by default; policies written
+				// before this flag existed are migrated to true, because
+				// they were authored under the old meaning and narrowing
+				// them on upgrade would remove access silently.
+				if p.GrantServices && expand != nil {
+					svcs, err := expand(ctx, orgID, *p.TargetIntegrationID)
+					if err != nil {
+						return EffectiveAccess{}, fmt.Errorf("expand integration: %w", err)
+					}
+					for _, name := range svcs {
+						out.Services[name] = struct{}{}
+					}
 				}
 			}
 		case PolicyAttributes:
@@ -822,6 +864,24 @@ func (s *Store) ResolveVisibleServiceSetMember(ctx context.Context, ref MemberRe
 		set[n] = struct{}{}
 	}
 	return set, false, nil
+}
+
+// ResolveVisibleIntegrationsMember returns the integrations a principal
+// was granted DIRECTLY, plus the org-wide wildcard flag (issue #28).
+//
+// Separate from the service set because the two answer different
+// questions and conflating them is the bug: an integration lowered to
+// its member service names cannot be told apart from any sibling
+// integration those services also carry.
+func (s *Store) ResolveVisibleIntegrationsMember(ctx context.Context, ref MemberRef, orgID uuid.UUID, expand integrationExpander, expandSystem systemExpander) (map[uuid.UUID]struct{}, bool, error) {
+	access, err := s.ResolveEffectiveAccessMember(ctx, ref, orgID, expand, expandSystem)
+	if err != nil {
+		return nil, false, err
+	}
+	if access.AllOrg {
+		return nil, true, nil
+	}
+	return access.Integrations, false, nil
 }
 
 // ResolveAccessSets is the two-tier resolution (RBAC v2 §2): Visible from
