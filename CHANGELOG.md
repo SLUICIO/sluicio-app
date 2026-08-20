@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.111 — 2026-08-20
+
+- fix(rbac): attaching an integration to a group grants the integration, not the services (#28) (bc879b3)
+
 ## v0.11.110 — 2026-08-20
 
+- release v0.11.110 — refresh internal changelog (41a75eb)
 - test(rbac): the integration-grant tests assert the new meaning (#28) (6f13253)
 
 ## v0.11.109 — 2026-08-20
