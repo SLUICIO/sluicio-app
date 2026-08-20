@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.112 — 2026-08-20
+
+- fix(rbac): attachment keeps its CE meaning, with an opt-out (#28) (e206288)
+
 ## v0.11.111 — 2026-08-20
 
+- release v0.11.111 — refresh internal changelog (fec7cb5)
 - fix(rbac): attaching an integration to a group grants the integration, not the services (#28) (bc879b3)
 
 ## v0.11.110 — 2026-08-20
