@@ -525,8 +525,13 @@ func (h *Handlers) searchMessages(w http.ResponseWriter, r *http.Request) {
 	// G5: enforce policy-based service visibility. Intersect the
 	// existing serviceFilter (from filter literals + integration
 	// expansion) with what the caller is allowed to see.
-	pf := h.resolveServiceFilterSignal(r, "", serviceFilter, identity.SignalMessages)
-	if pf.Blocked || pf.EmptyAccess {
+	// Access is a PREDICATE, not just an allowlist (issue #28). A caller
+	// granted an integration but not its services reaches that
+	// integration's slice of their traffic and nothing else, so
+	// widening the service list alone would hand back every sibling
+	// flow on the same runtime.
+	scope := h.visibleSpanScope(r, identity.SignalMessages)
+	if scope.Empty {
 		httpserver.WriteJSON(w, http.StatusOK, SearchResponse{
 			Window:         tr.Window(),
 			Total:          0,
@@ -535,7 +540,23 @@ func (h *Handlers) searchMessages(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	serviceFilter = pf.ServiceIn
+	var accessClause []string
+	var accessArgs []any
+	if !scope.Unrestricted {
+		narrowed, ok := intersectServiceIn(serviceFilter, scope)
+		if !ok {
+			httpserver.WriteJSON(w, http.StatusOK, SearchResponse{
+				Window:         tr.Window(),
+				Total:          0,
+				Results:        []TraceSearchResult{},
+				MessageColumns: messageColumns,
+			})
+			return
+		}
+		serviceFilter = narrowed
+		accessClause = append(accessClause, scope.Clause)
+		accessArgs = append(accessArgs, scope.Args...)
+	}
 
 	rows, err := h.Store.SearchMessages(r.Context(), store.MessagesSearchParams{
 		From:          tr.From,
@@ -544,10 +565,14 @@ func (h *Handlers) searchMessages(w http.ResponseWriter, r *http.Request) {
 		ServiceFilter: serviceFilter,
 		OnlyFailed:    plan.OnlyFailed,
 		StatusOK:      plan.StatusOK,
-		Clauses:       plan.Clauses,
-		Args:          plan.Args,
-		Before:        parseMessageCursor(req.Cursor),
-		PromotedKeys:  integrations.MessageColumnKeys(messageColumns),
+		// The access predicate rides alongside the query's own clauses,
+		// ANDed by the store. Order matters only in that each clause
+		// consumes its own binds, so the args concatenate in the same
+		// order as the clauses.
+		Clauses:      append(append([]string{}, plan.Clauses...), accessClause...),
+		Args:         append(append([]any{}, plan.Args...), accessArgs...),
+		Before:       parseMessageCursor(req.Cursor),
+		PromotedKeys: integrations.MessageColumnKeys(messageColumns),
 	})
 	if err != nil {
 		h.Logger.Error("messages search failed", "err", err)

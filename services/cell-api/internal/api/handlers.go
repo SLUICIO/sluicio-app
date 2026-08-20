@@ -2462,19 +2462,34 @@ func (h *Handlers) search(w http.ResponseWriter, r *http.Request) {
 	// G5: enforce policy-based service visibility — intersect with
 	// the policy allowlist after the explicit ?service= / ?integration
 	// filters have been applied.
-	pf := h.resolveServiceFilterSignal(r, "", serviceFilter, identity.SignalMessages)
-	if pf.Blocked || pf.EmptyAccess {
+	// Reach is a predicate, not just an allowlist: an integration-only
+	// grant is a slice of its members' traffic (issue #28).
+	scope := h.visibleSpanScope(r, identity.SignalMessages)
+	emptyResult := func() {
 		httpserver.WriteJSON(w, http.StatusOK, SearchResponse{
 			Query:   q,
 			Window:  tr.Window(),
 			Total:   0,
 			Results: []TraceSearchResult{},
 		})
+	}
+	if scope.Empty {
+		emptyResult()
 		return
 	}
-	serviceFilter = pf.ServiceIn
+	var accessClause string
+	var accessArgs []any
+	if !scope.Unrestricted {
+		narrowed, ok := intersectServiceIn(serviceFilter, scope)
+		if !ok {
+			emptyResult()
+			return
+		}
+		serviceFilter = narrowed
+		accessClause, accessArgs = scope.Clause, scope.Args
+	}
 
-	rows, err := h.Store.SearchTraces(r.Context(), q, tr.From, tr.To, limit, serviceFilter, onlyFailed)
+	rows, err := h.Store.SearchTraces(r.Context(), q, tr.From, tr.To, limit, serviceFilter, onlyFailed, accessClause, accessArgs)
 	if err != nil {
 		h.Logger.Error("search failed", "err", err, "q", q)
 		httpserver.WriteError(w, http.StatusInternalServerError, "query failed")

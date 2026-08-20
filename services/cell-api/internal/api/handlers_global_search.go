@@ -208,7 +208,21 @@ func (h *Handlers) globalSearch(w http.ResponseWriter, r *http.Request) {
 
 	// 3. Messages — trace spans containing the query.
 	if serviceAllowed {
-		if rows, err := h.Store.SearchTraces(r.Context(), q, tr.From, tr.To, globalSearchFetch, serviceIn, false); err == nil {
+		// Same predicate as the dedicated search surface, so global
+		// search cannot become the back door an integration-only grant
+		// walks through (issue #28).
+		msgScope := h.visibleSpanScope(r, identity.SignalMessages)
+		msgServiceIn := serviceIn
+		msgClause, msgArgs := "", []any(nil)
+		if !msgScope.Unrestricted && !msgScope.Empty {
+			if narrowed, ok := intersectServiceIn(serviceIn, msgScope); ok {
+				msgServiceIn = narrowed
+				msgClause, msgArgs = msgScope.Clause, msgScope.Args
+			} else {
+				msgScope.Empty = true
+			}
+		}
+		if rows, err := h.Store.SearchTraces(r.Context(), q, tr.From, tr.To, globalSearchFetch, msgServiceIn, false, msgClause, msgArgs); err == nil && !msgScope.Empty {
 			cands := make([]GlobalSearchHit, 0, len(rows))
 			for _, t := range rows {
 				cands = append(cands, GlobalSearchHit{

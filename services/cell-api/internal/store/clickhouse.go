@@ -1449,7 +1449,13 @@ func matchedSpanIDsExpr(hasPredicate bool) string {
 // onlyFailed restricts the result to traces that contain at least
 // one Error-status span — useful for "show me what's failing"
 // without having to scan everything.
-func (s *Store) SearchTraces(ctx context.Context, q string, from, to time.Time, limit int, serviceFilter []string, onlyFailed bool) ([]SearchTraceRow, error) {
+// accessClause is an optional extra predicate AND-ed into the matching
+// CTE, carrying its own `?` binds in accessArgs. It exists because a
+// caller's reach is not always expressible as a list of service names:
+// a grant of one integration on a shared runtime is a SLICE of that
+// service's traffic, and passing the member services alone would return
+// every sibling flow (issue #28). Empty means no extra restriction.
+func (s *Store) SearchTraces(ctx context.Context, q string, from, to time.Time, limit int, serviceFilter []string, onlyFailed bool, accessClause string, accessArgs []any) ([]SearchTraceRow, error) {
 	var serviceFilterClause string
 	var serviceFilterArgs []any
 	if len(serviceFilter) > 0 {
@@ -1459,6 +1465,10 @@ func (s *Store) SearchTraces(ctx context.Context, q string, from, to time.Time, 
 			serviceFilterArgs = append(serviceFilterArgs, name)
 		}
 		serviceFilterClause = " AND ServiceName IN (" + strings.Join(placeholders, ",") + ")"
+	}
+	if strings.TrimSpace(accessClause) != "" {
+		serviceFilterClause += " AND " + accessClause
+		serviceFilterArgs = append(serviceFilterArgs, accessArgs...)
 	}
 
 	sql := fmt.Sprintf(`
