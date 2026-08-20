@@ -24,6 +24,7 @@ import { api } from "../api/client";
 import IntegrationPageHeader from "../components/IntegrationPageHeader";
 import PublicBadgeControl from "../components/PublicBadgeControl";
 import MessageColumnsEditor from "../components/integrations/MessageColumnsEditor";
+import MessageFiltersEditor from "../components/integrations/MessageFiltersEditor";
 import MatcherConfig from "../components/MatcherConfig";
 import { EditDrawer } from "../components/primitives";
 import type {
@@ -288,6 +289,17 @@ export default function IntegrationSettings() {
       <MessageColumnsEditor
         integrationID={integration.integration.id}
         value={integration.integration.message_columns ?? []}
+        canWrite={canWrite}
+        onSaved={refresh}
+      />
+
+      {/* Which span attributes this integration can be FILTERED by, and
+          what each is called (issue #31). Beside the column editor on
+          purpose: same person, same attributes, and a column header and
+          the filter that narrows it should read the same. */}
+      <MessageFiltersEditor
+        integrationID={integration.integration.id}
+        value={integration.integration.message_filters ?? []}
         canWrite={canWrite}
         onSaved={refresh}
       />

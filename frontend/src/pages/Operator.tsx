@@ -13,6 +13,7 @@
 // the same, so a non-operator who forces their way to /operator gets 403s.
 
 import { Fragment, useCallback, useEffect, useState } from "react";
+import BrandingCard from "../components/BrandingCard";
 import { api } from "../api/client";
 import type { AuthRole, MemberRow, OperatorOrg, OperatorUser } from "../api/types";
 import { usePageTitle } from "../lib/usePageTitle";
@@ -35,6 +36,7 @@ export default function Operator() {
       </div>
       <OrganizationsCard />
       <OperatorsCard />
+      <BrandingCard />
       <CellSettingsCard />
     </div>
   );
