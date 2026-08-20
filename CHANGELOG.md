@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.110 — 2026-08-20
+
+- test(rbac): the integration-grant tests assert the new meaning (#28) (6f13253)
+
 ## v0.11.109 — 2026-08-20
 
+- release v0.11.109 — refresh internal changelog (67c5871)
 - fix(rbac): integration-only grants reach their own slice, not the service (#28 phase 2) (7ae289f)
 - fix(rbac): an integration grant stays an integration grant (#28) (a825342)
 - feat(collector): finish version-aware config generation (#16) (87137f5)
