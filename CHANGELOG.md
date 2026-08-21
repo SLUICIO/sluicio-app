@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.115 — 2026-08-21
+
+- feat(#31): curate the standard filter fields too, and demote the lookup ones (1b2a176)
+
 ## v0.11.114 — 2026-08-20
 
+- release v0.11.114 — refresh internal changelog (1d4309e)
 - fix(#31): narrow the picker the Messages tab actually reads (1bae3db)
 
 ## v0.11.113 — 2026-08-20
