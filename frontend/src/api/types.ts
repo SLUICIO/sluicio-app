@@ -712,7 +712,7 @@ export interface Integration {
   message_columns?: MessageColumn[];
   /** Which attributes this integration may be filtered by, and the
    *  label each is shown under (issue #31). Empty = unrestricted. */
-  message_filters?: { key: string; label: string }[];
+  message_filters?: { kind?: "builtin" | "attribute"; key: string; label: string }[];
   created_at: string;
   updated_at: string;
   // Present on the list endpoint (IntegrationSummary), absent on

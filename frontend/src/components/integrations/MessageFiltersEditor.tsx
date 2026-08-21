@@ -18,9 +18,22 @@ import { api } from "../../api/client";
 import type { MessageAttributeKey } from "../../api/types";
 
 interface MessageFilter {
+  kind?: "builtin" | "attribute";
   key: string;
   label: string;
 }
+
+// The standard fields an editor can offer, in the order they read.
+// `status` first because "show me the failed ones" is the commonest
+// question anybody asks; the lookup fields after, because nobody
+// explores by them.
+const BUILTIN_FIELDS: { key: string; label: string; lookup?: boolean }[] = [
+  { key: "status", label: "status" },
+  { key: "service", label: "service", lookup: true },
+  { key: "errorType", label: "error type", lookup: true },
+  { key: "traceId", label: "trace ID", lookup: true },
+  { key: "spanId", label: "span ID", lookup: true },
+];
 
 interface Props {
   integrationID: string;
@@ -53,6 +66,7 @@ export default function MessageFiltersEditor({ integrationID, value, canWrite, o
 
   const dirty = useMemo(() => JSON.stringify(draft) !== JSON.stringify(value), [draft, value]);
   const chosen = useMemo(() => new Set(draft.map((f) => f.key)), [draft]);
+  const attributeDraft = useMemo(() => draft.filter((f) => f.kind !== "builtin"), [draft]);
   const available = useMemo(() => keys.filter((k) => !chosen.has(k.key)), [keys, chosen]);
 
   const save = async () => {
@@ -99,13 +113,55 @@ export default function MessageFiltersEditor({ integrationID, value, canWrite, o
           </div>
         )}
 
-        {draft.length === 0 ? (
+        {/* Standard fields as toggles rather than a picker: there are
+            five and they are always the same five, so a list you tick is
+            clearer than a dropdown you search. Leaving all five off
+            keeps them ALL offered, which is what every integration
+            configured before this did. */}
+        <div style={{ marginBottom: 14 }}>
+          <span className="svc-field-label">Standard fields</span>
+          <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 6 }}>
+            {BUILTIN_FIELDS.map((b) => {
+              const on = draft.some((f) => f.kind === "builtin" && f.key === b.key);
+              return (
+                <label key={b.key} style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13 }}>
+                  <input
+                    type="checkbox"
+                    checked={on}
+                    disabled={!canWrite}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setDraft([...draft, { kind: "builtin", key: b.key, label: b.label }]);
+                      } else {
+                        setDraft(draft.filter((f) => !(f.kind === "builtin" && f.key === b.key)));
+                      }
+                    }}
+                  />
+                  <span>{b.label}</span>
+                  {b.lookup && (
+                    <span className="muted" style={{ fontSize: 11 }}>
+                      lookup
+                    </span>
+                  )}
+                </label>
+              );
+            })}
+          </div>
+          <span className="muted" style={{ fontSize: 12, display: "block", marginTop: 6 }}>
+            None ticked offers all five. Tick some to offer exactly those. The ones marked
+            lookup are only usable by someone who already has an id in hand, so they are
+            grouped apart in the picker either way.
+          </span>
+        </div>
+
+        <span className="svc-field-label">Attributes</span>
+        {attributeDraft.length === 0 ? (
           <div className="muted" style={{ fontSize: 12, marginBottom: 12 }}>
             No restriction. Every attribute can be filtered on.
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
-            {draft.map((f, i) => (
+            {attributeDraft.map((f) => (
               <div key={f.key} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                 <span className="mono" style={{ fontSize: 12.5, minWidth: 180 }}>
                   {f.key}
@@ -119,11 +175,9 @@ export default function MessageFiltersEditor({ integrationID, value, canWrite, o
                   value={f.label}
                   disabled={!canWrite}
                   aria-label={`Label shown for ${f.key}`}
-                  onChange={(e) => {
-                    const next = [...draft];
-                    next[i] = { ...f, label: e.target.value };
-                    setDraft(next);
-                  }}
+                  onChange={(e) =>
+                    setDraft(draft.map((x) => (x.key === f.key ? { ...x, label: e.target.value } : x)))
+                  }
                 />
                 {canWrite && (
                   <button
@@ -153,7 +207,7 @@ export default function MessageFiltersEditor({ integrationID, value, canWrite, o
                     // humanises a blank one, but showing the raw key
                     // here is honest about what will be stored if the
                     // editor leaves it alone.
-                    setDraft([...draft, { key, label: key }]);
+                    setDraft([...draft, { kind: "attribute", key, label: key }]);
                   }
                   setAdding(false);
                 }}

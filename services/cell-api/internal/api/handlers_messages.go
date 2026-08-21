@@ -480,15 +480,24 @@ func disallowedFilterField(filters []messageviews.Filter, allowed []integrations
 		return ""
 	}
 	for _, f := range filters {
-		if f.Field != messageviews.FieldPayload {
+		switch f.Field {
+		case messageviews.FieldPayload:
+			key := strings.TrimSpace(f.FieldPath)
+			if key == "" {
+				continue
+			}
+			if !integrations.MessageFilterAllowed(allowed, key) {
+				return key
+			}
+		case messageviews.FieldTime, messageviews.FieldIntegration:
+			// Never curated. Time is the window picker and integration
+			// is the page you are on, so refusing either would break the
+			// view rather than tidy it.
 			continue
-		}
-		key := strings.TrimSpace(f.FieldPath)
-		if key == "" {
-			continue
-		}
-		if !integrations.MessageFilterAllowed(allowed, key) {
-			return key
+		default:
+			if !integrations.BuiltinFilterAllowed(allowed, string(f.Field)) {
+				return string(f.Field)
+			}
 		}
 	}
 	return ""

@@ -1284,7 +1284,7 @@ func (h *Handlers) integrationAttributeKeys(w http.ResponseWriter, r *http.Reque
 	// (issue #31). This is the endpoint the integration's Messages tab
 	// actually reads, so it is where the restriction has to bite; the
 	// same narrowing on /messages/fields serves the global search.
-	out = narrowToConfiguredFilters(out, full.MessageFilters)
+	out = narrowToConfiguredFilters(out, integrations.AttributeFilters(full.MessageFilters))
 	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"attribute_keys": out})
 }
 

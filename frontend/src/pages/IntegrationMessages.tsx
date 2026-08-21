@@ -65,6 +65,21 @@ import { uid } from "../lib/uid";
 // redundant. Everything else stays available.
 const INTEGRATION_FILTER_FIELDS: Field[] = ["payload", "status", "service", "errorType", "traceId", "spanId"];
 
+// Which of the standard fields this integration offers (issue #31).
+//
+// Each KIND is governed by its own entries: a configuration naming only
+// attributes leaves the standard fields alone. That is what keeps an
+// integration configured before the standard fields became curatable
+// working exactly as it did.
+function offeredFields(filters: { kind?: string; key: string }[] | undefined): Field[] {
+  const builtins = (filters ?? []).filter((f) => f.kind === "builtin").map((f) => f.key);
+  if (builtins.length === 0) return INTEGRATION_FILTER_FIELDS;
+  const allow = new Set(builtins);
+  // payload survives on its own terms: it is the attribute kind, and its
+  // own list decides what it offers.
+  return INTEGRATION_FILTER_FIELDS.filter((f) => f === "payload" || allow.has(f));
+}
+
 // Shown for the instant between mount and the first response. The
 // server owns the real default; this only exists so the table does not
 // render zero columns and jump. Deliberately the same shape, so the
@@ -773,7 +788,7 @@ export default function IntegrationMessagesPage() {
         filters={composedFilters}
         onChange={onFiltersChange}
         knownIntegrations={integrations.map((i) => ({ id: i.id, name: i.name, services: i.services }))}
-        fields={INTEGRATION_FILTER_FIELDS}
+        fields={offeredFields(detail?.integration.message_filters)}
         attributeKeys={attrKeys}
         // A configured filter list means the picker IS the vocabulary
         // (issue #31), so the free-text escape hatch goes away with it.

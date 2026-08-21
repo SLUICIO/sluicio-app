@@ -505,14 +505,24 @@ interface FieldPickerProps {
   onPick: (f: Field, path?: string) => void;
 }
 
+// The lookup fields, grouped apart from the browse fields.
+const TECHNICAL_FIELDS = new Set<Field>(["service", "errorType", "traceId", "spanId"]);
+
 function FieldPicker({ current, fieldPath, attributeKeys, attributesRestricted, fields, onPick }: FieldPickerProps) {
   const [path, setPath] = useState(fieldPath ?? "");
   const [attrFilter, setAttrFilter] = useState("");
   return (
     <div className="space-y-2 text-sm">
       <div className="text-xs text-muted">Pick a field</div>
+      {/* Browse fields first, lookup fields under a divider. The split
+          is not technical-vs-not: it is that nobody EXPLORES by trace
+          id. You arrive already holding one from a ticket or a link, so
+          a field only usable once you know the answer does not belong
+          beside the fields you search with. Kept, because the person
+          working a customer's report at an awkward hour is exactly the
+          one with an id in hand. */}
       <div className="space-y-1">
-        {fields.map((f) => (
+        {fields.filter((f) => !TECHNICAL_FIELDS.has(f)).map((f) => (
           <button
             key={f}
             type="button"
@@ -530,6 +540,26 @@ function FieldPicker({ current, fieldPath, attributeKeys, attributesRestricted, 
           </button>
         ))}
       </div>
+      {fields.some((f) => TECHNICAL_FIELDS.has(f)) && (
+        <div className="border-t pt-2" style={{ borderColor: "var(--border)" }}>
+          <div className="text-xs text-muted">look up a known id</div>
+          <div className="mt-1 space-y-1">
+            {fields
+              .filter((f) => TECHNICAL_FIELDS.has(f))
+              .map((f) => (
+                <button
+                  key={f}
+                  type="button"
+                  onClick={() => onPick(f)}
+                  className="block w-full rounded px-2 py-1 text-left hover:bg-surface-elevated"
+                  style={{ background: f === current ? "var(--surface-3)" : undefined }}
+                >
+                  {FIELD_LABELS[f] ?? f}
+                </button>
+              ))}
+          </div>
+        </div>
+      )}
       {current === "payload" && (
         <div className="border-t pt-2" style={{ borderColor: "var(--border)" }}>
           <div className="text-xs text-muted">span / resource attribute</div>
