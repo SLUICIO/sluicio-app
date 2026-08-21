@@ -402,6 +402,10 @@ export default function IntegrationDetailPage() {
           {/* Error breakdown — moved up here, directly below the stats, so
               what's wrong on this integration reads before the flow graph.
               User-defined metadata now lives on its own Metadata tab. */}
+          {/* Single column once the inspector is gone (issue #32): the
+              two-column grid would otherwise reserve 360px for a panel
+              that never renders, leaving the page looking like something
+              failed to load rather than like something was not offered. */}
           {!showOnboarding && (
             <section
               className="rounded-lg border bg-surface-2 p-4"
@@ -420,8 +424,15 @@ export default function IntegrationDetailPage() {
               on the right. Hidden in the first-run onboarding state, where the
               guide above replaces the (empty) graph. */}
           {!showOnboarding && (
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_360px]">
+          <div className={`grid grid-cols-1 gap-4 ${canOpenServices ? "lg:grid-cols-[1fr_360px]" : ""}`}>
             <div className="flex flex-col gap-4">
+              {/* Service flow is dropped for a reader who cannot open a
+                  service (issue #32). The graph is a map of services,
+                  and every node on it leads somewhere they are refused,
+                  so it can only ever raise a question it will not
+                  answer. Their integration's own story — its messages,
+                  its errors — is on the tabs beside this one. */}
+              {canOpenServices && (
               <section
                 className="overflow-hidden rounded-lg border bg-surface-2"
                 style={{ borderColor: "var(--border)" }}
@@ -549,6 +560,7 @@ export default function IntegrationDetailPage() {
                   </div>
                 )}
               </section>
+              )}
             </div>
 
             {/* The inspector is a window onto the SERVICE, so it is
