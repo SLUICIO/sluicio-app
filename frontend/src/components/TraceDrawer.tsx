@@ -7,6 +7,7 @@
 // the "open full view" link in the header.
 
 import { useEffect, useMemo, useState } from "react";
+import { useCanOpenServices } from "../lib/useNavigationReach";
 import { Link } from "react-router-dom";
 import { useTraceHref } from "../lib/traceHref";
 import { traceOnFlowHref } from "../lib/traceOnFlowHref";
@@ -60,6 +61,7 @@ export default function TraceDrawer({
   integrationContextId,
   matchedSpanIds,
 }: Props) {
+  const canOpenServices = useCanOpenServices();
   const [data, setData] = useState<TraceDetailResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -363,13 +365,19 @@ export default function TraceDrawer({
                         {selected.status_message ? ` · ${selected.status_message}` : ""}
                       </p>
                     </div>
-                    <Link
-                      to={`/services/${encodeURIComponent(selected.service_name)}`}
-                      className="whitespace-nowrap text-xs hover:underline"
-                      style={{ color: "var(--primary)" }}
-                    >
-                      service →
-                    </Link>
+                    {/* Dropped entirely rather than rendered inert for a
+                        reader who cannot open services (issue #32): this
+                        is a call to action, and an inert one is just a
+                        word taking up space. */}
+                    {canOpenServices && (
+                      <Link
+                        to={`/services/${encodeURIComponent(selected.service_name)}`}
+                        className="whitespace-nowrap text-xs hover:underline"
+                        style={{ color: "var(--primary)" }}
+                      >
+                        service →
+                      </Link>
+                    )}
                   </div>
                   <div className="p-4" style={{ overflowY: "auto" }}>
                     <AttrTable

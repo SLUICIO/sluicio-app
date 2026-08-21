@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: FSL-1.1-Apache-2.0
 import { Link } from "react-router-dom";
+import ServiceRef from "./ServiceRef";
 import { useTraceHref } from "../lib/traceHref";
 import type { SpanSummary } from "../api/types";
 import { formatDurationMs, formatRelative } from "../lib/format";
@@ -64,9 +65,9 @@ function SpanResult({
         <span className={`pill pill--${span.status_code === "Error" ? "errors" : "ok"}`}>
           {span.status_code}
         </span>
-        <Link className="result__service" to={`/services/${encodeURIComponent(span.service_name)}`}>
+        <ServiceRef className="result__service" name={span.service_name}>
           {span.service_name}
-        </Link>
+        </ServiceRef>
         <span className="result__name">{span.span_name}</span>
         <span className="muted">{formatDurationMs(span.duration_ms)}</span>
         <span className="muted">{formatRelative(span.timestamp)}</span>

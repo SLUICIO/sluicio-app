@@ -11,6 +11,7 @@
 // tab counts (.svc-tab .count).
 
 import { Link, useLocation } from "react-router-dom";
+import { useNavigationReach } from "../lib/useNavigationReach";
 
 interface Props {
   integrationId: string;
@@ -40,14 +41,23 @@ interface Tab {
 }
 
 export default function IntegrationTabs({ integrationId, messagesCount, errorsCount }: Props) {
+  // What this reader can actually reach; null while unknown, which
+  // reads as "offer everything".
+  const reach = useNavigationReach();
   const loc = useLocation();
   const base = `/integrations/${encodeURIComponent(integrationId)}`;
   const tabs: Tab[] = [
     { label: "Overview", path: base, exact: true },
     { label: "Messages", path: `${base}/messages`, count: messagesCount },
-    { label: "Metrics", path: `${base}/metrics` },
-    { label: "Logs", path: `${base}/logs` },
-    { label: "Services", path: `${base}/services` },
+    // Metrics, Logs and Services are dropped for a reader who cannot
+    // reach them (issue #32). A grant of an INTEGRATION carries its
+    // messages but not its services, and neither logs nor metrics —
+    // those are emitted by the service and carry nothing attributing
+    // them to one flow. Offering the tabs anyway means three of seven
+    // lead to an empty page or "not found".
+    ...(reach?.metrics === false ? [] : [{ label: "Metrics", path: `${base}/metrics` }]),
+    ...(reach?.logs === false ? [] : [{ label: "Logs", path: `${base}/logs` }]),
+    ...(reach?.services === false ? [] : [{ label: "Services", path: `${base}/services` }]),
     { label: "Errors", path: `${base}/errors`, count: errorsCount, tone: "err" },
     { label: "Metadata", path: `${base}/metadata` },
     // No Settings tab — editing the integration is the "✎ Edit integration"

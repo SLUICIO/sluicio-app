@@ -622,7 +622,12 @@ export default function IntegrationMessagesPage() {
   const messagesCount = detail?.message_count;
 
   return (
-    <div className="flex flex-col gap-4">
+    // Bounded to the viewport, like the global Messages page. Without a
+    // height the results section's flex-1 has nothing to divide, so the
+    // panel grows to its content and the footer — the line that says how
+    // many results loaded and what the scope is — falls below the fold
+    // even for a single row (issue #32). The section scrolls internally.
+    <div className="flex h-[calc(100vh-7rem)] flex-col gap-4">
       {/* Shared identity header — same breadcrumb + status ("Receiving
           data" etc.) as every other integration tab. The Messages
           actions live in the header's right-side actions slot. */}

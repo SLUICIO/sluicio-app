@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: FSL-1.1-Apache-2.0
 import { Link } from "react-router-dom";
+import ServiceRef from "./ServiceRef";
 import { useTraceHref } from "../lib/traceHref";
 import type { TraceSearchResult } from "../api/types";
 import { formatDurationMs, formatNumber, formatRelative } from "../lib/format";
@@ -58,12 +59,11 @@ function TraceCard({
         <span className={`pill pill--${trace.has_error ? "errors" : "ok"}`}>
           {trace.has_error ? "Error" : "Ok"}
         </span>
-        <Link
-          className="result__service"
-          to={`/services/${encodeURIComponent(trace.matched_service)}`}
+        <ServiceRef className="result__service"
+          name={trace.matched_service}
         >
           {trace.matched_service}
-        </Link>
+        </ServiceRef>
         <span className="result__name">{trace.matched_span_name}</span>
         <span className="muted">{formatDurationMs(trace.duration_ms)}</span>
         <span className="muted">

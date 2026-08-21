@@ -286,7 +286,7 @@ export default function ServiceMessagesTab({ serviceName }: Props) {
   }`;
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-3 h-[calc(100vh-11rem)]">
       {/* Toolbar: open-saved / share / save-as-view — mirrors the
           integration Messages tab so the two feel identical. */}
       <div className="flex flex-wrap items-center justify-between gap-2">

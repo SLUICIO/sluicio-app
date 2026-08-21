@@ -1895,6 +1895,41 @@ func (h *Handlers) errorAcks(ctx context.Context, orgID uuid.UUID) map[string]er
 // out of the active time window, until someone acknowledges it. Fails open
 // to an empty set (status simply won't reflect persisted errors) so a
 // ClickHouse blip never wedges the lists.
+// openErrorsInScope counts the member services carrying an
+// unacknowledged error INSIDE one integration's slice (issue #32).
+//
+// The service-wide map cannot answer this where several integrations
+// share a runtime: an error in any flow marks every integration on that
+// service, including ones the reader has no access to. Counting over the
+// integration's own predicate is the same fix as #27 and #28, applied to
+// the error path.
+func (h *Handlers) openErrorsInScope(ctx context.Context, orgID uuid.UUID, members []string, groups [][]store.LogAttrFilter) map[string]bool {
+	out := map[string]bool{}
+	if len(members) == 0 {
+		return out
+	}
+	to := time.Now().UTC()
+	from := to.Add(-openErrorLookback)
+	stats, err := h.Store.ErrorTraceStatsScoped(ctx, members, from, to, groups)
+	if err != nil {
+		h.Logger.Warn("scoped open-error scan failed; omitting persisted errors", "err", err)
+		return out
+	}
+	acks := h.errorAcks(ctx, orgID)
+	for _, st := range stats {
+		if st.ErrorTraces == 0 {
+			continue
+		}
+		// Same acknowledgement watermark as the service-wide path: an
+		// error cleared by a human stays cleared.
+		if w := acks[st.ServiceName].AcknowledgedUntil; !w.IsZero() && !st.LastErrorAt.After(w) {
+			continue
+		}
+		out[st.ServiceName] = true
+	}
+	return out
+}
+
 func (h *Handlers) openErrorServices(ctx context.Context, orgID uuid.UUID) map[string]bool {
 	to := time.Now().UTC()
 	from := to.Add(-openErrorLookback)
@@ -2616,6 +2651,17 @@ func (h *Handlers) traceDetail(w http.ResponseWriter, r *http.Request) {
 		allowedSet := make(map[string]struct{}, len(allowed))
 		for _, n := range allowed {
 			allowedSet[n] = struct{}{}
+		}
+		// A grant of an INTEGRATION reaches this trace too, and used to
+		// reach nothing here (issue #32): the filter is a list of service
+		// names, and an integration-only grant contributes none, so every
+		// span was dropped and a message the reader could see in the list
+		// 404ed when they opened it. The same shape of miss as #28's
+		// second phase, on a surface that phase did not cover.
+		if members, ok := h.traceReachedByIntegration(r, traceID); ok {
+			for name := range members {
+				allowedSet[name] = struct{}{}
+			}
 		}
 		kept := rows[:0]
 		for _, row := range rows {

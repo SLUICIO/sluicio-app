@@ -204,6 +204,22 @@ func (h *Handlers) listIntegrations(w http.ResponseWriter, r *http.Request) {
 		matchedNames := make([]string, 0)
 		unhealthy := 0
 		var traces, errors uint64
+		// Open errors counted over THIS integration's slice rather than
+		// its members' whole traffic (issue #32). On a shared runtime the
+		// service-wide map turned one flow's failure into an unhealthy
+		// pill on every integration that service carries.
+		//
+		// Resolved per row because the predicate is per integration.
+		// One extra ClickHouse read per integration, alongside the
+		// per-integration counts this loop already does.
+		rowMembers := make([]string, 0, len(services))
+		for _, svc := range services {
+			if anyMatcherMatches(matchers, svc.ServiceName) {
+				rowMembers = append(rowMembers, svc.ServiceName)
+			}
+		}
+		rowOpenErrors := h.openErrorsInScope(
+			r.Context(), middleware.OrgID(r), rowMembers, AttrGroupsFromMatchers(matchers))
 		// statuses (health rollup) + window traffic come from services that
 		// actually emitted in the window. An integration with no window traffic
 		// rolls up to "quiet" (statuses stays empty).
@@ -214,7 +230,7 @@ func (h *Handlers) listIntegrations(w http.ResponseWriter, r *http.Request) {
 			effErr := h.effectiveErrorCount(r.Context(), svc.ServiceName, svc.ErrorTraceCount, tr.From, tr.To, errAcks)
 			st := statusWithOpenErrors(
 				computeServiceStatus(effErr, firingServices[svc.ServiceName]),
-				openErrors[svc.ServiceName],
+				rowOpenErrors[svc.ServiceName],
 			)
 			statuses = append(statuses, st)
 			if st == "unhealthy" {
@@ -904,11 +920,15 @@ func (h *Handlers) getIntegration(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	memberNames = visibleMembers
-	openErrors := h.openErrorServices(r.Context(), middleware.OrgID(r))
 	// The integration's attribute predicate. Empty for a service-only
 	// integration, in which case the catalog's service-wide counts are
 	// already the right answer.
 	detailAttrs := h.integrationGroups(r.Context(), id)
+	// Open errors counted over THIS integration's slice (issue #32).
+	// The service-wide map marked every integration on a shared runtime
+	// with any one flow's error, which both overstated the count and
+	// told a reader about a failure in a flow they cannot open.
+	openErrors := h.openErrorsInScope(r.Context(), middleware.OrgID(r), memberNames, detailAttrs)
 	matched := h.servicesFromMembers(r.Context(), memberNames, allServices, firingServices, h.errorAcks(r.Context(), middleware.OrgID(r)), openErrors, tr, detailAttrs)
 
 	// Trace-completion rules gate the message scope and drive the

@@ -149,6 +149,48 @@ func (h *Handlers) visibleSpanScope(r *http.Request, sig identity.Signal) spanSc
 	}
 }
 
+// traceReachedByIntegration reports which member services are in scope
+// for this trace because a granted INTEGRATION's slice contains it, and
+// whether any did (issue #32).
+//
+// Needed because a trace is fetched as rows and then filtered in Go,
+// where the integration's matcher predicate cannot be evaluated: it is a
+// DNF over span attributes with operators, which is a query, not a
+// comparison. So the question is asked of ClickHouse once per granted
+// integration — "does this trace have a span in your slice" — and the
+// answer decides which services' spans may be shown.
+//
+// Returning the MEMBERS rather than the matching spans is deliberate. A
+// trace reached through an integration is readable in full, which is the
+// decision recorded in #28: a trace is one unit, and showing every
+// second span of a message is worse than showing none. Bounded to the
+// trace either way.
+func (h *Handlers) traceReachedByIntegration(r *http.Request, traceID string) (map[string]struct{}, bool) {
+	granted, restricted := h.grantedIntegrations(r)
+	if !restricted || len(granted) == 0 {
+		return nil, false
+	}
+	out := map[string]struct{}{}
+	for id := range granted {
+		members, err := h.Catalog.IntegrationServices(r.Context(), id)
+		if err != nil || len(members) == 0 {
+			continue
+		}
+		clause, args := store.SpanAttrGroupsClause(h.integrationGroups(r.Context(), id))
+		inScope, err := h.Store.TraceMatches(r.Context(), traceID, members, clause, args)
+		if err != nil {
+			h.Logger.Warn("trace scope check failed", "err", err, "integration", id)
+			continue
+		}
+		if inScope {
+			for _, m := range members {
+				out[m] = struct{}{}
+			}
+		}
+	}
+	return out, len(out) > 0
+}
+
 // placeholders renders n comma-separated `?` binds.
 func placeholders(n int) string {
 	if n <= 0 {

@@ -828,6 +828,64 @@ type ServiceErrorStat struct {
 // surfaced until it's acknowledged (cleared), independent of the page's
 // time selector. Same error definition as everywhere else (a span with
 // StatusCode='Error').
+// ErrorTraceStatsScoped is ErrorTraceStatsByService narrowed to one
+// integration's slice: its member services AND its matcher predicate.
+//
+// The unscoped version groups by service, which cannot attribute an
+// error to an integration when several share a runtime — an error in any
+// one flow then counts against all of them, including flows the reader
+// has no access to. Same service-centric assumption as #27 and #28, in
+// the error path.
+//
+// An integration with no attribute matchers narrows nothing, so the
+// answer equals the service-wide one and there is no special case.
+func (s *Store) ErrorTraceStatsScoped(ctx context.Context, services []string, from, to time.Time, groups [][]LogAttrFilter) ([]ServiceErrorStat, error) {
+	if len(services) == 0 {
+		return nil, nil
+	}
+	ph := make([]string, len(services))
+	for i := range services {
+		ph[i] = "?"
+	}
+	attrSQL, attrArgs := SpanAttrGroupsClause(groups)
+	predicate := ""
+	if attrSQL != "" {
+		predicate = " AND " + attrSQL
+	}
+	q := fmt.Sprintf(`
+		SELECT ServiceName,
+		       toUInt64(uniqExact(TraceId)) AS errs,
+		       min(Timestamp) AS first_at,
+		       max(Timestamp) AS last_at,
+		       argMax(TraceId, Timestamp) AS sample
+		FROM traces
+		WHERE Timestamp >= ? AND Timestamp <= ? AND StatusCode = 'Error'
+		  AND ServiceName IN (%s)%s
+		GROUP BY ServiceName`, strings.Join(ph, ","), predicate)
+
+	args := make([]any, 0, 2+len(services)+len(attrArgs))
+	args = append(args, from, to)
+	for _, n := range services {
+		args = append(args, n)
+	}
+	args = append(args, attrArgs...)
+
+	rows, err := s.conn.Query(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("error trace stats scoped: %w", err)
+	}
+	defer rows.Close()
+	out := make([]ServiceErrorStat, 0)
+	for rows.Next() {
+		var st ServiceErrorStat
+		if err := rows.Scan(&st.ServiceName, &st.ErrorTraces, &st.FirstErrorAt, &st.LastErrorAt, &st.SampleTraceID); err != nil {
+			return nil, err
+		}
+		out = append(out, st)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) ErrorTraceStatsByService(ctx context.Context, from, to time.Time) ([]ServiceErrorStat, error) {
 	const q = `
 		SELECT ServiceName,
@@ -2440,6 +2498,45 @@ func (s *Store) IntegrationProfile(ctx context.Context, resolver facetmappings.R
 		return ServiceProfileRow{}, fmt.Errorf("integration profile: %w", err)
 	}
 	return out, nil
+}
+
+// TraceMatches reports whether a trace has at least one span inside the
+// given slice: one of `services`, satisfying `clause` when non-empty.
+//
+// Exists so a caller holding already-fetched rows can still ask a
+// question only the database can answer — a matcher predicate is a query
+// over span attributes, not something to re-implement in Go against a
+// row set. LIMIT 1: this is an existence test, not a count.
+func (s *Store) TraceMatches(ctx context.Context, traceID string, services []string, clause string, clauseArgs []any) (bool, error) {
+	if traceID == "" || len(services) == 0 {
+		return false, nil
+	}
+	ph := make([]string, len(services))
+	for i := range services {
+		ph[i] = "?"
+	}
+	predicate := ""
+	if strings.TrimSpace(clause) != "" {
+		predicate = " AND " + clause
+	}
+	q := fmt.Sprintf(`
+		SELECT 1 FROM traces
+		WHERE TraceId = ? AND ServiceName IN (%s)%s
+		LIMIT 1`, strings.Join(ph, ","), predicate)
+
+	args := make([]any, 0, 1+len(services)+len(clauseArgs))
+	args = append(args, traceID)
+	for _, n := range services {
+		args = append(args, n)
+	}
+	args = append(args, clauseArgs...)
+
+	rows, err := s.conn.Query(ctx, q, args...)
+	if err != nil {
+		return false, fmt.Errorf("trace matches: %w", err)
+	}
+	defer rows.Close()
+	return rows.Next(), rows.Err()
 }
 
 // DistinctServiceNames returns the distinct service names seen in the

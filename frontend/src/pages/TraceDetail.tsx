@@ -6,6 +6,7 @@
 // received timestamp, hop count, total duration, and a status pip.
 
 import { useEffect, useMemo, useState } from "react";
+import { useCanOpenServices } from "../lib/useNavigationReach";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import IntegrationFlow from "../components/IntegrationFlow";
@@ -98,6 +99,14 @@ export default function TraceDetail() {
   // answers a question about a different unit: Steps is about THIS
   // message, Chain is about the sequence it belongs to.
   const [traceView, setTraceView] = useState<"services" | "steps" | "chain">("steps");
+  // Whether a service page is reachable at all for this reader.
+  const canOpenServices = useCanOpenServices();
+  useEffect(() => {
+    // If the view was restored from a link or a previous session and the
+    // reader cannot open services, fall back rather than rendering a tab
+    // that is no longer offered.
+    if (!canOpenServices && traceView === "services") setTraceView("steps");
+  }, [canOpenServices, traceView]);
   const graphView = traceView === "steps";
   const [integrationContextName, setIntegrationContextName] = useState<string | null>(null);
   const [trimOpen, setTrimOpen] = useState(false);
@@ -479,7 +488,18 @@ export default function TraceDetail() {
                     crossed, the span graph says what actually ran inside
                     them and what overlapped. */}
                 <div className="level-seg" role="tablist" aria-label="Trace view">
-                  {([["services", "Services"], ["steps", "Steps"], ["chain", "Chain"]] as const).map(
+                  {/* Services is dropped for a reader who cannot open a
+                      service (issue #32). The graph is a map of things
+                      whose pages answer "not found" for them, so
+                      offering it is an invitation to a dead end. Steps
+                      and Chain are about the message itself and stay. */}
+                  {(
+                    [
+                      ...(canOpenServices ? ([["services", "Services"]] as const) : []),
+                      ["steps", "Steps"],
+                      ["chain", "Chain"],
+                    ] as const
+                  ).map(
                     ([k, label]) => (
                       <button
                         key={k}
