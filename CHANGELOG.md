@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.119 — 2026-08-21
+
+- fix(rbac): re-run the service fetch when the reader's reach resolves (#32) (68cbf43)
+
 ## v0.11.118 — 2026-08-21
 
+- release v0.11.118 — refresh internal changelog (894f9e8)
 - fix(rbac): hide the service flow from a reader who cannot open a service (#32) (cbe590d)
 
 ## v0.11.117 — 2026-08-21
