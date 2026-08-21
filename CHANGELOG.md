@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.118 — 2026-08-21
+
+- fix(rbac): hide the service flow from a reader who cannot open a service (#32) (cbe590d)
+
 ## v0.11.117 — 2026-08-21
 
+- release v0.11.117 — refresh internal changelog (27dfd26)
 - fix(rbac): stop offering service pages the reader cannot open (#32) (fbc639c)
 
 ## v0.11.116 — 2026-08-21
