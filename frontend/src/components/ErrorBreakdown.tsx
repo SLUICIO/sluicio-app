@@ -15,6 +15,7 @@
 // span messages.
 
 import { useEffect, useState } from "react";
+import ServiceRef from "./ServiceRef";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import type { ErrorBreakdownResponse, ServiceSummary } from "../api/types";
@@ -181,14 +182,14 @@ export default function ErrorBreakdown({
           </div>
           <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
             {unhealthy.map((s) => (
-              <Link
+              <ServiceRef
                 key={s.service_name}
-                to={`/services/${encodeURIComponent(s.service_name)}?tab=health`}
+                name={s.service_name}
+                suffix="?tab=health"
                 className="font-medium underline-offset-2 hover:underline"
-                style={{ color: "var(--err-ink)" }}
               >
                 {s.service_name} →
-              </Link>
+              </ServiceRef>
             ))}
           </div>
         </div>
@@ -249,13 +250,12 @@ export default function ErrorBreakdown({
             // re-select the right-rail inspector, but the page auto-selects
             // the top error service on load — so clicking the service the
             // callout already names did nothing.)
-            <Link
-              to={`/services/${encodeURIComponent(top.service_name)}`}
+            <ServiceRef
+              name={top.service_name}
               className="font-semibold underline underline-offset-2 hover:no-underline"
-              style={{ color: "var(--err-ink)" }}
             >
               {top.service_name}
-            </Link>
+            </ServiceRef>
           ) : (
             <span className="font-semibold">an unnamed service</span>
           )}

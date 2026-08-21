@@ -12,6 +12,7 @@
 // the admin form.
 
 import { useEffect, useMemo, useState } from "react";
+import { useCanOpenServices } from "../lib/useNavigationReach";
 import { slugify } from "../lib/slugify";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
@@ -76,6 +77,8 @@ export default function IntegrationDetailPage() {
 
   // Inspector state — the currently-selected service in the flow.
   const [selectedService, setSelectedService] = useState<string | null>(null);
+  // Whether a service page is reachable for this reader at all.
+  const canOpenServices = useCanOpenServices();
   const [serviceDetail, setServiceDetail] = useState<ServiceDetailResponse | null>(null);
   const [serviceWidgets, setServiceWidgets] = useState<WidgetResult[]>([]);
   const [serviceLoading, setServiceLoading] = useState(false);
@@ -189,7 +192,13 @@ export default function IntegrationDetailPage() {
 
   // Fetch detail + widgets for the selected service.
   useEffect(() => {
-    if (!selectedService) {
+    if (!selectedService || !canOpenServices) {
+      // A reader granted the INTEGRATION but not its services cannot
+      // read /services/{name}; fetching it only produces the 404 the
+      // inspector then renders as an error (issue #32). The graph is
+      // still worth drawing — it is a picture of THIS integration — so
+      // the node stays selectable for highlighting and the inspector
+      // simply does not open.
       setServiceDetail(null);
       setServiceWidgets([]);
       return;
@@ -542,6 +551,13 @@ export default function IntegrationDetailPage() {
               </section>
             </div>
 
+            {/* The inspector is a window onto the SERVICE, so it is
+                dropped for a reader who cannot open one (issue #32).
+                Rendering it would show a 404 where a panel should be,
+                which reads as a broken page rather than as a boundary.
+                The graph beside it stays: it describes the integration,
+                which is the thing they were granted. */}
+            {canOpenServices && (
             <aside className="lg:sticky lg:top-20" style={{ alignSelf: "start", minHeight: 360 }}>
               <ServiceInspector
                 serviceName={selectedService}
@@ -566,6 +582,7 @@ export default function IntegrationDetailPage() {
                 })()}
               />
             </aside>
+            )}
           </div>
           )}
 

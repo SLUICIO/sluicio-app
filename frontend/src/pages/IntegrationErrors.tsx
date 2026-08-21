@@ -17,6 +17,7 @@
 // When all three are clear the page says so plainly.
 
 import { useEffect, useMemo, useState } from "react";
+import ServiceRef from "../components/ServiceRef";
 import { checkEditHref } from "../lib/checkEditHref";
 import { Link, useParams } from "react-router-dom";
 import { traceOnFlowHref } from "../lib/traceOnFlowHref";
@@ -247,13 +248,12 @@ export default function IntegrationErrors() {
                     </div>
                     <div className="truncate text-xs">
                       {c.service_name ? (
-                        <Link
-                          to={`/services/${encodeURIComponent(c.service_name)}`}
+                        <ServiceRef
+                          name={c.service_name}
                           className="hover:underline"
-                          style={{ color: "var(--primary)" }}
                         >
                           {c.service_name} →
-                        </Link>
+                        </ServiceRef>
                       ) : (
                         <span className="text-muted">{c.target_kind === "global" ? "org-wide" : "integration"}</span>
                       )}
@@ -439,9 +439,9 @@ function OpenErrorRow({
     >
       <StatusPip kind="err" />
       <div className="min-w-0">
-        <Link to={`/services/${encodeURIComponent(err.service_name)}`} className="truncate font-medium hover:underline" style={{ color: "var(--primary)" }}>
+        <ServiceRef name={err.service_name} className="truncate font-medium hover:underline">
           {err.service_name}
-        </Link>
+        </ServiceRef>
         <div className="text-xs text-muted">
           {formatNumber(err.error_traces)} unacknowledged error trace{err.error_traces === 1 ? "" : "s"} · since {formatRelative(err.first_error_at)}
         </div>

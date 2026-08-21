@@ -6,6 +6,7 @@
 // received timestamp, hop count, total duration, and a status pip.
 
 import { useEffect, useMemo, useState } from "react";
+import ServiceRef from "../components/ServiceRef";
 import { useCanOpenServices } from "../lib/useNavigationReach";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
@@ -624,10 +625,10 @@ export default function TraceDetail() {
                 <h3 className="text-base font-semibold">Services in this trace</h3>
                 <div className="mt-3 flex flex-wrap gap-1">
                   {services.map((s) => (
-                    <Link key={s.name} className="badge" to={`/services/${encodeURIComponent(s.name)}`}>
+                    <ServiceRef key={s.name} className="badge" name={s.name}>
                       {s.name}
                       <span className="muted"> · {s.count}</span>
-                    </Link>
+                    </ServiceRef>
                   ))}
                 </div>
               </section>
@@ -675,6 +676,9 @@ function SpanDetailsPanel({
   keyAttrs: string[];
   onClose: () => void;
 }) {
+  // A call to action is dropped rather than rendered inert for a
+  // reader who cannot open a service (issue #32).
+  const canOpenServices = useCanOpenServices();
   return (
     <section
       className="overflow-hidden rounded-lg border bg-surface-2"
@@ -696,6 +700,7 @@ function SpanDetailsPanel({
           </p>
         </div>
         <div className="flex items-center gap-2" style={{ flexShrink: 0 }}>
+          {canOpenServices && (
           <Link
             to={`/services/${encodeURIComponent(span.service_name)}`}
             className="text-sm hover:underline"
@@ -703,6 +708,7 @@ function SpanDetailsPanel({
           >
             open service →
           </Link>
+          )}
           <button
             type="button"
             className="btn btn--link"
@@ -891,13 +897,12 @@ function TraceLogsSection({
                     .{String(new Date(l.timestamp).getMilliseconds()).padStart(3, "0")}
                   </span>
                   <SeverityChip severity={l.severity_number} text={l.severity_text} />
-                  <Link
-                    to={`/services/${encodeURIComponent(l.service_name)}`}
+                  <ServiceRef
+                    name={l.service_name}
                     className="mono"
-                    style={{ color: "var(--ink-2)", flexShrink: 0 }}
                   >
                     {l.service_name}
-                  </Link>
+                  </ServiceRef>
                   <span style={{ flex: 1, minWidth: 0, wordBreak: "break-word" }}>
                     {l.body}
                   </span>

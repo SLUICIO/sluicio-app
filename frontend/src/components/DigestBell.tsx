@@ -6,12 +6,14 @@
 // watermark so next time only newer items show.
 
 import { useEffect, useRef, useState } from "react";
+import { useCanOpenServices } from "../lib/useNavigationReach";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import type { DigestResponse } from "../api/types";
 import { formatRelative } from "../lib/format";
 
 export default function DigestBell() {
+  const canOpenServices = useCanOpenServices();
   const [open, setOpen] = useState(false);
   const [digest, setDigest] = useState<DigestResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -129,7 +131,12 @@ export default function DigestBell() {
               <div className="placeholder" style={{ margin: 10 }}>You're all caught up.</div>
             ) : (
               <>
-                {(digest?.new_services.length ?? 0) > 0 && (
+                {/* Dropped entirely for a reader who cannot open a
+                    service (issue #32). Not just the links: the section
+                    itself announces services they have no access to, so
+                    hiding the link and keeping the heading would tell
+                    them what exists while refusing to show it. */}
+                {canOpenServices && (digest?.new_services.length ?? 0) > 0 && (
                   <div>
                     <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.04em", padding: "8px 12px 4px" }}>
                       New services · {digest!.new_services.length}
