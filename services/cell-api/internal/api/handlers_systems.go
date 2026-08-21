@@ -162,8 +162,26 @@ func (h *Handlers) listSystems(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		// Hide systems whose members are all invisible (but show empty systems).
-		if !all && len(sy.Members) > 0 && len(vis) == 0 {
+		// Hide systems the caller can see no member of — INCLUDING the
+		// memberless ones (issue #32).
+		//
+		// The old rule showed an empty system to everybody, on the
+		// reasoning that there is no telemetry behind it to leak and
+		// that hiding it would keep a freshly created system from the
+		// person who made it. Both halves turned out to be wrong.
+		//
+		// The NAME leaks, and names describe the estate: a reader scoped
+		// to one integration could enumerate every system in the cell and
+		// read what each is called. And the creator it protected is an
+		// admin or an editor — an admin is unrestricted here anyway, so
+		// the carve-out was covering a case that did not need it while
+		// opening one that did.
+		//
+		// Nothing ties a memberless system to any scope, so under
+		// deny-by-default there is no basis on which to show it. If
+		// somebody should see one, the answer is a policy rather than a
+		// hole.
+		if !all && len(vis) == 0 {
 			continue
 		}
 		dto := systemToDTO(sy)
@@ -206,7 +224,12 @@ func (h *Handlers) getSystem(w http.ResponseWriter, r *http.Request) {
 			visibleMembers++
 		}
 	}
-	if !all && len(sy.Members) > 0 && visibleMembers == 0 {
+	// Same rule as the list and the shared gates (issue #32): a
+	// restricted caller sees a system only through a member they can
+	// see, memberless ones included. The three had drifted — the list
+	// hid it and the deep link served it, which is the worst pairing
+	// available: it looks fixed and is not.
+	if !all && visibleMembers == 0 {
 		httpserver.WriteError(w, http.StatusNotFound, "system not found")
 		return
 	}
@@ -414,14 +437,22 @@ func (h *Handlers) detachSystemService(w http.ResponseWriter, r *http.Request) {
 	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"detached": true})
 }
 
-// canSeeSystem: a user can see a system if it has a visible member (or none).
+// canSeeSystem: a user can see a system if it has a member they can see.
+//
+// A memberless system is visible only to an unrestricted caller (issue
+// #32). It used to be visible to everyone, which let a reader scoped to
+// one integration enumerate every system in the cell by name — see
+// listSystems for why the "no telemetry to leak" reasoning did not hold.
 func (h *Handlers) canSeeSystem(r *http.Request, sy catalog.System) bool {
 	canSee, all, err := h.visibleServiceChecker(r)
 	if err != nil {
 		return false
 	}
-	if all || len(sy.Members) == 0 {
+	if all {
 		return true
+	}
+	if len(sy.Members) == 0 {
+		return false
 	}
 	for _, m := range sy.Members {
 		if canSee(m) {

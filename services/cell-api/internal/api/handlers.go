@@ -752,19 +752,28 @@ func (h *Handlers) canSeeIntegration(r *http.Request, integrationID uuid.UUID) b
 // canSeeSystemID is canSeeSystem for a caller holding only the id — the
 // alert paths, which read a rule's system_id without loading the system.
 //
-// Semantics match canSeeSystem deliberately, including the part that
-// looks odd: a system with NO members is visible to everyone. There is
-// no telemetry behind an empty system to leak, and the alternative hides
-// a freshly created system's own health check from the person who just
-// created it.
+// Semantics match canSeeSystem deliberately, including the memberless
+// case: an unrestricted caller sees every system, and a restricted one
+// sees only systems carrying a member they can see (issue #32).
+//
+// A memberless system used to be visible to EVERYONE, on the reasoning
+// that there is no telemetry behind it to leak. Its name leaks, and
+// names describe the estate — a reader scoped to one integration could
+// enumerate every system in the cell and read what each is called.
 func (h *Handlers) canSeeSystemID(r *http.Request, systemID uuid.UUID) bool {
+	// The unrestricted check comes FIRST: an admin must keep seeing a
+	// system with no members yet, which is every system for the moment
+	// after it is created.
+	if _, restricted := h.visibilityMember(r); !restricted {
+		return true
+	}
 	members, err := h.Catalog.SystemMemberNames(r.Context(), middleware.OrgID(r), systemID)
 	if err != nil {
 		h.Logger.Warn("system visibility check failed; allowing", "err", err, "system", systemID)
 		return true
 	}
 	if len(members) == 0 {
-		return true
+		return false
 	}
 	_, anyVisible := h.filterVisibleMembers(r, members)
 	return anyVisible
