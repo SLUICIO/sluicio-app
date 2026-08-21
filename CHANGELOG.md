@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.117 — 2026-08-21
+
+- fix(rbac): stop offering service pages the reader cannot open (#32) (fbc639c)
+
 ## v0.11.116 — 2026-08-21
 
+- release v0.11.116 — refresh internal changelog (de38efd)
 - fix(rbac): an integration grant can open its traces, and stops inheriting others' errors (#32) (c839ccb)
 
 ## v0.11.115 — 2026-08-21
