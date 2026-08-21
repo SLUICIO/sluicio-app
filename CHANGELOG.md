@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.116 — 2026-08-21
+
+- fix(rbac): an integration grant can open its traces, and stops inheriting others' errors (#32) (c839ccb)
+
 ## v0.11.115 — 2026-08-21
 
+- release v0.11.115 — refresh internal changelog (5fb4786)
 - feat(#31): curate the standard filter fields too, and demote the lookup ones (1b2a176)
 
 ## v0.11.114 — 2026-08-20
