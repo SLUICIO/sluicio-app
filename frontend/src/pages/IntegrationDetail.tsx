@@ -232,7 +232,12 @@ export default function IntegrationDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedService, windowVal]);
+    // canOpenServices belongs here, and not only to satisfy the linter:
+    // the reach is fetched asynchronously, so it is unknown on the first
+    // run and resolves afterwards. Without it in the deps a restricted
+    // reader's first render would fetch the service, take the 404, and
+    // never re-run to clear the error once the answer arrived.
+  }, [selectedService, windowVal, canOpenServices]);
 
   // Clone: prompt for a name, copy everything else. The dialog owns its
   // own state so the page does not re-render the whole flow graph on
