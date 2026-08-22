@@ -23,6 +23,7 @@
 // timeseries; swap in real series when the endpoint lands.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigationReach } from "../lib/useNavigationReach";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import { materializeItems, toItemRequest } from "../lib/dashboardItems";
@@ -82,6 +83,9 @@ function dashboardPipTitle(kind: PipKind): string {
 }
 
 export default function Health() {
+  // What this reader can reach; null while unknown, which reads as
+  // "offer everything".
+  const reach = useNavigationReach();
   usePageTitle("Dashboard");
   const [windowVal] = useTimeWindow();
 
@@ -246,9 +250,19 @@ export default function Health() {
   // renders as unknown rather than disappearing, so it stays removable.
   const systemEntityCards = useMemo(() => {
     const byId = new Map(systemEntities.map((s) => [s.id, s] as const));
+    // An unresolved id is kept ONLY for someone who can edit this
+    // dashboard (issue #32).
+    //
+    // The card exists so a deleted system can be cleared off the board,
+    // which is a job for whoever owns the board. For everybody else it
+    // is two lies at once: on a shared dashboard a reader who cannot see
+    // a system is told it was "(deleted system)" — it was not — and the
+    // row of cards still counts out how many exist.
+    const canEdit = visibleSource?.canManage ?? true;
     return (visibleSource?.items ?? [])
       .filter((i) => i.entityKind === "system_entity" && i.systemId)
       .map((i) => ({ id: i.systemId as string, system: byId.get(i.systemId as string) }))
+      .filter((c) => c.system || canEdit)
       .sort(byHealthThenName((c) => c.system?.status, (c) => c.system?.name ?? c.id));
   }, [visibleSource, systemEntities]);
 
@@ -563,6 +577,11 @@ export default function Health() {
               }
             />
 
+            {/* Dropped for a reader who cannot reach systems at all
+                (issue #32). The tile links to /systems and counts things
+                they are refused, so at best it reads 0/0 and at worst it
+                says how many exist. */}
+            {reach?.systems !== false && (
             <KpiCard
               // Mirrors "integrations running": green running/total when all
               // healthy, red "N of M unhealthy" when a system's member checks
@@ -600,6 +619,7 @@ export default function Health() {
                 </div>
               }
             />
+            )}
 
             <KpiCard
               label={`messages / ${windowVal}`}
