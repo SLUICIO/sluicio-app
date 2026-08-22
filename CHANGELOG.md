@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.122 — 2026-08-22
+
+- fix(rbac): drop the service count where a service cannot be opened (#32) (d9d5ab5)
+
 ## v0.11.121 — 2026-08-22
 
+- release v0.11.121 — refresh internal changelog (33dabe7)
 - fix(dashboard): stop labelling systems the reader cannot see as deleted (#32) (9629bcb)
 
 ## v0.11.120 — 2026-08-22
