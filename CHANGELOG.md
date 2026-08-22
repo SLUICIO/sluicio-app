@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.121 — 2026-08-22
+
+- fix(dashboard): stop labelling systems the reader cannot see as deleted (#32) (9629bcb)
+
 ## v0.11.120 — 2026-08-22
 
+- release v0.11.120 — refresh internal changelog (7970ba1)
 - refactor(nav): API & MCP is documentation, not administration (#32) (6ea85a1)
 - fix(rbac): a memberless system is no longer visible to everyone (#32) (206c4df)
 
