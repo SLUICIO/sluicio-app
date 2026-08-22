@@ -379,7 +379,13 @@ export default function IntegrationDetailPage() {
               to={`/integrations/${encodeURIComponent(id)}/messages?delayed=1`}
               title="View delayed traces on the Messages tab"
             />
-            <MetricTile label="services" value={String(stats.serviceCount)} />
+            {/* Dropped for a reader who cannot open a service (issue
+                #32). It counts things they are refused, and a number
+                alone still describes an estate — it is the last place
+                on this page that said anything about services. */}
+            {canOpenServices && (
+              <MetricTile label="services" value={String(stats.serviceCount)} />
+            )}
             <MetricTile
               label="unhealthy"
               value={formatNumber(stats.unhealthy)}

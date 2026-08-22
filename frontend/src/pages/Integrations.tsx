@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: FSL-1.1-Apache-2.0
 import { useEffect, useMemo, useState } from "react";
+import { useCanOpenServices } from "../lib/useNavigationReach";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import SearchableSelect from "../components/SearchableSelect";
@@ -62,6 +63,8 @@ type IntegrationSortKey =
 // small toggle near the chip strip rather than a separate page.
 
 export default function Integrations() {
+  // Whether a service page is reachable for this reader at all.
+  const canOpenServices = useCanOpenServices();
   usePageTitle("Integrations");
   const [windowVal] = useTimeWindow();
   const { can } = useCurrentUser();
@@ -302,7 +305,14 @@ export default function Integrations() {
       { id: "slug", label: "Slug", group: "Identity" },
       { id: "tags", label: "Tags", group: "Identity" },
       { id: "facets", label: "Service facets", group: "Identity" },
-      { id: "service_count", label: "Services", group: "Operational" },
+      // Services is offered only to a reader who can open one (issue
+      // #32). It counts entities they are refused, and a count still
+      // describes an estate. Dropped from the column PICKER too, not
+      // merely from the row: a column somebody can tick and never see
+      // fill in is worse than one that is not on the list.
+      ...(canOpenServices
+        ? ([{ id: "service_count", label: "Services", group: "Operational" }] as ColumnDef[])
+        : []),
       { id: "trace_count", label: "Traces", group: "Operational" },
       { id: "error_trace_count", label: "Errors", group: "Operational" },
       { id: "status", label: "Status", group: "Operational" },
@@ -312,7 +322,7 @@ export default function Integrations() {
       base.push({ id: `meta:${f.key}`, label: f.label, group: "Metadata" });
     }
     return base;
-  }, [metadataFields]);
+  }, [metadataFields, canOpenServices]);
 
   // Effective column order: the chosen source's ids first (unknown ids
   // dropped — e.g. a deleted metadata field), then any columns it

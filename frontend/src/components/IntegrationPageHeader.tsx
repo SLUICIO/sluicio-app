@@ -29,6 +29,7 @@
 // editable picker, so the chips are never shown twice.
 
 import { Link } from "react-router-dom";
+import { useCanOpenServices } from "../lib/useNavigationReach";
 import type { ReactNode } from "react";
 import { StatusPip, pipForStatus } from "./primitives";
 import TagChip from "./tags/TagChip";
@@ -50,6 +51,7 @@ interface Props {
 }
 
 export default function IntegrationPageHeader({ detail, actions, belowStats }: Props) {
+  const canOpenServices = useCanOpenServices();
   // Same expression Overview used when it owned this button: the server
   // decides per integration (group editors only manage what is fully in
   // their scope), with the capability as the fallback when the field is
@@ -78,9 +80,21 @@ export default function IntegrationPageHeader({ detail, actions, belowStats }: P
         </h1>
         {detail && (
           <p className="mt-1 text-sm text-muted">
-            {detail.services?.length ?? 0} service{(detail.services?.length ?? 0) === 1 ? "" : "s"}
-            {detail.integration.description && <> · {detail.integration.description}</>}
-            <> · last updated {formatRelative(detail.integration.updated_at)}</>
+            {/* The service count is dropped for a reader who cannot open
+                one (issue #32). It was the third place on this page
+                saying the same thing, after the KPI tile and the list
+                column, and a count still describes an estate. The
+                description and the timestamp are about the integration
+                itself and stay. */}
+            {canOpenServices && (
+              <>
+                {detail.services?.length ?? 0} service
+                {(detail.services?.length ?? 0) === 1 ? "" : "s"}
+                {" · "}
+              </>
+            )}
+            {detail.integration.description && <>{detail.integration.description} · </>}
+            <>last updated {formatRelative(detail.integration.updated_at)}</>
           </p>
         )}
         {belowStats ?? <HeaderTags tags={detail?.tags ?? []} />}
