@@ -3,8 +3,14 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.120 — 2026-08-22
+
+- refactor(nav): API & MCP is documentation, not administration (#32) (6ea85a1)
+- fix(rbac): a memberless system is no longer visible to everyone (#32) (206c4df)
+
 ## v0.11.119 — 2026-08-21
 
+- release v0.11.119 — refresh internal changelog (dc35abf)
 - fix(rbac): re-run the service fetch when the reader's reach resolves (#32) (68cbf43)
 
 ## v0.11.118 — 2026-08-21
