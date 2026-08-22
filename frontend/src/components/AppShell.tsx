@@ -104,10 +104,26 @@ const navGroups: NavGroup[] = [
     header: "Admin",
     items: [
       { to: "/usage", label: "Usage", icon: <UsageIcon />, adminOnly: true },
-      { to: "/developers", label: "API & MCP", icon: <CodeIcon /> },
       { to: "/settings", label: "Settings", icon: <SettingsIcon />, adminOnly: true },
       { to: "/operator", label: "Operator", icon: <OperatorIcon />, operatorOnly: true },
     ],
+  },
+  // API & MCP is documentation, not administration: how to get a token,
+  // call the API and connect an assistant. It holds no credentials and
+  // no settings — it links out to Account → Tokens and Settings →
+  // Service accounts for both.
+  //
+  // It sat under Admin and was not admin-gated, which is how a viewer
+  // scoped to one integration met a heading claiming a privilege the
+  // page does not need. Its own group instead, ungated, because anyone
+  // with a token can use what it describes, within their own reach.
+  //
+  // Not under Account either: that is "about me" — profile, password,
+  // two-factor, my tokens — and this is neither personal nor a setting.
+  // Service accounts in particular are an org-level thing.
+  {
+    header: "Developers",
+    items: [{ to: "/developers", label: "API & MCP", icon: <CodeIcon /> }],
   },
 ];
 
