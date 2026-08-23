@@ -143,6 +143,16 @@ func alertRuleToCustomCheck(r alerting.AlertRule) (monitoringtemplates.Check, bo
 				TraceThreshold: r.TraceVolumeSpec.Threshold, WindowSeconds: r.TraceVolumeSpec.WindowSeconds,
 				Severity: string(r.Severity),
 			}, true
+		case r.TraceAttributeSpec != nil:
+			attrs := make([]monitoringtemplates.AttrFilter, len(r.TraceAttributeSpec.Attrs))
+			for i, a := range r.TraceAttributeSpec.Attrs {
+				attrs[i] = monitoringtemplates.AttrFilter{Key: a.Key, Op: a.Op, Value: a.Value}
+			}
+			return monitoringtemplates.Check{
+				Name: r.Name, Description: r.Description, Signal: "trace_attribute",
+				TraceThreshold: r.TraceAttributeSpec.Threshold, WindowSeconds: r.TraceAttributeSpec.WindowSeconds,
+				Attrs: attrs, Severity: string(r.Severity),
+			}, true
 		}
 		return monitoringtemplates.Check{}, false
 	default:

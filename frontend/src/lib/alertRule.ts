@@ -41,6 +41,15 @@ export function alertCondition(rule: AlertRule): string {
     const s = rule.trace_volume_spec;
     return `fewer than ${s.threshold} trace${s.threshold === 1 ? "" : "s"} · ${fmtWindow(s.window_seconds)}`;
   }
+  if (rule.signal === "trace" && rule.trace_attribute_spec) {
+    const s = rule.trace_attribute_spec;
+    // Says "matching", never "failed": these traces have usually
+    // succeeded, and the condition is the attribute test, so the
+    // predicates are the part the reader needs to see.
+    const attrs = (s.attrs ?? []).map((a) => `${a.key} ${a.op} ${a.value}`).join(", ");
+    const n = `≥${s.threshold} matching trace${s.threshold === 1 ? "" : "s"}`;
+    return `${n}${attrs ? ` [${attrs}]` : ""} · ${fmtWindow(s.window_seconds)}`;
+  }
   if (rule.signal === "trace" && rule.trace_error_spec) {
     const s = rule.trace_error_spec;
     return `≥${s.threshold} failed trace${s.threshold === 1 ? "" : "s"} · ${fmtWindow(s.window_seconds)}`;

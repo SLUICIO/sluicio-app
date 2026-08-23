@@ -306,6 +306,9 @@ func main() {
 	// Trace-volume rules ("fewer than X traces") read the same service set,
 	// then count distinct traces — zero counts as below (dead-man's-switch).
 	alertEngine.SetVolumeEvaluator(traceVolumeEvaluatorAdapter{chStore, catalogStore, integrationStore, integrations.DefaultOrgID})
+	// Span-attribute rules ("documents.failed > 0") resolve the same service
+	// set, then count traces carrying a matching span whatever its status.
+	alertEngine.SetTraceAttributeCounter(traceAttributeCounterAdapter{chStore, catalogStore, integrations.DefaultOrgID})
 	go alertEngine.Run(bgCtx)
 
 	// Error notifier: sends one notification when a service's unacknowledged
@@ -872,6 +875,50 @@ func (a logCounterAdapter) CountLogs(ctx context.Context, q alerting.LogCountQue
 // a maintainer has already cleared (the per-service "Clear errors"
 // watermark), so a cleared service reads healthy just like the built-in
 // open-error signal and the window error count.
+// traceAttributeCounterAdapter resolves a span-attribute rule's scope to
+// service names and counts the traces carrying a matching span.
+//
+// Deliberately does NOT consult the "Clear errors" watermarks that
+// traceErrorCounterAdapter honours. Clearing errors is a statement about
+// FAILURES — "I have dealt with these" — and the traces this rule counts
+// have usually not failed. Letting an error clear silence a rule about
+// `documents.failed` would hide the number somebody set the rule up to
+// watch, and they would have no reason to suspect why.
+type traceAttributeCounterAdapter struct {
+	s       *store.Store
+	catalog *catalog.Store
+	orgID   uuid.UUID
+}
+
+func (a traceAttributeCounterAdapter) CountMatchingTraces(ctx context.Context, q alerting.TraceAttributeQuery) (uint64, error) {
+	var svcs []string
+	switch {
+	case q.SystemID != nil:
+		s, err := a.catalog.SystemMemberNames(ctx, a.orgID, *q.SystemID)
+		if err != nil {
+			return 0, err
+		}
+		svcs = s
+	case q.IntegrationID != nil:
+		s, err := a.catalog.IntegrationServices(ctx, *q.IntegrationID)
+		if err != nil {
+			return 0, err
+		}
+		svcs = s
+	case q.ServiceName != "":
+		svcs = []string{q.ServiceName}
+	}
+	if len(svcs) == 0 {
+		// No resolved services yet → nothing in scope to match.
+		return 0, nil
+	}
+	attrs := make([]store.LogAttrFilter, 0, len(q.Attrs))
+	for _, f := range q.Attrs {
+		attrs = append(attrs, store.LogAttrFilter{Key: f.Key, Op: f.Op, Value: f.Value})
+	}
+	return a.s.CountTracesMatchingAttrs(ctx, svcs, q.From, q.To, attrs)
+}
+
 type traceErrorCounterAdapter struct {
 	s       *store.Store
 	catalog *catalog.Store

@@ -48,7 +48,7 @@ type Check struct {
 	MinSeverity  int32  `json:"min_severity,omitempty"`
 	BodyContains string `json:"body_contains,omitempty"`
 	LogThreshold int    `json:"log_threshold,omitempty"`
-	// trace (signal "trace_error" | "trace_latency" | "trace_volume")
+	// trace (signal "trace_error" | "trace_latency" | "trace_volume" | "trace_attribute")
 	TraceThreshold int `json:"trace_threshold,omitempty"` // trace_error / trace_volume
 	ThresholdMs    int `json:"threshold_ms,omitempty"`    // trace_latency (p95)
 	WindowSeconds  int `json:"window_seconds,omitempty"`  // trace checks; default 300

@@ -75,7 +75,20 @@ checks:
   - name: Traffic present
     signal: trace_volume    # dead-man's switch: fires when traces drop BELOW
     trace_threshold: 1
+  - name: Documents failed to ingest
+    signal: trace_attribute # fires on traces carrying a matching span, error or not
+    trace_threshold: 1
+    window_seconds: 3600
+    attrs:
+      - key: documents.failed
+        op: gt
+        value: "0"
 ```
+
+`trace_attribute` is the one to reach for when a run finishes successfully
+and still reports something worth knowing. `trace_error` can only narrow
+the set of spans that already failed, so a healthy span carrying
+`documents.failed = 3` is invisible to it. `attrs` is required here.
 
 The `format` field is required and versioned — files published in the
 wild keep working when the schema evolves.

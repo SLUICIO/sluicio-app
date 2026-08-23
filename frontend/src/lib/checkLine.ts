@@ -20,6 +20,10 @@ export function checkLine(c: MonitoringTemplateCheck): string {
   if (c.signal === "trace_latency") {
     return `trace · p95 latency ≥ ${c.threshold_ms ?? 0} ms`;
   }
+  if (c.signal === "trace_attribute") {
+    const attrs = (c.attrs ?? []).map((a) => `${a.key} ${a.op} ${a.value}`).join(", ");
+    return `trace · ≥${c.trace_threshold ?? 1} matching traces in window${attrs ? ` [${attrs}]` : ""}`;
+  }
   if (c.signal === "trace_volume") {
     return `trace · fewer than ${c.trace_threshold ?? 1} traces in window (dead-man)`;
   }

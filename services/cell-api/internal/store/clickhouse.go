@@ -548,6 +548,54 @@ func (s *Store) CountErrorTracesForServices(ctx context.Context, serviceNames []
 	return n, nil
 }
 
+// CountTracesMatchingAttrs counts the distinct traces that have at least
+// one span matching ALL of attrs on any of the given services within
+// [from,to], REGARDLESS of that span's status.
+//
+// The deliberate difference from CountErrorTracesForServices is the
+// absence of `StatusCode = 'Error'`. That function ANDs its attrs onto
+// the error condition, so it can only ever narrow the set of failures;
+// this one can select a trace that succeeded and still reported a number
+// worth alerting on (`documents.failed = 3` on an OK span).
+//
+// attrs must be non-empty — the caller validates it. An empty list here
+// would count every trace in scope and quietly turn a span-attribute
+// rule into a traffic rule.
+func (s *Store) CountTracesMatchingAttrs(ctx context.Context, serviceNames []string, from, to time.Time, attrs []LogAttrFilter) (uint64, error) {
+	if len(serviceNames) == 0 || len(attrs) == 0 {
+		return 0, nil
+	}
+	cond := ""
+	var condArgs []any
+	for i, f := range attrs {
+		c, a := attrClauseIn("SpanAttributes", f)
+		if i > 0 {
+			cond += " AND "
+		}
+		cond += c
+		condArgs = append(condArgs, a...)
+	}
+	// Placeholder order: the condition (SELECT clause) binds first, then
+	// the Timestamp bounds, then the ServiceName IN-list. Mirrors
+	// CountErrorTracesForServices.
+	args := append(condArgs, from, to)
+	svc := make([]string, len(serviceNames))
+	for i, n := range serviceNames {
+		svc[i] = "?"
+		args = append(args, n)
+	}
+	q := `
+		SELECT toUInt64(uniqExactIf(TraceId, ` + cond + `))
+		FROM traces
+		WHERE Timestamp >= ? AND Timestamp <= ?
+		  AND ServiceName IN (` + strings.Join(svc, ",") + `)`
+	var n uint64
+	if err := s.conn.QueryRow(ctx, q, args...).Scan(&n); err != nil {
+		return 0, fmt.Errorf("count traces matching attrs: %w", err)
+	}
+	return n, nil
+}
+
 // DistinctTraceCountsGated is DistinctTraceCounts restricted to traces
 // that contain at least one of the given start spans — the start-span
 // gate of a trace-completion rule ("only traces that begin with 'Start'

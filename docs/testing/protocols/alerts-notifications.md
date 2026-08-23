@@ -26,9 +26,10 @@
 - **Expected:** Fires when log volume/severity crosses the threshold; `fewer_than` is the drought direction. Condition string rendered per [alertRule.ts](../../../frontend/src/lib/alertRule.ts).
 - **Code:** `handlers_alerts.go:247` (`validateLogRuleSpec`) · **Automation:** Partial.
 
-### Case 3 — Create a trace alert (failed / latency / low-traffic)
+### Case 3 — Create a trace alert (failed / latency / low-traffic / attribute)
 - **Endpoint:** `POST /api/v1/alert-rules` (signal=trace)
-- **Steps:** choose `trace_error_spec` (count), `trace_latency_spec` (threshold_ms + quantile), or `trace_volume_spec` (distinct traces + window) → bind to integration/service (required) → channels → save.
+- **Steps:** choose `trace_error_spec` (count), `trace_latency_spec` (threshold_ms + quantile), `trace_volume_spec` (distinct traces + window), or `trace_attribute_spec` (span attribute predicates + count) → bind to integration/service (required) → channels → save.
+- **Worth checking by hand:** a `trace_attribute_spec` with an empty `attrs` must be refused (it would match every trace), and its notification must say "matching traces" rather than "failed traces" — the traces it counts have usually succeeded.
 - **Expected:** Fires on the chosen trace condition. Window math capped at 30d (regression-tested in `alerting/types_test.go`).
 - **Code:** `handlers_alerts.go:247,515` · **Automation:** Partial.
 

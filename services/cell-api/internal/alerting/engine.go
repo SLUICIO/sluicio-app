@@ -72,6 +72,25 @@ type TraceErrorCounter interface {
 	CountErrorTraces(ctx context.Context, q TraceErrorQuery) (uint64, error)
 }
 
+// TraceAttributeQuery is the scope a trace_attribute rule counts matching
+// traces for, over [From, To]. Scope resolution mirrors TraceErrorQuery.
+type TraceAttributeQuery struct {
+	IntegrationID *uuid.UUID
+	SystemID      *uuid.UUID
+	ServiceName   string
+	From, To      time.Time
+	// Attrs are the AND-ed span/resource predicates a span must satisfy
+	// for its trace to count. Never empty — validated at the API edge.
+	Attrs []AttrFilter
+}
+
+// TraceAttributeCounter counts the distinct traces in scope carrying a
+// span that matches the query's predicates, whatever that span's status.
+// Implemented by the ClickHouse store (adapted at wiring time).
+type TraceAttributeCounter interface {
+	CountMatchingTraces(ctx context.Context, q TraceAttributeQuery) (uint64, error)
+}
+
 // TraceLatencyQuery scopes a response-time check to an integration or a
 // single service (exactly one set), aggregating span duration over
 // [From,To] at Quantile (1.0 = max).
@@ -129,6 +148,7 @@ type Engine struct {
 	traceEval   TraceErrorCounter
 	latencyEval TraceLatencyEvaluator
 	volumeEval  TraceVolumeEvaluator
+	attrEval    TraceAttributeCounter
 	resolver    ChannelResolver
 	log         *slog.Logger
 	org         uuid.UUID
@@ -210,6 +230,11 @@ func (e *Engine) SetLatencyEvaluator(l TraceLatencyEvaluator) { e.latencyEval = 
 
 // SetVolumeEvaluator wires the trace-volume (low-traffic) evaluator.
 func (e *Engine) SetVolumeEvaluator(v TraceVolumeEvaluator) { e.volumeEval = v }
+
+// SetTraceAttributeCounter wires the span-attribute evaluator. Left nil
+// the loop never starts, which is how a cell without the ClickHouse
+// adapter degrades: no rules evaluated rather than every rule erroring.
+func (e *Engine) SetTraceAttributeCounter(c TraceAttributeCounter) { e.attrEval = c }
 
 // behavior returns the rule's resolved grouping mode + re-notify interval.
 // Defaults to per-check / no-recurrence when no profile resolver is wired
@@ -392,6 +417,9 @@ func (e *Engine) Run(ctx context.Context) {
 	}
 	if e.volumeEval != nil {
 		go e.loop(ctx, e.evalInterval, e.evaluateTraceVolumeOnce)
+	}
+	if e.attrEval != nil {
+		go e.loop(ctx, e.evalInterval, e.evaluateTraceAttributeOnce)
 	}
 	// Re-notification + per-integration coalescing run on the eval cadence,
 	// off the set of firing unacked instances (independent of which signal
@@ -1210,6 +1238,125 @@ func traceErrorRuleSummary(rule AlertRule, count uint64, state string) string {
 			rule.Name, count, win, threshold, criteria)
 	}
 	return fmt.Sprintf("%s — %d failed traces in %s (threshold ≥%d)%s",
+		rule.Name, count, win, threshold, criteria)
+}
+
+// ── trace_attribute rules (span attribute value) ──────────────────────
+//
+// A trace_attribute rule fires when >= threshold distinct traces in scope
+// carry a span matching the rule's attribute predicates over the trailing
+// window — with no requirement that the span be an error. The path is the
+// trace_error path with the status condition dropped; everything after
+// the count (breach, open/touch/resolve, delivery) is shared.
+
+func (e *Engine) evaluateTraceAttributeOnce(ctx context.Context) {
+	rules, err := e.store.EnabledTraceAttributeRules(ctx, e.org)
+	if err != nil {
+		e.log.Error("trace attribute alert eval: list rules failed", "err", err)
+		return
+	}
+	for _, rule := range rules {
+		e.evaluateTraceAttributeRule(ctx, rule)
+	}
+}
+
+func (e *Engine) evaluateTraceAttributeRule(ctx context.Context, rule AlertRule) {
+	// No scope, or no predicates, means nothing to count. The empty-Attrs
+	// guard is defence in depth: the API refuses to store such a rule,
+	// but a rule that counted EVERY trace would fire immediately and look
+	// like a broken product rather than a rejected input.
+	if rule.TraceAttributeSpec == nil || !ruleHasScope(rule) {
+		return
+	}
+	spec := *rule.TraceAttributeSpec
+	if len(spec.Attrs) == 0 {
+		return
+	}
+	threshold := spec.Threshold
+	if threshold < 1 {
+		threshold = 1
+	}
+	to := time.Now().UTC()
+	from := to.Add(-spec.WindowDuration())
+	count, err := e.attrEval.CountMatchingTraces(ctx, TraceAttributeQuery{
+		IntegrationID: rule.IntegrationID,
+		SystemID:      rule.SystemID,
+		ServiceName:   rule.ServiceName,
+		From:          from,
+		To:            to,
+		Attrs:         spec.Attrs,
+	})
+	if err != nil {
+		e.log.Error("trace attribute alert eval: count failed", "rule", rule.ID, "err", err)
+		return
+	}
+	breached := count >= uint64(threshold)
+
+	active, err := e.store.ActiveInstance(ctx, rule.ID)
+	if err != nil {
+		e.log.Error("trace attribute alert eval: active instance failed", "rule", rule.ID, "err", err)
+		return
+	}
+
+	switch {
+	case breached && active == nil:
+		labels := traceAttributeRuleLabels(rule, count)
+		summary := traceAttributeRuleSummary(rule, count, "firing")
+		inst, err := e.store.OpenInstance(ctx, rule.ID, "all", labels, summary)
+		if err != nil {
+			e.log.Error("trace attribute alert eval: open instance failed", "rule", rule.ID, "err", err)
+			return
+		}
+		if err := e.enqueueFiring(ctx, inst.ID, rule); err != nil {
+			e.log.Error("trace attribute alert eval: enqueue failed", "rule", rule.ID, "err", err)
+		}
+		e.log.Info("trace attribute alert firing", "rule", rule.Name, "count", count, "threshold", threshold, "channels", len(rule.ChannelIDs))
+	case breached && active != nil:
+		if err := e.store.TouchInstance(ctx, active.ID); err != nil {
+			e.log.Error("trace attribute alert eval: touch failed", "rule", rule.ID, "err", err)
+		}
+	case !breached && active != nil:
+		e.resolveOrHold(ctx, active, rule, traceAttributeRuleSummary(rule, count, "resolved"), "trace")
+	}
+}
+
+func traceAttributeRuleLabels(rule AlertRule, count uint64) map[string]string {
+	return map[string]string{
+		"rule_id":   rule.ID.String(),
+		"rule_name": rule.Name,
+		"signal":    "trace_attribute",
+		"severity":  string(rule.Severity),
+		"count":     strconv.FormatUint(count, 10),
+	}
+}
+
+// traceAttributeRuleSummary says "matching traces", never "failed
+// traces". The traces it counts have usually succeeded — that is the
+// whole point of the kind — and borrowing the failure wording would
+// misreport what happened in the one place a reader is most likely to
+// act on it.
+func traceAttributeRuleSummary(rule AlertRule, count uint64, state string) string {
+	threshold := 1
+	win := "5m"
+	criteria := ""
+	if rule.TraceAttributeSpec != nil {
+		if rule.TraceAttributeSpec.Threshold > threshold {
+			threshold = rule.TraceAttributeSpec.Threshold
+		}
+		win = rule.TraceAttributeSpec.WindowDuration().String()
+		parts := make([]string, 0, len(rule.TraceAttributeSpec.Attrs))
+		for _, a := range rule.TraceAttributeSpec.Attrs {
+			parts = append(parts, fmt.Sprintf("%s %s %s", a.Key, a.Op, a.Value))
+		}
+		if len(parts) > 0 {
+			criteria = " [" + strings.Join(parts, ", ") + "]"
+		}
+	}
+	if state == "resolved" {
+		return fmt.Sprintf("%s — recovered: %d matching traces in %s (threshold ≥%d)%s",
+			rule.Name, count, win, threshold, criteria)
+	}
+	return fmt.Sprintf("%s — %d matching traces in %s (threshold ≥%d)%s",
 		rule.Name, count, win, threshold, criteria)
 }
 

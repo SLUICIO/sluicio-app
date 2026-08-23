@@ -300,6 +300,11 @@ const (
 // off this to avoid cross-contaminating each other's lists/evaluators.
 const TraceErrorSpecKind = "trace_error"
 
+// TraceAttributeSpecKind marks a span-attribute rule. See
+// TraceAttributeRuleSpec for why it is a separate kind rather than a
+// flag on the failed-trace rule.
+const TraceAttributeSpecKind = "trace_attribute"
+
 // TraceErrorRuleSpec is the JSONB rule_spec for a trace_error-signal
 // rule: fire when the integration accumulates >= Threshold failed traces
 // (a trace with at least one error span) over the trailing WindowSeconds.
@@ -399,6 +404,61 @@ func (s TraceVolumeRuleSpec) WindowDuration() time.Duration {
 	return d
 }
 
+// TraceAttributeSpecKind marks a span-attribute rule: fire when at least
+// Threshold distinct traces over the window contain a span whose
+// attributes satisfy Attrs — with NO requirement that the span be an
+// error.
+//
+// # Why this is not a flag on the failed-trace rule
+//
+// TraceErrorRuleSpec already carries Attrs, and they already compile to
+// the same predicates. But there they narrow WHICH ERROR SPANS COUNT: the
+// evaluator ANDs them onto a fixed `StatusCode = 'Error'`. A span
+// reporting `paperless.ingest.failed = 3` with an OK status is invisible
+// to it, and no combination of filters makes it visible.
+//
+// That is the case this kind exists for, and it is a common one. Plenty
+// of jobs finish successfully while reporting in an attribute that some
+// of the work did not: a batch that skipped 3 of 400 documents, a sync
+// that left 12 records unresolved. The run did not fail. The number is
+// still the thing somebody wants to be told about.
+//
+// Loosening the failed-trace rule with a `require_error: false` flag
+// would have been fewer lines and a worse product. Every string that
+// rule renders says "failed traces" — the alert body, the check line on
+// the integration page, the recovery notice. A rule counting healthy
+// traces while announcing failures is the kind of lie that costs
+// somebody an evening.
+type TraceAttributeRuleSpec struct {
+	// Kind tags this spec (TraceAttributeSpecKind). Required: every
+	// signal='trace' reader keys off it.
+	Kind string `json:"kind"`
+	// Threshold: fire when the matching-trace count over the window is >=
+	// this. Min 1 ("alert on any matching trace").
+	Threshold int `json:"threshold"`
+	// WindowSeconds is the trailing window the matching traces are counted over.
+	WindowSeconds int `json:"window_seconds"`
+	// Attrs are the span/resource attribute predicates a span must
+	// satisfy (AND-ed) for its trace to count. Unlike the failed-trace
+	// rule this is REQUIRED and must be non-empty: an empty list would
+	// count every trace in scope, which is trace_volume's job inverted,
+	// and a rule that silently means something else is worse than one
+	// that refuses to be saved.
+	Attrs []AttrFilter `json:"attrs"`
+}
+
+// WindowDuration mirrors the other trace specs (clamp [1m, 30d]).
+func (s TraceAttributeRuleSpec) WindowDuration() time.Duration {
+	d := time.Duration(s.WindowSeconds) * time.Second
+	if d < time.Minute {
+		return 5 * time.Minute
+	}
+	if d > maxCheckWindow {
+		return maxCheckWindow
+	}
+	return d
+}
+
 // Source is where a health check's value comes from.
 type Source string
 
@@ -467,6 +527,10 @@ type AlertRule struct {
 	// TraceVolumeSpec: a low-traffic rule (total traces below threshold),
 	// also signal='trace', disambiguated by rule_spec.kind=trace_volume.
 	TraceVolumeSpec *TraceVolumeRuleSpec `json:"trace_volume_spec,omitempty"`
+	// TraceAttributeSpec: a span-attribute rule (traces carrying a span
+	// that matches the predicates, error or not), also signal='trace',
+	// disambiguated by rule_spec.kind=trace_attribute.
+	TraceAttributeSpec *TraceAttributeRuleSpec `json:"trace_attribute_spec,omitempty"`
 	Severity        Severity             `json:"severity"`
 	EvalSeconds     int                  `json:"evaluation_seconds"`
 	Enabled         bool                 `json:"enabled"`

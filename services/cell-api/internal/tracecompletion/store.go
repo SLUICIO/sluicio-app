@@ -77,11 +77,30 @@ const ruleCols = `id, organization_id, integration_id,
 
 // EnabledForEval returns all enabled trace-completion rules in the
 // org. Used by the periodic evaluator.
+//
+// # Why the kind test is an allow-list
+//
+// Every signal='trace' row in alert_rules belongs to one of several
+// kinds, and only trace_completion is ours. This used to exclude
+// 'trace_error' by name, which was correct on the day it was written and
+// silently wrong afterwards: trace_latency and trace_volume arrived
+// later and were never added, so response-time and low-traffic rules
+// were listed as completion rules AND evaluated by the completion
+// evaluator.
+//
+// Naming what we DO want fixes those and cannot rot the same way. A kind
+// added tomorrow is excluded by default, which is the safe direction —
+// the failure mode of an allow-list is a rule that does not appear,
+// noticed immediately; the failure mode of a deny-list is a rule
+// evaluated by the wrong engine, noticed never.
+//
+// The empty string is legacy: rows written before the kind tag existed
+// are completion rules.
 func (s *Store) EnabledForEval(ctx context.Context, orgID uuid.UUID) ([]Rule, error) {
 	const q = `SELECT ` + ruleCols + `
 		FROM alert_rules
 		WHERE organization_id = $1 AND signal = 'trace' AND enabled
-		  AND COALESCE(rule_spec->>'kind', '') <> 'trace_error'
+		  AND COALESCE(rule_spec->>'kind', '') IN ('', 'trace_completion')
 		ORDER BY integration_id, created_at`
 	rows, err := s.pool.Query(ctx, q, orgID)
 	if err != nil {
@@ -100,7 +119,7 @@ func (s *Store) ListAll(ctx context.Context, orgID uuid.UUID) ([]Rule, error) {
 	const q = `SELECT ` + ruleCols + `
 		FROM alert_rules
 		WHERE organization_id = $1 AND signal = 'trace'
-		  AND COALESCE(rule_spec->>'kind', '') <> 'trace_error'
+		  AND COALESCE(rule_spec->>'kind', '') IN ('', 'trace_completion')
 		ORDER BY integration_id, created_at`
 	rows, err := s.pool.Query(ctx, q, orgID)
 	if err != nil {
@@ -116,7 +135,7 @@ func (s *Store) ListForIntegration(ctx context.Context, orgID, integrationID uui
 	const q = `SELECT ` + ruleCols + `
 		FROM alert_rules
 		WHERE organization_id = $1 AND integration_id = $2 AND signal = 'trace'
-		  AND COALESCE(rule_spec->>'kind', '') <> 'trace_error'
+		  AND COALESCE(rule_spec->>'kind', '') IN ('', 'trace_completion')
 		ORDER BY created_at`
 	rows, err := s.pool.Query(ctx, q, orgID, integrationID)
 	if err != nil {
@@ -131,7 +150,7 @@ func (s *Store) Get(ctx context.Context, orgID, id uuid.UUID) (Rule, error) {
 	const q = `SELECT ` + ruleCols + `
 		FROM alert_rules
 		WHERE id = $1 AND organization_id = $2 AND signal = 'trace'
-		  AND COALESCE(rule_spec->>'kind', '') <> 'trace_error'`
+		  AND COALESCE(rule_spec->>'kind', '') IN ('', 'trace_completion')`
 	row := s.pool.QueryRow(ctx, q, id, orgID)
 	r, err := scanRule(row)
 	if err != nil {
@@ -268,7 +287,7 @@ func (s *Store) Update(ctx context.Context, orgID, id uuid.UUID, in RuleInput) (
 		    rule_spec = $6::jsonb, severity = $7::alert_severity,
 		    enabled = $8, updated_at = now()
 		WHERE id = $1 AND organization_id = $2 AND signal = 'trace'
-		  AND COALESCE(rule_spec->>'kind', '') <> 'trace_error'`,
+		  AND COALESCE(rule_spec->>'kind', '') IN ('', 'trace_completion')`,
 		id, orgID, in.IntegrationID, in.Name, in.Description,
 		specJSON, in.Severity, in.Enabled)
 	if err != nil {
@@ -292,7 +311,7 @@ func (s *Store) Update(ctx context.Context, orgID, id uuid.UUID, in RuleInput) (
 func (s *Store) Delete(ctx context.Context, orgID, id uuid.UUID) error {
 	tag, err := s.pool.Exec(ctx,
 		`DELETE FROM alert_rules WHERE id = $1 AND organization_id = $2 AND signal = 'trace'
-		  AND COALESCE(rule_spec->>'kind', '') <> 'trace_error'`,
+		  AND COALESCE(rule_spec->>'kind', '') IN ('', 'trace_completion')`,
 		id, orgID)
 	if err != nil {
 		return fmt.Errorf("tracecompletion: delete: %w", err)
@@ -375,7 +394,7 @@ func (s *Store) ListFirings(ctx context.Context, orgID, integrationID uuid.UUID,
 		WHERE r.organization_id = $1
 		  AND r.integration_id = $2
 		  AND r.signal = 'trace'
-		  AND COALESCE(r.rule_spec->>'kind', '') <> 'trace_error'
+		  AND COALESCE(r.rule_spec->>'kind', '') IN ('', 'trace_completion')
 		  AND i.started_at >= $3 AND i.started_at <= $4
 		ORDER BY i.started_at DESC
 		LIMIT $5`
@@ -431,7 +450,7 @@ func (s *Store) ListFiringsForTrace(ctx context.Context, orgID uuid.UUID, traceI
 		JOIN alert_rules r ON r.id = i.alert_rule_id
 		WHERE r.organization_id = $1
 		  AND r.signal = 'trace'
-		  AND COALESCE(r.rule_spec->>'kind', '') <> 'trace_error'
+		  AND COALESCE(r.rule_spec->>'kind', '') IN ('', 'trace_completion')
 		  AND (i.fingerprint = $2 OR i.fingerprint LIKE $2 || '#%')
 		ORDER BY i.started_at DESC`
 	rows, err := s.pool.Query(ctx, q, orgID, traceID)
@@ -487,7 +506,7 @@ func (s *Store) OpenFirings(ctx context.Context, orgID, ruleID uuid.UUID) ([]Ope
 		WHERE r.organization_id = $1
 		  AND r.id = $2
 		  AND r.signal = 'trace'
-		  AND COALESCE(r.rule_spec->>'kind', '') <> 'trace_error'
+		  AND COALESCE(r.rule_spec->>'kind', '') IN ('', 'trace_completion')
 		  AND i.state = 'firing'`
 	rows, err := s.pool.Query(ctx, q, orgID, ruleID)
 	if err != nil {
@@ -522,7 +541,7 @@ func (s *Store) OpenDelayedTraceCounts(ctx context.Context, orgID uuid.UUID) (ma
 		JOIN alert_rules r ON r.id = i.alert_rule_id
 		WHERE r.organization_id = $1
 		  AND r.signal = 'trace'
-		  AND COALESCE(r.rule_spec->>'kind', '') <> 'trace_error'
+		  AND COALESCE(r.rule_spec->>'kind', '') IN ('', 'trace_completion')
 		  AND i.state = 'firing'
 		  AND i.handled_at IS NULL
 		GROUP BY r.integration_id`
@@ -553,7 +572,7 @@ func (s *Store) OpenDelayedTraceCount(ctx context.Context, orgID, integrationID 
 		WHERE r.organization_id = $1
 		  AND r.integration_id = $2
 		  AND r.signal = 'trace'
-		  AND COALESCE(r.rule_spec->>'kind', '') <> 'trace_error'
+		  AND COALESCE(r.rule_spec->>'kind', '') IN ('', 'trace_completion')
 		  AND i.state = 'firing'
 		  AND i.handled_at IS NULL`
 	var n int
@@ -576,7 +595,7 @@ func (s *Store) OpenDelayedTraceIDs(ctx context.Context, orgID, integrationID uu
 		WHERE r.organization_id = $1
 		  AND r.integration_id = $2
 		  AND r.signal = 'trace'
-		  AND COALESCE(r.rule_spec->>'kind', '') <> 'trace_error'
+		  AND COALESCE(r.rule_spec->>'kind', '') IN ('', 'trace_completion')
 		  AND i.state = 'firing'
 		  AND i.handled_at IS NULL`
 	rows, err := s.pool.Query(ctx, q, orgID, integrationID)
@@ -605,7 +624,7 @@ func (s *Store) OpenDelayedTraceIDsByIntegration(ctx context.Context, orgID uuid
 		JOIN alert_rules r ON r.id = i.alert_rule_id
 		WHERE r.organization_id = $1
 		  AND r.signal = 'trace'
-		  AND COALESCE(r.rule_spec->>'kind', '') <> 'trace_error'
+		  AND COALESCE(r.rule_spec->>'kind', '') IN ('', 'trace_completion')
 		  AND i.state = 'firing'
 		  AND i.handled_at IS NULL`
 	rows, err := s.pool.Query(ctx, q, orgID)
@@ -649,7 +668,7 @@ func (s *Store) HandleFiring(ctx context.Context, orgID, integrationID, instance
 		  AND r.organization_id = $1
 		  AND r.integration_id = $2
 		  AND r.signal = 'trace'
-		  AND COALESCE(r.rule_spec->>'kind', '') <> 'trace_error'
+		  AND COALESCE(r.rule_spec->>'kind', '') IN ('', 'trace_completion')
 		  AND i.state = 'firing'
 		  AND i.handled_at IS NULL`
 	tag, err := s.pool.Exec(ctx, q, orgID, integrationID, instanceID)

@@ -46,7 +46,7 @@ catalog in docs/testing/protocols/).
 | Slug | Feature | What it is |
 |---|---|---|
 | `health-dashboards` | Health dashboards | Card-based dashboards with per-integration widgets (traffic sparkline, error count, …); org-wide and team-scoped |
-| `alert-rules` | Alert rules | Metric / log / trace signals; trace kinds: error, latency, volume (dead-man's switch), completion; thresholds + windows; attribute predicates |
+| `alert-rules` | Alert rules | Metric / log / trace signals; trace kinds: error, latency, volume (dead-man's switch), attribute (span attribute value on a span that need not be an error), completion; thresholds + windows; attribute predicates |
 | `trace-completion` | Multi-stage trace completion | Start-gated chained SLA stages, delayed-in-success-rate |
 | `notification-channels` | Notification channels | Email (SMTP), webhook (optional HMAC-SHA256 signing + optional CloudEvents 1.0 payload format), Slack, PagerDuty (US/EU); per-rule channel binding; delivery ledger |
 | `notification-profiles` | Notification profiles | Per-integration recipient routing, org default fallback |
@@ -61,6 +61,7 @@ catalog in docs/testing/protocols/).
 | Slug | Feature | What it is |
 |---|---|---|
 | `messages` | Message views | Business-level message lens over traces; saved shared views |
+| `message-filter-fields` | Per-integration filter fields | Choose which attributes an integration's messages can be searched by, and what each is called; enforced in the API, not just the picker |
 | `stuck-messages` | Stuck messages | Cross-integration stuck/failed message triage |
 
 ### Organisation & access (core)

@@ -18,6 +18,7 @@ import type {
   AlertRule,
   AlertSeverity,
   LogAttrFilter,
+  LogAttrOp,
   LogFieldEntry,
   MetricRuleSpec,
   RetentionResponse,
@@ -1119,6 +1120,101 @@ function LogCheckEditor({
 // window), "Response time" (fire when windowed p95/max latency reaches a
 // threshold), and "Low traffic" (fire when FEWER than N traces arrive — a
 // dead-man's-switch where zero counts as below). A mode toggle picks the spec.
+// Every operator the span-attribute check accepts, in one list.
+//
+// Not split into "string ops" and "number ops" the way the log attribute
+// picker splits them. That picker knows each key's type because the logs
+// field index records it; the integration attribute list does not, so a
+// split here would have to guess — and guessing "string" for
+// `documents.failed` would hide exactly the `>` this check exists to
+// offer. The server coerces with toFloat64OrNull, so a numeric operator
+// on a non-numeric value matches nothing rather than erroring.
+const TRACE_ATTR_OPS: { op: LogAttrOp; label: string }[] = [
+  { op: "gt", label: ">" },
+  { op: "gte", label: "≥" },
+  { op: "lt", label: "<" },
+  { op: "lte", label: "≤" },
+  { op: "eq", label: "=" },
+  { op: "neq", label: "≠" },
+  { op: "contains", label: "contains" },
+  { op: "not_contains", label: "does not contain" },
+  { op: "starts_with", label: "starts with" },
+  { op: "exists", label: "exists" },
+];
+
+// TraceAttrConditionRow — one key·op·value predicate being composed.
+// `keys` populates a datalist so an integration's own attribute names are
+// one keystroke away without preventing a key that has not been seen yet
+// (a check for a failure attribute is often written BEFORE the first
+// failure ever arrives, which is the whole point of writing it).
+function TraceAttrConditionRow({
+  keys,
+  onAdd,
+}: {
+  keys: string[];
+  onAdd: (f: LogAttrFilter) => void;
+}) {
+  const [k, setK] = useState("");
+  const [op, setOp] = useState<LogAttrOp>("gt");
+  const [v, setV] = useState("");
+  const needsValue = op !== "exists";
+  const ready = k.trim() !== "" && (!needsValue || v.trim() !== "");
+  const listID = "trace-attr-keys";
+
+  const commit = () => {
+    if (!ready) return;
+    onAdd({ key: k.trim(), op, value: needsValue ? v.trim() : "" });
+    setK("");
+    setV("");
+  };
+
+  return (
+    <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+      <datalist id={listID}>
+        {keys.map((key) => (
+          <option key={key} value={key} />
+        ))}
+      </datalist>
+      <input
+        className="search__input"
+        style={{ maxWidth: 240, fontSize: 13 }}
+        list={listID}
+        placeholder="attribute, e.g. documents.failed"
+        aria-label="Attribute key"
+        value={k}
+        onChange={(e) => setK(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && commit()}
+      />
+      <select
+        className="m-rs-sel"
+        aria-label="Comparison"
+        value={op}
+        onChange={(e) => setOp(e.target.value as LogAttrOp)}
+      >
+        {TRACE_ATTR_OPS.map((o) => (
+          <option key={o.op} value={o.op}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+      {needsValue && (
+        <input
+          className="search__input"
+          style={{ maxWidth: 140, fontSize: 13 }}
+          placeholder="value"
+          aria-label="Value"
+          value={v}
+          onChange={(e) => setV(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && commit()}
+        />
+      )}
+      <button type="button" className="btn btn--sm" disabled={!ready} onClick={commit}>
+        + add condition
+      </button>
+    </div>
+  );
+}
+
 function TraceCheckEditor({
   scope,
   target,
@@ -1135,9 +1231,12 @@ function TraceCheckEditor({
   const ts = rule?.trace_error_spec;
   const ls = rule?.trace_latency_spec;
   const vs = rule?.trace_volume_spec;
-  // Existing latency/volume rule → that flavour; otherwise failed-trace.
-  type TraceMode = "errors" | "latency" | "volume";
-  const [mode, setMode] = useState<TraceMode>(ls ? "latency" : vs ? "volume" : "errors");
+  const as = rule?.trace_attribute_spec;
+  // Existing latency/volume/attribute rule → that flavour; otherwise failed-trace.
+  type TraceMode = "errors" | "latency" | "volume" | "attribute";
+  const [mode, setMode] = useState<TraceMode>(
+    ls ? "latency" : vs ? "volume" : as ? "attribute" : "errors",
+  );
   const [name, setName] = useState(rule?.name ?? "");
   const [runbook, setRunbook] = useState(rule?.runbook ?? "");
   const [severity, setSeverity] = useState<AlertSeverity>(rule?.severity ?? "warning");
@@ -1148,7 +1247,11 @@ function TraceCheckEditor({
   const [aggregation, setAggregation] = useState<"p95" | "max">(ls?.aggregation === "max" ? "max" : "p95");
   // Low-traffic floor.
   const [volumeThreshold, setVolumeThreshold] = useState<number>(vs?.threshold ?? 5);
-  const [windowSec, setWindowSec] = useState<number>(ts?.window_seconds ?? ls?.window_seconds ?? vs?.window_seconds ?? 300);
+  // Span-attribute fields.
+  const [attrThreshold, setAttrThreshold] = useState<number>(as?.threshold ?? 1);
+  const [attrs, setAttrs] = useState<LogAttrFilter[]>(as?.attrs ?? []);
+  const [attrKeys, setAttrKeys] = useState<string[]>([]);
+  const [windowSec, setWindowSec] = useState<number>(ts?.window_seconds ?? ls?.window_seconds ?? vs?.window_seconds ?? as?.window_seconds ?? 300);
   // Failed traces + low-traffic default to require-ack; response-time recovers
   // on its own (the latency drops back below threshold), so it defaults to auto.
   const [resolveMode, setResolveMode] = useState<ResolveMode>(
@@ -1156,6 +1259,27 @@ function TraceCheckEditor({
   );
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  // The integration's own attribute names, for the key datalist. Only an
+  // integration scope can offer them — `target` is the integration id
+  // there, and a service or system has no equivalent single-id endpoint.
+  // A failure to load leaves the list empty, which costs suggestions and
+  // nothing else: the key field is free text either way.
+  useEffect(() => {
+    if (mode !== "attribute" || scope !== "integration" || !target) return;
+    let live = true;
+    api
+      .integrationAttributeKeys(target, "30d")
+      .then((r) => {
+        if (live) setAttrKeys((r.attribute_keys ?? []).map((k) => k.key));
+      })
+      .catch(() => {
+        if (live) setAttrKeys([]);
+      });
+    return () => {
+      live = false;
+    };
+  }, [mode, scope, target]);
 
   // Switching mode on a NEW rule nudges the resolve default to match the
   // flavour (auto for latency, manual for errors/low-traffic). Never override on edit.
@@ -1165,6 +1289,13 @@ function TraceCheckEditor({
   };
 
   const save = async () => {
+    // The server rejects this too, but saying it here names the missing
+    // piece instead of bouncing a round-trip error at someone who has
+    // just filled in four other fields.
+    if (mode === "attribute" && attrs.length === 0) {
+      setErr("Add at least one attribute condition — otherwise this would match every trace.");
+      return;
+    }
     setSaving(true);
     setErr(null);
     const common = {
@@ -1194,14 +1325,24 @@ function TraceCheckEditor({
                 window_seconds: windowSec,
               },
             }
-          : {
-              ...common,
-              name: name.trim() || "Failed traces",
-              trace_error_spec: {
-                threshold: Math.max(1, Math.floor(threshold || 1)),
-                window_seconds: windowSec,
-              },
-            };
+          : mode === "attribute"
+            ? {
+                ...common,
+                name: name.trim() || "Attribute threshold",
+                trace_attribute_spec: {
+                  threshold: Math.max(1, Math.floor(attrThreshold || 1)),
+                  window_seconds: windowSec,
+                  attrs,
+                },
+              }
+            : {
+                ...common,
+                name: name.trim() || "Failed traces",
+                trace_error_spec: {
+                  threshold: Math.max(1, Math.floor(threshold || 1)),
+                  window_seconds: windowSec,
+                },
+              };
     try {
       if (rule) {
         await api.updateAlertRule(rule.id, {
@@ -1234,12 +1375,15 @@ function TraceCheckEditor({
           <button type="button" className={`m-seg-b ${mode === "volume" ? "on" : ""}`} onClick={() => pickMode("volume")}>
             Low traffic
           </button>
+          <button type="button" className={`m-seg-b ${mode === "attribute" ? "on" : ""}`} onClick={() => pickMode("attribute")}>
+            Attribute value
+          </button>
         </div>
       </div>
 
       <div className="m-field">
         <label className="m-field-label">Name</label>
-        <input className="search__input" value={name} onChange={(e) => setName(e.target.value)} placeholder={mode === "latency" ? "e.g. Slow checkout" : mode === "volume" ? "e.g. Orders stopped" : "e.g. Failed orders"} />
+        <input className="search__input" value={name} onChange={(e) => setName(e.target.value)} placeholder={mode === "latency" ? "e.g. Slow checkout" : mode === "volume" ? "e.g. Orders stopped" : mode === "attribute" ? "e.g. Documents failed to ingest" : "e.g. Failed orders"} />
       </div>
 
       <div className="m-field">
@@ -1301,6 +1445,56 @@ function TraceCheckEditor({
             check until the next run arrives.
           </p>
           <WindowRetentionNote windowSeconds={windowSec} kind="traces" firesBelow />
+        </>
+      ) : mode === "attribute" ? (
+        <>
+          <div className="m-field">
+            <label className="m-field-label">Conditions</label>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginBottom: 8 }}>
+              {attrs.map((a, i) => (
+                <FilterChip
+                  key={`${a.key}-${a.op}-${i}`}
+                  k={a.key}
+                  op={a.op}
+                  value={a.value}
+                  onRemove={() => setAttrs((cur) => cur.filter((_, j) => j !== i))}
+                />
+              ))}
+              {attrs.length === 0 && (
+                <span className="muted" style={{ fontSize: 12 }}>No conditions yet.</span>
+              )}
+            </div>
+            <TraceAttrConditionRow
+              keys={attrKeys}
+              onAdd={(f) =>
+                setAttrs((cur) =>
+                  cur.some((c) => c.key === f.key && c.op === f.op && c.value === f.value) ? cur : [...cur, f],
+                )
+              }
+            />
+          </div>
+          <div className="m-rule-sentence">
+            <span className="m-rs-prose">When ≥</span>
+            <input className="m-rs-num" type="number" min={1} value={attrThreshold} onChange={(e) => setAttrThreshold(Number(e.target.value))} />
+            <span className="m-rs-prose">matching trace{attrThreshold === 1 ? "" : "s"} in</span>
+            <select className="m-rs-sel" value={windowSec} onChange={(e) => setWindowSec(Number(e.target.value))}>
+              {WINDOW_CHOICES.map((w) => <option key={w.seconds} value={w.seconds}>{w.label}</option>)}
+            </select>
+          </div>
+          <p className="muted" style={{ fontSize: 12, margin: 0 }}>
+            Counts traces on this {scope}'s services carrying a span where <strong>every</strong> condition
+            holds. Several conditions are AND-ed, and they may sit on different spans of the same trace.
+          </p>
+          {/* The distinction that decides which check somebody should be
+              using, said where they are choosing. Without it "Attribute
+              value" and "Failed traces" look like two routes to the same
+              place, and the wrong one silently never fires. */}
+          <p className="muted" style={{ fontSize: 12, margin: 0 }}>
+            Unlike <strong>Failed traces</strong>, the span does <strong>not</strong> have to be an error.
+            This is the check for a run that finished successfully and still reported something worth
+            knowing — <span className="mono">documents.failed &gt; 0</span> on an otherwise healthy batch.
+          </p>
+          <WindowRetentionNote windowSeconds={windowSec} kind="traces" firesBelow={false} />
         </>
       ) : (
         <>

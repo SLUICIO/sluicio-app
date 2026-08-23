@@ -44,6 +44,10 @@ type alertRuleRequest struct {
 	// with this spec set): fire when the bound scope produces fewer than
 	// threshold distinct traces over the window (zero counts as below).
 	TraceVolumeSpec *alerting.TraceVolumeRuleSpec `json:"trace_volume_spec"`
+	// TraceAttributeSpec is required for a span-attribute rule (signal
+	// "trace", kind trace_attribute): count traces carrying a span whose
+	// attributes match, error or not.
+	TraceAttributeSpec *alerting.TraceAttributeRuleSpec `json:"trace_attribute_spec"`
 	ChannelIDs      []string                      `json:"channel_ids"`
 	// Runbook: what to do when this fires. Travels in notification and
 	// event payloads and MCP responses, so responders (human or agent)
@@ -596,10 +600,11 @@ func (h *Handlers) buildRule(orgID uuid.UUID, id uuid.UUID, req alertRuleRequest
 		if integrationID == nil && serviceName == "" {
 			return alerting.AlertRule{}, errors.New("a trace rule must be bound to an integration or a service")
 		}
-		// Three flavours share signal='trace', told apart by rule_spec->>'kind':
+		// Four flavours share signal='trace', told apart by rule_spec->>'kind':
 		// a response-time rule (trace_latency_spec), a low-traffic rule
-		// (trace_volume_spec), or a failed-trace rule (trace_error_spec).
-		// Latency > volume > error when more than one is sent.
+		// (trace_volume_spec), a span-attribute rule (trace_attribute_spec),
+		// or a failed-trace rule (trace_error_spec). Latency > volume >
+		// attribute > error when more than one is sent.
 		switch {
 		case req.TraceLatencySpec != nil:
 			if req.TraceLatencySpec.ThresholdMs < 1 {
@@ -616,6 +621,32 @@ func (h *Handlers) buildRule(orgID uuid.UUID, id uuid.UUID, req alertRuleRequest
 			}
 			req.TraceVolumeSpec.Kind = alerting.TraceVolumeSpecKind
 			rule.TraceVolumeSpec = req.TraceVolumeSpec
+		case req.TraceAttributeSpec != nil:
+			if req.TraceAttributeSpec.Threshold < 1 {
+				return alerting.AlertRule{}, errors.New("trace_attribute_spec.threshold must be at least 1")
+			}
+			if req.TraceAttributeSpec.WindowSeconds < 60 || req.TraceAttributeSpec.WindowSeconds > alerting.MaxCheckWindowSeconds {
+				return alerting.AlertRule{}, fmt.Errorf("trace_attribute_spec.window_seconds must be between 60 and %d", alerting.MaxCheckWindowSeconds)
+			}
+			// Unlike the failed-trace rule, the predicates are the whole
+			// condition rather than a narrowing of one. An empty list has
+			// no sensible reading: it would count every trace in scope and
+			// fire on healthy traffic. Refuse it here rather than store a
+			// rule that means something the author did not ask for.
+			if len(req.TraceAttributeSpec.Attrs) == 0 {
+				return alerting.AlertRule{}, errors.New("trace_attribute_spec.attrs must name at least one attribute condition")
+			}
+			for i := range req.TraceAttributeSpec.Attrs {
+				req.TraceAttributeSpec.Attrs[i].Key = strings.TrimSpace(req.TraceAttributeSpec.Attrs[i].Key)
+				if !attrKeyRe.MatchString(req.TraceAttributeSpec.Attrs[i].Key) {
+					return alerting.AlertRule{}, errors.New("invalid attribute key: " + req.TraceAttributeSpec.Attrs[i].Key)
+				}
+				if !validAttrOps[req.TraceAttributeSpec.Attrs[i].Op] {
+					return alerting.AlertRule{}, errors.New("invalid attribute operator: " + req.TraceAttributeSpec.Attrs[i].Op)
+				}
+			}
+			req.TraceAttributeSpec.Kind = alerting.TraceAttributeSpecKind
+			rule.TraceAttributeSpec = req.TraceAttributeSpec
 		case req.TraceErrorSpec != nil:
 			if req.TraceErrorSpec.Threshold < 1 {
 				return alerting.AlertRule{}, errors.New("trace_error_spec.threshold must be at least 1")
@@ -637,7 +668,7 @@ func (h *Handlers) buildRule(orgID uuid.UUID, id uuid.UUID, req alertRuleRequest
 			req.TraceErrorSpec.Kind = alerting.TraceErrorSpecKind
 			rule.TraceErrorSpec = req.TraceErrorSpec
 		default:
-			return alerting.AlertRule{}, errors.New("a trace rule needs trace_error_spec (failed traces), trace_latency_spec (response time), or trace_volume_spec (low traffic)")
+			return alerting.AlertRule{}, errors.New("a trace rule needs trace_error_spec (failed traces), trace_latency_spec (response time), trace_volume_spec (low traffic), or trace_attribute_spec (span attribute)")
 		}
 	default:
 		return alerting.AlertRule{}, errors.New("invalid signal (use metric, log, or trace)")

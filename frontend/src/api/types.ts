@@ -1734,6 +1734,21 @@ export interface TraceVolumeRuleSpec {
   window_seconds: number; // trailing window traces are counted over
 }
 
+// trace_attribute rule spec: fire when >= threshold distinct traces carry a
+// span whose attributes match, over the window — WITHOUT requiring that span
+// to be an error.
+//
+// The difference from TraceErrorRuleSpec is the whole point of the kind.
+// There, attrs narrow which ERROR spans count; a successful run reporting
+// `documents.failed = 3` is invisible to it. Here the predicates are the
+// entire condition, so a job that finished fine while reporting a number
+// worth knowing about still trips the check. attrs is required.
+export interface TraceAttributeRuleSpec {
+  threshold: number; // fire when matching-trace count >= this; min 1
+  window_seconds: number; // trailing window matching traces are counted over
+  attrs: LogAttrFilter[]; // AND-ed predicates; must name at least one
+}
+
 // NotificationContent controls which enrichment blocks an alert's email +
 // webhook include, plus an optional inline Liquid email override. All flags
 // default off (back-compat). Mirrors the backend alerting.NotificationContent.
@@ -1792,6 +1807,7 @@ export interface AlertRule {
   trace_error_spec?: TraceErrorRuleSpec; // signal "trace" + failed-trace flavour
   trace_latency_spec?: TraceLatencyRuleSpec; // signal "trace" + response-time flavour
   trace_volume_spec?: TraceVolumeRuleSpec; // signal "trace" + low-traffic flavour
+  trace_attribute_spec?: TraceAttributeRuleSpec; // signal "trace" + span-attribute flavour
   severity: AlertSeverity;
   evaluation_seconds: number;
   enabled: boolean;
@@ -1843,11 +1859,14 @@ export interface AlertRuleInput {
   log_spec?: LogRuleSpec; // required for log rules
   // for a "trace" rule, supply exactly one: trace_error_spec (fire on
   // >= threshold failed traces over the window), trace_latency_spec (fire
-  // when windowed p95/max response time reaches threshold_ms), or
-  // trace_volume_spec (fire when fewer than threshold traces in the window).
+  // when windowed p95/max response time reaches threshold_ms),
+  // trace_volume_spec (fire when fewer than threshold traces in the
+  // window), or trace_attribute_spec (fire on traces carrying a span whose
+  // attributes match, error or not).
   trace_error_spec?: TraceErrorRuleSpec;
   trace_latency_spec?: TraceLatencyRuleSpec;
   trace_volume_spec?: TraceVolumeRuleSpec;
+  trace_attribute_spec?: TraceAttributeRuleSpec;
   service_name?: string; // when set, the rule defines that service's health
   integration_id?: string; // bind to an integration's health
   system_id?: string; // bind to a system's health (e.g. a Kafka cluster)
@@ -2598,7 +2617,7 @@ export interface ServiceGroupsResponse {
 export interface MonitoringTemplateCheck {
   name: string;
   description?: string;
-  signal?: string; // "" | "metric" | "log" | "trace_error" | "trace_latency" | "trace_volume"
+  signal?: string; // "" | "metric" | "log" | "trace_error" | "trace_latency" | "trace_volume" | "trace_attribute"
   metric?: string;
   agg?: string;
   op?: string;
@@ -2609,7 +2628,7 @@ export interface MonitoringTemplateCheck {
   log_threshold?: number;
   split_by?: string; // metric checks: evaluate per distinct attribute value
   // trace-signal fields
-  trace_threshold?: number; // trace_error / trace_volume
+  trace_threshold?: number; // trace_error / trace_volume / trace_attribute
   threshold_ms?: number; // trace_latency (p95)
   window_seconds?: number; // trace checks
   severity?: string;

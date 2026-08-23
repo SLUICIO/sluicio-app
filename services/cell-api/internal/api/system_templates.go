@@ -399,6 +399,14 @@ func (h *Handlers) createTemplateChecks(r *http.Request, orgID uuid.UUID, servic
 				Threshold:     traceThreshold,
 				WindowSeconds: traceWindow,
 			}
+		case "trace_attribute":
+			rule.Signal = alerting.SignalTraceError
+			rule.TraceAttributeSpec = &alerting.TraceAttributeRuleSpec{
+				Kind:          alerting.TraceAttributeSpecKind,
+				Threshold:     traceThreshold,
+				WindowSeconds: traceWindow,
+				Attrs:         c.Attrs,
+			}
 		default:
 			rule.Signal = alerting.SignalMetric
 			rule.DisplayOnService = c.Display

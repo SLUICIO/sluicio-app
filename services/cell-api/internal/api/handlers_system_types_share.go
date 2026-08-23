@@ -114,7 +114,7 @@ var systemTypeKeyRe = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,62}$`)
 
 var validCheckSignals = map[string]bool{
 	"": true, "metric": true, "log": true,
-	"trace_error": true, "trace_latency": true, "trace_volume": true,
+	"trace_error": true, "trace_latency": true, "trace_volume": true, "trace_attribute": true,
 }
 
 var validCheckSeverities = map[string]bool{"": true, "info": true, "warning": true, "critical": true}

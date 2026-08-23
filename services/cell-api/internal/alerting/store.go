@@ -112,6 +112,10 @@ func scanRule(row pgx.Row) (AlertRule, error) {
 				var vs TraceVolumeRuleSpec
 				_ = json.Unmarshal(specRaw, &vs)
 				r.TraceVolumeSpec = &vs
+			case TraceAttributeSpecKind:
+				var as TraceAttributeRuleSpec
+				_ = json.Unmarshal(specRaw, &as)
+				r.TraceAttributeSpec = &as
 			}
 		default:
 			_ = json.Unmarshal(specRaw, &r.Spec)
@@ -130,7 +134,7 @@ func (s *Store) ListRules(ctx context.Context, orgID uuid.UUID) ([]AlertRule, er
 	rows, err := s.pool.Query(ctx, `SELECT `+ruleCols+`
 		FROM alert_rules
 		WHERE organization_id = $1
-		  AND (signal <> 'trace' OR rule_spec->>'kind' IN ('`+TraceErrorSpecKind+`', '`+TraceLatencySpecKind+`', '`+TraceVolumeSpecKind+`'))
+		  AND (signal <> 'trace' OR rule_spec->>'kind' IN ('`+TraceErrorSpecKind+`', '`+TraceLatencySpecKind+`', '`+TraceVolumeSpecKind+`', '`+TraceAttributeSpecKind+`'))
 		ORDER BY created_at DESC`, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("list alert rules: %w", err)
@@ -239,6 +243,8 @@ func ruleSpecJSON(r AlertRule) ([]byte, error) {
 		return json.Marshal(*r.TraceLatencySpec)
 	case r.Signal == SignalTraceError && r.TraceVolumeSpec != nil:
 		return json.Marshal(*r.TraceVolumeSpec)
+	case r.Signal == SignalTraceError && r.TraceAttributeSpec != nil:
+		return json.Marshal(*r.TraceAttributeSpec)
 	case r.Signal == SignalTraceError && r.TraceErrorSpec != nil:
 		return json.Marshal(*r.TraceErrorSpec)
 	}
@@ -422,6 +428,34 @@ func (s *Store) EnabledTraceLatencyRules(ctx context.Context, orgID uuid.UUID) (
 		  AND signal = 'trace' AND rule_spec->>'kind' = '`+TraceLatencySpecKind+`'`, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("enabled trace_latency rules: %w", err)
+	}
+	defer rows.Close()
+	var out []AlertRule
+	for rows.Next() {
+		r, err := scanRule(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := s.attachChannelIDs(ctx, orgID, out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// EnabledTraceAttributeRules returns the enabled span-attribute trace
+// rules — signal='trace' with the trace_attribute kind tag.
+func (s *Store) EnabledTraceAttributeRules(ctx context.Context, orgID uuid.UUID) ([]AlertRule, error) {
+	rows, err := s.pool.Query(ctx, `SELECT `+ruleCols+`
+		FROM alert_rules
+		WHERE organization_id = $1 AND enabled
+		  AND signal = 'trace' AND rule_spec->>'kind' = '`+TraceAttributeSpecKind+`'`, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("enabled trace_attribute rules: %w", err)
 	}
 	defer rows.Close()
 	var out []AlertRule
@@ -660,7 +694,7 @@ func (s *Store) FiringHealthIntegrations(ctx context.Context, orgID uuid.UUID) (
 		JOIN alert_rules r ON r.id = i.alert_rule_id
 		WHERE r.organization_id = $1 AND i.state = 'firing'
 		  AND r.integration_id IS NOT NULL
-		  AND (r.signal <> 'trace' OR r.rule_spec->>'kind' IN ('` + TraceErrorSpecKind + `', '` + TraceLatencySpecKind + `', '` + TraceVolumeSpecKind + `'))`
+		  AND (r.signal <> 'trace' OR r.rule_spec->>'kind' IN ('` + TraceErrorSpecKind + `', '` + TraceLatencySpecKind + `', '` + TraceVolumeSpecKind + `', '` + TraceAttributeSpecKind + `'))`
 	rows, err := s.pool.Query(ctx, q, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("firing health integrations: %w", err)
@@ -695,7 +729,7 @@ func (s *Store) FiringHealthSystems(ctx context.Context, orgID uuid.UUID) (map[u
 		JOIN alert_rules r ON r.id = i.alert_rule_id
 		WHERE r.organization_id = $1 AND i.state = 'firing'
 		  AND r.system_id IS NOT NULL
-		  AND (r.signal <> 'trace' OR r.rule_spec->>'kind' IN ('` + TraceErrorSpecKind + `', '` + TraceLatencySpecKind + `', '` + TraceVolumeSpecKind + `'))`
+		  AND (r.signal <> 'trace' OR r.rule_spec->>'kind' IN ('` + TraceErrorSpecKind + `', '` + TraceLatencySpecKind + `', '` + TraceVolumeSpecKind + `', '` + TraceAttributeSpecKind + `'))`
 	rows, err := s.pool.Query(ctx, q, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("firing health systems: %w", err)
