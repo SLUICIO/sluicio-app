@@ -16,6 +16,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../api/client";
 import type { MessageAttributeKey } from "../../api/types";
+import AttributePicker from "./AttributePicker";
 
 interface MessageFilter {
   kind?: "builtin" | "attribute";
@@ -65,9 +66,19 @@ export default function MessageFiltersEditor({ integrationID, value, canWrite, o
   }, [integrationID]);
 
   const dirty = useMemo(() => JSON.stringify(draft) !== JSON.stringify(value), [draft, value]);
-  const chosen = useMemo(() => new Set(draft.map((f) => f.key)), [draft]);
   const attributeDraft = useMemo(() => draft.filter((f) => f.kind !== "builtin"), [draft]);
-  const available = useMemo(() => keys.filter((k) => !chosen.has(k.key)), [keys, chosen]);
+  // Only ATTRIBUTE entries hide an attribute from the picker. Ticking the
+  // standard field `service` must not hide a span attribute that happens
+  // to be named `service` — the two live in different namespaces
+  // everywhere else, and one set spanning both would quietly lose one.
+  const chosenAttributes = useMemo(
+    () => new Set(attributeDraft.map((f) => f.key)),
+    [attributeDraft],
+  );
+  const available = useMemo(
+    () => keys.filter((k) => !chosenAttributes.has(k.key)),
+    [keys, chosenAttributes],
+  );
 
   const save = async () => {
     setSaving(true);
@@ -192,35 +203,28 @@ export default function MessageFiltersEditor({ integrationID, value, canWrite, o
           </div>
         )}
 
+        {canWrite && adding && (
+          <div style={{ marginBottom: 12 }}>
+            <AttributePicker
+              options={available}
+              full={attributeDraft.length >= MAX_MESSAGE_FILTERS}
+              fullMessage={`Already offering ${MAX_MESSAGE_FILTERS} filter fields — remove one to add another.`}
+              onCancel={() => setAdding(false)}
+              onPick={(key) => {
+                setAdding(false);
+                // The label defaults to the key. The server humanises a
+                // blank one, but showing the raw key here is honest
+                // about what will be stored if the editor leaves it
+                // alone.
+                setDraft([...draft, { kind: "attribute", key, label: key }]);
+              }}
+            />
+          </div>
+        )}
+
         {canWrite && (
           <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-            {adding ? (
-              <select
-                className="svc-input"
-                style={{ maxWidth: 320 }}
-                autoFocus
-                defaultValue=""
-                onChange={(e) => {
-                  const key = e.target.value;
-                  if (key) {
-                    // The label defaults to the key. The server
-                    // humanises a blank one, but showing the raw key
-                    // here is honest about what will be stored if the
-                    // editor leaves it alone.
-                    setDraft([...draft, { kind: "attribute", key, label: key }]);
-                  }
-                  setAdding(false);
-                }}
-                onBlur={() => setAdding(false)}
-              >
-                <option value="">Pick an attribute…</option>
-                {available.map((k) => (
-                  <option key={k.key} value={k.key}>
-                    {k.key}
-                  </option>
-                ))}
-              </select>
-            ) : (
+            {!adding && (
               <button
                 className="btn"
                 onClick={() => setAdding(true)}

@@ -21,6 +21,7 @@ import {
   type MessageColumn,
 } from "../../api/types";
 import { humanizeAttributeKey } from "../../lib/humanizeAttributeKey";
+import AttributePicker from "./AttributePicker";
 
 // Mirrors builtinLabels in the Go package. The server fills a blank
 // label from the same table, so a column added here and one added by
@@ -205,12 +206,19 @@ export default function MessageColumnsEditor({
         {canWrite && adding && (
           <AttributePicker
             options={full ? [] : available}
-            builtins={missingBuiltins}
-            attributesFull={full}
+            builtins={missingBuiltins.map((b) => ({
+              key: b,
+              label: BUILTIN_LABELS[b as BuiltinColumnID],
+            }))}
+            full={full}
+            fullMessage={`Already showing ${MAX_MESSAGE_COLUMNS} attribute columns — remove one to add another.`}
             onCancel={() => setAdding(false)}
             onPickBuiltin={(key) => {
               setAdding(false);
-              setDraft([...draft, { kind: "builtin", key, label: BUILTIN_LABELS[key] }]);
+              setDraft([
+                ...draft,
+                { kind: "builtin", key, label: BUILTIN_LABELS[key as BuiltinColumnID] },
+              ]);
             }}
             onPick={(key) => {
               setAdding(false);
@@ -255,109 +263,5 @@ export default function MessageColumnsEditor({
         )}
       </div>
     </section>
-  );
-}
-
-/**
- * The column picker: the built-ins not currently shown, then a
- * substring filter over the attributes this integration has emitted.
- *
- * Built-ins come first and unfiltered. They are four known things, and
- * the common reason to open this picker after the first time is "I
- * removed the service column and want it back" — making that a search
- * would be a worse answer than a list.
- *
- * Attributes are ranked by how many spans carry the key, because a key
- * seen on three spans out of thousands will render a mostly-empty
- * column and the user should be able to see that coming. The count is a
- * SPAN count with no denominator, so it is shown as a raw figure rather
- * than a percentage we cannot honestly compute.
- */
-function AttributePicker({
-  options,
-  builtins,
-  attributesFull,
-  onPick,
-  onPickBuiltin,
-  onCancel,
-}: {
-  options: { key: string; source: string; useCount: number }[];
-  builtins: readonly string[];
-  attributesFull: boolean;
-  onPick: (key: string) => void;
-  onPickBuiltin: (key: BuiltinColumnID) => void;
-  onCancel: () => void;
-}) {
-  const [q, setQ] = useState("");
-  const shown = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    return [...options]
-      .filter((o) => !needle || o.key.toLowerCase().includes(needle))
-      .sort((a, b) => b.useCount - a.useCount || a.key.localeCompare(b.key))
-      .slice(0, 40);
-  }, [options, q]);
-
-  return (
-    <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: 10 }}>
-      {builtins.length > 0 && (
-        <div style={{ marginBottom: 10 }}>
-          <div className="muted" style={{ fontSize: 11, marginBottom: 4 }}>Built-in</div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-            {builtins.map((b) => (
-              <button
-                key={b}
-                type="button"
-                className="btn btn--sm"
-                onClick={() => onPickBuiltin(b as BuiltinColumnID)}
-              >
-                {BUILTIN_LABELS[b as BuiltinColumnID]}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div className="muted" style={{ fontSize: 11, marginBottom: 4 }}>Span attribute</div>
-      {attributesFull ? (
-        <div className="muted" style={{ fontSize: 12.5, padding: 6 }}>
-          Already showing {MAX_MESSAGE_COLUMNS} attribute columns — remove one to add another.
-        </div>
-      ) : (
-        <input
-          className="search__input"
-          style={{ width: "100%", fontSize: 13 }}
-          autoFocus
-          placeholder="Filter attributes…"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-        />
-      )}
-      <div style={{ maxHeight: 220, overflowY: "auto", marginTop: 8 }}>
-        {!attributesFull && shown.length === 0 && (
-          <div className="muted" style={{ fontSize: 12.5, padding: 6 }}>
-            {options.length === 0
-              ? "No attributes seen on this integration in the last 30 days."
-              : "Nothing matches that filter."}
-          </div>
-        )}
-        {shown.map((o) => (
-          <button
-            key={o.key}
-            type="button"
-            className="btn btn--sm"
-            style={{ display: "flex", width: "100%", justifyContent: "space-between", marginBottom: 3, textAlign: "left" }}
-            onClick={() => onPick(o.key)}
-          >
-            <span className="mono" style={{ fontSize: 12 }}>{o.key}</span>
-            <span className="muted" style={{ fontSize: 11 }}>
-              {o.source} · {o.useCount.toLocaleString()} spans
-            </span>
-          </button>
-        ))}
-      </div>
-      <button type="button" className="btn btn--sm" style={{ marginTop: 6 }} onClick={onCancel}>
-        Cancel
-      </button>
-    </div>
   );
 }

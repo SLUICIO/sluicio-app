@@ -126,14 +126,6 @@ export default function ServiceMessagesTab({ serviceName }: Props) {
   const [openMatchedSpans, setOpenMatchedSpans] = useState<string[] | undefined>();
 
   const PAGE = 100;
-  const messagesListHeight = useMemo(
-    () =>
-      typeof window !== "undefined"
-        ? Math.max(320, window.innerHeight - 540)
-        : 420,
-    [],
-  );
-
   // Org integrations feed the FilterEditor's integration value picker
   // (for any extra integration row the user adds).
   const [integrations, setIntegrations] = useState<Integration[]>([]);
@@ -417,7 +409,7 @@ export default function ServiceMessagesTab({ serviceName }: Props) {
             loadMore={loadMore}
             gridTemplate="24px 110px 160px 1fr 1fr 80px 56px"
             rowHeight={40}
-            height={messagesListHeight}
+            fill
             itemKey={(r) => r.trace_id}
             onRowClick={(r) => {
               if (!r.trace_id) return;

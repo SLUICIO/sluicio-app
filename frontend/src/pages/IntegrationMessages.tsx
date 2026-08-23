@@ -238,11 +238,6 @@ export default function IntegrationMessagesPage() {
   const [openMatchedSpans, setOpenMatchedSpans] = useState<string[] | undefined>();
 
   const PAGE = 100;
-  const messagesListHeight = useMemo(
-    () => (typeof window !== "undefined" ? Math.max(320, window.innerHeight - 470) : 480),
-    [],
-  );
-
   // Org integrations are used by the FilterEditor's integration value
   // picker (for any *additional* integration row the user adds — they
   // shouldn't usually, but the editor's picker still expects this).
@@ -859,7 +854,7 @@ export default function IntegrationMessagesPage() {
             // which is the widest short value they usually hold.
             gridTemplate={`24px 110px ${columns.map(columnWidth).join(" ")} minmax(0,auto) 56px`}
             rowHeight={40}
-            height={messagesListHeight}
+            fill
             itemKey={(r) => r.trace_id}
             onRowClick={(r) => {
               if (!r.trace_id) return;

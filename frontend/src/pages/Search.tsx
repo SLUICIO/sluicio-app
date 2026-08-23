@@ -493,13 +493,6 @@ export default function Search() {
     results.length === 1 ? "" : "s"
   }`;
 
-  // Fill most of the viewport below the header/filter/banner. Computed
-  // once on mount — good enough without an AutoSizer dependency.
-  const messagesListHeight = useMemo(
-    () => (typeof window !== "undefined" ? Math.max(320, window.innerHeight - 430) : 520),
-    [],
-  );
-
   return (
     <div className="grid h-[calc(100vh-7rem)] grid-cols-[260px_1fr] gap-4">
       <SavedViewsRail
@@ -597,13 +590,13 @@ export default function Search() {
 
           <div className="min-h-0 flex-1">
             <VirtualInfiniteList<TraceSearchResult>
+              fill
               items={results}
               hasMore={hasMore}
               loadingMore={loadingMore}
               loadMore={loadMore}
               gridTemplate="24px 110px 160px 1fr 1fr 80px 56px"
               rowHeight={40}
-              height={messagesListHeight}
               itemKey={(r) => r.trace_id}
               onRowClick={(r) => {
                 if (!r.trace_id) return;
