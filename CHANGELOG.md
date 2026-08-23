@@ -3,8 +3,14 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.123 — 2026-08-23
+
+- feat(alerts): alert on a span attribute value without requiring an error (d8b7226)
+- fix(messages): size the virtual list to its container, and make the filter picker searchable (19397bd)
+
 ## v0.11.122 — 2026-08-22
 
+- release v0.11.122 — refresh internal changelog (cfde0ca)
 - fix(rbac): drop the service count where a service cannot be opened (#32) (d9d5ab5)
 
 ## v0.11.121 — 2026-08-22
