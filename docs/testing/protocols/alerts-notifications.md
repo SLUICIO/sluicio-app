@@ -30,6 +30,7 @@
 - **Endpoint:** `POST /api/v1/alert-rules` (signal=trace)
 - **Steps:** choose `trace_error_spec` (count), `trace_latency_spec` (threshold_ms + quantile), `trace_volume_spec` (distinct traces + window), or `trace_attribute_spec` (span attribute predicates + count) → bind to integration/service (required) → channels → save.
 - **Worth checking by hand:** a `trace_attribute_spec` with an empty `attrs` must be refused (it would match every trace), and its notification must say "matching traces" rather than "failed traces" — the traces it counts have usually succeeded.
+- **Also worth checking:** `span.name` must match the span's NAME, not an attribute. A rule on `span.name eq "<a span name that exists>"` has to fire; if it silently never does, the column mapping has regressed (guarded by `clickhouse_attrclause_test.go`).
 - **Expected:** Fires on the chosen trace condition. Window math capped at 30d (regression-tested in `alerting/types_test.go`).
 - **Code:** `handlers_alerts.go:247,515` · **Automation:** Partial.
 

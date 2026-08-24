@@ -1142,6 +1142,12 @@ const TRACE_ATTR_OPS: { op: LogAttrOp; label: string }[] = [
   { op: "exists", label: "exists" },
 ];
 
+// Two keys that are not attributes at all: they address a span's own
+// columns. Offered first because "alert me when a span called X shows up"
+// is a question people arrive with, and there is otherwise nothing in the
+// picker to suggest it can be answered.
+const SPAN_COLUMN_KEYS = ["span.name", "service.name"];
+
 // TraceAttrConditionRow — one key·op·value predicate being composed.
 // `keys` populates a datalist so an integration's own attribute names are
 // one keystroke away without preventing a key that has not been seen yet
@@ -1171,9 +1177,14 @@ function TraceAttrConditionRow({
   return (
     <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
       <datalist id={listID}>
-        {keys.map((key) => (
+        {SPAN_COLUMN_KEYS.map((key) => (
           <option key={key} value={key} />
         ))}
+        {keys
+          .filter((key) => !SPAN_COLUMN_KEYS.includes(key))
+          .map((key) => (
+            <option key={key} value={key} />
+          ))}
       </datalist>
       <input
         className="search__input"
@@ -1489,6 +1500,11 @@ function TraceCheckEditor({
               using, said where they are choosing. Without it "Attribute
               value" and "Failed traces" look like two routes to the same
               place, and the wrong one silently never fires. */}
+          <p className="muted" style={{ fontSize: 12, margin: 0 }}>
+            Use <span className="mono">span.name</span> to match the span&rsquo;s own name rather than one of
+            its attributes - that is how you alert on a span called &ldquo;Error Detected&rdquo; appearing
+            at all. <span className="mono">service.name</span> works the same way.
+          </p>
           <p className="muted" style={{ fontSize: 12, margin: 0 }}>
             Unlike <strong>Failed traces</strong>, the span does <strong>not</strong> have to be an error.
             This is the check for a run that finished successfully and still reported something worth

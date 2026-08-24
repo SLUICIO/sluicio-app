@@ -2733,6 +2733,21 @@ func attrEffectiveExprIn(primaryMap, key string) string {
 // predicates per service (e.g. `ServiceName='A' AND producer='B'`).
 const serviceNameAttrKey = "service.name"
 
+// spanNameAttrKey addresses a span's NAME — the SpanName column, not an
+// entry in either attribute map.
+//
+// It exists because the obvious thing has to work. Somebody wanting to
+// alert on a span called "Error Detected" writes `span.name`, and before
+// this that predicate compiled to a lookup of SpanAttributes['span.name']
+// — a key nothing emits. The rule saved without complaint and then
+// matched nothing, forever, which is the worst way for a check to be
+// wrong: it looks armed.
+//
+// Only meaningful against the span tables, so it is gated on the primary
+// map being SpanAttributes. The logs and metrics tables have no SpanName
+// column, and there `span.name` stays an ordinary attribute lookup.
+const spanNameAttrKey = "span.name"
+
 // attrEffectiveExpr is the log-table specialisation of
 // attrEffectiveExprIn (primary map = LogAttributes).
 func attrEffectiveExpr(key string) string { return attrEffectiveExprIn("LogAttributes", key) }
@@ -2747,6 +2762,9 @@ func attrClauseIn(primaryMap string, f LogAttrFilter) (string, []any) {
 	eff := attrEffectiveExprIn(primaryMap, f.Key)
 	if f.Key == serviceNameAttrKey {
 		eff = "ServiceName"
+	}
+	if f.Key == spanNameAttrKey && primaryMap == "SpanAttributes" {
+		eff = "SpanName"
 	}
 	switch f.Op {
 	case AttrOpEq:
@@ -2768,6 +2786,9 @@ func attrClauseIn(primaryMap string, f LogAttrFilter) (string, []any) {
 	case AttrOpExists:
 		if f.Key == serviceNameAttrKey {
 			return "ServiceName != ''", nil
+		}
+		if f.Key == spanNameAttrKey && primaryMap == "SpanAttributes" {
+			return "SpanName != ''", nil
 		}
 		return fmt.Sprintf("(mapContains(%[1]s, '%[2]s') OR mapContains(ResourceAttributes, '%[2]s'))", primaryMap, f.Key), nil
 	case AttrOpGt, AttrOpGte, AttrOpLt, AttrOpLte:
