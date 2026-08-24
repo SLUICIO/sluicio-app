@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.124 — 2026-08-24
+
+- fix(alerts): make span.name address the span's name, not a missing attribute (c6a9c81)
+
 ## v0.11.123 — 2026-08-23
 
+- release v0.11.123 — refresh internal changelog (2e4bf69)
 - feat(alerts): alert on a span attribute value without requiring an error (d8b7226)
 - fix(messages): size the virtual list to its container, and make the filter picker searchable (19397bd)
 
