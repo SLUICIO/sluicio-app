@@ -18,7 +18,7 @@
 // open in alert_instances even if the closing span eventually arrives.
 // That matches "you missed the SLA" semantic.
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api/client";
 import IntegrationPageHeader from "../components/IntegrationPageHeader";
@@ -35,6 +35,7 @@ import type {
   TraceCompletionRuleInput,
 } from "../api/types";
 import { alertCondition, alertSignalLabel } from "../lib/alertRule";
+import { CHECK_PARAM } from "../lib/checkEditHref";
 import IntegrationProfileSelect from "../components/IntegrationProfileSelect";
 import { useCurrentUser } from "../lib/useCurrentUser";
 import ResourceGroupsCard from "../components/ResourceGroupsCard";
@@ -62,6 +63,28 @@ function toSeconds(n: number, unit: TimeUnit): number {
     case "seconds": return n;
   }
 }
+
+// The settings page groups twelve cards into five tabs.
+//
+// They were a single column, which meant the notification profile sat
+// between the RBAC groups and the metadata fields for no reason other
+// than the order they were built in. Twelve cards is past the point where
+// scrolling is navigation.
+//
+// The grouping is by the QUESTION somebody arrived with, not by which
+// component renders it. "What does this integration alert on?" is one
+// question with four answers - the checks, the alert rules, the
+// completion stages and the profile that routes them - and they were
+// scattered across the length of the page.
+type SettingsTab = "general" | "messages" | "alerting" | "metadata" | "access";
+
+const TABS: [SettingsTab, string][] = [
+  ["general", "General"],
+  ["messages", "Messages"],
+  ["alerting", "Alerting"],
+  ["metadata", "Metadata"],
+  ["access", "Access"],
+];
 
 export default function IntegrationSettings() {
   const { id = "" } = useParams();
@@ -99,6 +122,34 @@ export default function IntegrationSettings() {
       })
       .catch((e) => setError(String((e as Error).message ?? e)));
   };
+  // Deep-linkable, matching the service page's ?tab= convention.
+  //
+  // The ?check= case is the one that matters: checkEditHref sends "edit
+  // this failing check" here from the Errors page, and the health-check
+  // list opens that rule's drawer on arrival. Behind a tab it is only
+  // mounted when Alerting is showing, so without this the link would
+  // land on General and the drawer would never open - the exact journey
+  // that link exists to make work.
+  const initialParams = useRef(new URLSearchParams(window.location.search)).current;
+  const [tab, setTab] = useState<SettingsTab>(() => {
+    if (initialParams.get(CHECK_PARAM)) return "alerting";
+    const t = initialParams.get("tab") as SettingsTab | null;
+    return t && TABS.some(([id]) => id === t) ? t : "general";
+  });
+
+  // Keep the active tab in the URL so it is a shareable link, preserving
+  // whatever else is there (?range= from the header).
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (tab === "general") params.delete("tab");
+    else params.set("tab", tab);
+    const next = params.toString();
+    const target = `${window.location.pathname}${next ? `?${next}` : ""}`;
+    if (target !== `${window.location.pathname}${window.location.search}`) {
+      window.history.replaceState(null, "", target);
+    }
+  }, [tab]);
+
   useEffect(refresh, [id, windowVal]);
 
   if (error) return <div className="alert alert--error">Failed to load: {error}</div>;
@@ -117,219 +168,255 @@ export default function IntegrationSettings() {
   return (
     <div className="flex flex-col gap-6">
       <IntegrationPageHeader detail={integration} />
-      {/* Edit view: the tab strip is intentionally hidden (mirrors the
-          service editor) so this reads as a focused settings page. */}
+      {/* The integration's OWN tab strip (Overview/Messages/Metrics/…) stays
+          hidden here, mirroring the service editor, so this reads as a
+          focused settings page. The strip below is a different thing: it
+          navigates within these settings, not away from them. */}
       <div>
         <Link className="btn ghost" to={`/integrations/${encodeURIComponent(id)}`}>← Back to integration</Link>
       </div>
 
-      <IntegrationDetailsEditor
-        integrationId={id}
-        name={integration.integration.name}
-        description={integration.integration.description}
-        canWrite={canWrite}
-        onSaved={refresh}
-      />
+      <div className="svc-tabs">
+        {TABS.map(([tabID, label]) => (
+          <button
+            key={tabID}
+            type="button"
+            className={`svc-tab ${tab === tabID ? "on" : ""}`}
+            onClick={() => setTab(tabID)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
 
-      <MatcherConfig
-        integrationId={id}
-        data={integration}
-        canWrite={canWrite}
-        windowVal={windowVal}
-        onChanged={refresh}
-      />
-
-      <section
-        className="overflow-hidden rounded-lg border bg-surface-2"
-        style={{ borderColor: "var(--border)" }}
-      >
-        <div className="flex items-start justify-between gap-4 border-b border-border px-4 py-3">
-          <div>
-            <h2 className="text-base font-semibold">Trace completion rules</h2>
-            <p className="text-xs text-muted mt-1">
-              A rule starts from a <b>start span</b> (only traces that
-              emit it are evaluated and counted as this integration's
-              messages) and walks an ordered chain of stages. Each stage
-              must arrive within its timeout of the previous one;
-              whichever hop runs late marks the trace delayed and fires
-              the integration's alert channels.
-            </p>
-          </div>
-          {isAdmin && (
-            <button
-              type="button"
-              className="btn btn--primary"
-              style={{ flexShrink: 0 }}
-              onClick={() => setEditing("new")}
-            >
-              + New rule
-            </button>
-          )}
-        </div>
-        <div className="p-4">
-          {rules.length === 0 ? (
-            <div className="placeholder">
-              No trace-completion rules yet.{" "}
-              {isAdmin
-                ? <>Click <b>+ New rule</b> to define one.</>
-                : "Ask an org admin to define one."}
-            </div>
-          ) : (
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Pipeline</th>
-                  <th>Severity</th>
-                  <th>Channels</th>
-                  <th>Enabled</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {rules.map((r) => {
-                  return (
-                    <tr key={r.id}>
-                      <td>
-                        <div style={{ fontWeight: 600 }}>{r.name}</div>
-                        {r.description && (
-                          <div className="muted" style={{ fontSize: 12 }}>{r.description}</div>
-                        )}
-                      </td>
-                      <td>
-                        <RulePipeline rule={r} />
-                      </td>
-                      <td><span className={`badge sev-${r.severity}`}>{r.severity}</span></td>
-                      <td>{(r.channel_ids ?? []).length}</td>
-                      <td>{r.enabled ? "✓" : "—"}</td>
-                      <td className="num">
-                        {isAdmin && (
-                          <>
-                            <button type="button" className="btn btn--link" onClick={() => setEditing(r)}>
-                              Edit
-                            </button>
-                            <button
-                              type="button"
-                              className="btn btn--link"
-                              style={{ color: "var(--err-ink, #ef4444)" }}
-                              onClick={() => onDelete(r)}
-                            >
-                              Delete
-                            </button>
-                          </>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </section>
-
-      <section
-        className="overflow-hidden rounded-lg border bg-surface-2"
-        style={{ borderColor: "var(--border)" }}
-      >
-        <div className="border-b border-border px-4 py-3">
-          <h2 className="text-base font-semibold">Notification profile</h2>
-          <p className="text-xs text-muted mt-1">
-            The profile used for this integration's alerts and unacknowledged error traces —
-            it decides the channels, grouping, and re-notify interval. Leave on “Inherit”
-            to use the owning team's default, then the org-wide default. Manage profiles
-            per team in Settings → Groups and org-wide on the <Link to="/alerts">Alerts</Link> page.
-          </p>
-        </div>
-        <div className="p-4">
-          <IntegrationProfileSelect integrationId={id} canWrite={canWrite} />
-        </div>
-      </section>
-
-      <ResourceGroupsCard kind="integration" id={id} />
-      <ResourceSharesCard kind="integrations" id={id} canManage={canWrite} />
-
-      {/* Same editor as the Metadata tab — editing an integration should
-          not require leaving Settings to fill in its metadata. */}
-      {integration && (
-        <MetadataPanel
-          fields={integration.metadata_fields ?? []}
-          values={integration.metadata_values ?? {}}
-          onSave={async (next) => {
-            await api.setIntegrationMetadata(id, next);
-            refresh();
-          }}
+      {tab === "general" && (
+        <div className="flex flex-col gap-6">
+        <IntegrationDetailsEditor
+          integrationId={id}
+          name={integration.integration.name}
+          description={integration.integration.description}
+          canWrite={canWrite}
+          onSaved={refresh}
         />
+
+        <MatcherConfig
+          integrationId={id}
+          data={integration}
+          canWrite={canWrite}
+          windowVal={windowVal}
+          onChanged={refresh}
+        />
+        </div>
       )}
 
-      <section
-        className="overflow-hidden rounded-lg border bg-surface-2"
-        style={{ borderColor: "var(--border)" }}
-      >
-        <div className="border-b border-border px-4 py-3">
-          <h2 className="text-base font-semibold">Public status badge</h2>
-          <p className="text-xs text-muted mt-1">
-            Serve a shields-style health badge for this integration at a public URL — embed
-            it in a README like a CI badge. Off by default.
-          </p>
+      {tab === "messages" && (
+        <div className="flex flex-col gap-6">
+        {/* Which span attributes this integration shows as columns in its
+            Messages list (issue #23). */}
+        <MessageColumnsEditor
+          integrationID={integration.integration.id}
+          value={integration.integration.message_columns ?? []}
+          canWrite={canWrite}
+          onSaved={refresh}
+        />
+
+
+        {/* Which span attributes this integration can be FILTERED by, and
+            what each is called (issue #31). Beside the column editor on
+            purpose: same person, same attributes, and a column header and
+            the filter that narrows it should read the same. */}
+        <MessageFiltersEditor
+          integrationID={integration.integration.id}
+          value={integration.integration.message_filters ?? []}
+          canWrite={canWrite}
+          onSaved={refresh}
+        />
         </div>
-        <div className="p-4">
-          <PublicBadgeControl
-            kind="integration"
-            id={integration.integration.id}
-            enabled={integration.integration.badge_public ?? false}
-            canManage={canWrite}
-            onChange={refresh}
+      )}
+
+      {tab === "alerting" && (
+        <div className="flex flex-col gap-6">
+        {/* Health checks for the INTEGRATION itself. The rule row has
+            carried integration_id for every signal all along, and each
+            evaluator already honours it — this component was simply never
+            mounted with scope="integration", so the only way to create one
+            was the failed-trace drawer on the Errors breakdown. */}
+        {canWrite && <HealthChecks
+            scope="integration"
+            target={id}
+            targetLabel={integration?.integration.name}
+            window={windowVal}
+            reloadKey={healthReloadKey}
+            // Re-reads the integration so its health pill reflects the
+            // check that was just added, edited or removed.
+            onChanged={refresh}
+          />}
+
+        <IntegrationAlertRules
+          rules={alertRules}
+          channels={channels}
+          canWrite={canWrite}
+          onChanged={() => {
+            refresh();
+            setHealthReloadKey((k) => k + 1);
+          }}
+          onError={setError}
+        />
+
+        <section
+          className="overflow-hidden rounded-lg border bg-surface-2"
+          style={{ borderColor: "var(--border)" }}
+        >
+          <div className="flex items-start justify-between gap-4 border-b border-border px-4 py-3">
+            <div>
+              <h2 className="text-base font-semibold">Trace completion rules</h2>
+              <p className="text-xs text-muted mt-1">
+                A rule starts from a <b>start span</b> (only traces that
+                emit it are evaluated and counted as this integration's
+                messages) and walks an ordered chain of stages. Each stage
+                must arrive within its timeout of the previous one;
+                whichever hop runs late marks the trace delayed and fires
+                the integration's alert channels.
+              </p>
+            </div>
+            {isAdmin && (
+              <button
+                type="button"
+                className="btn btn--primary"
+                style={{ flexShrink: 0 }}
+                onClick={() => setEditing("new")}
+              >
+                + New rule
+              </button>
+            )}
+          </div>
+          <div className="p-4">
+            {rules.length === 0 ? (
+              <div className="placeholder">
+                No trace-completion rules yet.{" "}
+                {isAdmin
+                  ? <>Click <b>+ New rule</b> to define one.</>
+                  : "Ask an org admin to define one."}
+              </div>
+            ) : (
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Pipeline</th>
+                    <th>Severity</th>
+                    <th>Channels</th>
+                    <th>Enabled</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rules.map((r) => {
+                    return (
+                      <tr key={r.id}>
+                        <td>
+                          <div style={{ fontWeight: 600 }}>{r.name}</div>
+                          {r.description && (
+                            <div className="muted" style={{ fontSize: 12 }}>{r.description}</div>
+                          )}
+                        </td>
+                        <td>
+                          <RulePipeline rule={r} />
+                        </td>
+                        <td><span className={`badge sev-${r.severity}`}>{r.severity}</span></td>
+                        <td>{(r.channel_ids ?? []).length}</td>
+                        <td>{r.enabled ? "✓" : "—"}</td>
+                        <td className="num">
+                          {isAdmin && (
+                            <>
+                              <button type="button" className="btn btn--link" onClick={() => setEditing(r)}>
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn--link"
+                                style={{ color: "var(--err-ink, #ef4444)" }}
+                                onClick={() => onDelete(r)}
+                              >
+                                Delete
+                              </button>
+                            </>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </section>
+
+        <section
+          className="overflow-hidden rounded-lg border bg-surface-2"
+          style={{ borderColor: "var(--border)" }}
+        >
+          <div className="border-b border-border px-4 py-3">
+            <h2 className="text-base font-semibold">Notification profile</h2>
+            <p className="text-xs text-muted mt-1">
+              The profile used for this integration's alerts and unacknowledged error traces —
+              it decides the channels, grouping, and re-notify interval. Leave on “Inherit”
+              to use the owning team's default, then the org-wide default. Manage profiles
+              per team in Settings → Groups and org-wide on the <Link to="/alerts">Alerts</Link> page.
+            </p>
+          </div>
+          <div className="p-4">
+            <IntegrationProfileSelect integrationId={id} canWrite={canWrite} />
+          </div>
+        </section>
+        </div>
+      )}
+
+      {tab === "metadata" && (
+        <div className="flex flex-col gap-6">
+        {/* Same editor as the Metadata tab — editing an integration should
+            not require leaving Settings to fill in its metadata. */}
+        {integration && (
+          <MetadataPanel
+            fields={integration.metadata_fields ?? []}
+            values={integration.metadata_values ?? {}}
+            onSave={async (next) => {
+              await api.setIntegrationMetadata(id, next);
+              refresh();
+            }}
           />
+        )}
         </div>
-      </section>
+      )}
 
-      {/* Which span attributes this integration shows as columns in its
-          Messages list (issue #23). */}
-      <MessageColumnsEditor
-        integrationID={integration.integration.id}
-        value={integration.integration.message_columns ?? []}
-        canWrite={canWrite}
-        onSaved={refresh}
-      />
+      {tab === "access" && (
+        <div className="flex flex-col gap-6">
+        <ResourceGroupsCard kind="integration" id={id} />
+        <ResourceSharesCard kind="integrations" id={id} canManage={canWrite} />
 
-      {/* Which span attributes this integration can be FILTERED by, and
-          what each is called (issue #31). Beside the column editor on
-          purpose: same person, same attributes, and a column header and
-          the filter that narrows it should read the same. */}
-      <MessageFiltersEditor
-        integrationID={integration.integration.id}
-        value={integration.integration.message_filters ?? []}
-        canWrite={canWrite}
-        onSaved={refresh}
-      />
-
-      {/* Health checks for the INTEGRATION itself. The rule row has
-          carried integration_id for every signal all along, and each
-          evaluator already honours it — this component was simply never
-          mounted with scope="integration", so the only way to create one
-          was the failed-trace drawer on the Errors breakdown. */}
-      {canWrite && <HealthChecks
-          scope="integration"
-          target={id}
-          targetLabel={integration?.integration.name}
-          window={windowVal}
-          reloadKey={healthReloadKey}
-          // Re-reads the integration so its health pill reflects the
-          // check that was just added, edited or removed.
-          onChanged={refresh}
-        />}
-
-      <IntegrationAlertRules
-        rules={alertRules}
-        channels={channels}
-        canWrite={canWrite}
-        onChanged={() => {
-          refresh();
-          setHealthReloadKey((k) => k + 1);
-        }}
-        onError={setError}
-      />
+        <section
+          className="overflow-hidden rounded-lg border bg-surface-2"
+          style={{ borderColor: "var(--border)" }}
+        >
+          <div className="border-b border-border px-4 py-3">
+            <h2 className="text-base font-semibold">Public status badge</h2>
+            <p className="text-xs text-muted mt-1">
+              Serve a shields-style health badge for this integration at a public URL — embed
+              it in a README like a CI badge. Off by default.
+            </p>
+          </div>
+          <div className="p-4">
+            <PublicBadgeControl
+              kind="integration"
+              id={integration.integration.id}
+              enabled={integration.integration.badge_public ?? false}
+              canManage={canWrite}
+              onChange={refresh}
+            />
+          </div>
+        </section>
+        </div>
+      )}
 
       {editing && (
         <EditDrawer
