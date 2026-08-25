@@ -5,6 +5,8 @@ _Internal: not shown anywhere in the Sluicio product._
 
 ## v0.11.125 — 2026-08-25
 
+- test(e2e): point the integration-settings specs at their tabs (8a36450)
+- release v0.11.125 — refresh internal changelog (19dc0b4)
 - refactor(integrations): group the settings page into tabs (3feb73e)
 
 ## v0.11.124 — 2026-08-24
