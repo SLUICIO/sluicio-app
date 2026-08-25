@@ -26,7 +26,7 @@ import PublicBadgeControl from "../components/PublicBadgeControl";
 import MessageColumnsEditor from "../components/integrations/MessageColumnsEditor";
 import MessageFiltersEditor from "../components/integrations/MessageFiltersEditor";
 import MatcherConfig from "../components/MatcherConfig";
-import { EditDrawer } from "../components/primitives";
+import { EditDrawer, TabStrip } from "../components/primitives";
 import type {
   AlertRule,
   IntegrationDetail,
@@ -176,18 +176,15 @@ export default function IntegrationSettings() {
         <Link className="btn ghost" to={`/integrations/${encodeURIComponent(id)}`}>← Back to integration</Link>
       </div>
 
-      <div className="svc-tabs">
-        {TABS.map(([tabID, label]) => (
-          <button
-            key={tabID}
-            type="button"
-            className={`svc-tab ${tab === tabID ? "on" : ""}`}
-            onClick={() => setTab(tabID)}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      <TabStrip
+        ariaLabel="Integration settings sections"
+        items={TABS.map(([tabID, label]) => ({
+          key: tabID,
+          label,
+          active: tab === tabID,
+          onClick: () => setTab(tabID),
+        }))}
+      />
 
       {tab === "general" && (
         <div className="flex flex-col gap-6">

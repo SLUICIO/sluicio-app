@@ -10,7 +10,8 @@
 // Errors tab takes an optional count pill styled like the service-detail
 // tab counts (.svc-tab .count).
 
-import { Link, useLocation } from "react-router-dom";
+import { useLocation } from "react-router-dom";
+import { TabStrip } from "./primitives";
 import { useNavigationReach } from "../lib/useNavigationReach";
 
 interface Props {
@@ -70,89 +71,22 @@ export default function IntegrationTabs({ integrationId, messagesCount, errorsCo
   };
 
   return (
-    <nav
-      aria-label="Integration sections"
-      className="flex items-end gap-1 border-b"
-      style={{ borderColor: "var(--border)" }}
-    >
-      {tabs.map((t) => {
-        const active = isActive(t);
-        const errBadge = t.tone === "err" && (t.count ?? 0) > 0;
-        const content = (
-          <span className="inline-flex items-baseline gap-1.5">
-            <span>{t.label}</span>
-            {errBadge ? (
-              // Count pill matching the service-detail tab counts
-              // (.svc-tab .count): a monospace number in a rounded chip,
-              // surface-3 by default and primary-soft when the tab is active.
-              <span
-                style={{
-                  font: "500 11px 'JetBrains Mono', monospace",
-                  padding: "1px 6px",
-                  borderRadius: 999,
-                  background: active ? "var(--primary-soft)" : "var(--surface-3)",
-                  color: active ? "var(--primary-ink)" : "var(--ink-2)",
-                  border: active
-                    ? "1px solid color-mix(in oklab, var(--primary) 25%, transparent)"
-                    : "1px solid var(--border)",
-                }}
-                title={`${t.count} open issue${t.count === 1 ? "" : "s"} (failed traces, delayed traces, failing health checks, unacknowledged errors)`}
-              >
-                {formatCount(t.count!)}
-              </span>
-            ) : t.count !== undefined && t.tone !== "err" ? (
-              <span
-                className="text-xs"
-                style={{ color: "var(--muted)", fontWeight: 400 }}
-              >
-                · {formatCount(t.count)}
-              </span>
-            ) : null}
-          </span>
-        );
-        const baseStyle = {
-          padding: "8px 14px",
-          marginBottom: -1,
-          fontSize: 14,
-          fontWeight: active ? 700 : 400,
-          borderBottom: active
-            ? "3px solid var(--primary)"
-            : "3px solid transparent",
-          background: active ? "var(--primary-soft)" : "transparent",
-          color: active
-            ? "var(--primary-ink)"
-            : t.disabled
-              ? "var(--muted)"
-              : "var(--ink-2)",
-          borderTopLeftRadius: 6,
-          borderTopRightRadius: 6,
-          cursor: t.disabled ? "not-allowed" : "pointer",
-        } as const;
-
-        if (t.disabled) {
-          return (
-            <span
-              key={t.label}
-              style={baseStyle}
-              title="Coming soon"
-              aria-disabled="true"
-            >
-              {content}
-            </span>
-          );
-        }
-        return (
-          <Link key={t.label} to={t.path} style={baseStyle}>
-            {content}
-          </Link>
-        );
-      })}
-    </nav>
+    <TabStrip
+      ariaLabel="Integration sections"
+      items={tabs.map((t) => ({
+        key: t.label,
+        label: t.label,
+        to: t.path,
+        active: isActive(t),
+        disabled: t.disabled,
+        count: t.count,
+        tone: t.tone,
+        countTitle:
+          t.tone === "err" && t.count !== undefined
+            ? `${t.count} open issue${t.count === 1 ? "" : "s"} (failed traces, delayed traces, failing health checks, unacknowledged errors)`
+            : undefined,
+      }))}
+    />
   );
 }
 
-function formatCount(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
-  return String(n);
-}

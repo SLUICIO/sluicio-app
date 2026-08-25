@@ -16,3 +16,5 @@ export { default as SortableTh } from "./SortableTh";
 export { default as KVTable, attributeRows } from "./KVTable";
 export type { KVRow } from "./KVTable";
 export { default as EditDrawer } from "./EditDrawer";
+export { default as TabStrip, formatTabCount } from "./TabStrip";
+export type { TabItem } from "./TabStrip";
