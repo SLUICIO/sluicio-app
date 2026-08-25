@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.125 — 2026-08-25
+
+- refactor(integrations): group the settings page into tabs (3feb73e)
+
 ## v0.11.124 — 2026-08-24
 
+- release v0.11.124 — refresh internal changelog (9513343)
 - fix(alerts): make span.name address the span's name, not a missing attribute (c6a9c81)
 
 ## v0.11.123 — 2026-08-23
