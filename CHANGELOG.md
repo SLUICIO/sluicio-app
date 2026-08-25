@@ -5,6 +5,8 @@ _Internal: not shown anywhere in the Sluicio product._
 
 ## v0.11.125 — 2026-08-25
 
+- refactor(ui): one tab strip, shared by the integration and settings tabs (5498d91)
+- release v0.11.125 — refresh internal changelog (6eae90d)
 - test(e2e): point the integration-settings specs at their tabs (8a36450)
 - release v0.11.125 — refresh internal changelog (19dc0b4)
 - refactor(integrations): group the settings page into tabs (3feb73e)
