@@ -17,6 +17,7 @@
 ### Case 1 — List integrations
 - **Endpoint:** `GET /api/v1/integrations` · **Actor:** member
 - **Steps:** Open Integrations; filter by tags (AND), by name/metadata; pick columns; sort.
+- **Where the per-integration editors live:** the integration's Settings page is grouped into tabs, each deep-linkable as `?tab=`. Message columns and filter fields are on **Messages**; health checks, alert rules, completion rules and the notification profile on **Alerting**; metadata fields on **Metadata**; group access, shares and the public badge on **Access**.
 - **Expected:** Status (unhealthy/errors/ok/quiet), trace/error counts, service count, tags, metadata, updated. Filter state in URL (`?tags=`,`?filter=`,`?cols=`). Health aggregates member services + open errors.
 - **Code:** `handlers_integrations.go:50` · **Automation:** yes.
 

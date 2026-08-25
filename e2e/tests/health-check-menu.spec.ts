@@ -66,7 +66,10 @@ test.describe("Add health check menu", () => {
     const list = await (await page.request.get("/api/v1/integrations?range=30d")).json();
     const id = (list.integrations ?? [])[0]?.id as string | undefined;
     test.skip(!id, "cell has no integrations");
-    await page.goto(`/integrations/${id}/settings`);
+    // Health checks live on the settings page's Alerting tab. ?tab= is a
+    // supported deep link, so this stays a navigation rather than a click
+    // sequence that would break again on the next grouping change.
+    await page.goto(`/integrations/${id}/settings?tab=alerting`);
     await assertMenuFullyClickable(page);
   });
 

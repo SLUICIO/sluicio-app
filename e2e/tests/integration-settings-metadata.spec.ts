@@ -22,7 +22,7 @@ test("integration Settings page carries the metadata editor", async ({ page }) =
   const integID = created.integration?.id ?? created.id;
   try {
     await logIn(page);
-    await page.goto(`/integrations/${integID}/settings`);
+    await page.goto(`/integrations/${integID}/settings?tab=metadata`);
     // With no metadata fields defined the panel shows its empty-state
     // pointer; with fields it shows the editor — either proves presence.
     await expect(

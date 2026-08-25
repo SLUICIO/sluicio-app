@@ -78,7 +78,7 @@ test("protocol: group-granted visibility of one integration", async ({ page }) =
   // 5. Attach groupA to the integration (viewer access).
   await page.goto("/integrations");
   await page.getByRole("link", { name: INTEG }).click();
-  await page.goto(page.url().replace(/\/?$/, "") + "/settings");
+  await page.goto(page.url().replace(/\/?$/, "") + "/settings?tab=access");
   const groupCard = page.locator(".card", { hasText: "Group access" });
   await groupCard.locator("label", { hasText: GROUP }).locator("input[type=checkbox]").check();
   await groupCard.getByRole("button", { name: /Save group access/ }).click();
