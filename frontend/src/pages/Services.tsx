@@ -14,6 +14,7 @@ import type { MetadataField, ServiceSummary, ServicesResponse, Tag } from "../ap
 import { formatNumber } from "../lib/format";
 import { usePageTitle } from "../lib/usePageTitle";
 import { useTimeWindow } from "../lib/useTimeWindow";
+import { otlpEndpoint, useIngestBaseUrl } from "../lib/useIngestBaseUrl";
 
 // Static (non-metadata) filter fields for services — name, namespace, status.
 // (No slug/description like integrations have.)
@@ -82,6 +83,7 @@ function groupKeysFor(s: ServiceSummary, by: GroupBy): string[] {
 // Multi-tag filtering uses AND semantics — selecting two tags narrows
 // the table to services carrying both — matching the integrations list.
 export default function Services() {
+  const ingestBase = useIngestBaseUrl();
   usePageTitle("Services");
   const [windowVal] = useTimeWindow();
   const [data, setData] = useState<ServicesResponse | null>(null);
@@ -441,7 +443,7 @@ export default function Services() {
       {!error && services.length === 0 && !loading && (
         <div className="placeholder">
           No services yet. Point an OpenTelemetry collector at{" "}
-          <code>http://localhost:4318/v1/traces</code>.
+          <code>{otlpEndpoint(ingestBase, "traces")}</code>.
         </div>
       )}
 

@@ -12,6 +12,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
+import { useIngestBaseUrl } from "../lib/useIngestBaseUrl";
 
 interface Props {
   integrationId: string;
@@ -25,7 +26,7 @@ export default function IntegrationServicesGuide({ integrationId, compact = fals
   // (false → set up ingestion) from "telemetry exists but no matcher
   // selects it" (true → fix the matchers).
   const [hasTelemetry, setHasTelemetry] = useState<boolean | null>(null);
-  const [ingestBase, setIngestBase] = useState(window.location.origin);
+  const ingestBase = useIngestBaseUrl();
 
   useEffect(() => {
     let cancelled = false;
@@ -36,14 +37,6 @@ export default function IntegrationServicesGuide({ integrationId, compact = fals
       })
       .catch(() => {
         if (!cancelled) setHasTelemetry(null);
-      });
-    api
-      .getSystemSettings()
-      .then((s) => {
-        if (!cancelled && s.ingest_base_url) setIngestBase(s.ingest_base_url);
-      })
-      .catch(() => {
-        /* keep the browser-origin default */
       });
     return () => {
       cancelled = true;
