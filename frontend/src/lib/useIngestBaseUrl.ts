@@ -20,15 +20,32 @@
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
 
-let cached: string | null = null;
-let inflight: Promise<string> | null = null;
-const listeners = new Set<(v: string) => void>();
+/**
+ * Where the value came from, straight from the server rather than
+ * inferred.
+ *
+ * "unset" is worth distinguishing from a base that merely happens to
+ * equal the browser origin: on a single-host deployment an admin may set
+ * the ingest URL to exactly this UI's origin on purpose, and comparing
+ * the two values would then tell them their deliberate configuration was
+ * a fallback.
+ */
+export type IngestUrlSource = "env" | "setting" | "unset";
+
+export interface IngestBase {
+  base: string;
+  source: IngestUrlSource;
+}
+
+let cached: IngestBase | null = null;
+let inflight: Promise<IngestBase> | null = null;
+const listeners = new Set<(v: IngestBase) => void>();
 
 function originFallback(): string {
   return typeof window !== "undefined" ? window.location.origin : "";
 }
 
-function load(): Promise<string> {
+function load(): Promise<IngestBase> {
   if (cached !== null) return Promise.resolve(cached);
   if (!inflight) {
     inflight = api
@@ -36,13 +53,18 @@ function load(): Promise<string> {
       .then((s) => {
         // Trailing slashes are stripped so callers can append a path
         // without producing "https://host//v1/traces", which some
-        // collectors send verbatim and some servers reject.
-        const v = (s.ingest_base_url || originFallback()).replace(/\/+$/, "");
+        // collectors send verbatim and some servers reject. Both server
+        // paths already trim, so this is defence rather than the only
+        // guard.
+        const v: IngestBase = {
+          base: (s.ingest_base_url || originFallback()).replace(/\/+$/, ""),
+          source: s.ingest_url_source ?? (s.ingest_base_url ? "setting" : "unset"),
+        };
         cached = v;
         listeners.forEach((fn) => fn(v));
         return v;
       })
-      .catch(() => originFallback())
+      .catch(() => ({ base: originFallback(), source: "unset" as const }))
       .finally(() => {
         inflight = null;
       });
@@ -57,11 +79,13 @@ function load(): Promise<string> {
  * blank and then fills in reads as broken, and the origin is the same
  * answer this hook falls back to anyway.
  */
-export function useIngestBaseUrl(): string {
-  const [v, setV] = useState<string>(cached ?? originFallback());
+export function useIngestBase(): IngestBase {
+  const [v, setV] = useState<IngestBase>(
+    cached ?? { base: originFallback(), source: "unset" },
+  );
   useEffect(() => {
     let live = true;
-    const fn = (next: string) => {
+    const fn = (next: IngestBase) => {
       if (live) setV(next);
     };
     listeners.add(fn);
@@ -72,6 +96,11 @@ export function useIngestBaseUrl(): string {
     };
   }, []);
   return v;
+}
+
+/** Just the base, for callers that do not care where it came from. */
+export function useIngestBaseUrl(): string {
+  return useIngestBase().base;
 }
 
 /** The full OTLP/HTTP endpoint for one signal, e.g. base + "/v1/traces". */

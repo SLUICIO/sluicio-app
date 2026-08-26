@@ -56,6 +56,7 @@ import { SYSTEM_KINDS } from "../lib/systemKinds";
 import { useCurrentUser } from "../lib/useCurrentUser";
 import { useLicense } from "../lib/useLicense";
 import { usePageTitle } from "../lib/usePageTitle";
+import { useIngestBase } from "../lib/useIngestBaseUrl";
 import type { AuditEntry, AuditVerifyResult, LicenseStatus, SMTPSettingsResponse } from "../api/types";
 
 type TabKey =
@@ -1347,10 +1348,9 @@ function IngestKeysTab() {
   // The OTLP/HTTP base URL we bake into the exporter snippets. Prefer the
   // admin-configured ingest URL (System settings); fall back to the host
   // the browser is on, which is correct for single-host deployments.
-  const [ingestBase, setIngestBase] = useState(window.location.origin);
+  const { base: ingestBase, source: ingestSource } = useIngestBase();
   // null = still loading; false = falling back to the browser origin,
   // which is WRONG whenever ingest runs on its own hostname.
-  const [ingestConfigured, setIngestConfigured] = useState<boolean | null>(null);
 
   const refresh = () => {
     api
@@ -1359,17 +1359,6 @@ function IngestKeysTab() {
       .catch((e) => setError(String((e as Error).message ?? e)));
   };
   useEffect(refresh, []);
-  useEffect(() => {
-    api
-      .getSystemSettings()
-      .then((s) => {
-        if (s.ingest_base_url) setIngestBase(s.ingest_base_url);
-        setIngestConfigured(Boolean(s.ingest_base_url));
-      })
-      .catch(() => {
-        /* non-fatal: snippets keep the browser-origin default */
-      });
-  }, []);
 
   const create = async () => {
     if (!name.trim()) return;
@@ -1464,7 +1453,7 @@ function IngestKeysTab() {
         can write telemetry as this organization.
       </div>
 
-      {ingestConfigured === false && (
+      {ingestSource === "unset" && (
         <div className="alert alert--warn" style={{ marginBottom: 12, fontSize: 13 }}>
           Exporter snippets currently point at <code>{ingestBase}</code> — this UI's own
           host. If OTLP ingest is served on its own hostname (e.g.{" "}
@@ -1502,7 +1491,7 @@ function IngestKeysTab() {
             Ready-to-paste exporter config with this key already filled in. Pick whichever
             matches how your app ships telemetry. The endpoint is{" "}
             <code>{ingestBase}</code>
-            {ingestBase === window.location.origin ? (
+            {ingestSource === "unset" ? (
               <>
                 {" "}— derived from this page's host. If your collector reaches
                 cell-ingest at a different address, set the{" "}
