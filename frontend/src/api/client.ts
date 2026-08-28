@@ -476,6 +476,9 @@ export const api = {
   // nodes and edges come back, plus a per-node state for that message.
   getNavigationReach: () => get<NavigationReach>(`/me/navigation`),
   getBranding: () => get<Branding>(`/cell-settings/branding`),
+  // The login screen's copy: no session required, and no licence state in
+  // the body. See publicBranding on the server.
+  getLoginBranding: () => get<Branding>(`/branding/login`),
   setBranding: (body: Partial<Branding>) => put<Branding>(`/cell-settings/branding`, body),
   setIntegrationMessageFilters: (id: string, filters: { key: string; label: string }[]) =>
     put<{ filters: { key: string; label: string }[] }>(

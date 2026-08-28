@@ -1354,6 +1354,9 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	// the shell; writable only by an operator, because a partner's brand
 	// is a property of the deployment rather than of one org in it.
 	mux.HandleFunc("GET /api/v1/cell-settings/branding", h.getBranding)
+	// The same mark, without a session, for the login screen. Separate
+	// route because the payload is narrower — see publicBranding.
+	mux.HandleFunc("GET /api/v1/branding/login", h.publicBranding)
 	if h.AuthMW != nil {
 		mux.HandleFunc("PATCH /api/v1/cell-settings/retention",
 			h.AuthMW.RequireOperator(h.patchRetention))

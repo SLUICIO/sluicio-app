@@ -10,6 +10,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { SsoProviderButton } from "../api/types";
 import { LogoMark } from "../components/brand/Logo";
+import { useLoginBranding, brandingLogoFor, applyBrandingToDocument } from "../lib/useBranding";
 import { usePageTitle } from "../lib/usePageTitle";
 
 // A cell-wide announcement flagged for the sign-in page (public
@@ -48,7 +49,19 @@ interface Props {
 }
 
 export default function Login({ onSuccess }: Props) {
+  // The cell's mark, read without a session. null until it lands (or on
+  // an unbranded / unentitled cell), which is why every use below falls
+  // back to the Sluicio lockup rather than rendering nothing.
+  const branding = useLoginBranding();
+  const brandLogo = branding && branding.logo ? brandingLogoFor(branding) : "";
+  const productName = branding?.wordmark || "Sluicio";
   usePageTitle("Sign in");
+  // The shell applies the mark to <head>, and the shell does not run here.
+  // Without this the tab still reads "Sign in · Sluicio" on a partner's
+  // cell, which is the one label a visitor sees before anything else.
+  useEffect(() => {
+    applyBrandingToDocument(branding);
+  }, [branding]);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -274,9 +287,32 @@ export default function Login({ onSuccess }: Props) {
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 18 }}>
-          <LogoMark size={32} style={{ color: "var(--primary)" }} />
+          {/* A partner's mark where they have one. The height matches the
+              Sluicio LogoMark it replaces so the row does not shift as the
+              fetch lands, and object-fit keeps a wide wordmark-style logo
+              from being squashed into a square. */}
+          {brandLogo ? (
+            <img
+              src={brandLogo}
+              alt={productName}
+              // flexShrink matters: this sits in a flex row beside the
+              // heading, and a partner's mark is typically WIDE where the
+              // Sluicio glyph it replaces is square. Left to shrink, a
+              // 120x32 logo rendered at 62px wide - readable enough to
+              // pass a glance, wrong enough to look like a mistake.
+              style={{ height: 32, maxWidth: 160, objectFit: "contain", flexShrink: 0 }}
+            />
+          ) : (
+            <LogoMark size={32} style={{ color: "var(--primary)" }} />
+          )}
           <div style={{ fontSize: 18, fontWeight: 700 }}>
-            {mode === "forgot" ? "Reset your password" : mode === "mfa" ? "Two-factor authentication" : mode === "setup" ? "Welcome to Sluicio" : "Sign in to Sluicio"}
+            {mode === "forgot"
+              ? "Reset your password"
+              : mode === "mfa"
+                ? "Two-factor authentication"
+                : mode === "setup"
+                  ? `Welcome to ${productName}`
+                  : `Sign in to ${productName}`}
           </div>
         </div>
 
@@ -437,7 +473,7 @@ export default function Login({ onSuccess }: Props) {
 
         {showFreshHint && mode === "login" && (
           <p className="muted" style={{ fontSize: 12, marginTop: 18, lineHeight: 1.5 }}>
-            Sluicio ships with a default admin account on first boot:{" "}
+            {productName} ships with a default admin account on first boot:{" "}
             <strong>admin@sluicio.local</strong> / <strong>admin</strong>.
             Once you’re in, change the password from the user menu.
           </p>

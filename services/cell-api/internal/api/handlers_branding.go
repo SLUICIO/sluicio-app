@@ -3,10 +3,14 @@
 // The cell's mark (issue #29).
 //
 // Read by every authenticated user, because the app shell cannot render
-// without knowing what to draw. Written by a cell OPERATOR, because the
-// brand is a property of the deployment rather than of any one
-// organisation in it — which is also what makes it a single setting
-// instead of one per org.
+// without knowing what to draw, and by nobody at all on the LOGIN page —
+// see publicBranding, which exists because the sign-in screen is the one
+// page a partner's visitor is guaranteed to see and the only one that
+// could not be branded.
+//
+// Written by a cell OPERATOR, because the brand is a property of the
+// deployment rather than of any one organisation in it — which is also
+// what makes it a single setting instead of one per org.
 
 package api
 
@@ -53,6 +57,40 @@ func (h *Handlers) getBranding(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpserver.WriteJSON(w, http.StatusOK, BrandingResponse{Branding: b, Entitled: true})
+}
+
+// publicBranding: GET /api/v1/branding/login — no session required.
+//
+// The sign-in screen drew the Sluicio mark and said "Sign in to Sluicio"
+// on a cell branded as somebody else, because the only branding read
+// needed a session and the login page by definition has none. A partner's
+// brand appearing only AFTER sign-in inverts the point of having one: the
+// visitor who is not yet a customer sees exactly one page, and it was
+// ours.
+//
+// Deliberately a separate route with a narrower body rather than opening
+// the authenticated one. It carries the three things needed to paint a
+// login screen and NOT the `entitled` flag: whether this deployment holds
+// a white-label licence is nobody's business before sign-in, and it is
+// only ever consumed by the operator form, which has a session anyway.
+//
+// Mirrors /api/v1/announcements/login, which is public for the same
+// reason and returns a similarly minimal payload.
+func (h *Handlers) publicBranding(w http.ResponseWriter, r *http.Request) {
+	// An unentitled cell answers with the empty object, which the client
+	// reads as "draw the Sluicio lockup" — the same fallback it uses when
+	// the request fails outright.
+	if !h.featureEntitled(license.FeatureWhiteLabel) {
+		httpserver.WriteJSON(w, http.StatusOK, settings.Branding{})
+		return
+	}
+	b, err := h.Settings.GetBranding(r.Context())
+	if err != nil {
+		h.Logger.Warn("read branding for login failed; using the default mark", "err", err)
+		httpserver.WriteJSON(w, http.StatusOK, settings.Branding{})
+		return
+	}
+	httpserver.WriteJSON(w, http.StatusOK, b)
 }
 
 // putBranding: PUT /api/v1/cell-settings/branding  (operator)

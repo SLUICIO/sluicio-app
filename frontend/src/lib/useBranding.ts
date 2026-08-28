@@ -58,9 +58,59 @@ export function useBranding(): Branding | null {
   return b;
 }
 
+/**
+ * The cell's mark for a page with no session — the login screen.
+ *
+ * A separate cache from useBranding because it reads a separate,
+ * narrower endpoint: the authenticated one carries the licence state,
+ * which nobody should learn before signing in. Both return the same three
+ * fields a lockup is drawn from, so the two never disagree about what to
+ * paint.
+ */
+let publicCached: Branding | null = null;
+let publicInflight: Promise<Branding | null> | null = null;
+const publicListeners = new Set<(b: Branding | null) => void>();
+
+export function useLoginBranding(): Branding | null {
+  const [b, setB] = useState<Branding | null>(publicCached);
+  useEffect(() => {
+    let live = true;
+    const fn = (next: Branding | null) => {
+      if (live) setB(next);
+    };
+    publicListeners.add(fn);
+    if (publicCached) {
+      fn(publicCached);
+    } else {
+      if (!publicInflight) {
+        publicInflight = api
+          .getLoginBranding()
+          .then((v) => {
+            publicCached = v;
+            publicListeners.forEach((l) => l(v));
+            return v;
+          })
+          // Same fallback as the shell: the Sluicio lockup is ours and is
+          // never wrong the way a half-loaded partner brand would be.
+          .catch(() => null)
+          .finally(() => {
+            publicInflight = null;
+          });
+      }
+      publicInflight.then(fn);
+    }
+    return () => {
+      live = false;
+      publicListeners.delete(fn);
+    };
+  }, []);
+  return b;
+}
+
 /** Invalidate after an operator saves, so the shell repaints without a reload. */
 export function refreshBranding(): void {
   cached = null;
+  publicCached = null;
   load();
 }
 
