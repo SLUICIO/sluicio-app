@@ -26,6 +26,7 @@ import MaintenanceWindows from "../components/MaintenanceWindows";
 import NotificationProfiles from "../components/NotificationProfiles";
 import SearchableSelect from "../components/SearchableSelect";
 import VirtualInfiniteList from "../components/VirtualInfiniteList";
+import { useProductName } from "../lib/useProductName";
 
 const KINDS = ["slack", "webhook", "pagerduty", "email"];
 
@@ -599,6 +600,7 @@ function ChannelsCard({
   onError: (e: string) => void;
   canWrite: boolean;
 }) {
+  const productName = useProductName();
   // Team notification channels are managed right here (no longer buried in
   // Settings): pick a team, edit its profiles. Default to the first team so
   // the section shows something the moment there's a team to configure.
@@ -766,7 +768,7 @@ function ChannelsCard({
                       <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, minWidth: 170 }}>
                         <span className="muted">Payload format</span>
                         <select className="toolbar__select" value={whFormat} onChange={(e) => setWhFormat(e.target.value)} title="CloudEvents wraps the payload in a CNCF-standard envelope for Event Grid / EventBridge / Knative receivers">
-                          <option value="">Sluicio JSON (default)</option>
+                          <option value="">{productName} JSON (default)</option>
                           <option value="cloudevents">CloudEvents 1.0</option>
                         </select>
                       </label>
@@ -805,7 +807,7 @@ function ChannelsCard({
             <div>
               <div style={{ fontSize: 13, fontWeight: 600 }}>Team notification channels</div>
               <p className="muted" style={{ fontSize: 12, margin: "2px 0 0" }}>
-                A team&rsquo;s own profiles take over when one of its health checks fires — Sluicio notifies the team&rsquo;s channels and only falls back to the org-wide default if the team hasn&rsquo;t set any.
+                A team&rsquo;s own profiles take over when one of its health checks fires — {productName} notifies the team&rsquo;s channels and only falls back to the org-wide default if the team hasn&rsquo;t set any.
               </p>
             </div>
             {groups.length > 0 && (

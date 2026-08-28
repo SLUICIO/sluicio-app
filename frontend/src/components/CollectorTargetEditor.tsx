@@ -16,6 +16,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { CollectorTarget } from "../api/types";
+import { useProductName } from "../lib/useProductName";
 
 interface Props {
   /** Omit for the org default; pass a service name for its override. */
@@ -30,6 +31,7 @@ const DISTRIBUTIONS = [
 ];
 
 export default function CollectorTargetEditor({ service, onChanged }: Props) {
+  const productName = useProductName();
   const [target, setTarget] = useState<CollectorTarget | null>(null);
   const [version, setVersion] = useState("");
   const [distribution, setDistribution] = useState("contrib");
@@ -130,13 +132,13 @@ export default function CollectorTargetEditor({ service, onChanged }: Props) {
         ) : (
           <>
             Nothing set, so snippets assume <strong>{target.version}</strong>, the newest
-            release this build of Sluicio knows.
+            release this build of {productName} knows.
           </>
         )}
         {target.beyond_known && (
           <>
             {" "}
-            This is newer than this Sluicio release can check ({target.newest_known} is
+            This is newer than this {productName} release can check ({target.newest_known} is
             the newest it knows), so component names are resolved as of{" "}
             {target.newest_known}.
           </>

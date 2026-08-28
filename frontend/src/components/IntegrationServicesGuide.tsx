@@ -13,6 +13,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import { useIngestBaseUrl } from "../lib/useIngestBaseUrl";
+import { useProductName } from "../lib/useProductName";
 
 interface Props {
   integrationId: string;
@@ -22,6 +23,7 @@ interface Props {
 }
 
 export default function IntegrationServicesGuide({ integrationId, compact = false }: Props) {
+  const productName = useProductName();
   // null = still loading / unknown. Distinguishes "no telemetry yet"
   // (false → set up ingestion) from "telemetry exists but no matcher
   // selects it" (true → fix the matchers).
@@ -60,7 +62,7 @@ export default function IntegrationServicesGuide({ integrationId, compact = fals
           No services in this integration yet
         </div>
         <p className="muted" style={{ fontSize: 13, marginTop: 4, lineHeight: 1.55, maxWidth: 640 }}>
-          Services aren't added by hand — Sluicio discovers them automatically. One
+          Services aren't added by hand — {productName} discovers them automatically. One
           appears the moment telemetry arrives whose <code>service.name</code> matches a{" "}
           <strong>matcher</strong> on this integration. Two steps:
         </p>
@@ -68,7 +70,7 @@ export default function IntegrationServicesGuide({ integrationId, compact = fals
 
       <Step
         n={1}
-        title="Send telemetry to Sluicio"
+        title={`Send telemetry to ${productName}`}
         // Only mark "done" when we positively know the cell has data.
         status={hasTelemetry === true ? "done" : hasTelemetry === false ? "todo" : "neutral"}
       >

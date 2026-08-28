@@ -55,6 +55,7 @@ import { usePageTitle } from "../lib/usePageTitle";
 import { useTimeWindow } from "../lib/useTimeWindow";
 import { useCurrentUser } from "../lib/useCurrentUser";
 import { useAccess } from "../lib/useAccess";
+import { useProductName } from "../lib/useProductName";
 
 const CHANNEL_GLYPH: Record<string, string> = { slack: "#", pagerduty: "⚠", webhook: "↗" };
 // Window used when jumping to the error traces behind an open-error
@@ -65,6 +66,7 @@ type Mode = "view" | "edit";
 type ViewTab = "overview" | "health" | "metrics" | "logs" | "traces" | "deploys" | "settings";
 
 export default function ServiceDetail() {
+  const productName = useProductName();
   const { name = "" } = useParams();
   const navigate = useNavigate();
   const [windowVal, setWindow] = useTimeWindow();
@@ -537,7 +539,7 @@ export default function ServiceDetail() {
                   Detected {pendingSuggestions.map((s) => s.label).join(", ")}
                 </div>
                 <div style={{ fontSize: 13, opacity: 0.9 }}>
-                  Sluicio can set up starter health checks for this service from its emitted metrics.
+                  {productName} can set up starter health checks for this service from its emitted metrics.
                 </div>
               </div>
               {canWrite && (
@@ -1272,6 +1274,7 @@ function ServiceEdit({
   onCreateTag: (r: CreateTagRequest) => Promise<Tag>;
   onChanged: () => void;
 }) {
+  const productName = useProductName();
   const [description, setDescription] = useState(meta?.description ?? "");
   const [team, setTeam] = useState(meta?.team ?? "");
   const [owner, setOwner] = useState(meta?.owner ?? "");
@@ -1561,7 +1564,7 @@ function ServiceEdit({
               <input className="svc-input mono" value={runbookURL} onChange={(e) => setRunbookURL(e.target.value)} placeholder="https://…" />
             </div>
             <div className="svc-field col-2">
-              <label className="svc-field-label">Tags <span className="hint">searchable across Sluicio{tagsSaving ? " · saving…" : ""}</span></label>
+              <label className="svc-field-label">Tags <span className="hint">searchable across {productName}{tagsSaving ? " · saving…" : ""}</span></label>
               <TagPicker available={allTags} selectedIds={(data.tags ?? []).map((t) => t.id)} onChange={onTagChange} onCreate={onCreateTag} placeholder="add tag…" />
             </div>
             <div className="svc-field col-2">

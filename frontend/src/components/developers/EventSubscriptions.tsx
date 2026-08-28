@@ -12,8 +12,10 @@ import { api } from "../../api/client";
 import type { EventDelivery, EventSubscription, EventTypeEntry, Group, NotificationChannel } from "../../api/types";
 import { formatRelative } from "../../lib/format";
 import { EditDrawer } from "../primitives";
+import { useProductName } from "../../lib/useProductName";
 
 export default function EventSubscriptions() {
+  const productName = useProductName();
   const [subs, setSubs] = useState<EventSubscription[]>([]);
   const [types, setTypes] = useState<EventTypeEntry[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
@@ -65,7 +67,7 @@ export default function EventSubscriptions() {
   return (
     <div>
       <p className="muted" style={{ fontSize: 13, marginTop: 0 }}>
-        Push Sluicio's domain events — alerts firing, errors opening, services discovered, config changes — to your
+        Push {productName}&rsquo;s domain events — alerts firing, errors opening, services discovered, config changes — to your
         platform (Event Grid, EventBridge, n8n, an internal bus) instead of polling. Each subscription filters the{" "}
         <code>com.sluicio.*</code> vocabulary and delivers to a <strong>webhook channel</strong>; the channel's
         payload-format setting picks CloudEvents 1.0 or plain JSON, and HMAC signing applies when configured. Events

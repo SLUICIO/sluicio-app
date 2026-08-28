@@ -44,6 +44,7 @@ import MetadataPanel from "../components/MetadataPanel";
 import { usePageTitle } from "../lib/usePageTitle";
 import { useTimeWindow } from "../lib/useTimeWindow";
 import HealthChecks from "../components/health/HealthChecks";
+import { useProductName } from "../lib/useProductName";
 
 type TimeUnit = "seconds" | "minutes" | "hours";
 
@@ -1008,6 +1009,7 @@ function IntegrationDetailsEditor({
   canWrite: boolean;
   onSaved: () => void;
 }) {
+  const productName = useProductName();
   const [name, setName] = useState(initialName);
   const [description, setDescription] = useState(initialDescription ?? "");
   const [saving, setSaving] = useState(false);
@@ -1053,7 +1055,7 @@ function IntegrationDetailsEditor({
       <div className="border-b border-border px-4 py-3">
         <h2 className="text-base font-semibold">Integration details</h2>
         <p className="text-xs text-muted mt-1">
-          The name and description shown across Sluicio. The slug (used in URLs)
+          The name and description shown across {productName}. The slug (used in URLs)
           is fixed once the integration is created.
         </p>
       </div>

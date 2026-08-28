@@ -38,6 +38,7 @@ import { AnnouncementsBanner } from "./AnnouncementsBanner";
 import { MFAEnrollmentBanner } from "./MFAEnrollmentBanner";
 import ForcePasswordChange from "./ForcePasswordChange";
 import { IntegrationLimitBanner } from "./IntegrationLimitBanner";
+import { useProductName } from "../lib/useProductName";
 
 interface NavItem {
   to: string;
@@ -407,7 +408,8 @@ function Breadcrumb() {
   // Pages reached from several origins (the full trace view) set the
   // whole trail themselves; everything else derives it from the URL.
   const trailOverride = useBreadcrumbTrailValue();
-  const crumbs = trailOverride ?? trailForPath(pathname, leaf);
+  const productName = useProductName();
+  const crumbs = trailOverride ?? trailForPath(pathname, leaf, productName);
   return (
     <div className="ml-2 truncate text-sm" aria-label="Breadcrumb">
       {crumbs.map((c, i) => {
@@ -437,7 +439,9 @@ function Breadcrumb() {
 // crumb, plus an entity leaf on detail pages. The leaf comes from the
 // breadcrumb context (set by the page) when the name isn't in the URL
 // (e.g. integrations, keyed by id); otherwise it's derived from the URL.
-function trailForPath(p: string, leaf: string | null): Crumb[] {
+// product names the deployment for the root crumb, which is the only
+// place this helper says the product's name out loud.
+function trailForPath(p: string, leaf: string | null, product: string): Crumb[] {
   const seg = (i: number) => {
     const s = p.split("/")[i] || "";
     try {
@@ -480,7 +484,7 @@ function trailForPath(p: string, leaf: string | null): Crumb[] {
   if (p.startsWith("/alerts")) return [{ label: "Alerts" }];
   if (p.startsWith("/settings")) return [{ label: "Settings" }];
   if (p.startsWith("/account")) return [{ label: "Account" }];
-  return [{ label: "Sluicio" }];
+  return [{ label: product }];
 }
 
 // Global-search window: a finder should reach back further than the
@@ -1095,6 +1099,7 @@ function SideNav() {
 // here. The version is the real package.json version injected at build
 // time; the channel reflects the actual build (dev server vs bundle).
 function SidebarFooter() {
+  const branding = useBranding();
   const channel = import.meta.env.DEV ? "dev" : "prod";
   return (
     <div
@@ -1107,16 +1112,27 @@ function SidebarFooter() {
             Strip any leading v and re-add one so we never render "vv…".
             The version links to the GitHub releases — the in-product
             pointer to the project (changelogs, issues, source). */}
-        <a
-          href="https://github.com/SLUICIO/sluicio-app/releases"
-          target="_blank"
-          rel="noreferrer"
-          className="hover:underline"
-          style={{ color: "inherit" }}
-          title="Sluicio on GitHub — release notes and source"
-        >
-          v{String(__APP_VERSION__).replace(/^v/i, "")} · {channel}
-        </a>
+        {/* On a white-labelled cell this is the last thing in the shell
+            still pointing at us: a permanent link, in every page's chrome,
+            to the repository of the product the partner is selling as
+            their own. The version itself stays — an operator needs to know
+            what they are running — but it stops being a link out. */}
+        {branding?.wordmark ? (
+          <span style={{ color: "inherit" }}>
+            v{String(__APP_VERSION__).replace(/^v/i, "")} · {channel}
+          </span>
+        ) : (
+          <a
+            href="https://github.com/SLUICIO/sluicio-app/releases"
+            target="_blank"
+            rel="noreferrer"
+            className="hover:underline"
+            style={{ color: "inherit" }}
+            title="Sluicio on GitHub — release notes and source"
+          >
+            v{String(__APP_VERSION__).replace(/^v/i, "")} · {channel}
+          </a>
+        )}
       </div>
     </div>
   );

@@ -16,8 +16,10 @@ import StatusPip from "../components/primitives/StatusPip";
 import { EditDrawer } from "../components/primitives";
 import SystemTypePicker from "../components/SystemTypePicker";
 import { pipForStatus } from "../components/primitives/pipForStatus";
+import { useProductName } from "../lib/useProductName";
 
 export default function Systems() {
+  const productName = useProductName();
   usePageTitle("Systems");
   const { can } = useCurrentUser();
   const canWrite = can("integration.write");
@@ -109,7 +111,7 @@ export default function Systems() {
         <div>
           <h1 className="page__title">Systems</h1>
           <p className="page__subtitle">
-            Infrastructure you monitor through Sluicio — a system (RabbitMQ, SQL Server, a Kafka estate, …) spans
+            Infrastructure you monitor through {productName} — a system (RabbitMQ, SQL Server, a Kafka estate, …) spans
             the services that make it up. Open one to manage its members; its health rolls up from theirs.
           </p>
         </div>

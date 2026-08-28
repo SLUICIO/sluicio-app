@@ -10,7 +10,7 @@ import type { ReactNode } from "react";
 export function EnterpriseBadge({ title }: { title?: string }) {
   return (
     <span
-      title={title ?? "Sluicio Enterprise feature"}
+      title={title ?? "Enterprise feature"}
       style={{
         display: "inline-flex",
         alignItems: "center",
@@ -57,8 +57,8 @@ export function UpgradeNotice({
       </div>
       <p className="muted" style={{ margin: "0 0 12px", fontSize: 13.5, lineHeight: 1.6 }}>
         {expired
-          ? "Your Sluicio Enterprise license has expired. Renew it to restore this feature."
-          : "This is a Sluicio Enterprise feature. It's available with a valid license key — even when self-hosted."}
+          ? "Your Enterprise license has expired. Renew it to restore this feature."
+          : "This is an Enterprise feature. It's available with a valid license key — even when self-hosted."}
       </p>
       {children}
       <p className="muted" style={{ margin: "12px 0 0", fontSize: 12.5 }}>

@@ -15,8 +15,10 @@
 
 import { Link, useLocation } from "react-router-dom";
 import { usePageTitle } from "../lib/usePageTitle";
+import { useProductName } from "../lib/useProductName";
 
 export default function NotFound() {
+  const productName = useProductName();
   const { pathname } = useLocation();
   usePageTitle("Page not found");
 
@@ -29,7 +31,7 @@ export default function NotFound() {
         Nothing is served at <code className="mono">{pathname}</code>.
       </p>
       <p className="muted" style={{ fontSize: 13 }}>
-        If you followed a link from inside Sluicio, that is a bug worth reporting: the address is
+        If you followed a link from inside {productName}, that is a bug worth reporting: the address is
         shown above so it can go straight into the report.
       </p>
       <Link className="btn primary" to="/">

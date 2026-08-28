@@ -7,6 +7,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { AuthProvider, ClaimMapping, Group, OrgRole } from "../api/types";
+import { useProductName } from "../lib/useProductName";
 
 const ROLES: OrgRole[] = ["admin", "editor", "viewer"];
 
@@ -31,6 +32,7 @@ const errMsg = (e: unknown): string =>
   e && typeof e === "object" && "message" in e ? String((e as { message: unknown }).message) : String(e);
 
 export default function SsoSettings() {
+  const productName = useProductName();
   const [providers, setProviders] = useState<AuthProvider[] | null>(null);
   const [groups, setGroups] = useState<Group[]>([]);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -72,7 +74,7 @@ export default function SsoSettings() {
       {error && <div className="alert alert--error" role="alert" style={{ marginBottom: 12 }}>{error}</div>}
 
       <div className="muted" style={{ fontSize: 13, lineHeight: 1.6, marginBottom: 14 }}>
-        Register Sluicio as an OIDC client in your IdP, using this redirect URI:
+        Register {productName} as an OIDC client in your IdP, using this redirect URI:
         <div
           className="mono"
           style={{ marginTop: 6, padding: "8px 10px", background: "var(--surface-2,#0f1424)", border: "1px solid var(--border,#26304d)", borderRadius: 6, fontSize: 12, wordBreak: "break-all" }}
@@ -133,6 +135,7 @@ function ProviderForm({
   onSave: () => void;
   onCancel: () => void;
 }) {
+  const productName = useProductName();
   const up = (patch: Partial<Draft>) => setDraft({ ...draft, ...patch });
   const input = (key: keyof Draft, ph?: string) => (
     <input
@@ -146,7 +149,7 @@ function ProviderForm({
     <div style={{ border: "1px solid var(--border,#26304d)", borderRadius: 8, padding: 14, display: "flex", flexDirection: "column", gap: 12, marginTop: 8 }}>
       <strong>{draft.id ? "Edit provider" : "New provider"}</strong>
       {field("Display name", input("name", "Acme SSO"), "Shown on the login button.")}
-      {field("Issuer URL", input("issuer_url", "https://login.microsoftonline.com/<tenant>/v2.0"), "Sluicio reads /.well-known/openid-configuration from here.")}
+      {field("Issuer URL", input("issuer_url", "https://login.microsoftonline.com/<tenant>/v2.0"), `${productName} reads /.well-known/openid-configuration from here.`)}
       {field("Client ID", input("client_id"))}
       {field(
         "Client secret",

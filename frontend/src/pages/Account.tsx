@@ -24,6 +24,7 @@ import { EditDrawer } from "../components/primitives";
 import { useTheme, type Theme } from "../lib/useTheme";
 import { useCurrentUser } from "../lib/useCurrentUser";
 import { usePageTitle } from "../lib/usePageTitle";
+import { useProductName } from "../lib/useProductName";
 
 type TabKey = "profile" | "password" | "mfa" | "tokens" | "theme";
 
@@ -620,6 +621,7 @@ function CreateTokenForm({ onClose, onMinted }: { onClose: () => void; onMinted:
 }
 
 function TokenPlaintextDialog({ token, onDismiss }: { token: CreateTokenResponse; onDismiss: () => void }) {
+  const productName = useProductName();
   const [copied, setCopied] = useState(false);
   const copy = () => {
     void navigator.clipboard.writeText(token.plaintext);
@@ -652,7 +654,7 @@ function TokenPlaintextDialog({ token, onDismiss }: { token: CreateTokenResponse
       >
         <h2 style={{ marginTop: 0, fontSize: 16 }}>Token created — copy it now</h2>
         <p className="muted" style={{ fontSize: 13 }}>
-          This is the only time you'll see the full token. Sluicio stores only
+          This is the only time you'll see the full token. {productName} stores only
           a hash. If you lose it, revoke it and mint a new one.
         </p>
         <div
@@ -685,6 +687,7 @@ function TokenPlaintextDialog({ token, onDismiss }: { token: CreateTokenResponse
 // ── Theme ──────────────────────────────────────────────────────────────
 
 function ThemeTab() {
+  const productName = useProductName();
   const [theme, setTheme] = useTheme();
   const options: { value: Theme; label: string; hint: string }[] = [
     { value: "light", label: "Light", hint: "Warm off-white. Best in daylight." },
@@ -694,7 +697,7 @@ function ThemeTab() {
   return (
     <div style={{ maxWidth: 480 }}>
       <p className="muted" style={{ fontSize: 13, marginBottom: 12 }}>
-        Choose how Sluicio looks. Stored on this device.
+        Choose how {productName} looks. Stored on this device.
       </p>
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {options.map((o) => (

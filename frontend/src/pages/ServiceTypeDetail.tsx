@@ -11,6 +11,7 @@ import type { ServiceFacetDetailResponse, ServiceFacetShape } from "../api/types
 import { usePageTitle } from "../lib/usePageTitle";
 import { useTableSort } from "../lib/useTableSort";
 import { useTimeWindow } from "../lib/useTimeWindow";
+import { useProductName } from "../lib/useProductName";
 
 type FacetWidgetSortKey = "name" | "kind" | "description";
 
@@ -112,12 +113,13 @@ export default function ServiceTypeDetail() {
 // it classifies on, plus the optional attributes that enrich the
 // dashboards. Without these, Sluicio can't tell what the service is.
 function DetectionCard({ facet }: { facet: ServiceFacetShape }) {
+  const productName = useProductName();
   const m = facet.match ?? {};
   const attrs = m.span_attributes ?? [];
   const kinds = m.span_kinds ?? [];
   return (
     <div className="card">
-      <div className="card__header">How Sluicio detects this facet</div>
+      <div className="card__header">How {productName} detects this facet</div>
       <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 16 }}>
         {m.always ? (
           <p className="muted" style={{ margin: 0, fontSize: 13.5 }}>
@@ -126,7 +128,7 @@ function DetectionCard({ facet }: { facet: ServiceFacetShape }) {
         ) : (
           <div>
             <p className="muted" style={{ margin: "0 0 8px", fontSize: 13.5 }}>
-              Sluicio applies this facet to a service that emits spans with:
+              {productName} applies this facet to a service that emits spans with:
             </p>
             <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
               {attrs.map((a, i) => (

@@ -168,7 +168,7 @@ export default function BrandingCard() {
           a licensing question. */}
       {!b.entitled && (
         <div className="alert alert--warn" style={{ marginBottom: 12, fontSize: 13 }}>
-          White-labelling needs a Sluicio Enterprise license carrying the{" "}
+          White-labelling needs an Enterprise license carrying the{" "}
           <span className="mono">white_label</span> entitlement. Anything set here is kept
           but not applied until the license carries it, so renewing restores your brand
           without uploading it again.

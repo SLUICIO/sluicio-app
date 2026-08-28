@@ -25,10 +25,12 @@ import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import type { IngestKey } from "../api/types";
 import { useTimeWindow } from "../lib/useTimeWindow";
+import { useProductName } from "../lib/useProductName";
 
 type Stage = "loading" | "hidden" | "no-key" | "no-integration";
 
 export default function OnboardingGuide() {
+  const productName = useProductName();
   const [windowVal] = useTimeWindow();
   const [stage, setStage] = useState<Stage>("loading");
   const [serviceCount, setServiceCount] = useState(0);
@@ -70,7 +72,7 @@ export default function OnboardingGuide() {
       {stage === "no-key" ? (
         <>
           <h2 className="text-lg font-semibold" style={{ color: "var(--primary-ink)" }}>
-            👋 Let's get your first data into Sluicio
+            👋 Let's get your first data into {productName}
           </h2>
           <p className="mt-1 text-sm" style={{ color: "var(--ink-2)" }}>
             No telemetry has arrived yet, and your organization doesn't have an ingest key.

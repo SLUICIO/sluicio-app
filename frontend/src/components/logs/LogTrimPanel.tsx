@@ -10,6 +10,7 @@
 
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import type { LogEntry } from "../../api/types";
+import { useProductName } from "../../lib/useProductName";
 
 const CodeEditor = lazy(() => import("../CodeEditor"));
 
@@ -21,14 +22,17 @@ function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/"/g, '\\"');
 }
 
-function buildLogsConfig(conditions: string[]): string {
+// product names the deployment in the generated YAML's comments: whoever
+// pastes it is reading about the product they use, not the one that
+// generated it.
+function buildLogsConfig(conditions: string[], product: string): string {
   if (conditions.length === 0) {
     return "# Toggle conditions on the left to generate a collector config…";
   }
   // One AND-combined log_record condition: drop logs matching ALL of them.
   const cond = conditions.join(" and ");
   return `# Drop logs matching this rule at your OpenTelemetry Collector,
-# before they reach Sluicio. Records matching the condition are dropped.
+# before they reach ${product}. Records matching the condition are dropped.
 processors:
   filter/sluicio-exclude:
     error_mode: ignore
@@ -40,7 +44,7 @@ service:
   pipelines:
     logs:
       # add the processor alongside your existing ones, before the
-      # exporter that sends to Sluicio
+      # exporter that sends to ${product}
       processors: [filter/sluicio-exclude]`;
 }
 
@@ -87,7 +91,8 @@ export default function LogTrimPanel({ log, onClose }: { log: LogEntry; onClose:
     return c;
   }, [useService, useSeverity, useBody, bodyText, attrChoices, attrSel, log]);
 
-  const yaml = useMemo(() => buildLogsConfig(conditions), [conditions]);
+  const productName = useProductName();
+  const yaml = useMemo(() => buildLogsConfig(conditions, productName), [conditions, productName]);
 
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
@@ -222,7 +227,7 @@ export default function LogTrimPanel({ log, onClose }: { log: LogEntry; onClose:
         </div>
 
         <div style={{ padding: "10px 16px", borderTop: "1px solid var(--border)", fontSize: 12, color: "var(--muted)" }}>
-          Sluicio doesn't enforce this — paste the processor into your OpenTelemetry Collector's logs pipeline. Narrow the
+          {productName} doesn't enforce this — paste the processor into your OpenTelemetry Collector's logs pipeline. Narrow the
           rule (keep body/attributes specific) so you don't drop more than the noise you're targeting.
         </div>
       </div>

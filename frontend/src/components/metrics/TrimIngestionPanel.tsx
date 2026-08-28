@@ -13,6 +13,7 @@ import { api } from "../../api/client";
 import type { MetricCatalogEntry, UsageReportResponse, UsageServiceRow } from "../../api/types";
 import { formatBytes } from "../../lib/format";
 import MetricAttributesInline from "./MetricAttributesInline";
+import { useProductName } from "../../lib/useProductName";
 
 // AttrRule drops only the DATAPOINTS of a metric where one attribute
 // carries one value — the scalpel next to the whole-metric axe. A
@@ -105,6 +106,9 @@ function buildCollectorConfig(
   logRules: LogTrimRule[],
   traceRules: TraceTrimRule[],
   samplePct: number,
+  // The generated YAML is read by whoever pastes it, so it names the
+  // product they are using rather than the one that wrote the generator.
+  product: string,
 ): string {
   const pfx = [...prefixes].sort();
   const covered = (nm: string) => pfx.some((p) => nm.startsWith(p));
@@ -154,7 +158,7 @@ function buildCollectorConfig(
   if (spanDrops.length > 0) {
     const lines = spanDrops.map((r) => `        - 'resource.attributes["service.name"] == "${esc(r.service)}"'`);
     signalSections.push(`    traces:
-      # CAUTION: dropping a service's spans removes it from Sluicio's
+      # CAUTION: dropping a service's spans removes it from ${product}'s
       # integration health entirely — prefer sampling if it's monitored
       span:\n${lines.join("\n")}`);
   }
@@ -208,14 +212,14 @@ ${signalSections.join("\n")}`);
   }
 
   return `# Drop this telemetry at your OpenTelemetry Collector, before it
-# reaches Sluicio. Conditions that match are dropped.
+# reaches ${product}. Conditions that match are dropped.
 processors:
 ${blocks.join("\n")}
 
 service:
   pipelines:
     # add each processor alongside your existing ones, before the
-    # exporter that sends to Sluicio
+    # exporter that sends to ${product}
 ${pipelines.join("\n")}`;
 }
 
@@ -391,9 +395,10 @@ export default function TrimIngestionPanel({ window: win, onClose }: { window: s
     }
   };
 
+  const productName = useProductName();
   const yaml = useMemo(
-    () => buildCollectorConfig([...excluded].sort(), [...prefixes], attrRules, logRules, traceRules, samplePct),
-    [excluded, prefixes, attrRules, logRules, traceRules, samplePct],
+    () => buildCollectorConfig([...excluded].sort(), [...prefixes], attrRules, logRules, traceRules, samplePct, productName),
+    [excluded, prefixes, attrRules, logRules, traceRules, samplePct, productName],
   );
   const suggestions = useMemo(() => suggestPrefixes([...excluded], [...prefixes]), [excluded, prefixes]);
   const prefixList = useMemo(() => [...prefixes].sort(), [prefixes]);
@@ -485,7 +490,7 @@ export default function TrimIngestionPanel({ window: win, onClose }: { window: s
         }
       >
         <div className="card__header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span>Trim ingestion · exclude telemetry from Sluicio</span>
+          <span>Trim ingestion · exclude telemetry from {productName}</span>
           <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
             <button
               className="drawer__close"
@@ -780,7 +785,7 @@ export default function TrimIngestionPanel({ window: win, onClose }: { window: s
         </div>
 
         <div style={{ padding: "10px 16px", borderTop: "1px solid var(--border)", fontSize: 12, color: "var(--muted)" }}>
-          Sluicio doesn't enforce this — paste the processors into your OpenTelemetry Collector's pipelines to stop
+          {productName} doesn't enforce this — paste the processors into your OpenTelemetry Collector's pipelines to stop
           this telemetry being sent. Anything watched by an alert rule is flagged 🔔 so you don't drop what you
           monitor by accident. Metrics: use <b>attrs</b> on a row to drop single series. Logs: severity floors keep
           warnings/errors flowing. Traces: services feeding an integration are flagged ⚠ — prefer <b>sample</b> there,

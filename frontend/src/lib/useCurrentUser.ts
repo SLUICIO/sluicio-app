@@ -24,6 +24,7 @@ import type {
   User,
 } from "../api/types";
 import { AuthContext } from "../components/UserProvider";
+import { useProductName } from "./useProductName";
 
 // ── Role → permissions mapping ─────────────────────────────────────
 //
@@ -117,11 +118,16 @@ export function useCurrentUser(): CurrentUserContext {
     [roles],
   );
 
+  const productName = useProductName();
   const signOut = useCallback(() => {
-    const ok = window.confirm("Sign out of Sluicio?");
+    const ok = window.confirm(`Sign out of ${productName}?`);
     if (!ok) return;
     void ctx.signOut();
-  }, [ctx]);
+    // productName is a real dependency, not a lint formality: branding
+    // arrives after the first render, so a callback memoised without it
+    // would keep asking "Sign out of Sluicio?" on a cell called something
+    // else — for exactly the readers who never reload.
+  }, [ctx, productName]);
 
   return { user, organization, roles, memberships, can, isOperator: user.isOperator, signOut };
 }

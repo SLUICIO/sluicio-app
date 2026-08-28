@@ -57,7 +57,7 @@ export default function ResourceSharesCard({
         <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6, display: "flex", alignItems: "center", gap: 8 }}>
           Sharing <EnterpriseBadge />
         </div>
-        <UpgradeNotice title="Resource sharing is a Sluicio Enterprise feature" expired={status?.expired}>
+        <UpgradeNotice title="Resource sharing is an Enterprise feature" expired={status?.expired}>
           <p className="muted" style={{ margin: 0, fontSize: 13 }}>
             An Enterprise license lets you share this {noun0} with a member or
             group as view-only. In the Community edition, use groups + the

@@ -16,6 +16,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { LinkedTrace, SpanSummary } from "../api/types";
 import { buildSpanGraph, graphRefusal, type SpanNode } from "../lib/spanGraph";
+import { useProductName } from "../lib/useProductName";
 
 const NODE_W = 168;
 const NODE_H = 46;
@@ -185,6 +186,7 @@ export default function SpanGraph({
   continuedInto,
   onOpenTrace,
 }: Props) {
+  const productName = useProductName();
   const graph = useMemo(
     () => buildSpanGraph(spans, linksRecordedSince),
     [spans, linksRecordedSince],
@@ -571,7 +573,7 @@ export default function SpanGraph({
           </>
         )}
         {graph.handoffsUnknown
-          ? "Hand-offs to other traces are not known for this message: it was recorded before Sluicio stored them, and there is no way to fill that in afterwards."
+          ? `Hand-offs to other traces are not known for this message: it was recorded before ${productName} stored them, and there is no way to fill that in afterwards.`
           : graph.handoffs.length > 0 && `${graph.handoffs.length} hand-off to another trace.`}
       </div>
     </div>

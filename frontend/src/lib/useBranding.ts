@@ -148,9 +148,9 @@ export function applyBrandingToDocument(b: Branding | null): void {
     }
     link.href = b.favicon;
   }
-  if (b.wordmark) {
-    // Titles are "<page> · Sluicio"; swap only the product half so the
-    // page's own name survives.
-    document.title = document.title.replace(/Sluicio$/, b.wordmark);
-  }
+  // The title is NOT patched here. usePageTitle reads the wordmark
+  // directly, so it writes the right name the first time instead of this
+  // rewriting it a beat later — which showed the Sluicio name briefly on
+  // every navigation, and missed entirely whenever a page's own title
+  // happened not to end in it.
 }

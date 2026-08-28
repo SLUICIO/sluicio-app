@@ -11,8 +11,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api/client";
+import { useProductName } from "../lib/useProductName";
 
 export function MFAEnrollmentBanner() {
+  const productName = useProductName();
   const [required, setRequired] = useState(false);
   const checked = useRef(false);
   const loc = useLocation();
@@ -51,7 +53,7 @@ export function MFAEnrollmentBanner() {
     >
       <span style={{ fontSize: 13.5 }}>
         <strong>Two-factor authentication is required</strong> by your
-        organization. Finish setting it up below to continue using Sluicio.
+        organization. Finish setting it up below to continue using {productName}.
       </span>
     </div>
   );

@@ -58,6 +58,7 @@ import { useLicense } from "../lib/useLicense";
 import { usePageTitle } from "../lib/usePageTitle";
 import { useIngestBase } from "../lib/useIngestBaseUrl";
 import type { AuditEntry, AuditVerifyResult, LicenseStatus, SMTPSettingsResponse } from "../api/types";
+import { useProductName } from "../lib/useProductName";
 
 type TabKey =
   | "organization"
@@ -197,7 +198,7 @@ export default function Settings() {
                   <TabIcon k={t.key} />
                   {t.label}
                   {t.enterprise && (
-                    <span className="ent-badge" title="Sluicio Enterprise feature">
+                    <span className="ent-badge" title="Enterprise feature">
                       ENT
                     </span>
                   )}
@@ -1322,6 +1323,7 @@ function ServiceAccountAccess({ sa, onChanged, onError }: { sa: ServiceAccount; 
 }
 
 function IngestKeysTab() {
+  const productName = useProductName();
   const { can } = useCurrentUser();
   const isAdmin = can("org.manage");
   const [keys, setKeys] = useState<IngestKey[] | null>(null);
@@ -1517,7 +1519,7 @@ function IngestKeysTab() {
             code={collectorSnippet(created.key)}
             hint={
               <>
-                For a Collector pipeline fanning traces, metrics and logs to Sluicio.{" "}
+                For a Collector pipeline fanning traces, metrics and logs to {productName}.{" "}
                 {/* Which collector this is written FOR. The exporter's
                     type name changed in v0.146.0, so the snippet is only
                     interpretable alongside its target — and an assumed
@@ -2069,7 +2071,7 @@ function PoliciesSection({
       </div>
 
       {!rbacEntitled && (
-        <UpgradeNotice title="Access policies are a Sluicio Enterprise feature" expired={lic?.expired}>
+        <UpgradeNotice title="Access policies are an Enterprise feature" expired={lic?.expired}>
           <p className="muted" style={{ margin: 0, fontSize: 13 }}>
             In the Community edition, grant visibility by attaching this group
             to integrations or systems (Group access on their detail pages).
@@ -2440,6 +2442,7 @@ function CreatePolicyForm({
   onClose: () => void;
   onCreated: () => void;
 }) {
+  const productName = useProductName();
   const [kind, setKind] = useState<PolicyKind>("attributes");
   const [serviceName, setServiceName] = useState("");
   const [integrationID, setIntegrationID] = useState("");
@@ -2623,7 +2626,7 @@ function CreatePolicyForm({
             + Add attribute
           </button>
           <span className="form__hint">
-            Sluicio records the resource attributes each service emits
+            {productName} records the resource attributes each service emits
             in recent telemetry; a policy here matches any service that
             currently carries every key/value pair listed.
           </span>
@@ -2826,6 +2829,7 @@ function bestUnit(days: number): RetentionUnit {
 }
 
 function RetentionTab() {
+  const productName = useProductName();
   const { can } = useCurrentUser();
   const isAdmin = can("org.manage");
   const [data, setData] = useState<RetentionResponse | null>(null);
@@ -2845,10 +2849,10 @@ function RetentionTab() {
   return (
     <div style={{ maxWidth: 720 }}>
       <p className="muted" style={{ fontSize: 13, marginBottom: 18, lineHeight: 1.55 }}>
-        How long Sluicio keeps each kind of telemetry before ClickHouse
+        How long {productName} keeps each kind of telemetry before ClickHouse
         evicts it. Settings apply <strong>cell-wide</strong> — every
-        organization on this Sluicio install shares the same retention.
-        The free tier caps retention at <strong>2 weeks</strong>; Sluicio
+        organization on this {productName} install shares the same retention.
+        The free tier caps retention at <strong>2 weeks</strong>; {productName}
         Enterprise unlocks long retention (e.g. metrics raised to 14 months
         for capacity planning, traces and logs kept shorter for cost).
       </p>
@@ -2873,7 +2877,7 @@ function RetentionTab() {
         >
           <EnterpriseBadge />
           <span className="muted" style={{ fontSize: 13 }}>
-            Free tier caps retention at <strong>{data.max_days} days</strong>. Sluicio
+            Free tier caps retention at <strong>{data.max_days} days</strong>. {productName}
             Enterprise unlocks long retention — set a license key to raise the limit.
           </span>
         </div>
@@ -3456,6 +3460,7 @@ function SystemSettingsTab() {
 // SecurityPolicy — org-wide MFA enforcement (Enterprise). The toggle is
 // disabled with an upsell when the mfa_policy entitlement isn't active.
 function SecurityPolicy({ isAdmin }: { isAdmin: boolean }) {
+  const productName = useProductName();
   const [required, setRequired] = useState(false);
   const [entitled, setEntitled] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -3492,7 +3497,7 @@ function SecurityPolicy({ isAdmin }: { isAdmin: boolean }) {
       </div>
       <p className="muted" style={{ fontSize: 13, lineHeight: 1.55, margin: "0 0 12px" }}>
         Require every member to set up two-factor authentication. Members
-        without MFA are prompted to enrol before using Sluicio. (SSO users get
+        without MFA are prompted to enrol before using {productName}. (SSO users get
         MFA from their identity provider.)
       </p>
       {error && <div className="alert alert--error" style={{ marginBottom: 10 }}>{error}</div>}
@@ -3503,7 +3508,7 @@ function SecurityPolicy({ isAdmin }: { isAdmin: boolean }) {
         </label>
       ) : (
         <div className="muted" style={{ fontSize: 13 }}>
-          Org-wide MFA enforcement is a Sluicio Enterprise feature — set a license key to enable it.
+          Org-wide MFA enforcement is an Enterprise feature — set a license key to enable it.
           (Individual users can still turn on 2FA for themselves under Account → Two-factor.)
         </div>
       )}
@@ -3514,6 +3519,7 @@ function SecurityPolicy({ isAdmin }: { isAdmin: boolean }) {
 // SmtpSettings — global transactional-email transport (password resets,
 // account email). Admin-only; the password is write-only (never returned).
 function SmtpSettings({ isAdmin }: { isAdmin: boolean }) {
+  const productName = useProductName();
   const [data, setData] = useState<SMTPSettingsResponse | null>(null);
   const [form, setForm] = useState({ host: "", port: "", username: "", password: "", from: "", from_name: "" });
   const [pwTouched, setPwTouched] = useState(false);
@@ -3626,7 +3632,7 @@ function SmtpSettings({ isAdmin }: { isAdmin: boolean }) {
           </label>
           <label className="form__label" style={{ flex: 1 }}>
             From name
-            <input className="search__input" value={form.from_name} disabled={!isAdmin} onChange={set("from_name")} placeholder="Sluicio" />
+            <input className="search__input" value={form.from_name} disabled={!isAdmin} onChange={set("from_name")} placeholder={productName} />
           </label>
         </div>
         {isAdmin && (
@@ -3785,6 +3791,7 @@ function RetentionRow({
 // ── SSO tab (placeholder until OIDC sign-in flow ships) ────────────────
 
 function SsoTab() {
+  const productName = useProductName();
   const { status } = useLicense();
   const entitled = status?.features?.sso ?? false;
   return (
@@ -3794,11 +3801,11 @@ function SsoTab() {
         <EnterpriseBadge />
       </div>
       {!entitled ? (
-        <UpgradeNotice title="SSO is a Sluicio Enterprise feature" expired={status?.expired}>
+        <UpgradeNotice title="SSO is an Enterprise feature" expired={status?.expired}>
           <p className="muted" style={{ margin: 0, fontSize: 13 }}>
             Connect your identity provider (Entra, Okta, Google Workspace,
             Keycloak — anything OIDC-conformant), with IdP groups mapped to
-            Sluicio roles and teams. Email + password login keeps working
+            {productName} roles and teams. Email + password login keeps working
             without a license.
           </p>
         </UpgradeNotice>
@@ -3945,7 +3952,7 @@ function AuditLogTab() {
   if (!entitled) {
     return (
       <div style={{ maxWidth: 640 }}>
-        <UpgradeNotice title="Audit log is a Sluicio Enterprise feature" expired={status?.expired}>
+        <UpgradeNotice title="Audit log is an Enterprise feature" expired={status?.expired}>
           <p className="muted" style={{ margin: 0, fontSize: 13 }}>
             A tamper-evident record of who changed what — members, tokens, access
             policies, retention, SSO config — with actor, timestamp, and IP.

@@ -36,6 +36,7 @@ import { windowRetentionWarning } from "../../lib/checkWindow";
 import { METRIC_WINDOWS, metricWindowSeconds } from "../../lib/metricWindows";
 import AmbiguousSeriesBanner from "../AmbiguousSeriesBanner";
 import { formatRelative } from "../../lib/format";
+import { useProductName } from "../../lib/useProductName";
 
 // CheckScope is what a health check governs. All three are first-class
 // on the rule row (service_name / integration_id / system_id) and every
@@ -584,6 +585,7 @@ function HealthCheckEditor({
   onSaved: () => void;
   onCancel: () => void;
 }) {
+  const productName = useProductName();
   const editingExisting = !!rule;
   // Pushed-source checks only make sense on a service (there must be a
   // service to feed values to + display the tile on).
@@ -753,8 +755,8 @@ function HealthCheckEditor({
           </div>
           <p className="muted" style={{ fontSize: 12, margin: "4px 0 0" }}>
             {pushed
-              ? "A scraper POSTs the current value to Sluicio; the check compares it to the threshold."
-              : "Sluicio computes the value by aggregating an OTLP metric over a window."}
+              ? `A scraper POSTs the current value to ${productName}; the check compares it to the threshold.`
+              : `${productName} computes the value by aggregating an OTLP metric over a window.`}
           </p>
         </div>
       )}

@@ -11,6 +11,7 @@ import { Link } from "react-router-dom";
 import { usePageTitle } from "../lib/usePageTitle";
 import EventSubscriptions from "../components/developers/EventSubscriptions";
 import { useCurrentUser } from "../lib/useCurrentUser";
+import { useProductName } from "../lib/useProductName";
 
 function CopyBlock({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
@@ -67,6 +68,7 @@ function Section({ n, title, children }: { n: number; title: string; children: R
 }
 
 export default function Developers() {
+  const productName = useProductName();
   usePageTitle("API & MCP");
   const { can } = useCurrentUser();
   const isAdmin = can("org.manage");
@@ -86,7 +88,7 @@ export default function Developers() {
         <div>
           <h1 className="page__title">API &amp; MCP</h1>
           <p className="page__subtitle">
-            Build on Sluicio: call the REST API from scripts and CI, or connect an AI assistant (Claude, Cursor)
+            Build on {productName}: call the REST API from scripts and CI, or connect an AI assistant (Claude, Cursor)
             to your cell with the Model Context Protocol. Everything here uses the same API tokens.
           </p>
         </div>
@@ -139,7 +141,7 @@ export default function Developers() {
 
       <Section n={3} title="Connect an AI assistant (MCP)">
         <p className="muted" style={{ fontSize: 13, marginTop: 0 }}>
-          Sluicio exposes an MCP server so Claude Desktop/Code, Cursor, and other MCP clients can answer
+          {productName} exposes an MCP server so Claude Desktop/Code, Cursor, and other MCP clients can answer
           questions about this cell from live data (“which integrations are unhealthy?”, “show the order-bus system”).
           Pair it with a <strong>scoped viewer service-account token</strong> so the assistant sees only the services
           (and signals) you chose to hand it, via the account's group memberships.

@@ -13,10 +13,12 @@ import { EditDrawer, SortableTh } from "../components/primitives";
 import { useCurrentUser } from "../lib/useCurrentUser";
 import { usePageTitle } from "../lib/usePageTitle";
 import { useTableSort } from "../lib/useTableSort";
+import { useProductName } from "../lib/useProductName";
 
 type FacetSortKey = "name" | "description" | "widgets";
 
 export default function ServiceTypes() {
+  const productName = useProductName();
   usePageTitle("Service facets");
   const [items, setItems] = useState<ServiceFacetShape[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -132,10 +134,10 @@ export default function ServiceTypes() {
       )}
 
       <div className="card" style={{ marginBottom: 16 }}>
-        <div className="card__header">How Sluicio detects facets</div>
+        <div className="card__header">How {productName} detects facets</div>
         <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 12, fontSize: 13.5 }}>
           <p className="muted" style={{ margin: 0 }}>
-            Sluicio classifies a service from the{" "}
+            {productName} classifies a service from the{" "}
             <span className="mono">io.kind</span> (file / queue / stream / http / db / email) and{" "}
             <span className="mono">io.role</span> (input / output) attributes on the spans that
             cross a system boundary. Every matching pair adds a facet (and its dashboard widgets);
