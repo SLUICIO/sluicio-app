@@ -58,16 +58,25 @@ always work so an operator can paste a new key.
 # One-time: generate a keypair (prints the public key to embed)
 go run ./ee/cmd/sluicio-license keygen -out ~/.sluicio/license_ed25519_private.key
 
-# Mint a customer license
+# Mint a customer license. Name every entitlement you want: the -features
+# default is NOT all of them, and a missing one looks exactly like a
+# working key until the customer opens the feature.
 go run ./ee/cmd/sluicio-license mint \
   -key ~/.sluicio/license_ed25519_private.key \
   -customer "Acme AB" \
-  -features sso,rbac_advanced,audit_log,retention_long \
+  -features sso,rbac_advanced,audit_log,retention_long,mfa_policy,advisor,white_label \
   -days 365
 
 # Verify a token against the embedded public key
 go run ./ee/cmd/sluicio-license inspect -token "sluicio_lic_…"
 ```
+
+`mint` verifies its own output before printing it, and prints nothing if
+the signing key does not match the public key embedded in the build.
+Signing succeeds with *any* Ed25519 key, so without that check a token
+minted with the wrong key is indistinguishable from a good one until a
+customer fails to activate it. If mint refuses, `-key` is pointing at the
+wrong file, not at a broken tool.
 
 The running app loads a key from `SLUICIO_LICENSE_KEY` (inline token) or
 `SLUICIO_LICENSE_FILE` (path).

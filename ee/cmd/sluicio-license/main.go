@@ -12,6 +12,11 @@
 //	    -days 365 [-max-retention-days 365]              # prints a signed license token
 //	sluicio-license inspect  -token <token>             # verifies against the embedded public key + prints claims
 //
+// mint verifies its own output against the embedded public key and prints
+// nothing if the signing key is the wrong one — signing succeeds with any
+// key, so without that check a dead token is indistinguishable from a good
+// one until a customer tries to use it.
+//
 // The private key is the crown jewel: keep it out of the repo and out of any
 // shared location. The public counterpart is embedded in the app at
 // pkg/license/sluicio_license_ed25519.pub.
@@ -110,6 +115,26 @@ func mint(args []string) {
 		base64.RawURLEncoding.EncodeToString(payload) + "." +
 		base64.RawURLEncoding.EncodeToString(sig)
 
+	// Verify what we just signed against the PUBLIC key the product
+	// embeds, before printing it.
+	//
+	// Signing succeeds with any private key, so a key that has nothing to
+	// do with this build produces a token that looks perfect and that no
+	// cell will ever accept. A wrong key sat at the documented default
+	// path here for ten weeks without anyone noticing, because nothing
+	// between "mint" and a partner's failed activation ever checked.
+	//
+	// This is the only place the check costs nothing: after this the
+	// token is in somebody's clipboard, then their email, then their
+	// deployment.
+	if err := verifyMinted(token); err != nil {
+		fail("mint: %v\n\n"+
+			"The signing key does not match the public key embedded in this build\n"+
+			"(pkg/license/sluicio_license_ed25519.pub). Nothing was printed: a token\n"+
+			"signed with the wrong key is refused by every cell.\n\n"+
+			"Check -key points at the current signing key.", err)
+	}
+
 	fmt.Println(token)
 	fmt.Fprintf(os.Stderr, "\nminted for %q · features=%s · ", *customer, *features)
 	if claims.ExpiresAt == 0 {
@@ -135,6 +160,20 @@ func inspect(args []string) {
 	}
 	out, _ := json.MarshalIndent(mgr.Status(), "", "  ")
 	fmt.Println(string(out))
+}
+
+// verifyMinted loads a freshly minted token the way a cell would, so a
+// mismatch between the signing key and the embedded public key is caught
+// here rather than by a customer.
+func verifyMinted(token string) error {
+	mgr, err := license.NewManager()
+	if err != nil {
+		return fmt.Errorf("self-check unavailable: %w", err)
+	}
+	if err := mgr.Load(token); err != nil {
+		return fmt.Errorf("self-check failed: %w", err)
+	}
+	return nil
 }
 
 func readPrivateKey(path string) ed25519.PrivateKey {
