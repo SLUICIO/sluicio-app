@@ -3,8 +3,16 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.126 — 2026-08-28
+
+- fix(license): refuse to print a token the product cannot verify (96ae7ea)
+- feat(branding): brand the sign-in page, not just the app behind it (1aa0a14)
+- refactor(settings): read the ingest URL's source instead of guessing it (1e306f7)
+- fix(services): send people to this cell's ingest URL, not localhost (5b5af7f)
+
 ## v0.11.125 — 2026-08-25
 
+- release v0.11.125 — refresh internal changelog (609e72e)
 - refactor(ui): one tab strip, shared by the integration and settings tabs (5498d91)
 - release v0.11.125 — refresh internal changelog (6eae90d)
 - test(e2e): point the integration-settings specs at their tabs (8a36450)
