@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.129 — 2026-08-29
+
+- feat(rbac): edit a group's access policy instead of deleting and rebuilding it (d464659)
+
 ## v0.11.128 — 2026-08-29
 
+- release v0.11.128 — refresh internal changelog (c8a6103)
 - fix(rbac): say nothing about services to a reader who was not given them (24f871d)
 - fix(systems): badge a system with its type's name, not its raw key (cd185e7)
 - fix(rbac): pick the system kind from the types that exist, not a stale table (4953751)
