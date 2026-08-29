@@ -28,12 +28,12 @@ import type {
 } from "../api/types";
 import { formatDurationSeconds, formatNumber, formatRelative } from "../lib/format";
 import { bucketChecks } from "../lib/checkBuckets";
-import { systemKindLabel } from "../lib/systemKinds";
 import { usePageTitle } from "../lib/usePageTitle";
 import { useTimeWindow } from "../lib/useTimeWindow";
 import { useCurrentUser } from "../lib/useCurrentUser";
 import { useAccess } from "../lib/useAccess";
 import { useInstanceHighlight } from "../lib/useInstanceHighlight";
+import { useSystemKindLabel } from "../lib/useSystemTypes";
 
 interface IntegrationGroup {
   ref: IntegrationRef;
@@ -469,6 +469,7 @@ function ServiceBlock({
   onChanged: () => void;
   onError: (msg: string) => void;
 }) {
+  const systemKindLabelFn = useSystemKindLabel();
   const detail: string[] = [];
   if (checks.length) detail.push(`${checks.length} failing check${checks.length === 1 ? "" : "s"}`);
   if (openErr) detail.push(`${formatNumber(openErr.error_traces)} unacked error${openErr.error_traces === 1 ? "" : "s"}`);
@@ -482,7 +483,7 @@ function ServiceBlock({
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: hasRows ? 6 : 0 }}>
         <Link to={`/services/${encodeURIComponent(name)}`} style={{ fontWeight: 600 }}>{name}</Link>
         {summary?.is_system && (
-          <span className="badge-brand">⚙ {systemKindLabel(summary.system_kind)}</span>
+          <span className="badge-brand">⚙ {systemKindLabelFn(summary.system_kind)}</span>
         )}
         {summary && (
           <span className={`m-rule-badge ${summary.status === "unhealthy" ? "sev-critical" : ""}`}>{summary.status}</span>

@@ -48,7 +48,7 @@ import type {
   Tag,
 } from "../api/types";
 import { alertCondition, alertSignalLabel } from "../lib/alertRule";
-import { SERVICE_TEMPLATE_KINDS, hasSystemTemplate, systemKindLabel, templateKindLabel } from "../lib/systemKinds";
+import { SERVICE_TEMPLATE_KINDS, hasSystemTemplate, templateKindLabel } from "../lib/systemKinds";
 import { formatDurationMs, formatNumber, formatRelative } from "../lib/format";
 import { useBreadcrumbLeaf } from "../lib/breadcrumb";
 import { usePageTitle } from "../lib/usePageTitle";
@@ -56,6 +56,7 @@ import { useTimeWindow } from "../lib/useTimeWindow";
 import { useCurrentUser } from "../lib/useCurrentUser";
 import { useAccess } from "../lib/useAccess";
 import { useProductName } from "../lib/useProductName";
+import { useSystemKindLabel } from "../lib/useSystemTypes";
 
 const CHANNEL_GLYPH: Record<string, string> = { slack: "#", pagerduty: "⚠", webhook: "↗" };
 // Window used when jumping to the error traces behind an open-error
@@ -1274,6 +1275,7 @@ function ServiceEdit({
   onCreateTag: (r: CreateTagRequest) => Promise<Tag>;
   onChanged: () => void;
 }) {
+  const systemKindLabelFn = useSystemKindLabel();
   const productName = useProductName();
   const [description, setDescription] = useState(meta?.description ?? "");
   const [team, setTeam] = useState(meta?.team ?? "");
@@ -1650,8 +1652,8 @@ function ServiceEdit({
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                   {isSystem && hasSystemTemplate(systemKind) && (
                     <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                      <button type="button" className="btn" disabled={systemSaving} onClick={() => openApply(systemKind, "system", systemKindLabel(systemKind))}>
-                        Apply {systemKindLabel(systemKind)} template
+                      <button type="button" className="btn" disabled={systemSaving} onClick={() => openApply(systemKind, "system", systemKindLabelFn(systemKind))}>
+                        Apply {systemKindLabelFn(systemKind)} template
                       </button>
                       <span className="hint">this flagged system's checks</span>
                     </div>

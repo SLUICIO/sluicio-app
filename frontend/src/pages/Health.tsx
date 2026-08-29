@@ -49,13 +49,13 @@ import type {
   System,
 } from "../api/types";
 import { DASHBOARD_WIDGET_LABELS, DASHBOARD_WIDGET_PICKER } from "../api/types";
-import { systemKindLabel } from "../lib/systemKinds";
 import SearchableSelect from "../components/SearchableSelect";
 import OnboardingGuide from "../components/OnboardingGuide";
 import { formatNumber } from "../lib/format";
 import { pickAttentionTarget } from "../lib/needsAttention";
 import { usePageTitle } from "../lib/usePageTitle";
 import { useTimeWindow } from "../lib/useTimeWindow";
+import { useSystemKindLabel } from "../lib/useSystemTypes";
 
 // Remembers the last-active dashboard between sessions. Server stores
 // is_default; this is purely a per-browser nicety so a power user with
@@ -1456,6 +1456,7 @@ function SystemCard({
   busy: boolean;
   onRemove: () => void;
 }) {
+  const systemKindLabelFn = useSystemKindLabel();
   const pip = systemPip(summary?.status);
   const errors = summary?.error_trace_count ?? 0;
   const isErrored = pip === "err";
@@ -1468,7 +1469,7 @@ function SystemCard({
         </div>
         <div className="mt-0.5 text-xs">
           {summary ? (
-            <span className="badge-brand">⚙ {systemKindLabel(summary.system_kind)}</span>
+            <span className="badge-brand">⚙ {systemKindLabelFn(summary.system_kind)}</span>
           ) : (
             <span className="text-muted">no telemetry in window</span>
           )}

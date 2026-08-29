@@ -52,7 +52,6 @@ import ConfigTransfer from "../components/ConfigTransfer";
 import { EnterpriseBadge, UpgradeNotice } from "../components/EnterpriseUpsell";
 import SsoSettings from "../components/SsoSettings";
 import { formatBytes, formatRelative } from "../lib/format";
-import { SYSTEM_KINDS } from "../lib/systemKinds";
 import { useCurrentUser } from "../lib/useCurrentUser";
 import { useLicense } from "../lib/useLicense";
 import { usePageTitle } from "../lib/usePageTitle";
@@ -60,6 +59,7 @@ import { useIngestBase } from "../lib/useIngestBaseUrl";
 import type { AuditEntry, AuditVerifyResult, LicenseStatus, SMTPSettingsResponse } from "../api/types";
 import { useProductName } from "../lib/useProductName";
 import SearchableSelect from "../components/SearchableSelect";
+import { useSystemTypes } from "../lib/useSystemTypes";
 
 type TabKey =
   | "organization"
@@ -2447,26 +2447,7 @@ function CreatePolicyForm({
   const [kind, setKind] = useState<PolicyKind>("attributes");
   const [serviceName, setServiceName] = useState("");
   const [integrationID, setIntegrationID] = useState("");
-  // The org's real system types, not the built-in list alone: a type
-  // somebody defined for their own estate is exactly the one they will
-  // reach for here, and the hard-coded table cannot know about it. Falls
-  // back to the built-ins if the request fails, so the field degrades to
-  // what it offered before rather than to nothing.
-  const [systemKindOptions, setSystemKindOptions] = useState(SYSTEM_KINDS);
-  useEffect(() => {
-    let live = true;
-    api
-      .listSystemTypes()
-      .then((r) => {
-        const rows = (r.system_types ?? []).map((t) => ({ value: t.key, label: t.label }));
-        rows.sort((a, b) => a.label.localeCompare(b.label));
-        if (live && rows.length > 0) setSystemKindOptions(rows);
-      })
-      .catch(() => {});
-    return () => {
-      live = false;
-    };
-  }, []);
+  const systemKindOptions = useSystemTypes();
 
   // Loaded once for the picker. A failure leaves the list empty rather
   // than blocking the form: every other policy kind still works, and the
