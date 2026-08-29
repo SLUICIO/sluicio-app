@@ -80,6 +80,52 @@ func (h *Handlers) createGroupPolicy(w http.ResponseWriter, r *http.Request) {
 	httpserver.WriteJSON(w, http.StatusCreated, policy)
 }
 
+// updateGroupPolicy: PUT /api/v1/settings/groups/{id}/policies/{policy_id}  (admin)
+//
+// Editing was delete-then-recreate by hand, which meant re-entering every
+// field to change one of them, and losing the policy entirely if you got
+// distracted between the two steps. A policy is somebody's access; it
+// should be correctable without being removed first.
+func (h *Handlers) updateGroupPolicy(w http.ResponseWriter, r *http.Request) {
+	groupID, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid group id")
+		return
+	}
+	policyID, err := uuid.Parse(r.PathValue("policy_id"))
+	if err != nil {
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid policy id")
+		return
+	}
+	if _, err := h.Identity.GetGroup(r.Context(), middleware.OrgID(r), groupID); err != nil {
+		httpserver.WriteError(w, http.StatusNotFound, "group not found")
+		return
+	}
+	var body identity.AccessPolicyInput
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	policy, err := h.Identity.UpdatePolicy(r.Context(), groupID, policyID, body)
+	if err != nil {
+		if errors.Is(err, identity.ErrNotFound) {
+			httpserver.WriteError(w, http.StatusNotFound, "policy not found")
+			return
+		}
+		// Editing a policy into the shape of one the group already holds
+		// is the same conflict as creating a duplicate.
+		if errors.Is(err, identity.ErrPolicyExists) {
+			httpserver.WriteError(w, http.StatusConflict, "an identical policy already exists on this group")
+			return
+		}
+		httpserver.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	h.recordAudit(r, "group_policy.update", "group", groupID.String(),
+		map[string]any{"policy_id": policyID.String(), "kind": body.Kind})
+	httpserver.WriteJSON(w, http.StatusOK, policy)
+}
+
 // deleteGroupPolicy: DELETE /api/v1/settings/groups/{id}/policies/{policy_id}  (admin)
 func (h *Handlers) deleteGroupPolicy(w http.ResponseWriter, r *http.Request) {
 	groupID, err := uuid.Parse(r.PathValue("id"))

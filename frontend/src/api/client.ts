@@ -1324,6 +1324,14 @@ export const api = {
     get<{ policies: AccessPolicy[] }>(`/settings/groups/${encodeURIComponent(groupId)}/policies`),
   createGroupPolicy: (groupId: string, body: AccessPolicyInput) =>
     post<AccessPolicy>(`/settings/groups/${encodeURIComponent(groupId)}/policies`, body),
+  // Rewritten in place rather than delete-then-create: a policy is
+  // somebody's access, and the gap between two calls is a window where
+  // they hold less than they should.
+  updateGroupPolicy: (groupId: string, policyId: string, body: AccessPolicyInput) =>
+    put<AccessPolicy>(
+      `/settings/groups/${encodeURIComponent(groupId)}/policies/${encodeURIComponent(policyId)}`,
+      body,
+    ),
   deleteGroupPolicy: (groupId: string, policyId: string) =>
     del(`/settings/groups/${encodeURIComponent(groupId)}/policies/${encodeURIComponent(policyId)}`),
 

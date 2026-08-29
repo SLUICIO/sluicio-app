@@ -228,79 +228,171 @@ func validatePolicyInput(in *AccessPolicyInput) error {
 // a backing unique constraint, so a concurrent identical pair can
 // still slip through — the config-transfer exporter dedupes on the
 // same key as defense in depth (configtransfer/export.go).
-func (s *Store) CreatePolicy(ctx context.Context, groupID uuid.UUID, in AccessPolicyInput) (AccessPolicy, error) {
-	if err := validatePolicyInput(&in); err != nil {
-		return AccessPolicy{}, err
+// policyArgs validates an input and reduces it to the column values a
+// row is written from.
+//
+// Shared by CreatePolicy and UpdatePolicy. The two differ only in the
+// statement they run and in which existing row a duplicate check may
+// ignore; everything before that — parsing the UUID targets, deciding
+// which columns stay NULL, encoding the JSON ones — is one set of rules
+// and belongs in one place. Two copies of it would diverge on the next
+// column, and the symptom would be an edit that silently drops a field
+// creation kept.
+type policyArgs struct {
+	integrationID *uuid.UUID
+	systemID      *uuid.UUID
+	service       interface{}
+	integration   interface{}
+	systemKind    interface{}
+	system        interface{}
+	attrJSON      string
+	conditions    interface{}
+	signals       interface{}
+}
+
+func buildPolicyArgs(in *AccessPolicyInput) (policyArgs, error) {
+	var a policyArgs
+	if err := validatePolicyInput(in); err != nil {
+		return a, err
 	}
-	var integrationID, systemID *uuid.UUID
 	if in.TargetIntegrationID != "" {
 		id, err := uuid.Parse(in.TargetIntegrationID)
 		if err != nil {
-			return AccessPolicy{}, fmt.Errorf("invalid target_integration_id: %v", err)
+			return a, fmt.Errorf("invalid target_integration_id: %v", err)
 		}
-		integrationID = &id
+		a.integrationID = &id
+		a.integration = id
 	}
 	if in.TargetSystemID != "" {
 		id, err := uuid.Parse(in.TargetSystemID)
 		if err != nil {
-			return AccessPolicy{}, fmt.Errorf("invalid target_system_id: %v", err)
+			return a, fmt.Errorf("invalid target_system_id: %v", err)
 		}
-		systemID = &id
+		a.systemID = &id
+		a.system = id
 	}
-	existing, err := s.ListPoliciesForGroup(ctx, groupID)
-	if err != nil {
-		return AccessPolicy{}, err
-	}
-	for _, p := range existing {
-		if policyMatchesInput(p, in, integrationID, systemID) {
-			return AccessPolicy{}, ErrPolicyExists
-		}
-	}
-	var (
-		serviceArg     interface{}
-		integrationArg interface{}
-	)
 	if in.TargetServiceName != "" {
-		serviceArg = in.TargetServiceName
+		a.service = in.TargetServiceName
 	}
-	if integrationID != nil {
-		integrationArg = *integrationID
-	}
-	var systemKindArg interface{}
 	if in.TargetSystemKind != "" {
-		systemKindArg = in.TargetSystemKind
-	}
-	var systemIDArg interface{}
-	if systemID != nil {
-		systemIDArg = *systemID
+		a.systemKind = in.TargetSystemKind
 	}
 	attrJSON, err := json.Marshal(in.AttributeMatch)
 	if err != nil {
-		return AccessPolicy{}, fmt.Errorf("attribute_match marshal: %w", err)
+		return a, fmt.Errorf("attribute_match marshal: %w", err)
 	}
-	var condArg interface{}
+	a.attrJSON = string(attrJSON)
 	if in.Kind == PolicyExpression && in.Conditions != nil {
 		condJSON, err := json.Marshal(in.Conditions)
 		if err != nil {
-			return AccessPolicy{}, fmt.Errorf("conditions marshal: %w", err)
+			return a, fmt.Errorf("conditions marshal: %w", err)
 		}
-		condArg = string(condJSON)
+		a.conditions = string(condJSON)
 	}
-	var signalsArg interface{}
 	if len(in.Signals) > 0 {
 		sigs := make([]string, 0, len(in.Signals))
 		for _, sg := range in.Signals {
 			sigs = append(sigs, string(sg))
 		}
-		signalsArg = sigs
+		a.signals = sigs
+	}
+	return a, nil
+}
+
+// duplicateExists reports whether the group already holds a policy of
+// exactly this shape. Create-side only; UpdatePolicy does its own pass,
+// because it has to establish the row EXISTS before it can decide
+// whether a match is a duplicate or the row itself.
+func (s *Store) duplicateExists(ctx context.Context, groupID uuid.UUID, in AccessPolicyInput, a policyArgs) (bool, error) {
+	existing, err := s.ListPoliciesForGroup(ctx, groupID)
+	if err != nil {
+		return false, err
+	}
+	for _, p := range existing {
+		if policyMatchesInput(p, in, a.integrationID, a.systemID) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (s *Store) CreatePolicy(ctx context.Context, groupID uuid.UUID, in AccessPolicyInput) (AccessPolicy, error) {
+	a, err := buildPolicyArgs(&in)
+	if err != nil {
+		return AccessPolicy{}, err
+	}
+	dup, err := s.duplicateExists(ctx, groupID, in, a)
+	if err != nil {
+		return AccessPolicy{}, err
+	}
+	if dup {
+		return AccessPolicy{}, ErrPolicyExists
 	}
 	const q = `
 		INSERT INTO group_access_policies
 		    (group_id, kind, target_service_name, target_integration_id, target_system_kind, target_system_id, attribute_match, conditions, signals, grant_services)
 		VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $10)
 		RETURNING id, group_id, kind, target_service_name, target_integration_id, target_system_kind, target_system_id, attribute_match, conditions, signals, grant_services, created_at`
-	row := s.pool.QueryRow(ctx, q, groupID, in.Kind, serviceArg, integrationArg, systemKindArg, systemIDArg, string(attrJSON), condArg, signalsArg, in.GrantServices)
+	row := s.pool.QueryRow(ctx, q, groupID, in.Kind, a.service, a.integration, a.systemKind, a.system, a.attrJSON, a.conditions, a.signals, in.GrantServices)
 	return scanPolicy(row)
+}
+
+// UpdatePolicy rewrites one policy in place.
+//
+// In place, rather than delete-then-create, because a policy IS somebody's
+// access: between the two statements a member would briefly hold less than
+// they should, and a failure in the gap would leave them holding nothing
+// with no record of what they lost. The id survives, so the audit trail
+// still refers to one thing.
+//
+// group_id is in the WHERE clause as well as the id: the route already
+// checks the group is in the caller's org, and this makes a mismatched
+// pair a not-found rather than a cross-group edit.
+func (s *Store) UpdatePolicy(ctx context.Context, groupID, policyID uuid.UUID, in AccessPolicyInput) (AccessPolicy, error) {
+	a, err := buildPolicyArgs(&in)
+	if err != nil {
+		return AccessPolicy{}, err
+	}
+	// Existence first, duplication second. The other order answers "an
+	// identical policy already exists" for a policy id that does not
+	// exist at all — technically true of the group, and a lie about what
+	// the caller asked to do.
+	existing, err := s.ListPoliciesForGroup(ctx, groupID)
+	if err != nil {
+		return AccessPolicy{}, err
+	}
+	found := false
+	for _, p := range existing {
+		if p.ID == policyID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return AccessPolicy{}, ErrNotFound
+	}
+	for _, p := range existing {
+		if p.ID == policyID {
+			continue
+		}
+		if policyMatchesInput(p, in, a.integrationID, a.systemID) {
+			return AccessPolicy{}, ErrPolicyExists
+		}
+	}
+	const q = `
+		UPDATE group_access_policies
+		   SET kind = $3, target_service_name = $4, target_integration_id = $5,
+		       target_system_kind = $6, target_system_id = $7,
+		       attribute_match = $8::jsonb, conditions = $9::jsonb,
+		       signals = $10, grant_services = $11
+		 WHERE id = $1 AND group_id = $2
+		RETURNING id, group_id, kind, target_service_name, target_integration_id, target_system_kind, target_system_id, attribute_match, conditions, signals, grant_services, created_at`
+	row := s.pool.QueryRow(ctx, q, policyID, groupID, in.Kind, a.service, a.integration, a.systemKind, a.system, a.attrJSON, a.conditions, a.signals, in.GrantServices)
+	p, err := scanPolicy(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return AccessPolicy{}, ErrNotFound
+	}
+	return p, err
 }
 
 // policyMatchesInput reports whether an existing policy row has exactly

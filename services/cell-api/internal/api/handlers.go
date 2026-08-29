@@ -1564,6 +1564,8 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	if h.AuthMW != nil {
 		mux.HandleFunc("POST /api/v1/settings/groups/{id}/policies",
 			h.AuthMW.RequireRole(identity.Role.CanAdmin, h.requireFeature(license.FeatureRBACAdvanced, h.createGroupPolicy)))
+		mux.HandleFunc("PUT /api/v1/settings/groups/{id}/policies/{policy_id}",
+			h.AuthMW.RequireRole(identity.Role.CanAdmin, h.requireFeature(license.FeatureRBACAdvanced, h.updateGroupPolicy)))
 		mux.HandleFunc("DELETE /api/v1/settings/groups/{id}/policies/{policy_id}",
 			h.AuthMW.RequireRole(identity.Role.CanAdmin, h.requireFeature(license.FeatureRBACAdvanced, h.deleteGroupPolicy)))
 	}

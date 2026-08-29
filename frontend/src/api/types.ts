@@ -2772,6 +2772,10 @@ export interface AccessPolicy {
   attribute_match: Record<string, string>;
   conditions?: PolicyExpr | null;
   signals?: ("traces" | "logs" | "metrics" | "messages")[];
+  /** kind="integration": whether the grant carries the member services
+   *  too. Returned by the server all along; the type omitted it, so the
+   *  UI could not have shown or preserved it. */
+  grant_services?: boolean;
   created_at?: string;
 }
 

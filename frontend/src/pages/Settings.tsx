@@ -2037,6 +2037,7 @@ function PoliciesSection({
   const [policies, setPolicies] = useState<AccessPolicy[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState<AccessPolicy | null>(null);
   // Policy CRUD is Enterprise (rbac_advanced) — the backend 402s writes
   // on unlicensed cells, so don't offer the button; upsell instead. The
   // read-only list stays (listing is open, and CE cells can carry policies
@@ -2085,17 +2086,29 @@ function PoliciesSection({
       {error && <div className="alert alert--error">{error}</div>}
       {!policies && <div className="placeholder">Loading…</div>}
 
-      {adding && (
+      {(adding || editing) && (
         <EditDrawer
-          title="New access policy"
+          title={editing ? "Edit access policy" : "New access policy"}
           width="medium"
-          onClose={() => setAdding(false)}
+          onClose={() => {
+            setAdding(false);
+            setEditing(null);
+          }}
         >
           <CreatePolicyForm
+            // Keyed on the policy so switching from one Edit to another
+            // remounts the form; without it the second would open showing
+            // the first one's fields, because the state is seeded once.
+            key={editing?.id ?? "new"}
             groupId={groupId}
-            onClose={() => setAdding(false)}
+            policy={editing ?? undefined}
+            onClose={() => {
+              setAdding(false);
+              setEditing(null);
+            }}
             onCreated={() => {
               setAdding(false);
+              setEditing(null);
               refresh();
               onChanged();
             }}
@@ -2124,6 +2137,16 @@ function PoliciesSection({
                 <td><span className="badge">{p.kind}</span></td>
                 <td>{withSignals(p, describePolicy(p))}</td>
                 <td className="num">
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      className="btn btn--link"
+                      style={{ marginRight: 10 }}
+                      onClick={() => setEditing(p)}
+                    >
+                      Edit
+                    </button>
+                  )}
                   {isAdmin && (
                     <button
                       type="button"
@@ -2436,17 +2459,24 @@ function TypeSwitch({ value, onChange }: { value: "group" | "not" | "leaf"; onCh
 
 function CreatePolicyForm({
   groupId,
+  policy,
   onClose,
   onCreated,
 }: {
   groupId: string;
+  /** Editing an existing policy; omitted when creating a new one. */
+  policy?: AccessPolicy;
   onClose: () => void;
   onCreated: () => void;
 }) {
   const productName = useProductName();
-  const [kind, setKind] = useState<PolicyKind>("attributes");
-  const [serviceName, setServiceName] = useState("");
-  const [integrationID, setIntegrationID] = useState("");
+  // Every field is seeded from the policy being edited, which is the
+  // point: correcting one condition used to mean re-entering all of
+  // them, because the only way to change a policy was to delete it and
+  // build a new one from memory.
+  const [kind, setKind] = useState<PolicyKind>(policy?.kind ?? "attributes");
+  const [serviceName, setServiceName] = useState(policy?.target_service_name ?? "");
+  const [integrationID, setIntegrationID] = useState(policy?.target_integration_id ?? "");
   const systemKindOptions = useSystemTypes();
 
   // Loaded once for the picker. A failure leaves the list empty rather
@@ -2476,10 +2506,17 @@ function CreatePolicyForm({
   // (issue #28). Off by default: seeing an integration and seeing the
   // services under it are different permissions, and on a shared
   // runtime the second one hands over every other flow that runs there.
-  const [grantServices, setGrantServices] = useState(false);
-  const [systemKind, setSystemKind] = useState("");
-  const [attrPairs, setAttrPairs] = useState<{ k: string; v: string }[]>([{ k: "", v: "" }]);
-  const [expr, setExpr] = useState<PolicyExpr>({ op: "and", children: [{ match: "prefix", value: "" }] });
+  const [grantServices, setGrantServices] = useState(policy?.grant_services ?? false);
+  const [systemKind, setSystemKind] = useState(policy?.target_system_kind ?? "");
+  const [attrPairs, setAttrPairs] = useState<{ k: string; v: string }[]>(() => {
+    const rows = Object.entries(policy?.attribute_match ?? {}).map(([k, v]) => ({ k, v }));
+    // Always one blank row to type into, so an edit does not require
+    // finding an "add" button before the first keystroke.
+    return rows.length > 0 ? [...rows, { k: "", v: "" }] : [{ k: "", v: "" }];
+  });
+  const [expr, setExpr] = useState<PolicyExpr>(
+    policy?.conditions ?? { op: "and", children: [{ match: "prefix", value: "" }] },
+  );
   const ALL_SIGNALS = ["traces", "logs", "metrics", "messages"] as const;
   // Messages and traces are the same underlying data seen through two
   // lenses with different sensitivity: messages = the curated business
@@ -2491,7 +2528,12 @@ function CreatePolicyForm({
     logs: { label: "Logs", hint: "" },
     metrics: { label: "Metrics", hint: "" },
   };
-  const [signals, setSignals] = useState<Set<string>>(new Set(ALL_SIGNALS));
+  // An empty stored list means "all signals", which is how the server
+  // reads it too — seeding the boxes from it directly would show none
+  // ticked for a policy that grants everything.
+  const [signals, setSignals] = useState<Set<string>>(
+    new Set(policy?.signals && policy.signals.length > 0 ? policy.signals : ALL_SIGNALS),
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -2532,7 +2574,11 @@ function CreatePolicyForm({
         ...(wantsExpr ? { conditions: expr } : {}),
         ...(signals.size < 4 ? { signals: [...signals] as AccessPolicyInput["signals"] } : {}),
       };
-      await api.createGroupPolicy(groupId, body);
+      if (policy) {
+        await api.updateGroupPolicy(groupId, policy.id, body);
+      } else {
+        await api.createGroupPolicy(groupId, body);
+      }
       onCreated();
     } catch (e) {
       setError(String((e as Error).message ?? e));
@@ -2735,7 +2781,7 @@ function CreatePolicyForm({
       <div className="form__actions">
         <button type="button" className="btn" onClick={onClose} disabled={busy}>Cancel</button>
         <button type="submit" className="btn btn--primary" disabled={busy || signals.size === 0}>
-          {busy ? "Adding…" : "Add policy"}
+          {busy ? (policy ? "Saving…" : "Adding…") : policy ? "Save policy" : "Add policy"}
         </button>
       </div>
     </form>
