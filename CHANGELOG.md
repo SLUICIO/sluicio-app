@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.127 — 2026-08-28
+
+- feat(branding): say the deployment's own name, not ours (5a786b2)
+
 ## v0.11.126 — 2026-08-28
 
+- release v0.11.126 — refresh internal changelog (5d9c36d)
 - fix(license): refuse to print a token the product cannot verify (96ae7ea)
 - feat(branding): brand the sign-in page, not just the app behind it (1aa0a14)
 - refactor(settings): read the ingest URL's source instead of guessing it (1e306f7)
