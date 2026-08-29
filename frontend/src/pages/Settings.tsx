@@ -2447,6 +2447,27 @@ function CreatePolicyForm({
   const [kind, setKind] = useState<PolicyKind>("attributes");
   const [serviceName, setServiceName] = useState("");
   const [integrationID, setIntegrationID] = useState("");
+  // The org's real system types, not the built-in list alone: a type
+  // somebody defined for their own estate is exactly the one they will
+  // reach for here, and the hard-coded table cannot know about it. Falls
+  // back to the built-ins if the request fails, so the field degrades to
+  // what it offered before rather than to nothing.
+  const [systemKindOptions, setSystemKindOptions] = useState(SYSTEM_KINDS);
+  useEffect(() => {
+    let live = true;
+    api
+      .listSystemTypes()
+      .then((r) => {
+        const rows = (r.system_types ?? []).map((t) => ({ value: t.key, label: t.label }));
+        rows.sort((a, b) => a.label.localeCompare(b.label));
+        if (live && rows.length > 0) setSystemKindOptions(rows);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, []);
+
   // Loaded once for the picker. A failure leaves the list empty rather
   // than blocking the form: every other policy kind still works, and the
   // integration kind is the only one that needs it.
@@ -2558,12 +2579,14 @@ function CreatePolicyForm({
       {wantsSystem && (
         <label className="form__label">
           System kind
-          <select className="toolbar__select" value={systemKind} onChange={(e) => setSystemKind(e.target.value)}>
-            <option value="">All systems</option>
-            {SYSTEM_KINDS.map((k) => (
-              <option key={k.value} value={k.value}>{k.label}</option>
-            ))}
-          </select>
+          <SearchableSelect
+            value={systemKind}
+            onChange={setSystemKind}
+            options={systemKindOptions.map((k) => k.value)}
+            labelFor={(v) => systemKindOptions.find((k) => k.value === v)?.label ?? v}
+            allLabel="All systems"
+            placeholder="Search system kinds…"
+          />
           <span className="form__hint">
             Grants every service flagged as a system, or only those of one kind.
           </span>
