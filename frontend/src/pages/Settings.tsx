@@ -59,6 +59,7 @@ import { usePageTitle } from "../lib/usePageTitle";
 import { useIngestBase } from "../lib/useIngestBaseUrl";
 import type { AuditEntry, AuditVerifyResult, LicenseStatus, SMTPSettingsResponse } from "../api/types";
 import { useProductName } from "../lib/useProductName";
+import SearchableSelect from "../components/SearchableSelect";
 
 type TabKey =
   | "organization"
@@ -2446,6 +2447,29 @@ function CreatePolicyForm({
   const [kind, setKind] = useState<PolicyKind>("attributes");
   const [serviceName, setServiceName] = useState("");
   const [integrationID, setIntegrationID] = useState("");
+  // Loaded once for the picker. A failure leaves the list empty rather
+  // than blocking the form: every other policy kind still works, and the
+  // integration kind is the only one that needs it.
+  const [integrationOptions, setIntegrationOptions] = useState<{ id: string; name: string }[]>([]);
+  const [integrationsLoaded, setIntegrationsLoaded] = useState(false);
+  useEffect(() => {
+    let live = true;
+    api
+      .listIntegrations("30d")
+      .then((r) => {
+        if (!live) return;
+        const rows = (r.integrations ?? []).map((i) => ({ id: i.id, name: i.name }));
+        rows.sort((a, b) => a.name.localeCompare(b.name));
+        setIntegrationOptions(rows);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (live) setIntegrationsLoaded(true);
+      });
+    return () => {
+      live = false;
+    };
+  }, []);
   // Whether the integration's member services come with the grant
   // (issue #28). Off by default: seeing an integration and seeing the
   // services under it are different permissions, and on a shared
@@ -2479,6 +2503,16 @@ function CreatePolicyForm({
     e.preventDefault();
     setBusy(true);
     setError(null);
+    // The picker is a button, not an <input>, so it carries no `required`
+    // and the browser will not stop an empty submit the way it did for
+    // the UUID field. Without this the form posts an empty id and the
+    // failure comes back as a server error about a field the author
+    // thought they had filled in.
+    if (wantsIntegration && !integrationID.trim()) {
+      setError("Pick an integration for this policy.");
+      setBusy(false);
+      return;
+    }
     try {
       const attribute_match: Record<string, string> = {};
       for (const { k, v } of attrPairs) {
@@ -2549,17 +2583,23 @@ function CreatePolicyForm({
       )}
       {wantsIntegration && (
         <label className="form__label">
-          Integration UUID
-          <input
-            className="search__input mono"
+          Integration
+          {/* A UUID typed by hand is a UUID mistyped by hand, and the
+              failure is silent: the policy saves, matches nothing, and
+              looks exactly like a policy that is working. The picker
+              stores the same id; it just stops anyone having to carry it
+              between two tabs. */}
+          <SearchableSelect
             value={integrationID}
-            onChange={(e) => setIntegrationID(e.target.value)}
-            placeholder="00000000-0000-0000-0000-000000000000"
-            required
+            onChange={setIntegrationID}
+            options={integrationOptions.map((i) => i.id)}
+            labelFor={(id) => integrationOptions.find((i) => i.id === id)?.name ?? id}
+            allLabel={integrationsLoaded ? "Pick an integration…" : "Loading…"}
+            placeholder="Search integrations…"
           />
           <span className="form__hint">
-            Copy from <code>/integrations</code> — a picker UI lands in a
-            follow-up.
+            The policy stores the integration&rsquo;s id, so renaming it later
+            changes nothing here.
           </span>
         </label>
       )}
