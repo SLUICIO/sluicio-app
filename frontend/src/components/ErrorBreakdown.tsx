@@ -16,6 +16,7 @@
 
 import { useEffect, useState } from "react";
 import ServiceRef from "./ServiceRef";
+import { useCanOpenServices } from "../lib/useNavigationReach";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import type { ErrorBreakdownResponse, ServiceSummary } from "../api/types";
@@ -51,6 +52,12 @@ export default function ErrorBreakdown({
 }: Props) {
   const { can } = useCurrentUser();
   const canWrite = can("integration.write");
+  // Everything in this panel that names a service is gated on this. A
+  // reader granted the integration but not its services gets the counts
+  // and the route to the failed messages; the attribution, the
+  // per-service bars and the unhealthy-service links all describe
+  // objects they were deliberately not given.
+  const canOpenServices = useCanOpenServices();
   const [showAlert, setShowAlert] = useState(false);
   // Server-side attribution (issue #12). Only used when it reports a
   // dimension other than "service"; the per-service view below is still
@@ -172,26 +179,46 @@ export default function ErrorBreakdown({
           className="rounded-md p-4 text-sm"
           style={{ borderLeft: "4px solid var(--err)", background: "var(--err-soft)", color: "var(--err-ink)" }}
         >
-          <div className="font-semibold">
-            No error traces in this window, but {unhealthy.length} service
-            {unhealthy.length === 1 ? " is" : "s are"} unhealthy.
-          </div>
-          <div className="mt-1" style={{ opacity: 0.85 }}>
-            A failing health check (metric or log) can flip a service unhealthy without producing
-            error traces. Open the service to see which check is failing:
-          </div>
-          <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
-            {unhealthy.map((s) => (
-              <ServiceRef
-                key={s.service_name}
-                name={s.service_name}
-                suffix="?tab=health"
-                className="font-medium underline-offset-2 hover:underline"
-              >
-                {s.service_name} →
-              </ServiceRef>
-            ))}
-          </div>
+          {/* Same rule as the attribution above: the useful version of
+              this names services and links into them. Without that
+              access the honest form is that the integration is unhealthy
+              and the reason is not a failed message — naming services
+              they cannot open would only raise a question with no answer
+              on this page. */}
+          {canOpenServices ? (
+            <>
+              <div className="font-semibold">
+                No error traces in this window, but {unhealthy.length} service
+                {unhealthy.length === 1 ? " is" : "s are"} unhealthy.
+              </div>
+              <div className="mt-1" style={{ opacity: 0.85 }}>
+                A failing health check (metric or log) can flip a service unhealthy without producing
+                error traces. Open the service to see which check is failing:
+              </div>
+              <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
+                {unhealthy.map((s) => (
+                  <ServiceRef
+                    key={s.service_name}
+                    name={s.service_name}
+                    suffix="?tab=health"
+                    className="font-medium underline-offset-2 hover:underline"
+                  >
+                    {s.service_name} →
+                  </ServiceRef>
+                ))}
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="font-semibold">
+                No error traces in this window, but this integration is unhealthy.
+              </div>
+              <div className="mt-1" style={{ opacity: 0.85 }}>
+                A failing health check can flip an integration unhealthy without producing a single
+                failed message. The checks are on this integration&rsquo;s settings.
+              </div>
+            </>
+          )}
         </div>
       );
     }
@@ -227,8 +254,12 @@ export default function ErrorBreakdown({
         <div>
           <h3 className="text-lg font-semibold">Where are the error traces?</h3>
           <p className="text-xs text-muted">
-            {total} error trace{total === 1 ? "" : "s"} across {breakdowns.length} service
-            {breakdowns.length === 1 ? "" : "s"}
+            {total} error trace{total === 1 ? "" : "s"}
+            {canOpenServices && (
+              <>
+                {" "}across {breakdowns.length} service{breakdowns.length === 1 ? "" : "s"}
+              </>
+            )}
           </p>
         </div>
       </div>
@@ -242,6 +273,15 @@ export default function ErrorBreakdown({
           color: "var(--err-ink)",
         }}
       >
+        {/* Attribution is a sentence ABOUT A SERVICE: which one failed and
+            what it does. A reader granted the integration but not its
+            services was told both, which is the thing the grant withheld
+            and is useless to them besides — there is nowhere for them to
+            go with it. They get the count and the way to the traces.
+            Suppressed rather than reworded: there is no version of "which
+            service" that is meaningful to somebody who cannot see
+            services. */}
+        {canOpenServices ? (
         <div className="text-base leading-snug">
           <span className="font-semibold">{top.pct.toFixed(0)}% of failures</span>{" "}
           come from{" "}
@@ -267,6 +307,11 @@ export default function ErrorBreakdown({
           )}
           .
         </div>
+        ) : (
+          <div className="text-base leading-snug">
+            {formatNumber(total)} failed trace{total === 1 ? "" : "s"} in this window.
+          </div>
+        )}
         <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-sm">
           {/* Failed traces for this integration, on the Messages tab
               pre-filtered to errors (the tab is already scoped to the
@@ -298,17 +343,22 @@ export default function ErrorBreakdown({
         />
       )}
 
-      {/* Breakdown rows */}
-      <div className="space-y-2">
-        {breakdowns.map((b, i) => (
-          <BreakdownRow
-            key={b.service_name}
-            b={b}
-            dominant={i === 0}
-            onClick={() => onJumpToService?.(b.service_name)}
-          />
-        ))}
-      </div>
+      {/* Breakdown rows — a per-service bar chart, so the whole block
+          goes for a reader who cannot open services. Each row is also a
+          button that jumps the right rail to a service they cannot
+          inspect. */}
+      {canOpenServices && (
+        <div className="space-y-2">
+          {breakdowns.map((b, i) => (
+            <BreakdownRow
+              key={b.service_name}
+              b={b}
+              dominant={i === 0}
+              onClick={() => onJumpToService?.(b.service_name)}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
