@@ -3,8 +3,18 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
-## v0.11.127 — 2026-08-28
+## v0.11.128 — 2026-08-29
 
+- fix(rbac): say nothing about services to a reader who was not given them (24f871d)
+- fix(systems): badge a system with its type's name, not its raw key (cd185e7)
+- fix(rbac): pick the system kind from the types that exist, not a stale table (4953751)
+- fix(rbac): stop a service name looking clickable when it is not (7555bdf)
+- docs(readme): offer the demo's business user alongside the admin one (d8e5462)
+- fix(rbac): pick the integration for a policy instead of pasting its UUID (ccba29e)
+
+## v0.11.127 — 2026-08-29
+
+- release v0.11.127 — refresh internal changelog (aef18cb)
 - feat(branding): say the deployment's own name, not ours (5a786b2)
 
 ## v0.11.126 — 2026-08-28
