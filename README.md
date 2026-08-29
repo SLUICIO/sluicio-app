@@ -33,9 +33,21 @@ email:     demo@sluicio.com
 password:  demodemo
 ```
 
-The demo account can read and configure the product, but self-service and
-organization administration are disabled — so one visitor can't lock out the
-next.
+There is also a business user, scoped the way an operations lead or a support
+agent usually is: the flows and their messages, without the configuration
+surface behind them.
+
+```
+email:     business-user-demo@sluicio.com
+password:  demodemo
+```
+
+Worth signing in as both. Sluicio is built on the premise that the people who
+need answers about an integration are mostly not the people who built it, and
+the second account is what that premise looks like in practice.
+
+Both demo accounts can use the product, but self-service and organization
+administration are disabled — so one visitor can't lock out the next.
 
 ## Quick start
 
