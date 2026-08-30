@@ -3,8 +3,14 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.131 — 2026-08-30
+
+- fix(integrations): call a failed message a failed message (4557cb3)
+- chore: move the SaaS control plane out of the public repository (fe0f9aa)
+
 ## v0.11.130 — 2026-08-30
 
+- release v0.11.130 — refresh internal changelog (5b40abd)
 - fix(rbac): make the pattern editor say what it actually matches (b58d719)
 - feat(rbac): grant integrations and systems by name pattern (7d884ab)
 
