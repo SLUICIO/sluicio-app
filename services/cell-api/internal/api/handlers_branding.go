@@ -15,6 +15,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -91,6 +92,32 @@ func (h *Handlers) publicBranding(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpserver.WriteJSON(w, http.StatusOK, b)
+}
+
+// ProductName resolves what this deployment calls itself, for the code
+// that has no HTTP request to hang it off — the alert delivery worker and
+// the error notifier, whose mails are the only place the product's name
+// leaves the building.
+//
+// Wired into the alerting package at startup (SetProductNameResolver), the
+// same shape as ResolveAlertContext and DefaultEmailTemplate: alerting owns
+// no stores, so the store-backed half lives here.
+//
+// Carries the same white_label gate as getBranding, and for the same
+// reason — the read is the only place it can be enforced, so an expired
+// licence returns "Sluicio" while leaving the stored wordmark untouched.
+// A failed read falls back too: our own name in a partner's email is a
+// blemish, a nameless one is a broken email.
+func (h *Handlers) ProductName(ctx context.Context) string {
+	if !h.featureEntitled(license.FeatureWhiteLabel) {
+		return ""
+	}
+	b, err := h.Settings.GetBranding(ctx)
+	if err != nil {
+		h.Logger.Warn("read branding for notifications failed; using the default name", "err", err)
+		return ""
+	}
+	return b.Wordmark
 }
 
 // putBranding: PUT /api/v1/cell-settings/branding  (operator)

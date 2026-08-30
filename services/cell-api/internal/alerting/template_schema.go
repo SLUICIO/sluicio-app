@@ -68,6 +68,7 @@ var templateVariableDocs = map[string]varDoc{
 
 	"org.company":     {"the organization's company name", "when configured"},
 	"org.environment": {"the cell's environment label", "when configured"},
+	"org.product":     {"what this deployment calls itself — the cell's wordmark, or \"Sluicio\"", "always"},
 
 	"sent_at": {"when this notification was sent (RFC 3339)", "always"},
 
@@ -99,7 +100,7 @@ const StarterSlackTitle = ``
 
 const StarterSlackBody = `{{ alert.state_emoji }} *[{{ alert.state | upcase }}]* {{ alert.summary }}{% if alert.link %}
 
-<{{ alert.link }}|View in Sluicio>{% endif %}`
+<{{ alert.link }}|View in {{ org.product }}>{% endif %}`
 
 // StarterTemplates is what the editors load when someone asks to start
 // from the built-in template.

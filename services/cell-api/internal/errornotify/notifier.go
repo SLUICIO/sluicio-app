@@ -144,12 +144,15 @@ func (n *Notifier) once(ctx context.Context) {
 		}
 		// Lead the title + body with the deployment context (environment +
 		// company), matching the alert-engine notifications:
-		//   Sluicio {env} - Errors detected on {service} - {company}
+		//   {product} {env} - Errors detected on {service} - {company}
+		// product is the cell's wordmark: these mails leave the building,
+		// so on a white-labelled cell they carry the partner's name.
 		env, company := alerting.DeploymentContext(ctx)
-		subject := alerting.NotifSubject(env, company, fmt.Sprintf("Errors detected on %s", st.ServiceName))
+		product := alerting.ProductName(ctx)
+		subject := alerting.NotifSubject(product, env, company, fmt.Sprintf("Errors detected on %s", st.ServiceName))
 		body := fmt.Sprintf(
-			"%d unacknowledged error trace(s) on service %q. Latest at %s. Review and acknowledge on the Errors page in Sluicio.",
-			st.ErrorTraces, st.ServiceName, st.LastErrorAt.UTC().Format(time.RFC1123),
+			"%d unacknowledged error trace(s) on service %q. Latest at %s. Review and acknowledge on the Errors page in %s.",
+			st.ErrorTraces, st.ServiceName, st.LastErrorAt.UTC().Format(time.RFC1123), product,
 		)
 		if header := alerting.ContextHeader(env, company); header != "" {
 			body = header + "\n\n" + body
@@ -161,7 +164,7 @@ func (n *Notifier) once(ctx context.Context) {
 			linkPath = "/integrations/" + integ.String() + "/errors"
 		}
 		if link := alerting.Link(linkPath); link != "" {
-			body += "\n\nView in Sluicio: " + link
+			body += "\n\nView in " + product + ": " + link
 		}
 		if n.EmitEvent != nil {
 			n.EmitEvent(ctx, st.ServiceName, st.ErrorTraces, integ)

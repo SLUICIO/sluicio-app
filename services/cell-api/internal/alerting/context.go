@@ -99,6 +99,11 @@ type IntegrationFacts struct {
 type OrgFacts struct {
 	Company     string `json:"company,omitempty"`
 	Environment string `json:"environment,omitempty"`
+	// Product is what this deployment calls itself — the cell's wordmark,
+	// or "Sluicio" when nothing is branded. Never omitempty: the built-in
+	// subject template opens with it, and an absent value would render a
+	// leading space rather than a name.
+	Product string `json:"product"`
 }
 
 // alertContextResolver, when wired, supplies the heavy parts of an
@@ -318,7 +323,7 @@ func (c *AlertContext) webhookPayload(content NotificationContent) map[string]an
 // templates used when neither the rule nor the org override them. The body is
 // a self-contained responsive HTML layout; blocks are gated on the rule's
 // content toggles so an un-toggled rule still produces a clean email.
-const DefaultEmailSubject = `Sluicio{% if org.environment %} {{ org.environment }}{% endif %} — [{{ alert.state | upcase }}] {{ rule.name | default: alert.summary }}{% if org.company %} — {{ org.company }}{% endif %}`
+const DefaultEmailSubject = `{{ org.product }}{% if org.environment %} {{ org.environment }}{% endif %} — [{{ alert.state | upcase }}] {{ rule.name | default: alert.summary }}{% if org.company %} — {{ org.company }}{% endif %}`
 
 const DefaultEmailBody = `<!doctype html>
 <html><body style="margin:0;background:#f1f5f9;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#0f172a;">
@@ -351,10 +356,10 @@ const DefaultEmailBody = `<!doctype html>
             {% if include.integration_metadata and integration.metadata %}<table style="margin-top:6px;font-size:13px;">{% for kv in integration.metadata %}<tr><td style="color:#64748b;padding-right:10px;">{{ kv.key }}</td><td>{{ kv.value }}</td></tr>{% endfor %}</table>{% endif %}
           </div>
           {% endif %}
-          {% if alert.link %}<div style="margin-top:24px;"><a href="{{ alert.link }}" style="display:inline-block;background:#0f172a;color:#ffffff;text-decoration:none;padding:10px 18px;border-radius:8px;font-size:14px;font-weight:600;">View in Sluicio</a></div>{% endif %}
+          {% if alert.link %}<div style="margin-top:24px;"><a href="{{ alert.link }}" style="display:inline-block;background:#0f172a;color:#ffffff;text-decoration:none;padding:10px 18px;border-radius:8px;font-size:14px;font-weight:600;">View in {{ org.product }}</a></div>{% endif %}
         </td></tr>
         <tr><td style="padding:12px 24px;background:#f8fafc;border-top:1px solid #e2e8f0;font-size:12px;color:#94a3b8;">
-          Sluicio{% if org.environment %} · {{ org.environment }}{% endif %}{% if org.company %} · {{ org.company }}{% endif %}
+          {{ org.product }}{% if org.environment %} · {{ org.environment }}{% endif %}{% if org.company %} · {{ org.company }}{% endif %}
         </td></tr>
       </table>
     </td></tr>

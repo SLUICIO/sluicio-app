@@ -97,7 +97,13 @@ func SampleAlertContext() *AlertContext {
 				"Runbook":         "https://wiki.example.com/order-pipeline",
 			},
 		},
-		Org:    OrgFacts{Company: "Acme", Environment: "prod"},
+		// The wordmark is the real one, not a placeholder: the preview and
+		// the variable palette are where a partner checks that their brand
+		// reaches the email, and showing them "Sluicio" there would be the
+		// bug this fixes wearing a different hat. Resolved off Background
+		// because branding is a cell-level value — the resolver's context
+		// only carries the settings read, not a per-request scope.
+		Org:    OrgFacts{Company: "Acme", Environment: "prod", Product: ProductName(context.Background())},
 		SentAt: time.Now().UTC().Format(time.RFC3339),
 	}
 }

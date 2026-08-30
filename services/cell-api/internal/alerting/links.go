@@ -29,11 +29,17 @@ func Link(path string) string {
 	return base + path
 }
 
-// withLink appends a "View in Sluicio: <url>" footer to a notification body
-// when a deep link is available, leaving the body unchanged otherwise.
-func withLink(body, link string) string {
+// withLink appends a "View in {product}: <url>" footer to a notification
+// body when a deep link is available, leaving the body unchanged
+// otherwise. product is the caller's ProductName(ctx): this footer rides
+// on every plaintext email and every Slack message, so on a white-labelled
+// cell it has to carry the partner's name like the rest of the body.
+func withLink(body, product, link string) string {
 	if link == "" {
 		return body
 	}
-	return body + "\n\nView in Sluicio: " + link
+	if product = strings.TrimSpace(product); product == "" {
+		product = DefaultProductName
+	}
+	return body + "\n\nView in " + product + ": " + link
 }

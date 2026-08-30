@@ -38,7 +38,7 @@ func init() {
 // history).
 func deliver(ctx context.Context, client *http.Client, job DeliveryJob) (Message, error) {
 	env, company := DeploymentContext(ctx)
-	msg := messageFromJob(ctx, job, env, company)
+	msg := messageFromJob(ctx, job, ProductName(ctx), env, company)
 	n, ok := notifierFor(job.Channel.Kind)
 	if !ok {
 		return msg, fmt.Errorf("no notifier registered for channel kind %q", job.Channel.Kind)
@@ -59,6 +59,48 @@ func SetDeploymentContextResolver(f func(ctx context.Context) (env, company stri
 	deploymentContext = f
 }
 
+// DefaultProductName is what this deployment calls itself when nothing is
+// branded — the counterpart of DEFAULT_PRODUCT_NAME in the frontend's
+// useProductName, and the fallback whenever the resolver is unwired,
+// unentitled or empty.
+const DefaultProductName = "Sluicio"
+
+// productName, when wired, returns the cell's wordmark.
+//
+// The white-label work (issue #29) reached the app shell and stopped at
+// the door: a partner replaced the mark, and then their own users got
+// alert emails headed "Sluicio", subject-lined "Sluicio prod — …", and
+// buttoned "View in Sluicio". The one channel that leaves the building
+// was the one still carrying our name.
+//
+// Injected at startup (SetProductNameResolver) so this package stays free
+// of the settings store — the same shape as SetSystemMailResolver above.
+// The resolver owns the white_label entitlement gate, because the READ is
+// the only place that gate can live (see getBranding).
+//
+// Deliberately NOT applied to the X-Sluicio-Signature / X-Sluicio-Timestamp
+// webhook headers, which docs/webhook-signing.md documents as a contract
+// and receivers match on literally, nor to the Enterprise licence notices,
+// which drop the vendor rather than rename it (see useProductName.ts).
+var productName func(ctx context.Context) string
+
+// SetProductNameResolver wires the wordmark provider.
+func SetProductNameResolver(f func(ctx context.Context) string) {
+	productName = f
+}
+
+// ProductName returns the cell's wordmark, or "Sluicio" when nothing is
+// branded. Never empty: callers splice it straight into a subject line.
+func ProductName(ctx context.Context) string {
+	if productName == nil {
+		return DefaultProductName
+	}
+	if n := strings.TrimSpace(productName(ctx)); n != "" {
+		return n
+	}
+	return DefaultProductName
+}
+
 // DeploymentContext returns the wired environment + company, or two empty
 // strings when no resolver is set (then the decorations are simply omitted).
 func DeploymentContext(ctx context.Context) (env, company string) {
@@ -70,12 +112,17 @@ func DeploymentContext(ctx context.Context) (env, company string) {
 
 // notifSubject builds the standard notification title:
 //
-//	Sluicio {env} - {core} - {company}
+//	{product} {env} - {core} - {company}
 //
 // with the env / company segments omitted when unknown. core is the
-// state-prefixed one-line summary (e.g. "[FIRING] …").
-func NotifSubject(env, company, core string) string {
-	head := "Sluicio"
+// state-prefixed one-line summary (e.g. "[FIRING] …"). product is the
+// caller's ProductName(ctx); empty falls back to the default so a caller
+// that forgets still ships a name rather than a leading space.
+func NotifSubject(product, env, company, core string) string {
+	head := strings.TrimSpace(product)
+	if head == "" {
+		head = DefaultProductName
+	}
 	if env = strings.TrimSpace(env); env != "" {
 		head += " " + env
 	}
@@ -105,7 +152,7 @@ func ContextHeader(env, company string) string {
 // is unchanged for rules without a custom template. A malformed
 // template also falls back (renderTemplate returns ok=false) — a bad
 // template must never block delivery.
-func messageFromJob(ctx context.Context, job DeliveryJob, env, company string) Message {
+func messageFromJob(ctx context.Context, job DeliveryJob, product, env, company string) Message {
 	// Deep link straight to where the recipient can act on this alert, so
 	// they can click through from the notification. Empty when no public
 	// base URL is configured.
@@ -121,10 +168,11 @@ func messageFromJob(ctx context.Context, job DeliveryJob, env, company string) M
 	}
 	data["environment"] = env
 	data["company"] = company
+	data["product"] = product
 
 	// Rich context: core facts from the job + live enrichment (service /
 	// integration / metadata) resolved at delivery time.
-	actx := contextFromJob(job, env, company, link)
+	actx := contextFromJob(job, product, env, company, link)
 	if svc, integ, chk := resolveEnrichment(ctx, job); true {
 		actx.Service, actx.Integration = svc, integ
 		if chk != nil {
@@ -144,14 +192,14 @@ func messageFromJob(ctx context.Context, job DeliveryJob, env, company string) M
 	} else if header := ContextHeader(env, company); header != "" {
 		body = header + "\n\n" + body
 	}
-	subject := NotifSubject(env, company, stateSubject(job.State, job.Summary))
+	subject := NotifSubject(product, env, company, stateSubject(job.State, job.Summary))
 	if job.TitleTemplate != "" {
 		if rendered, ok := renderTemplate(job.TitleTemplate, data); ok {
 			subject = rendered
 		}
 	}
 	if link != "" && !strings.Contains(body, link) {
-		body = withLink(body, link)
+		body = withLink(body, product, link)
 	}
 
 	msg := Message{
@@ -299,7 +347,7 @@ func PostJSONSigned(ctx context.Context, client *http.Client, url string, body a
 // link. The heavy Service/Integration/Check enrichment is overlaid by the
 // resolver in messageFromJob; the Check basics (metric/value/threshold) come
 // from the fire-time labels so "what failed and by how much" is always present.
-func contextFromJob(job DeliveryJob, env, company, link string) *AlertContext {
+func contextFromJob(job DeliveryJob, product, env, company, link string) *AlertContext {
 	c := &AlertContext{
 		Alert: AlertFacts{
 			State:      job.State,
@@ -315,7 +363,7 @@ func contextFromJob(job DeliveryJob, env, company, link string) *AlertContext {
 			Kind:    job.RuleKind,
 			Runbook: job.RuleRunbook,
 		},
-		Org:    OrgFacts{Company: company, Environment: env},
+		Org:    OrgFacts{Company: company, Environment: env, Product: product},
 		SentAt: time.Now().UTC().Format(time.RFC3339),
 	}
 	if m := job.Labels["metric"]; m != "" || job.Labels["value"] != "" || job.Labels["threshold"] != "" {
@@ -449,7 +497,7 @@ func DeliverTest(ctx context.Context, ch NotificationChannel) error {
 	job := DeliveryJob{
 		Channel: ch,
 		State:   "firing",
-		Summary: fmt.Sprintf("Test notification from Sluicio (channel %q)", ch.Name),
+		Summary: fmt.Sprintf("Test notification from %s (channel %q)", ProductName(ctx), ch.Name),
 		Labels:  map[string]string{"severity": "info", "source": "test"},
 	}
 	client := &http.Client{Timeout: 15 * time.Second}

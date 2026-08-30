@@ -509,6 +509,14 @@ func main() {
 		return env, company
 	})
 
+	// What this deployment calls itself, for the notifications that leave
+	// the building. The white-label work stopped at the app shell, so a
+	// partner's own users still got alert mail headed "Sluicio" under a
+	// logo that was theirs (issue #29). Resolved live and gated on the
+	// white_label entitlement inside the handler; anything empty or failing
+	// falls back to "Sluicio".
+	alerting.SetProductNameResolver(handlers.ProductName)
+
 	// Enrich alert notifications with live service / integration details +
 	// their metadata (read fresh at delivery), and resolve the org-default
 	// email template — both implemented in the api layer where the stores live.

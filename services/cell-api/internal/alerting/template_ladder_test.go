@@ -79,7 +79,7 @@ func TestSlackRenderFailureFallsThrough(t *testing.T) {
 		return MessageTemplates{SlackBody: "{% if alert.state %}unclosed"}
 	}, nil)
 
-	msg := messageFromJob(context.Background(), job, "prod", "Acme")
+	msg := messageFromJob(context.Background(), job, "Sluicio", "prod", "Acme")
 	if msg.SlackText != "" {
 		t.Fatalf("broken template must fall through to the built-in line, got %q", msg.SlackText)
 	}
@@ -89,7 +89,7 @@ func TestSlackRenderFailureFallsThrough(t *testing.T) {
 		return MessageTemplates{SlackTitle: "{{ alert.state_emoji }} {{ rule.name }}", SlackBody: "{{ alert.summary }}"}
 	}, nil)
 	job.Labels["rule_name"] = "Checkout errors"
-	msg = messageFromJob(context.Background(), job, "prod", "Acme")
+	msg = messageFromJob(context.Background(), job, "Sluicio", "prod", "Acme")
 	if !strings.HasPrefix(msg.SlackText, "*:red_circle: Checkout errors*\n") || !strings.Contains(msg.SlackText, "it broke") {
 		t.Fatalf("rendered slack text wrong: %q", msg.SlackText)
 	}
