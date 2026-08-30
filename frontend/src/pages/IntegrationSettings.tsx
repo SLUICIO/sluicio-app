@@ -226,6 +226,7 @@ export default function IntegrationSettings() {
         <MessageFiltersEditor
           integrationID={integration.integration.id}
           value={integration.integration.message_filters ?? []}
+          columns={integration.integration.message_columns ?? []}
           canWrite={canWrite}
           onSaved={refresh}
         />

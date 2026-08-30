@@ -40,13 +40,17 @@ interface Props {
   integrationID: string;
   /** The stored list; the editor keeps its own draft until saved. */
   value: MessageFilter[];
+  /** The integration's configured message COLUMNS, offered as one-click
+   *  additions. Same person, same attributes, and the label they already
+   *  chose for the column comes with it. */
+  columns?: MessageFilter[];
   canWrite: boolean;
   onSaved: () => void;
 }
 
 const MAX_MESSAGE_FILTERS = 20;
 
-export default function MessageFiltersEditor({ integrationID, value, canWrite, onSaved }: Props) {
+export default function MessageFiltersEditor({ integrationID, value, columns = [], canWrite, onSaved }: Props) {
   const [draft, setDraft] = useState<MessageFilter[]>(value);
   const [keys, setKeys] = useState<MessageAttributeKey[]>([]);
   const [adding, setAdding] = useState(false);
@@ -78,6 +82,16 @@ export default function MessageFiltersEditor({ integrationID, value, canWrite, o
   const available = useMemo(
     () => keys.filter((k) => !chosenAttributes.has(k.key)),
     [keys, chosenAttributes],
+  );
+  // Columns the reader already sees but cannot yet filter by. Only the
+  // attribute-kind ones: a built-in column maps to the standard-field
+  // checkboxes above, not to an attribute filter.
+  const columnSuggestions = useMemo(
+    () =>
+      columns.filter(
+        (c) => c.kind !== "builtin" && c.key && !chosenAttributes.has(c.key),
+      ),
+    [columns, chosenAttributes],
   );
 
   const save = async () => {
@@ -164,6 +178,35 @@ export default function MessageFiltersEditor({ integrationID, value, canWrite, o
             grouped apart in the picker either way.
           </span>
         </div>
+
+        {columnSuggestions.length > 0 && canWrite && (
+          <div style={{ marginBottom: 14 }}>
+            <span className="svc-field-label">From this integration&rsquo;s columns</span>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
+              {columnSuggestions.map((c) => (
+                <button
+                  key={c.key}
+                  type="button"
+                  className="btn btn--sm"
+                  title={`Filter by ${c.key}`}
+                  onClick={() =>
+                    // Carries the column's LABEL across, which is the
+                    // point: the reader should not have to retype
+                    // "Number of documents scanned" to make the column
+                    // they named searchable.
+                    setDraft([...draft, { kind: "attribute", key: c.key, label: c.label }])
+                  }
+                >
+                  + {c.label}
+                </button>
+              ))}
+            </div>
+            <span className="muted" style={{ fontSize: 12, display: "block", marginTop: 6 }}>
+              Already shown as columns in the message list. Adding one here makes it
+              searchable too, under the same name.
+            </span>
+          </div>
+        )}
 
         <span className="svc-field-label">Attributes</span>
         {attributeDraft.length === 0 ? (
