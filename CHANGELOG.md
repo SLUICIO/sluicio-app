@@ -3,8 +3,15 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.135 — 2026-08-30
+
+- feat(alerts): notification channels can be edited (0816288)
+- fix(editor): the code editor follows the app into dark mode (0460e70)
+- fix(alerts): notifications carry the partner's name, not ours (704c372)
+
 ## v0.11.134 — 2026-08-30
 
+- release v0.11.134 — refresh internal changelog (231ce98)
 - feat(alerts): webhook channels can carry an auth header and their own body (2dee226)
 - fix(alerts): stop handing every member the channel credentials (0fdadac)
 
