@@ -524,6 +524,41 @@ export default function IntegrationMessagesPage() {
   // Filter changes are dispatched from FilterEditor as a full list; we
   // strip the locked row (which the editor keeps but doesn't let the
   // user edit) and store the user-set rest.
+  // Configured filter fields are offered as muted rows, once, on a page
+  // the reader arrived at with no filters of their own.
+  //
+  // An integration whose editor picked four searchable fields should
+  // show those four, not an empty box and a button. `optional` is
+  // exactly this: visible, faded, and a no-op for the query until
+  // somebody types a value.
+  //
+  // Guarded three ways, because seeding is only ever helpful on a blank
+  // slate: not when the URL carried filters (a shared link), not when a
+  // saved view is open, and not twice.
+  const seededDefaults = useRef(false);
+  useEffect(() => {
+    if (seededDefaults.current || activeView) return;
+    const configured = (detail?.integration.message_filters ?? []).filter(
+      (f) => f.kind !== "builtin" && f.key,
+    );
+    if (configured.length === 0) return;
+    seededDefaults.current = true;
+    setUserFilters((cur) => {
+      if (cur.length > 0) return cur;
+      return configured.map((f) => ({
+        id: `seed-${f.key}`,
+        field: "payload" as const,
+        fieldPath: f.key,
+        op: "equals" as const,
+        value: "",
+        // Removable: a seeded row is a suggestion, not the page's scope.
+        // Somebody who does not want it should be able to take it away.
+        removable: true,
+        optional: true,
+      }));
+    });
+  }, [detail, activeView]);
+
   const onFiltersChange = (next: Filter[]) => {
     setUserFilters(next.filter((f) => !f.locked));
   };
@@ -786,6 +821,18 @@ export default function IntegrationMessagesPage() {
 
       <FilterEditor
         filters={composedFilters}
+        // The locked "integration is X" ROW is not drawn. The reader is
+        // on that integration's own Messages tab, under a header
+        // carrying its name, and the footer says "scope: X only" for as
+        // long as the results are on screen. A pill restating it above
+        // every search costs a row and tells nobody anything.
+        //
+        // The filter itself stays in the list, which is why this is a
+        // display flag and not a shorter list: the summary sentence is
+        // built from these filters, and handing it a list without the
+        // lock made it announce "across any integration" on a page that
+        // searches exactly one.
+        hideLockedRows
         onChange={onFiltersChange}
         knownIntegrations={integrations.map((i) => ({ id: i.id, name: i.name, services: i.services }))}
         fields={offeredFields(detail?.integration.message_filters)}

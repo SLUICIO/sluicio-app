@@ -18,6 +18,48 @@ export type Operator = "equals" | "contains" | "is" | "in" | "matches";
 // Messages tab drops "integration" since the page is already one integration.
 const DEFAULT_PICKER_FIELDS: Field[] = ["payload", "integration", "status", "service", "errorType", "traceId", "spanId"];
 
+/**
+ * What to call an attribute row.
+ *
+ * An integration that renamed `customer.id` to "Customer ID" renamed it
+ * so that whoever searches never meets the raw key. Showing
+ * `attribute.customer.id` on the row they just built from a picker that
+ * said "Customer ID" undoes that at the last step, and does it in the
+ * one place they look to check what they searched for.
+ *
+ * The KEY is still what travels: the query, the saved view and the share
+ * link are unchanged. Only the row's caption follows the label.
+ */
+/**
+ * Apply an edit to one filter row, and settle whether it is muted.
+ *
+ * `optional` rows are dropped from the query on purpose: they are a
+ * reminder of what CAN be filtered, not a filter. So a muted row that
+ * somebody fills in has to stop being muted, or it sits there looking
+ * like a live filter and narrows nothing — the worst outcome, because
+ * the result list looks like an answer.
+ *
+ * Emptying the value again returns it to the reminder state rather than
+ * leaving a row that constrains on "".
+ *
+ * Exported for the test: this is a rule about when a filter counts, and
+ * it is invisible from the outside until it is wrong.
+ */
+export function applyFilterPatch(f: Filter, patch: Partial<Filter>): Filter {
+  const next = { ...f, ...patch };
+  if (next.value.trim() !== "") {
+    if (next.optional) next.optional = false;
+  } else if (f.optional) {
+    next.optional = true;
+  }
+  return next;
+}
+
+function attributeRowLabel(key: string, keys?: MessageAttributeKey[]): string {
+  const named = keys?.find((k) => k.key === key);
+  return named?.label?.trim() ? named.label : `attribute.${key}`;
+}
+
 export interface Filter {
   id: string;
   field: Field;
@@ -61,6 +103,10 @@ interface Props {
    *  is a picker arguing with itself — and the server refuses the
    *  result anyway. */
   attributesRestricted?: boolean;
+  /** Draw no row for locked filters. They stay in the list, so the
+   *  summary sentence and the query still see them; only the pill goes.
+   *  For a page whose own header already names the scope. */
+  hideLockedRows?: boolean;
   // When set, the payload value picker becomes a typeahead: it calls this to
   // load the top-N observed values for the chosen attribute key (e.g.
   // integration-scoped). A free-text fallback always remains for exact values
@@ -104,9 +150,9 @@ export default function FilterEditor({
   fields = DEFAULT_PICKER_FIELDS,
   attributeKeys: attributeKeysProp,
   attributesRestricted,
+  hideLockedRows,
   fetchAttrValues,
 }: Props) {
-  const summary = buildSummary(filters);
 
   // Service names + live attribute keys pulled out of the field catalog
   // for the value/field pickers (filter by service NAME, never id; offer
@@ -162,6 +208,10 @@ export default function FilterEditor({
     [attributeKeysProp, fieldCatalog],
   );
 
+  // After attributeKeys, because the summary names attributes by their
+  // label where the integration set one.
+  const summary = buildSummary(filters, attributeKeys);
+
   const addFilter = () => {
     // No seeded field path: the row defaults to a bare "payload" and the
     // field pill opens straight onto the attribute typeahead, so we never
@@ -178,7 +228,7 @@ export default function FilterEditor({
   };
 
   const updateFilter = (id: string, patch: Partial<Filter>) => {
-    onChange(filters.map((f) => (f.id === id ? { ...f, ...patch } : f)));
+    onChange(filters.map((f) => (f.id === id ? applyFilterPatch(f, patch) : f)));
   };
 
   const removeFilter = (id: string) => {
@@ -208,9 +258,13 @@ export default function FilterEditor({
         {summary}
       </div>
 
-      {/* Filter rows */}
+      {/* Filter rows. hideLockedRows drops the PILLS for locked filters;
+          the filters themselves stay in `filters`, so the summary above
+          and the query below still account for them. The conjunction is
+          computed on the drawn list, or the first visible row would read
+          "and". */}
       <div className="space-y-2">
-        {filters.map((f, i) => (
+        {(hideLockedRows ? filters.filter((f) => !f.locked) : filters).map((f, i) => (
           <FilterRow
             key={f.id}
             conjunction={i === 0 ? "where" : "and"}
@@ -259,6 +313,10 @@ interface RowProps {
    *  is a picker arguing with itself — and the server refuses the
    *  result anyway. */
   attributesRestricted?: boolean;
+  /** Draw no row for locked filters. They stay in the list, so the
+   *  summary sentence and the query still see them; only the pill goes.
+   *  For a page whose own header already names the scope. */
+  hideLockedRows?: boolean;
   pickerFields: Field[];
   fetchAttrValues?: (key: string) => Promise<AttrValueSuggestion[]>;
 }
@@ -279,7 +337,7 @@ function FilterRow({
 }: RowProps) {
   const fieldLabel =
     filter.field === "payload" && filter.fieldPath
-      ? `attribute.${filter.fieldPath}`
+      ? attributeRowLabel(filter.fieldPath, attributeKeys)
       : FIELD_LABELS[filter.field];
 
   const locked = !!filter.locked;
@@ -497,6 +555,10 @@ interface FieldPickerProps {
    *  is a picker arguing with itself — and the server refuses the
    *  result anyway. */
   attributesRestricted?: boolean;
+  /** Draw no row for locked filters. They stay in the list, so the
+   *  summary sentence and the query still see them; only the pill goes.
+   *  For a page whose own header already names the scope. */
+  hideLockedRows?: boolean;
   // The fields offered in this picker (see DEFAULT_PICKER_FIELDS). "time" is
   // never offered: the time range is controlled by the page-wide header
   // selector (useTimeWindow), so the search reuses that rather than a
@@ -1037,7 +1099,7 @@ function AttrValuePicker({
 // so the user always sees the page's scope before the rest of the
 // sentence. Optional rows are stripped out (they don't restrict the
 // query).
-function buildSummary(filters: Filter[]): React.ReactNode {
+function buildSummary(filters: Filter[], attributeKeys?: MessageAttributeKey[]): React.ReactNode {
   const effective = filters.filter((f) => !f.optional);
   if (effective.length === 0) {
     return (
@@ -1073,7 +1135,7 @@ function buildSummary(filters: Filter[]): React.ReactNode {
               {i === 0 ? null : <span className="text-muted">, </span>}
               <b>
                 {f.field === "payload" && f.fieldPath
-                  ? `attribute.${f.fieldPath}`
+                  ? attributeRowLabel(f.fieldPath, attributeKeys)
                   : FIELD_LABELS[f.field]}
               </b>{" "}
               <span className="text-muted">{OP_LABELS[f.op]}</span>{" "}
