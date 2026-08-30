@@ -48,7 +48,7 @@ type alertRuleRequest struct {
 	// "trace", kind trace_attribute): count traces carrying a span whose
 	// attributes match, error or not.
 	TraceAttributeSpec *alerting.TraceAttributeRuleSpec `json:"trace_attribute_spec"`
-	ChannelIDs      []string                      `json:"channel_ids"`
+	ChannelIDs         []string                         `json:"channel_ids"`
 	// Runbook: what to do when this fires. Travels in notification and
 	// event payloads and MCP responses, so responders (human or agent)
 	// get the org's playbook without a second lookup.
@@ -1062,6 +1062,62 @@ func validateChannel(req *channelRequest) error {
 	return nil
 }
 
+// ChannelSecretKeys are the config values that are credentials rather
+// than configuration.
+//
+// GET /notification-channels is open to every authenticated member, by
+// design: the alert pages need channel NAMES to show where a rule
+// delivers. It returned the whole config with them, so a viewer could
+// read the HMAC signing secret, a PagerDuty routing key, an SMTP
+// password — and, once webhook auth landed, a bearer token.
+//
+// Masked on read, preserved on write: a client that sends the mask back
+// unchanged keeps the stored value, so an edit form that never saw the
+// secret cannot erase it either.
+var ChannelSecretKeys = []string{"secret", "auth_header", "routing_key", "password"}
+
+// SecretMask is what a credential reads as on the way out. A fixed
+// string rather than a blank, so the form shows that something IS set:
+// an empty field would invite somebody to "fix" it by retyping.
+const SecretMask = "••••••••"
+
+func maskChannelSecrets(chs []alerting.NotificationChannel) []alerting.NotificationChannel {
+	out := make([]alerting.NotificationChannel, len(chs))
+	for i, c := range chs {
+		cfg := make(map[string]string, len(c.Config))
+		for k, v := range c.Config {
+			cfg[k] = v
+		}
+		for _, k := range ChannelSecretKeys {
+			if strings.TrimSpace(cfg[k]) != "" {
+				cfg[k] = SecretMask
+			}
+		}
+		c.Config = cfg
+		out[i] = c
+	}
+	return out
+}
+
+// keepMaskedSecrets restores any credential the caller echoed back as the
+// mask. Without this, saving a channel from a form that only ever saw
+// "••••••••" would store that string as the token.
+func keepMaskedSecrets(next map[string]string, prev map[string]string) map[string]string {
+	if next == nil {
+		return next
+	}
+	for _, k := range ChannelSecretKeys {
+		if next[k] == SecretMask {
+			if prev != nil && prev[k] != "" {
+				next[k] = prev[k]
+			} else {
+				delete(next, k)
+			}
+		}
+	}
+	return next
+}
+
 // listChannels: GET /api/v1/notification-channels
 func (h *Handlers) listChannels(w http.ResponseWriter, r *http.Request) {
 	channels, err := h.Alerts.ListChannels(r.Context(), middleware.OrgID(r))
@@ -1073,7 +1129,7 @@ func (h *Handlers) listChannels(w http.ResponseWriter, r *http.Request) {
 	if channels == nil {
 		channels = []alerting.NotificationChannel{}
 	}
-	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"channels": channels})
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"channels": maskChannelSecrets(channels)})
 }
 
 // createChannel: POST /api/v1/notification-channels
@@ -1105,7 +1161,10 @@ func (h *Handlers) createChannel(w http.ResponseWriter, r *http.Request) {
 	// Metadata stays name+kind only — channel configs carry webhook URLs
 	// and credentials that must not land in the audit log.
 	h.recordAudit(r, "notification_channel.created", "notification_channel", created.ID.String(), map[string]any{"name": created.Name, "kind": created.Kind})
-	httpserver.WriteJSON(w, http.StatusCreated, created)
+	// Masked like every other read of a channel: the caller supplied the
+	// token, but the response is what lands in a browser devtools panel
+	// or a shared screen, and one rule is easier to keep than two.
+	httpserver.WriteJSON(w, http.StatusCreated, maskChannelSecrets([]alerting.NotificationChannel{created})[0])
 }
 
 // updateChannel: PUT /api/v1/notification-channels/{id}
@@ -1119,6 +1178,13 @@ func (h *Handlers) updateChannel(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httpserver.WriteError(w, http.StatusBadRequest, "invalid JSON body")
 		return
+	}
+	// Restore any credential the form echoed back as the mask BEFORE
+	// validating: a body template or an auth header that came back
+	// masked is unchanged, not absent, and validating the mask would
+	// reject an edit that touched neither.
+	if existing, err := h.Alerts.GetChannel(r.Context(), middleware.OrgID(r), id); err == nil {
+		req.Config = keepMaskedSecrets(req.Config, existing.Config)
 	}
 	if err := validateChannel(&req); err != nil {
 		httpserver.WriteError(w, http.StatusBadRequest, err.Error())
@@ -1140,7 +1206,7 @@ func (h *Handlers) updateChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.recordAudit(r, "notification_channel.updated", "notification_channel", updated.ID.String(), map[string]any{"name": updated.Name, "kind": updated.Kind})
-	httpserver.WriteJSON(w, http.StatusOK, updated)
+	httpserver.WriteJSON(w, http.StatusOK, maskChannelSecrets([]alerting.NotificationChannel{updated})[0])
 }
 
 // testChannel: POST /api/v1/notification-channels/{id}/test
