@@ -2181,13 +2181,21 @@ function describePolicy(p: AccessPolicy): string {
   switch (p.kind) {
     case "all_org":
       return "Everything in the org (wildcard)";
-    case "system":
-      return p.target_system_kind
-        ? `All ${p.target_system_kind} systems`
-        : "All flagged systems";
+    case "system": {
+      // A pattern narrows alongside the kind, so both belong in the line.
+      const named = p.conditions ? `named ${describeExpr(p.conditions, 0, "name")}` : "";
+      const kinded = p.target_system_kind ? `All ${p.target_system_kind} systems` : "All flagged systems";
+      return named ? `${kinded} ${named}` : kinded;
+    }
     case "service":
       return `Service ${p.target_service_name}`;
     case "integration":
+      // A pattern policy has no id to show. Falling through to the id
+      // branch rendered "All services in integration …" with a blank —
+      // a row that describes a grant it is not.
+      if (p.conditions) {
+        return `Integrations whose ${describeExpr(p.conditions, 0, "name")}`;
+      }
       return `All services in integration ${(p.target_integration_id ?? "").slice(0, 8)}…`;
     case "attributes": {
       const kv = Object.entries(p.attribute_match)
@@ -2217,16 +2225,16 @@ function withSignals(p: AccessPolicy, text: string): string {
 
 // describeExpr renders a policy expression tree as a compact human string,
 // e.g. `(service prefix "a" OR service = "file-mover") AND NOT namespace = "x"`.
-function describeExpr(e: PolicyExpr, depth = 0): string {
+function describeExpr(e: PolicyExpr, depth = 0, nameSubject = "service"): string {
   if (e.op === "and" || e.op === "or") {
-    const joined = (e.children ?? []).map((c) => describeExpr(c, depth + 1)).join(` ${e.op.toUpperCase()} `);
+    const joined = (e.children ?? []).map((c) => describeExpr(c, depth + 1, nameSubject)).join(` ${e.op.toUpperCase()} `);
     return depth > 0 ? `(${joined})` : joined;
   }
   if (e.op === "not") {
-    return `NOT ${describeExpr((e.children ?? [])[0] ?? {}, depth + 1)}`;
+    return `NOT ${describeExpr((e.children ?? [])[0] ?? {}, depth + 1, nameSubject)}`;
   }
   // Leaf.
-  const subject = e.attr ? e.attr : "service";
+  const subject = e.attr ? e.attr : nameSubject;
   const opText: Record<string, string> = {
     equals: "=",
     not_equals: "≠",
@@ -2272,10 +2280,17 @@ function ExprNodeEditor({
   onChange,
   onRemove,
   depth,
+  subject = "service",
 }: {
   node: PolicyExpr;
   onChange: (next: PolicyExpr) => void;
   onRemove?: () => void;
+  /** What the name leaves match. Integration and system policies
+   *  evaluate against a universe of NAMES with no attributes behind it,
+   *  so the attribute leaf is not merely unhelpful there - the server
+   *  refuses it, and offering it in the editor is an invitation to a
+   *  400 the author cannot explain. */
+  subject?: "service" | "integration" | "system";
   depth: number;
 }) {
   const isOp = node.op === "and" || node.op === "or" || node.op === "not";
@@ -2311,6 +2326,7 @@ function ExprNodeEditor({
         <select
           className="toolbar__select"
           value={attrLeaf ? "attr" : "service"}
+          disabled={subject !== "service"}
           onChange={(e) =>
             onChange(
               e.target.value === "attr"
@@ -2319,8 +2335,8 @@ function ExprNodeEditor({
             )
           }
         >
-          <option value="service">service name</option>
-          <option value="attr">attribute</option>
+          <option value="service">{subject} name</option>
+          {subject === "service" && <option value="attr">attribute</option>}
         </select>
         {attrLeaf && (
           <input
@@ -2414,6 +2430,7 @@ function ExprNodeEditor({
       </div>
       {children.map((c, i) => (
         <ExprNodeEditor
+          subject={subject}
           key={i}
           node={c}
           depth={depth + 1}
@@ -2546,6 +2563,8 @@ function CreatePolicyForm({
     !!policy?.conditions && (policy.kind === "integration" || policy.kind === "system"),
   );
   const patternable = kind === "integration" || kind === "system";
+  const exprSubject: "service" | "integration" | "system" =
+    kind === "integration" ? "integration" : kind === "system" ? "system" : "service";
   const usePattern = patternable && byPattern;
   const wantsIntegration = (kind === "integration" && !usePattern) || kind === "compound";
   const wantsAttrs = kind === "attributes" || kind === "compound";
@@ -2762,13 +2781,22 @@ function CreatePolicyForm({
               background: "var(--surface-2)",
             }}
           >
-            <ExprNodeEditor node={expr} depth={0} onChange={setExpr} />
+            <ExprNodeEditor node={expr} depth={0} onChange={setExpr} subject={exprSubject} />
           </div>
           <span className="form__hint" style={{ marginTop: 6 }}>
-            Grants services matching this rule. Leaves match a service name
-            or a resource attribute; combine with ALL / ANY / NOT groups.
+            {usePattern ? (
+              <>
+                Grants every {exprSubject} whose name matches this rule. Combine
+                conditions with ALL / ANY / NOT groups.
+              </>
+            ) : (
+              <>
+                Grants services matching this rule. Leaves match a service name
+                or a resource attribute; combine with ALL / ANY / NOT groups.
+              </>
+            )}
             <br />
-            Preview: <span className="mono">{describeExpr(expr)}</span>
+            Preview: <span className="mono">{describeExpr(expr, 0, exprSubject)}</span>
           </span>
         </div>
       )}
