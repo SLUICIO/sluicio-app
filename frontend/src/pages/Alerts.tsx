@@ -9,7 +9,7 @@
 // Rules themselves are created from the Metrics drawer's alert builder;
 // this page manages their lifecycle and the channels they route to.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { errorCountsChanged } from "../lib/errorCountsChanged";
 import type { Dispatch, SetStateAction } from "react";
 import { Link } from "react-router-dom";
@@ -614,6 +614,14 @@ function ChannelsCard({
   const [name, setName] = useState("");
   const [kind, setKind] = useState("slack");
   const [saving, setSaving] = useState(false);
+  // The channel being edited, or null when the form is adding. One form
+  // does both: an edit that lived somewhere else would drift from the
+  // add form every time a kind gained a field.
+  const [editing, setEditing] = useState<NotificationChannel | null>(null);
+  // Scroll target: the form sits below a table that can be long enough to
+  // push it off screen, so "Edit" has to bring it into view or it looks
+  // like the button did nothing.
+  const formTop = useRef<HTMLDivElement>(null);
   const [dest, setDest] = useState("");
   const [pdEventsUrl, setPdEventsUrl] = useState("");
   const [whSecret, setWhSecret] = useState("");
@@ -633,7 +641,49 @@ function ChannelsCard({
       : dest.trim().length > 0
   );
 
-  const create = async () => {
+  const resetForm = () => {
+    setEditing(null);
+    setName("");
+    setKind("slack");
+    setDest("");
+    setPdEventsUrl("");
+    setWhSecret("");
+    setWhFormat("");
+    setWhAuth("");
+    setWhBody("");
+    setEmail({ smtp_host: "", smtp_port: "587", from: "", to: "", username: "", password: "" });
+    setUseSystemEmail(true);
+  };
+
+  // Load a channel into the form. Credentials arrive masked, and the
+  // mask is what goes back unless somebody types over it — the server
+  // restores the stored value — so a form that never saw a token cannot
+  // erase one either.
+  const startEdit = (c: NotificationChannel) => {
+    const cfg = c.config ?? {};
+    setEditing(c);
+    setName(c.name);
+    setKind(c.kind);
+    setDest(c.kind === "pagerduty" ? (cfg.routing_key ?? "") : (cfg.url ?? ""));
+    setPdEventsUrl(cfg.events_url ?? "");
+    setWhSecret(cfg.secret ?? "");
+    setWhAuth(cfg.auth_header ?? "");
+    setWhFormat(cfg.format ?? "");
+    setWhBody(cfg.body_template ?? "");
+    setEmail({
+      smtp_host: cfg.smtp_host ?? "",
+      smtp_port: cfg.smtp_port ?? "587",
+      from: cfg.from ?? "",
+      to: cfg.to ?? "",
+      username: cfg.username ?? "",
+      password: cfg.password ?? "",
+    });
+    // An email channel with no server of its own is using the org's.
+    setUseSystemEmail(c.kind !== "email" || !cfg.smtp_host);
+    formTop.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
+
+  const save = async () => {
     setSaving(true);
     try {
       const config: Record<string, string> = isEmail
@@ -655,16 +705,12 @@ function ChannelsCard({
             ...(kind === "webhook" && whAuth.trim() ? { auth_header: whAuth.trim() } : {}),
             ...(kind === "webhook" && whFormat === "template" && whBody.trim() ? { body_template: whBody.trim() } : {}),
           };
-      await api.createChannel({ name: name.trim(), kind, config });
-      setName("");
-      setDest("");
-      setPdEventsUrl("");
-      setWhSecret("");
-      setWhFormat("");
-      setWhAuth("");
-      setWhBody("");
-      setEmail({ smtp_host: "", smtp_port: "587", from: "", to: "", username: "", password: "" });
-      setUseSystemEmail(true);
+      if (editing) {
+        await api.updateChannel(editing.id, { name: name.trim(), kind, config });
+      } else {
+        await api.createChannel({ name: name.trim(), kind, config });
+      }
+      resetForm();
       onChanged();
     } catch (e) {
       onError(String((e as Error).message ?? e));
@@ -719,6 +765,7 @@ function ChannelsCard({
                     <td>
                       <div style={{ display: "flex", gap: 6 }}>
                         <TestChannelButton id={c.id} onError={onError} />
+                        <button className="btn btn--sm" type="button" onClick={() => startEdit(c)}>Edit</button>
                         <button className="btn btn--sm btn--danger" type="button" onClick={() => remove(c.id)}>Delete</button>
                       </div>
                     </td>
@@ -731,6 +778,9 @@ function ChannelsCard({
 
         {canWrite ? (
           <>
+            <div ref={formTop} style={{ fontSize: 13, fontWeight: 600 }}>
+              {editing ? `Editing ${editing.name}` : "Add a channel"}
+            </div>
             <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
               {field("Name", name, setName, { placeholder: "#orders-oncall" })}
               <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12 }}>
@@ -794,16 +844,21 @@ function ChannelsCard({
                   )}
                 </>
               )}
-              <button className="btn btn--primary" type="button" disabled={saving || !ready} onClick={create}>
-                {saving ? "Adding…" : "Add channel"}
+              <button className="btn btn--primary" type="button" disabled={saving || !ready} onClick={save}>
+                {saving ? "Saving…" : editing ? "Save changes" : "Add channel"}
               </button>
+              {editing && (
+                <button className="btn" type="button" disabled={saving} onClick={resetForm}>
+                  Cancel
+                </button>
+              )}
             </div>
             <span className="muted" style={{ fontSize: 11.5 }}>
               Slack/webhook take a URL, PagerDuty an Events API routing key. Email sends over SMTP — by default it reuses the org SMTP server from <Link to="/settings?tab=system&sub=email">Settings → System → Email</Link>, so you only enter recipients; untick &ldquo;Use system email server&rdquo; to point a channel at its own server.
             </span>
           </>
         ) : (
-          <span className="muted" style={{ fontSize: 12 }}>You need contributor access to add or remove notification channels.</span>
+          <span className="muted" style={{ fontSize: 12 }}>You need contributor access to add, edit or remove notification channels.</span>
         )}
 
         {/* Organization notification profiles — the org-wide fallback. */}
