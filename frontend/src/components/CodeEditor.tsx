@@ -14,6 +14,7 @@ import { yaml } from "@codemirror/lang-yaml";
 import { xml } from "@codemirror/lang-xml";
 import { EditorView } from "@codemirror/view";
 import { load as yamlLoad, dump as yamlDump } from "js-yaml";
+import { useResolvedTheme } from "../lib/useResolvedTheme";
 
 interface Props {
   value: string;
@@ -256,6 +257,7 @@ export default function CodeEditor({
 }: Props) {
   const [formatError, setFormatError] = useState<string | null>(null);
   const formattable = canFormat(format);
+  const theme = useResolvedTheme();
   // A string height ("100%", "60vh") means "fill my parent": the root
   // becomes a flex column so the CodeMirror pane stretches + scrolls.
   const fill = typeof height === "string";
@@ -347,6 +349,11 @@ export default function CodeEditor({
       )}
       <CodeMirror
         value={value}
+        // Follow the app. Left unset, CodeMirror keeps its light theme in
+        // dark mode: a white editor whose text inherits the page's
+        // near-white foreground, so the JSON keys all but disappear and
+        // only the string literals survive.
+        theme={theme}
         height={fill ? "100%" : cmHeight}
         extensions={[...(extensionsFor(format) ?? []), ...completionExtension, EditorView.lineWrapping]}
         onCreateEditor={(view) => onReady?.(view)}
