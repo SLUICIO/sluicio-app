@@ -200,6 +200,21 @@ func messageFromJob(ctx context.Context, job DeliveryJob, env, company string) M
 		}
 	case ChannelWebhook:
 		payload := actx.webhookPayload(content)
+		// A custom body replaces the canonical payload outright: the
+		// receiver dictated its schema, and wrapping their shape inside
+		// ours would mean it never matched.
+		//
+		// A template that fails to render falls back to the canonical
+		// payload rather than dropping the delivery. The receiver will
+		// probably reject the shape, but a 400 in the delivery log is a
+		// far better outcome than an alert that quietly went nowhere.
+		if tmpl := strings.TrimSpace(job.Channel.Config["body_template"]); tmpl != "" &&
+			strings.EqualFold(strings.TrimSpace(job.Channel.Config["format"]), FormatTemplate) {
+			if rendered, ok := RenderWebhookTemplate(tmpl, actx.bindings(content)); ok {
+				msg.Payload = rendered
+				return msg
+			}
+		}
 		if isCloudEventsChannel(job.Channel.Config) {
 			// Stable event id per (instance, state): at-least-once retries
 			// and duplicate routes dedupe on it; firing and resolved stay
@@ -609,7 +624,13 @@ func (webhookNotifier) Send(ctx context.Context, client *http.Client, msg Messag
 	// (reject stale timestamps). Deliberately custom headers, not
 	// Authorization — that slot belongs to the receiver's own auth and
 	// gets consumed by their middleware. See docs/webhook-signing.md.
-	return postJSON(ctx, client, msg.Config["url"], body, strings.TrimSpace(msg.Config["secret"]), contentType)
+	// config.auth_header is the receiver's own Authorization value, sent
+	// verbatim: "Bearer <token>", "Basic <b64>", an API key scheme, or
+	// whatever their docs say. Sluicio does not parse it — a channel that
+	// only accepts "Bearer" would exclude every receiver that names its
+	// scheme something else.
+	return postJSON(ctx, client, msg.Config["url"], body, strings.TrimSpace(msg.Config["secret"]), contentType,
+		map[string]string{"Authorization": strings.TrimSpace(msg.Config["auth_header"])})
 }
 
 // ── slack (incoming webhook) ─────────────────────────────────────────
@@ -725,7 +746,7 @@ func signBody(secret string, ts string, body []byte) string {
 // — their platforms carry authenticity in the URL / routing key.
 // contentType overrides the default application/json (CloudEvents
 // structured mode); signing covers the raw body either way.
-func postJSON(ctx context.Context, client *http.Client, url string, body any, secret, contentType string) error {
+func postJSON(ctx context.Context, client *http.Client, url string, body any, secret, contentType string, extra ...map[string]string) error {
 	if url == "" {
 		return fmt.Errorf("channel has no destination URL")
 	}
@@ -741,6 +762,15 @@ func postJSON(ctx context.Context, client *http.Client, url string, body any, se
 		contentType = "application/json"
 	}
 	req.Header.Set("Content-Type", contentType)
+	// Receiver-supplied headers, set BEFORE the signing headers so a
+	// channel cannot overwrite the signature it is meant to carry.
+	for _, hs := range extra {
+		for k, v := range hs {
+			if k = strings.TrimSpace(k); k != "" && strings.TrimSpace(v) != "" {
+				req.Header.Set(k, v)
+			}
+		}
+	}
 	if secret != "" {
 		ts := fmt.Sprintf("%d", time.Now().Unix())
 		req.Header.Set(TimestampHeader, ts)

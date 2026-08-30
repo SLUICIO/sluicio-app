@@ -1031,9 +1031,28 @@ func validateChannel(req *channelRequest) error {
 		if req.Kind != alerting.ChannelWebhook {
 			return errors.New("config.format is only supported on webhook channels")
 		}
-		if f != alerting.FormatCloudEvents {
-			return errors.New(`config.format must be empty or "cloudevents"`)
+		if f != alerting.FormatCloudEvents && f != alerting.FormatTemplate {
+			return errors.New(`config.format must be empty, "cloudevents" or "template"`)
 		}
+		if f == alerting.FormatTemplate {
+			// Validated at SAVE time, which is the point of a structural
+			// mapping: a template that cannot render is refused now,
+			// rather than discovered as an alert that never arrived.
+			if _, err := alerting.ValidateWebhookTemplate(req.Config["body_template"]); err != nil {
+				return fmt.Errorf("config.body_template: %v", err)
+			}
+		}
+	}
+	// A body template with no format selected would be stored and never
+	// used, which reads as the feature being broken.
+	if strings.TrimSpace(req.Config["body_template"]) != "" &&
+		!strings.EqualFold(strings.TrimSpace(req.Config["format"]), alerting.FormatTemplate) {
+		return errors.New(`config.body_template needs config.format = "template"`)
+	}
+	// The Authorization value is sent verbatim; it is only ever meaningful
+	// on a channel that makes an HTTP request we control the headers of.
+	if strings.TrimSpace(req.Config["auth_header"]) != "" && req.Kind != alerting.ChannelWebhook {
+		return errors.New("config.auth_header is only supported on webhook channels")
 	}
 	switch req.Kind {
 	case alerting.ChannelWebhook, alerting.ChannelSlack:

@@ -71,6 +71,9 @@ func (h *Handlers) previewAlertTemplate(w http.ResponseWriter, r *http.Request) 
 	var req struct {
 		Kind    string                       `json:"kind"`
 		Content alerting.NotificationContent `json:"content"`
+		// BodyTemplate previews a webhook channel's structural body
+		// template. Ignored for the other kinds.
+		BodyTemplate string `json:"body_template"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httpserver.WriteError(w, http.StatusBadRequest, "invalid JSON body")
@@ -95,6 +98,18 @@ func (h *Handlers) previewAlertTemplate(w http.ResponseWriter, r *http.Request) 
 	kind := strings.TrimSpace(req.Kind)
 	if kind == "" {
 		kind = alerting.ChannelEmail
+	}
+	if kind == alerting.ChannelWebhook {
+		// The body template has its own grammar (structural JSON, not
+		// Liquid), and its errors are the ones an author most needs to
+		// see: a bad path here means the receiver gets null.
+		body, err := alerting.RenderWebhookPreview(req.BodyTemplate, req.Content, alerting.SampleAlertContext())
+		if err != nil {
+			httpserver.WriteError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		httpserver.WriteJSON(w, http.StatusOK, map[string]string{"subject": "", "body": body})
+		return
 	}
 	subject, body := alerting.RenderForPreview(r.Context(), kind, req.Content, alerting.SampleAlertContext())
 	httpserver.WriteJSON(w, http.StatusOK, map[string]string{"subject": subject, "body": body})

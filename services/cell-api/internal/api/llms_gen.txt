@@ -77,12 +77,20 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 ## badges
 - GET /api/v1/badges/{kind}/{id} — Get badge
 
+## branding
+- GET /api/v1/branding/login — List branding
+
 ## cell-brief
 - GET /api/v1/cell-brief — List cell-brief
 
+## cell-health
+- GET /api/v1/cell-health — List cell-health
+
 ## cell-settings
+- PUT /api/v1/cell-settings/branding — Update cell-setting
 - GET /api/v1/cell-settings/retention — List cell-settings
 - GET /api/v1/cell-settings/system — List cell-settings
+- GET /api/v1/cell-settings/branding — List cell-settings
 - PATCH /api/v1/cell-settings/retention — Update cell-setting
 - PATCH /api/v1/cell-settings/system — Update cell-setting
 - GET /api/v1/cell-settings/smtp — List cell-settings
@@ -90,6 +98,10 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 - POST /api/v1/cell-settings/smtp/test — Create cell-setting
 - GET /api/v1/cell-settings/security — List cell-settings
 - PATCH /api/v1/cell-settings/security — Update cell-setting
+
+## collector-target
+- GET /api/v1/collector-target — List collector-target
+- PATCH /api/v1/collector-target — Update collector-target
 
 ## dashboards
 - GET /api/v1/dashboards — List dashboards
@@ -133,6 +145,9 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 - POST /api/v1/ingest-keys — Create ingest-key
 - DELETE /api/v1/ingest-keys/{id} — Delete ingest-key
 
+## integration-candidates
+- GET /api/v1/integration-candidates — List integration-candidates
+
 ## integrations
 - GET /api/v1/integrations/{id}/shares — List integrations
 - POST /api/v1/integrations/{id}/shares — Create integration
@@ -140,19 +155,24 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 - GET /api/v1/integrations/{id}/groups — List integrations
 - PUT /api/v1/integrations/{id}/groups — Update integration
 - PUT /api/v1/integrations/{id}/badge — Update integration
+- PUT /api/v1/integrations/{id}/message-columns — Update integration
+- PUT /api/v1/integrations/{id}/message-filters — Update integration
 - GET /api/v1/integrations — List integrations
 - GET /api/v1/integrations/{id} — Get integration
 - GET /api/v1/integrations/{id}/span-names — List integrations
 - GET /api/v1/integrations/{id}/attribute-keys — List integrations
 - GET /api/v1/integrations/{id}/attribute-values — List integrations
 - GET /api/v1/integrations/{id}/flow — List integrations
+- GET /api/v1/integrations/{id}/error-breakdown — List integrations
 - POST /api/v1/integrations — Create integration
+- POST /api/v1/integrations/{id}/clone — Create integration
 - PUT /api/v1/integrations/{id} — Update integration
 - DELETE /api/v1/integrations/{id} — Delete integration
 - POST /api/v1/integrations/{id}/matchers — Create integration
 - DELETE /api/v1/integrations/{id}/matchers/{matcherId} — Delete integration
 - DELETE /api/v1/integrations/{id}/services/{name} — Delete integration
 - POST /api/v1/integrations — Create integration
+- POST /api/v1/integrations/{id}/clone — Create integration
 - PUT /api/v1/integrations/{id} — Update integration
 - DELETE /api/v1/integrations/{id} — Delete integration
 - POST /api/v1/integrations/{id}/matchers — Create integration
@@ -217,6 +237,7 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 - DELETE /api/v1/mcp — Not supported (405) — the MCP endpoint is stateless and issues no session id
 
 ## me
+- GET /api/v1/me/navigation — List me
 - GET /api/v1/me — List me
 - PATCH /api/v1/me — Update me
 - POST /api/v1/me/password — Create me
@@ -329,6 +350,9 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 - POST /api/v1/proposals/{id}/approve — Create proposal
 - POST /api/v1/proposals/{id}/reject — Create proposal
 
+## readyz
+- GET /readyz — List readyz
+
 ## reports
 - GET /api/v1/reports/usage — List reports
 
@@ -371,6 +395,8 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 - POST /api/v1/services/{name}/health-checks/{id}/value — Create service
 - POST /api/v1/services/{name}/clear-errors — Create service
 - DELETE /api/v1/services/{name}/clear-errors — Delete service
+- GET /api/v1/services/{name}/collector-target — List services
+- PATCH /api/v1/services/{name}/collector-target — Update service
 - GET /api/v1/services/{name}/metadata — List services
 - PUT /api/v1/services/{name}/metadata — Update service
 - PUT /api/v1/services/{name}/metadata-extras — Update service
@@ -423,6 +449,7 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 - DELETE /api/v1/settings/groups/{id}/service-accounts/{sa_id} — Delete setting
 - GET /api/v1/settings/groups/{id}/policies — List settings
 - POST /api/v1/settings/groups/{id}/policies — Create setting
+- PUT /api/v1/settings/groups/{id}/policies/{policy_id} — Update setting
 - DELETE /api/v1/settings/groups/{id}/policies/{policy_id} — Delete setting
 - GET /api/v1/settings/auth-providers — List settings
 - POST /api/v1/settings/auth-providers — Create setting
@@ -473,6 +500,7 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 
 ## traces
 - GET /api/v1/traces/{traceId} — Get trace
+- GET /api/v1/traces/{traceId}/chain — List traces
 - GET /api/v1/traces/{id}/completion-firings — List traces
 
 ## unhealthy

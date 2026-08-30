@@ -856,6 +856,23 @@
         ]
       }
     },
+    "/api/v1/branding/login": {
+      "get": {
+        "operationId": "get_api_v1_branding_login",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "List branding",
+        "tags": [
+          "branding"
+        ]
+      }
+    },
     "/api/v1/cell-brief": {
       "get": {
         "operationId": "get_api_v1_cell_brief",
@@ -870,6 +887,55 @@
         "summary": "List cell-brief",
         "tags": [
           "cell-brief"
+        ]
+      }
+    },
+    "/api/v1/cell-health": {
+      "get": {
+        "operationId": "get_api_v1_cell_health",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "List cell-health",
+        "tags": [
+          "cell-health"
+        ]
+      }
+    },
+    "/api/v1/cell-settings/branding": {
+      "get": {
+        "operationId": "get_api_v1_cell_settings_branding",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "List cell-settings",
+        "tags": [
+          "cell-settings"
+        ]
+      },
+      "put": {
+        "operationId": "put_api_v1_cell_settings_branding",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Update cell-setting",
+        "tags": [
+          "cell-settings"
         ]
       }
     },
@@ -1015,6 +1081,38 @@
         "summary": "Update cell-setting",
         "tags": [
           "cell-settings"
+        ]
+      }
+    },
+    "/api/v1/collector-target": {
+      "get": {
+        "operationId": "get_api_v1_collector_target",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "List collector-target",
+        "tags": [
+          "collector-target"
+        ]
+      },
+      "patch": {
+        "operationId": "patch_api_v1_collector_target",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Update collector-target",
+        "tags": [
+          "collector-target"
         ]
       }
     },
@@ -1382,6 +1480,23 @@
         ]
       }
     },
+    "/api/v1/integration-candidates": {
+      "get": {
+        "operationId": "get_api_v1_integration_candidates",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "List integration-candidates",
+        "tags": [
+          "integration-candidates"
+        ]
+      }
+    },
     "/api/v1/integrations": {
       "get": {
         "operationId": "get_api_v1_integrations",
@@ -1567,6 +1682,33 @@
           }
         },
         "summary": "Update integration",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
+    "/api/v1/integrations/{id}/clone": {
+      "post": {
+        "operationId": "post_api_v1_integrations_id_clone",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Create integration",
         "tags": [
           "integrations"
         ]
@@ -1781,6 +1923,33 @@
         ]
       }
     },
+    "/api/v1/integrations/{id}/error-breakdown": {
+      "get": {
+        "operationId": "get_api_v1_integrations_id_error_breakdown",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "List integrations",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
     "/api/v1/integrations/{id}/flow": {
       "get": {
         "operationId": "get_api_v1_integrations_id_flow",
@@ -1917,6 +2086,60 @@
           }
         },
         "summary": "Delete integration",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
+    "/api/v1/integrations/{id}/message-columns": {
+      "put": {
+        "operationId": "put_api_v1_integrations_id_message_columns",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Update integration",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
+    "/api/v1/integrations/{id}/message-filters": {
+      "put": {
+        "operationId": "put_api_v1_integrations_id_message_filters",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Update integration",
         "tags": [
           "integrations"
         ]
@@ -2718,6 +2941,23 @@
     "/api/v1/me/access": {
       "get": {
         "operationId": "get_api_v1_me_access",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "List me",
+        "tags": [
+          "me"
+        ]
+      }
+    },
+    "/api/v1/me/navigation": {
+      "get": {
+        "operationId": "get_api_v1_me_navigation",
         "responses": {
           "200": {
             "description": "OK"
@@ -4445,6 +4685,58 @@
         ]
       }
     },
+    "/api/v1/services/{name}/collector-target": {
+      "get": {
+        "operationId": "get_api_v1_services_name_collector_target",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "List services",
+        "tags": [
+          "services"
+        ]
+      },
+      "patch": {
+        "operationId": "patch_api_v1_services_name_collector_target",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Update service",
+        "tags": [
+          "services"
+        ]
+      }
+    },
     "/api/v1/services/{name}/facet-mappings": {
       "get": {
         "operationId": "get_api_v1_services_name_facet_mappings",
@@ -5740,6 +6032,39 @@
         "tags": [
           "settings"
         ]
+      },
+      "put": {
+        "operationId": "put_api_v1_settings_groups_id_policies_policy_id_",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "policy_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Update setting",
+        "tags": [
+          "settings"
+        ]
       }
     },
     "/api/v1/settings/groups/{id}/service-accounts/{sa_id}": {
@@ -6934,6 +7259,33 @@
         ]
       }
     },
+    "/api/v1/traces/{traceId}/chain": {
+      "get": {
+        "operationId": "get_api_v1_traces_traceId_chain",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "traceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "List traces",
+        "tags": [
+          "traces"
+        ]
+      }
+    },
     "/api/v1/unhealthy": {
       "get": {
         "operationId": "get_api_v1_unhealthy",
@@ -6980,6 +7332,23 @@
         "summary": "List healthz",
         "tags": [
           "healthz"
+        ]
+      }
+    },
+    "/readyz": {
+      "get": {
+        "operationId": "get_readyz",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "List readyz",
+        "tags": [
+          "readyz"
         ]
       }
     }
@@ -7035,10 +7404,19 @@
       "name": "badges"
     },
     {
+      "name": "branding"
+    },
+    {
       "name": "cell-brief"
     },
     {
+      "name": "cell-health"
+    },
+    {
       "name": "cell-settings"
+    },
+    {
+      "name": "collector-target"
     },
     {
       "name": "dashboards"
@@ -7066,6 +7444,9 @@
     },
     {
       "name": "ingest-keys"
+    },
+    {
+      "name": "integration-candidates"
     },
     {
       "name": "integrations"
@@ -7153,6 +7534,9 @@
     },
     {
       "name": "proposals"
+    },
+    {
+      "name": "readyz"
     },
     {
       "name": "reports"

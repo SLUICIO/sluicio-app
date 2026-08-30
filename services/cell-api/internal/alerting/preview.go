@@ -5,6 +5,8 @@ package alerting
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"strings"
 	"time"
 )
 
@@ -98,4 +100,29 @@ func SampleAlertContext() *AlertContext {
 		Org:    OrgFacts{Company: "Acme", Environment: "prod"},
 		SentAt: time.Now().UTC().Format(time.RFC3339),
 	}
+}
+
+// RenderWebhookPreview renders a webhook channel's body against the sample
+// firing context: the structural template when one is given, otherwise the
+// built-in payload. Same code path delivery uses, so what the editor shows is
+// what the receiver gets — a preview rendered by a second implementation
+// would agree right up to the case that matters.
+func RenderWebhookPreview(tmpl string, content NotificationContent, c *AlertContext) (string, error) {
+	tmpl = strings.TrimSpace(tmpl)
+	if tmpl == "" {
+		raw, _ := json.MarshalIndent(c.webhookPayload(content), "", "  ")
+		return string(raw), nil
+	}
+	if _, err := ValidateWebhookTemplate(tmpl); err != nil {
+		return "", err
+	}
+	rendered, ok := RenderWebhookTemplate(tmpl, c.bindings(content))
+	if !ok {
+		return "", errors.New("template could not be rendered")
+	}
+	raw, err := json.MarshalIndent(rendered, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(raw), nil
 }

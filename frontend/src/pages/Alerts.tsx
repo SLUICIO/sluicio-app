@@ -25,6 +25,7 @@ import { useInstanceHighlight } from "../lib/useInstanceHighlight";
 import MaintenanceWindows from "../components/MaintenanceWindows";
 import NotificationProfiles from "../components/NotificationProfiles";
 import SearchableSelect from "../components/SearchableSelect";
+import WebhookBodyEditor from "../components/alerts/WebhookBodyEditor";
 import VirtualInfiniteList from "../components/VirtualInfiniteList";
 import { useProductName } from "../lib/useProductName";
 
@@ -617,6 +618,8 @@ function ChannelsCard({
   const [pdEventsUrl, setPdEventsUrl] = useState("");
   const [whSecret, setWhSecret] = useState("");
   const [whFormat, setWhFormat] = useState("");
+  const [whAuth, setWhAuth] = useState("");
+  const [whBody, setWhBody] = useState("");
   const [email, setEmail] = useState({ smtp_host: "", smtp_port: "587", from: "", to: "", username: "", password: "" });
   const [useSystemEmail, setUseSystemEmail] = useState(true);
 
@@ -649,6 +652,8 @@ function ChannelsCard({
             ...(kind === "pagerduty" && pdEventsUrl.trim() ? { events_url: pdEventsUrl.trim() } : {}),
             ...(kind === "webhook" && whSecret.trim() ? { secret: whSecret.trim() } : {}),
             ...(kind === "webhook" && whFormat ? { format: whFormat } : {}),
+            ...(kind === "webhook" && whAuth.trim() ? { auth_header: whAuth.trim() } : {}),
+            ...(kind === "webhook" && whFormat === "template" && whBody.trim() ? { body_template: whBody.trim() } : {}),
           };
       await api.createChannel({ name: name.trim(), kind, config });
       setName("");
@@ -656,6 +661,8 @@ function ChannelsCard({
       setPdEventsUrl("");
       setWhSecret("");
       setWhFormat("");
+      setWhAuth("");
+      setWhBody("");
       setEmail({ smtp_host: "", smtp_port: "587", from: "", to: "", username: "", password: "" });
       setUseSystemEmail(true);
       onChanged();
@@ -765,13 +772,24 @@ function ChannelsCard({
                         <span className="muted">Signing secret (optional — HMAC-SHA256, see docs/webhook-signing.md)</span>
                         <input className="search__input mono" style={{ fontSize: 13 }} type="password" value={whSecret} onChange={(e) => setWhSecret(e.target.value)} placeholder="leave empty for unsigned requests" />
                       </label>
+                      <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, flex: 1, minWidth: 220 }}>
+                        <span className="muted">Authorization header (optional)</span>
+                        <input className="search__input mono" style={{ fontSize: 13 }} type="password" value={whAuth} onChange={(e) => setWhAuth(e.target.value)} placeholder="Bearer aha-…" autoComplete="off" />
+                      </label>
                       <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, minWidth: 170 }}>
                         <span className="muted">Payload format</span>
-                        <select className="toolbar__select" value={whFormat} onChange={(e) => setWhFormat(e.target.value)} title="CloudEvents wraps the payload in a CNCF-standard envelope for Event Grid / EventBridge / Knative receivers">
+                        <select className="toolbar__select" value={whFormat} onChange={(e) => setWhFormat(e.target.value)} title="CloudEvents wraps the payload in a CNCF-standard envelope for Event Grid / EventBridge / Knative receivers. Custom body lets you match a receiver that dictates its own shape.">
                           <option value="">{productName} JSON (default)</option>
                           <option value="cloudevents">CloudEvents 1.0</option>
+                          <option value="template">Custom body…</option>
                         </select>
                       </label>
+                      {whFormat === "template" && (
+                        <div style={{ flexBasis: "100%", minWidth: 0 }}>
+                          <span className="muted" style={{ fontSize: 12 }}>Body</span>
+                          <WebhookBodyEditor value={whBody} onChange={setWhBody} />
+                        </div>
+                      )}
                     </>
                   )}
                 </>

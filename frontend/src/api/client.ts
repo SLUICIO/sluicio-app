@@ -846,8 +846,14 @@ export const api = {
   templateContextSchema: () =>
     get<{ variables: TemplateVariable[]; defaults?: Record<string, string> }>(`/alerting/template-context-schema`),
 
-  previewAlertTemplate: (kind: string, content: NotificationContent) =>
-    post<{ subject: string; body: string }>(`/alert-templates/preview`, { kind, content }),
+  previewAlertTemplate: (kind: string, content: NotificationContent, bodyTemplate?: string) =>
+    post<{ subject: string; body: string }>(`/alert-templates/preview`, {
+      kind,
+      content,
+      // Webhook only: the structural body template. The server renders it
+      // through the delivery path, so the preview is the payload.
+      ...(bodyTemplate !== undefined ? { body_template: bodyTemplate } : {}),
+    }),
   listAlertInstances: (limit = 100) => get<{ instances: AlertInstance[] }>(`/alert-instances?limit=${limit}`),
 
   // Config export & import (docs/config-transfer-design.md). Export

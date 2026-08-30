@@ -90,7 +90,17 @@ the raw request body. Webhook channels default to Sluicio's canonical
 JSON; setting the channel's **Payload format** to CloudEvents 1.0
 (`config.format: "cloudevents"`) wraps the same payload in a
 CNCF-standard envelope for CE-aware receivers — see
-docs/outbound-events-design.md.
+docs/outbound-events-design.md. **Custom body** (`config.format:
+"template"`) posts a shape you define, for receivers that dictate their
+own — see [webhook body templates](webhook-body-templates.md).
+
+## The endpoint's own authentication
+
+A webhook channel can send an `Authorization` header of its own
+(`config.auth_header`, e.g. `Bearer aha-…`), which is what most
+receivers require. It is set before the signing headers, so a channel
+cannot overwrite the signature with it, and it is masked on every read
+of the channel — the API never returns it after it is stored.
 
 ## Notes
 
