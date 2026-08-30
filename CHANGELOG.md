@@ -3,8 +3,14 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.134 — 2026-08-30
+
+- feat(alerts): webhook channels can carry an auth header and their own body (2dee226)
+- fix(alerts): stop handing every member the channel credentials (0fdadac)
+
 ## v0.11.133 — 2026-08-30
 
+- release v0.11.133 — refresh internal changelog (bba206d)
 - fix(messages): show the name the editor chose, and offer the fields they configured (acc97a7)
 
 ## v0.11.132 — 2026-08-30
