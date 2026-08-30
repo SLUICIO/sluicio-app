@@ -1362,9 +1362,11 @@ func (s *Store) DistinctErrorTypes(ctx context.Context, from, to time.Time, limi
 // users can choose orderId, http.route, file.name, etc. without
 // having to remember them.
 func (s *Store) DistinctAttributeKeys(ctx context.Context, from, to time.Time, sampleLimit int) ([]AttributeKeysRow, error) {
-	if sampleLimit <= 0 {
-		sampleLimit = 2000
-	}
+	// sampleLimit is accepted for call-site compatibility and no longer
+	// caps anything: the keys are aggregated over the window rather than
+	// sampled from it. Kept rather than removed from the signature so
+	// this change is one query, not a fan-out across callers.
+	_ = sampleLimit
 	const q = `
 		SELECT key, source, toUInt64(count()) AS uses FROM (
 		    SELECT arrayJoin(mapKeys(SpanAttributes))      AS key, 'span' AS source
@@ -1416,9 +1418,11 @@ func (s *Store) DistinctAttributeKeysScoped(ctx context.Context, serviceNames []
 	if len(serviceNames) == 0 {
 		return []AttributeKeysRow{}, nil
 	}
-	if sampleLimit <= 0 {
-		sampleLimit = 2000
-	}
+	// sampleLimit is accepted for call-site compatibility and no longer
+	// caps anything: the keys are aggregated over the window rather than
+	// sampled from it. Kept rather than removed from the signature so
+	// this change is one query, not a fan-out across callers.
+	_ = sampleLimit
 	placeholders := make([]string, len(serviceNames))
 	svcArgs := make([]any, 0, len(serviceNames))
 	for i, n := range serviceNames {
@@ -1435,34 +1439,45 @@ func (s *Store) DistinctAttributeKeysScoped(ctx context.Context, serviceNames []
 		attrSQL = " AND " + clause
 		attrArgs = cargs
 	}
+	// Aggregated over the window, NOT over a sample of its rows.
+	//
+	// This used to read `LIMIT <sampleLimit>` rows and take their keys.
+	// The traces table is ordered by (ServiceName, SpanName, …), so an
+	// unordered LIMIT returns the first granules: two thousand rows of
+	// the SAME span name. Every key came back with a use count of
+	// exactly the sample size, and any attribute carried by a different
+	// KIND of span in the same integration was invisible — the picker
+	// simply did not offer it, with nothing on screen to say why.
+	//
+	// It also made the count a lie. The number shown beside each key was
+	// the sample cap, so ranking by "how many spans carry this" ranked
+	// nothing, and a key on three spans looked as common as one on every
+	// span.
+	//
+	// Reading the two attribute columns over the window is what the rest
+	// of this file already does for windowed counts, and it is a
+	// columnar read of two columns rather than of rows.
 	q := `
 		SELECT key, source, toUInt64(count()) AS uses FROM (
 		    SELECT arrayJoin(mapKeys(SpanAttributes))      AS key, 'span' AS source
-		    FROM (
-		        SELECT SpanAttributes FROM traces
-		        WHERE ` + svcIn + ` AND Timestamp >= ? AND Timestamp <= ?` + attrSQL + `
-		        LIMIT ?
-		    )
+		    FROM traces
+		    WHERE ` + svcIn + ` AND Timestamp >= ? AND Timestamp <= ?` + attrSQL + `
 		    UNION ALL
 		    SELECT arrayJoin(mapKeys(ResourceAttributes)) AS key, 'resource' AS source
-		    FROM (
-		        SELECT ResourceAttributes FROM traces
-		        WHERE ` + svcIn + ` AND Timestamp >= ? AND Timestamp <= ?` + attrSQL + `
-		        LIMIT ?
-		    )
+		    FROM traces
+		    WHERE ` + svcIn + ` AND Timestamp >= ? AND Timestamp <= ?` + attrSQL + `
 		)
 		GROUP BY key, source
 		ORDER BY uses DESC, key ASC
 		LIMIT 200
 	`
-	// Both subqueries take the same args in the same order:
-	// service names…, from, to, matcher args…, sample limit.
-	args := make([]any, 0, (len(svcArgs)+len(attrArgs)+3)*2)
+	// Both halves take the same args in the same order:
+	// service names…, from, to, matcher args…
+	args := make([]any, 0, (len(svcArgs)+len(attrArgs)+2)*2)
 	for i := 0; i < 2; i++ {
 		args = append(args, svcArgs...)
 		args = append(args, from, to)
 		args = append(args, attrArgs...)
-		args = append(args, sampleLimit)
 	}
 	rows, err := s.conn.Query(ctx, q, args...)
 	if err != nil {
@@ -3003,9 +3018,11 @@ type LogAttrValueRow struct {
 // a float. Backs the Logs page's attribute-filter key autocomplete and
 // the per-key operator set. The inner LIMIT keeps the scan O(constant).
 func (s *Store) DistinctLogAttributeKeys(ctx context.Context, from, to time.Time, sampleLimit int) ([]LogAttrKeyRow, error) {
-	if sampleLimit <= 0 {
-		sampleLimit = 2000
-	}
+	// sampleLimit is accepted for call-site compatibility and no longer
+	// caps anything: the keys are aggregated over the window rather than
+	// sampled from it. Kept rather than removed from the signature so
+	// this change is one query, not a fan-out across callers.
+	_ = sampleLimit
 	// arrayJoin over a Map yields (key, value) tuples. Per key we count
 	// uses and decide numeric = (≥1 non-empty value) AND (no non-empty
 	// value fails toFloat64OrNull). min() across the two sources ANDs
