@@ -3,8 +3,14 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.132 — 2026-08-30
+
+- feat(integrations): offer the message columns as filter fields (0f34d7b)
+- fix(integrations): stop the attribute picker sampling its way past whole span kinds (78e6b30)
+
 ## v0.11.131 — 2026-08-30
 
+- release v0.11.131 — refresh internal changelog (47b53db)
 - fix(integrations): call a failed message a failed message (4557cb3)
 - chore: move the SaaS control plane out of the public repository (fe0f9aa)
 
