@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.133 — 2026-08-30
+
+- fix(messages): show the name the editor chose, and offer the fields they configured (acc97a7)
+
 ## v0.11.132 — 2026-08-30
 
+- release v0.11.132 — refresh internal changelog (ee740c2)
 - feat(integrations): offer the message columns as filter fields (0f34d7b)
 - fix(integrations): stop the attribute picker sampling its way past whole span kinds (78e6b30)
 
