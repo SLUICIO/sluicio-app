@@ -8,7 +8,7 @@ This is the **same chart** for Community and Enterprise, and for on-premise
 and managed SaaS cells. Enterprise features (SSO, advanced RBAC, audit log,
 long retention, MFA policy) are enabled **at runtime by the license key** —
 no separate chart, images, or reinstall (see [License](#license-enterprise)).
-The separate `controlplane` chart is SaaS-only; a self-hosted cell never
+The control plane is SaaS-only and closed source; a self-hosted cell never
 needs it.
 
 The chart is **Apache 2.0** so customers may freely fork and modify it for

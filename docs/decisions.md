@@ -251,7 +251,7 @@ Migration plan when we do it:
 
 ## D-016: Licensing
 
-The product (`services/`, `pkg/`, `frontend/`, `deploy/helm/controlplane/`)
+The product (`services/`, `pkg/`, `frontend/`, `deploy/helm/cell/`)
 is licensed under **Functional Source License v1.1** with an Apache 2.0
 future grant (FSL-1.1-Apache-2.0). The conversion date is two years from
 each version's publication.

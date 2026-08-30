@@ -73,7 +73,6 @@ jobs:
         include:
           - { image: cell-api,     dockerfile: services/cell-api/Dockerfile,     context: . }
           - { image: cell-ingest,  dockerfile: services/cell-ingest/Dockerfile,  context: . }
-          - { image: controlplane, dockerfile: services/controlplane/Dockerfile, context: . }
           - { image: frontend,     dockerfile: frontend/Dockerfile,              context: frontend }
           - { image: demo-seeder,  dockerfile: deploy/demo/Dockerfile.seeder,    context: . }
     steps:
@@ -193,7 +192,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image: [cell-api, cell-ingest, controlplane, frontend, demo-seeder]
+        image: [cell-api, cell-ingest, frontend, demo-seeder]
     steps:
       - name: Scan image (Trivy)
         uses: aquasecurity/trivy-action@v0.36.0

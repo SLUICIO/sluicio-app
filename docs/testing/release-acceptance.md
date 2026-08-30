@@ -81,7 +81,7 @@ since that's what ships to `ghcr.io/sluicio/*`.
 - [ ] **OpenAPI in sync** — `make openapi-check` passes (no drift; the
       operator routes are in `openapi_gen.json`).
 - [ ] **Images build + push** — `release-images.yml` pushes
-      `cell-api / cell-ingest / controlplane / frontend` to GHCR; Trivy
+      `cell-api / cell-ingest / frontend` to GHCR; Trivy
       scan job reviewed (report-only).
 - [ ] **Helm chart published** — the same workflow's `publish-chart` job
       pushed `oci://ghcr.io/sluicio/charts/sluicio-cell` at this version

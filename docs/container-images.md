@@ -7,7 +7,6 @@ Sluicio ships five images, all built from this repo:
 | `cell-api` | `services/cell-api/Dockerfile` | HTTP API (:8081) |
 | `cell-ingest` | `services/cell-ingest/Dockerfile` | OTLP ingest (:4318) |
 | `cell-alerting` | `services/cell-alerting/Dockerfile` | background worker (no port) |
-| `controlplane` | `services/controlplane/Dockerfile` | control plane (:8080) |
 | `frontend` | `frontend/Dockerfile` | Vite build → nginx (:80), SPA fallback |
 
 The Go images build with **context = repo root** (the Go workspace must be
@@ -52,7 +51,7 @@ testing.
 
 ## Deploying the pushed images
 
-- **Helm** (`deploy/helm/cell`, `deploy/helm/controlplane`): point each
+- **Helm** (`deploy/helm/cell`): point each
   chart's `image.repository` at `registry.lan:5000/sluicio/<image>` and set
   `image.tag` to the `IMAGE_TAG` you pushed.
 - **Compose** (`deploy/server/docker-compose.yml`): it currently *builds*

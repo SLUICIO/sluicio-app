@@ -26,13 +26,13 @@ jobs:
           cache: true
       - name: Build
         run: |
-          for s in controlplane cell-api cell-alerting cell-ingest cell-controller; do
+          for s in cell-api cell-alerting cell-ingest; do
             echo "==> building $s"
             (cd "services/$s" && go build ./...)
           done
       - name: Vet
         run: |
-          for s in controlplane cell-api cell-alerting cell-ingest cell-controller; do
+          for s in cell-api cell-alerting cell-ingest; do
             echo "==> vetting $s"
             (cd "services/$s" && go vet ./...)
           done
@@ -75,8 +75,6 @@ jobs:
           version: v3.15.4
       - name: Lint cell chart
         run: helm lint deploy/helm/cell
-      - name: Lint controlplane chart
-        run: helm lint deploy/helm/controlplane
 
   licenses:
     name: License headers

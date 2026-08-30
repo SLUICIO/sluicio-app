@@ -9,7 +9,7 @@ GO    ?= go
 #   COMPOSE="docker compose" make dev-up
 COMPOSE ?= $(shell command -v podman >/dev/null 2>&1 && echo "podman compose" || echo "docker compose")
 
-SERVICES := controlplane cell-api cell-alerting cell-ingest cell-controller
+SERVICES := cell-api cell-alerting cell-ingest
 
 # ── Container images ────────────────────────────────────────────────
 # Container CLI for build/push. docker by default, podman if that's all
@@ -26,8 +26,7 @@ IMAGE_TAG ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo dev)
 IMAGE_PREFIX := $(if $(REGISTRY),$(REGISTRY)/,)$(IMAGE_NAMESPACE)
 
 # Services that ship as images (each has services/<svc>/Dockerfile).
-# cell-controller is built by `make build` but has no image yet.
-IMAGE_SERVICES := cell-api cell-ingest cell-alerting controlplane
+IMAGE_SERVICES := cell-api cell-ingest cell-alerting
 
 # ── Build version ───────────────────────────────────────────────────
 # Embedded build metadata (see scripts/version.sh). VERSION is the
@@ -152,10 +151,6 @@ dev-logs: ## Tail logs from the local dev environment.
 .PHONY: dev-ps
 dev-ps: ## Show the local dev environment status.
 	$(COMPOSE) ps
-
-.PHONY: run-controlplane
-run-controlplane: ## Run the control plane service.
-	cd services/controlplane && $(GO) run ./cmd/controlplane
 
 .PHONY: run-cell-api
 run-cell-api: ## Run the cell API service.

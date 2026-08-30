@@ -17,7 +17,7 @@ For the *why* behind each major choice, see [`decisions.md`](decisions.md).
                   | ClickHouse / Jaeger |  (BYO mode, adapter layer)
                   +---------------------+
 
-   Operator/User --- browser ---> Frontend ---> cell-api / controlplane
+   Operator/User --- browser ---> Frontend ---> cell-api
 ```
 
 There are two flavors of customer data flow. In **push mode** the customer
@@ -68,30 +68,40 @@ flowchart TB
 ```
 
 The highlighted **auth and multi-tenancy** layer is the load-bearing part:
-every request resolves to `(org, role, is_operator)`, passes a gate
-(`RequireRole` / `RequireWriteAnywhere` / `RequireOperator`), and every store
-read is filtered by `org_id`. That is what lets one cell serve multiple
-organizations safely. This is a single cell — single-org in practice but
-multi-org capable; the `controlplane` service only appears in a multi-cell
-SaaS topology, where it maps tenants to cells.
+every request resolves to `(org, role, is_operator)` and passes a gate
+(`RequireRole` / `RequireWriteAnywhere` / `RequireOperator`).
+
+Isolation is not uniform below that gate, and the difference matters:
+
+- **Postgres** reads are filtered by `org_id`. Configuration, RBAC, alert
+  rules and metadata are genuinely isolated per organization.
+- **ClickHouse** rows carry an `OrganizationId`, written at ingest, but the
+  telemetry queries do not filter on it. Two organizations in one cell would
+  see each other's traces, logs and metrics.
+
+**A cell therefore serves one customer.** It is multi-org in the control
+surfaces and single-org in the data, and the hosted service runs a cell per
+customer for that reason. Making a cell safely multi-tenant means putting
+that predicate on every telemetry query first.
+
+The control plane that provisions those cells is closed source and outside
+this repository; nothing here depends on it.
 
 ## Components
 
 ```
    +----------------------------+   +-----------------------------+
-   |        Control plane       |   |             Cell             |
-   |  (one per SaaS deployment) |   |  (one per tenant or shared)  |
+   |  Control plane (closed,    |   |             Cell             |
+   |  not in this repository)   |   |     (one per customer)       |
    +----------------------------+   +-----------------------------+
-   | controlplane               |   | cell-ingest (OTLP receiver) |
-   |   - orgs, users, members   |   | cell-api    (queries + UI)  |
-   |   - cell registry          |   | cell-alerting (rule engine) |
-   |   - billing                |   |                              |
-   | Postgres                   |   | ClickHouse (logs, traces)   |
-   | Keycloak (OIDC)            |   | Prometheus / Mimir (metrics)|
-   |                            |   | (frontend served by cell-api)|
-   | cell-controller            |   +-----------------------------+
-   |   - provisions cells in K8s|
-   +----------------------------+
+   |   - accounts, billing      |   | cell-ingest (OTLP receiver) |
+   |   - which cell is whose    |   | cell-api    (queries + UI)  |
+   |   - provisions cells       |   | cell-alerting (rule engine) |
+   |                            |   | Postgres   (config, RBAC)   |
+   |  Hosted service only.      |   | ClickHouse (logs, traces)   |
+   |  A self-hosted cell needs  |   | Prometheus / Mimir (metrics)|
+   |  none of it.               |   | (frontend served by cell-api)|
+   +----------------------------+   +-----------------------------+
 ```
 
 The on-premise distribution is exactly the cell. There is no control
@@ -135,11 +145,13 @@ forking the core. v1 ships only in-binary implementations.
 
 ## Provisioning
 
-`cell-controller` runs in the control plane's cluster. When the control
-plane decides a tenant needs a new dedicated cell (e.g. on signup to the
-enterprise tier), it asks the controller to apply the cell Helm chart
-with the tenant's parameters, then registers the cell's endpoints in the
-control plane's directory. For shared cells, the controller just adds
+Provisioning is the hosted service's job and lives outside this repository.
+It applies the cell Helm chart with a customer's parameters and registers
+the resulting endpoints. A self-hosted cell is provisioned by whoever
+installs it, with the same chart. What follows describes the shape rather
+than an implementation you can run:
+
+For shared cells, the provisioner just adds
 the tenant to an existing cell's roster.
 
 ## What is *not* yet decided

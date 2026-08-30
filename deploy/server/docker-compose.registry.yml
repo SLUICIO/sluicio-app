@@ -43,7 +43,7 @@
 #   https://<ingest-host>/v1/*  -> cell-ingest   (:4318)   ← OTLP producers post here
 #
 # cell-api applies DB migrations on startup, so `up -d` is all you need.
-# controlplane is NOT here — it's only for multi-cell SaaS; a single
+# The control plane is NOT here — it is SaaS-only and closed source; a single
 # self-hosted cell doesn't need it.
 
 x-ch-env: &ch-env

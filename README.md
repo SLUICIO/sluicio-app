@@ -140,25 +140,25 @@ job. Sluicio is organised around that reality:
 
 ## Architecture
 
-One codebase, two deployment shapes:
+One product, deployed two ways:
 
-- A shared **control plane** (`controlplane`) — authentication, organizations,
-  users, invitations, billing, and the registry of which tenants live in which
-  cell.
 - A **cell** (data plane) that ingests OTLP, stores telemetry, evaluates rules,
-  and serves the UI + API. The same cell that backs a managed tenant is what an
-  on-prem customer deploys into their own cluster.
+  and serves the UI + API. This is the whole product: the same cell that backs a
+  managed tenant is what an on-prem customer deploys into their own cluster.
+- A **control plane** that ROMA IT operates for the hosted service: accounts,
+  billing, and provisioning a cell per customer. It is closed source and lives
+  outside this repository. Nothing you self-host needs it, and nothing here
+  depends on it.
 
-A cell is made of four Go services:
+A cell is made of three Go services:
 
 | Service | Role |
 | --- | --- |
 | `cell-ingest` | OTLP receiver → writes traces, logs, and metrics to ClickHouse |
 | `cell-api` | Cell-local API + the React UI: services, integrations, rules, queries |
 | `cell-alerting` | Polling rule engine + notification dispatch |
-| `cell-controller` | Provisions and lifecycles cells in Kubernetes |
 
-**Data stores:** Postgres holds the control-plane state (orgs, users, sessions,
+**Data stores:** Postgres holds the cell's own state (orgs, users, sessions,
 rules, metadata); ClickHouse (`telemetry` database) holds the OTLP traces,
 logs, and metrics. The local dev stack also runs Prometheus.
 
@@ -172,11 +172,9 @@ See [`docs/architecture.md`](docs/architecture.md) for the full design and
 ```
 .
 ├── services/                Go services (FSL-1.1-Apache-2.0)
-│   ├── controlplane/        Shared control plane (orgs, users, cell registry)
 │   ├── cell-api/            Cell-local API + UI: integrations, rules, queries
 │   ├── cell-alerting/       Polling rule engine + notification dispatch
-│   ├── cell-ingest/         OTLP receiver -> ClickHouse
-│   └── cell-controller/     Provisions and lifecycles cells in Kubernetes
+│   └── cell-ingest/         OTLP receiver -> ClickHouse
 ├── pkg/                     Internal Go libraries inc. license verification (FSL-1.1-Apache-2.0)
 ├── plugins/                 Plugin contracts for third parties (Apache-2.0)
 ├── ee/                      Proprietary bits only — audit-log store + license-mint tool (ee/LICENSE.md)
