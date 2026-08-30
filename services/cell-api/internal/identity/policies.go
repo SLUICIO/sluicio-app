@@ -176,11 +176,26 @@ func validatePolicyInput(in *AccessPolicyInput) error {
 			return errors.New("service policy must not set integration/attributes")
 		}
 	case PolicyIntegration:
-		if in.TargetIntegrationID == "" {
-			return errors.New("integration policy requires target_integration_id")
+		// Either one integration by id, or a name pattern that may match
+		// several. Not both: a policy that named one AND described a set
+		// would have two answers to "what does this grant", and the row
+		// gives no hint which was meant.
+		if in.TargetIntegrationID == "" && in.Conditions == nil {
+			return errors.New("integration policy requires target_integration_id or conditions")
+		}
+		if in.TargetIntegrationID != "" && in.Conditions != nil {
+			return errors.New("integration policy takes target_integration_id or conditions, not both")
 		}
 		if in.TargetServiceName != "" || len(in.AttributeMatch) > 0 {
 			return errors.New("integration policy must not set service/attributes")
+		}
+		if in.Conditions != nil {
+			// Name leaves only. An attribute leaf would silently match
+			// nothing: attributes belong to services, and the universe
+			// here is integration names.
+			if err := validateNameOnlyExpr(in.Conditions); err != nil {
+				return err
+			}
 		}
 	case PolicyAttributes:
 		if len(in.AttributeMatch) == 0 {
@@ -204,6 +219,13 @@ func validatePolicyInput(in *AccessPolicyInput) error {
 		// target_system_kind is optional (empty = all systems).
 		if in.TargetServiceName != "" || in.TargetIntegrationID != "" || len(in.AttributeMatch) > 0 {
 			return errors.New("system policy must not set service/integration/attributes")
+		}
+		// Optional name pattern, narrowing on top of the kind filter:
+		// "systems named like this" AND, if set, "of this kind".
+		if in.Conditions != nil {
+			if err := validateNameOnlyExpr(in.Conditions); err != nil {
+				return err
+			}
 		}
 	case PolicyExpression:
 		if in.TargetServiceName != "" || in.TargetIntegrationID != "" || len(in.AttributeMatch) > 0 {
@@ -282,7 +304,11 @@ func buildPolicyArgs(in *AccessPolicyInput) (policyArgs, error) {
 		return a, fmt.Errorf("attribute_match marshal: %w", err)
 	}
 	a.attrJSON = string(attrJSON)
-	if in.Kind == PolicyExpression && in.Conditions != nil {
+	// Not expression-only: integration and system carry a name pattern in
+	// the same column. Gating on the kind here is what made a system
+	// pattern save as 201 and store nothing — a policy that reads as
+	// "systems named prod-*" and grants every system in the org.
+	if in.Conditions != nil {
 		condJSON, err := json.Marshal(in.Conditions)
 		if err != nil {
 			return a, fmt.Errorf("conditions marshal: %w", err)
@@ -687,6 +713,36 @@ type integrationExpander func(ctx context.Context, orgID, integrationID uuid.UUI
 // integrationExpander) so identity stays at the bottom of the graph.
 type systemExpander func(ctx context.Context, orgID uuid.UUID, systemKind string, systemID *uuid.UUID) ([]string, error)
 
+// namedEntity is one integration or system, as the pattern resolver
+// needs it: a name to match against and an id to grant.
+type namedEntity struct {
+	ID   uuid.UUID
+	Name string
+}
+
+// entityLister returns every integration (or system) in the org, so a
+// name pattern can be resolved to concrete ids. Injected like the
+// expanders so identity stays at the bottom of the dependency graph.
+type entityLister func(ctx context.Context, orgID uuid.UUID) ([]namedEntity, error)
+
+// SetEntityListers wires the two listers name-pattern policies need.
+//
+// Set on the Store rather than threaded through ResolveEffectiveAccess
+// and friends, which already carry three injected functions across ten
+// call sites. Two more positional parameters there would be two more
+// chances to pass nil at one of them, and a nil lister on the grant path
+// costs somebody their access silently.
+//
+// Both default to nil, which resolves a pattern to nothing: a cell that
+// forgot to wire them grants less, never more.
+func (s *Store) SetEntityListers(integrations, systems entityLister) {
+	s.listIntegrations = integrations
+	s.listSystems = systems
+}
+
+// NamedEntity is the exported shape callers build a lister from.
+type NamedEntity = namedEntity
+
 // serviceUniverseProvider returns every service name in the org. Needed
 // to evaluate kind=expression policies — NOT complements against it, and
 // service-name leaves iterate it. Passed in (like the expanders) so
@@ -793,6 +849,32 @@ func (s *Store) composeAccess(ctx context.Context, orgID uuid.UUID, policies []A
 				out.Services[*p.TargetServiceName] = struct{}{}
 			}
 		case PolicySystem:
+			if p.Conditions != nil {
+				// Narrows the kind filter by name rather than replacing
+				// it: a policy may say "systems of kind kafka" and
+				// "named like prod-*", and mean both.
+				matched, err := matchEntities(ctx, orgID, p.Conditions, s.listSystems)
+				if err != nil {
+					return EffectiveAccess{}, fmt.Errorf("match systems: %w", err)
+				}
+				if expandSystem != nil {
+					kind := ""
+					if p.TargetSystemKind != nil {
+						kind = *p.TargetSystemKind
+					}
+					for _, e := range matched {
+						id := e.ID
+						svcs, err := expandSystem(ctx, orgID, kind, &id)
+						if err != nil {
+							return EffectiveAccess{}, fmt.Errorf("expand system: %w", err)
+						}
+						for _, name := range svcs {
+							out.Services[name] = struct{}{}
+						}
+					}
+				}
+				continue
+			}
 			if expandSystem != nil {
 				kind := ""
 				if p.TargetSystemKind != nil {
@@ -807,6 +889,31 @@ func (s *Store) composeAccess(ctx context.Context, orgID uuid.UUID, policies []A
 				}
 			}
 		case PolicyIntegration:
+			if p.TargetIntegrationID == nil && p.Conditions != nil {
+				// A name pattern: the same grant as naming one
+				// integration, applied to every integration whose NAME
+				// the tree accepts. grant_services carries through
+				// unchanged, which is why it matters more here — one
+				// checkbox now decides the services under every match,
+				// not under one.
+				matched, err := matchEntities(ctx, orgID, p.Conditions, s.listIntegrations)
+				if err != nil {
+					return EffectiveAccess{}, fmt.Errorf("match integrations: %w", err)
+				}
+				for _, e := range matched {
+					out.Integrations[e.ID] = struct{}{}
+					if p.GrantServices && expand != nil {
+						svcs, err := expand(ctx, orgID, e.ID)
+						if err != nil {
+							return EffectiveAccess{}, fmt.Errorf("expand integration: %w", err)
+						}
+						for _, name := range svcs {
+							out.Services[name] = struct{}{}
+						}
+					}
+				}
+				continue
+			}
 			if p.TargetIntegrationID != nil {
 				// The integration is recorded as itself. Expanding it to
 				// member service names is what leaked every sibling
@@ -845,6 +952,41 @@ func (s *Store) composeAccess(ctx context.Context, orgID uuid.UUID, policies []A
 			if p.Conditions != nil {
 				out.Expressions = append(out.Expressions, *p.Conditions)
 			}
+		}
+	}
+	return out, nil
+}
+
+// matchEntities evaluates a name pattern against the org's integrations
+// or systems and returns the ones it accepts.
+//
+// Reuses the expression evaluator rather than growing a second pattern
+// language: the tree already does prefix, suffix, contains, regex, in,
+// equals and AND/OR/NOT, and "starts with abc and ends with -at" is
+// exactly what it was built to express. The universe here is names
+// instead of service names; the attribute map is nil because names have
+// no attributes, which is why validation refuses attribute leaves.
+//
+// A nil lister resolves to nothing rather than to everything. This runs
+// on the grant path: an unwired dependency must cost access, never
+// hand it out.
+func matchEntities(ctx context.Context, orgID uuid.UUID, expr *PolicyExpr, list entityLister) ([]namedEntity, error) {
+	if expr == nil || list == nil {
+		return nil, nil
+	}
+	all, err := list(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	universe := make([]string, 0, len(all))
+	for _, e := range all {
+		universe = append(universe, e.Name)
+	}
+	accepted := evalExpr(expr, universe, nil)
+	out := make([]namedEntity, 0, len(accepted))
+	for _, e := range all {
+		if _, ok := accepted[e.Name]; ok {
+			out = append(out, e)
 		}
 	}
 	return out, nil

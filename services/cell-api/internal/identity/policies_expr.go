@@ -77,6 +77,39 @@ func ValidateExpr(root *PolicyExpr) error {
 	return validateExprNode(root, 1, &n)
 }
 
+// validateNameOnlyExpr is ValidateExpr plus a restriction: every leaf
+// must match the NAME, never an attribute.
+//
+// Integration and system policies evaluate their tree against a universe
+// of names, with no attribute map behind it. An attribute leaf there is
+// not an error the evaluator would report — it simply matches nothing,
+// forever, in a policy that looks correct. Rejecting it at write time is
+// the only place anybody finds out.
+func validateNameOnlyExpr(root *PolicyExpr) error {
+	if err := ValidateExpr(root); err != nil {
+		return err
+	}
+	return forbidAttrLeaves(root)
+}
+
+func forbidAttrLeaves(e *PolicyExpr) error {
+	if e == nil {
+		return nil
+	}
+	if e.isOperator() {
+		for i := range e.Children {
+			if err := forbidAttrLeaves(&e.Children[i]); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if e.Attr != "" {
+		return fmt.Errorf("this policy matches names, so a condition on attribute %q cannot apply", e.Attr)
+	}
+	return nil
+}
+
 func validateExprNode(e *PolicyExpr, depth int, count *int) error {
 	*count++
 	if depth > exprMaxDepth {

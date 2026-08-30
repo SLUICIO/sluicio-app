@@ -26,6 +26,11 @@ var (
 // and the auth handlers need.
 type Store struct {
 	pool *pgxpool.Pool
+	// Listers for name-pattern access policies; see SetEntityListers in
+	// policies.go. nil means a pattern matches nothing, so an unwired
+	// cell grants less rather than more.
+	listIntegrations entityLister
+	listSystems      entityLister
 	// mfaKey is the 32-byte AES-GCM key used to encrypt TOTP secrets at
 	// rest. Injected at startup via SetMFAKey; nil means MFA enrollment is
 	// unavailable (the handlers report a clear error rather than storing a

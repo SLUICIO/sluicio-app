@@ -2538,10 +2538,19 @@ function CreatePolicyForm({
   const [error, setError] = useState<string | null>(null);
 
   const wantsService = kind === "service" || kind === "compound";
-  const wantsIntegration = kind === "integration" || kind === "compound";
+  // integration and system each take EITHER one target or a name
+  // pattern. Kept as a toggle inside the kind rather than as two more
+  // kinds: what is granted is the same thing, and only how it is named
+  // differs.
+  const [byPattern, setByPattern] = useState(
+    !!policy?.conditions && (policy.kind === "integration" || policy.kind === "system"),
+  );
+  const patternable = kind === "integration" || kind === "system";
+  const usePattern = patternable && byPattern;
+  const wantsIntegration = (kind === "integration" && !usePattern) || kind === "compound";
   const wantsAttrs = kind === "attributes" || kind === "compound";
   const wantsSystem = kind === "system";
-  const wantsExpr = kind === "expression";
+  const wantsExpr = kind === "expression" || usePattern;
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -2629,6 +2638,26 @@ function CreatePolicyForm({
             placeholder="OrderService"
             required
           />
+        </label>
+      )}
+      {patternable && (
+        <label className="form__label">
+          How to name the target
+          <div className="m-seg" style={{ marginTop: 4 }}>
+            <button type="button" className={`m-seg-b ${!byPattern ? "on" : ""}`} onClick={() => setByPattern(false)}>
+              {kind === "system" ? "By kind" : "Pick one"}
+            </button>
+            <button type="button" className={`m-seg-b ${byPattern ? "on" : ""}`} onClick={() => setByPattern(true)}>
+              By name pattern
+            </button>
+          </div>
+          <span className="form__hint">
+            {byPattern
+              ? `Matches every ${kind} whose NAME satisfies the rule below, including ones created later. Conditions combine, so "starts with abc" AND "ends with -at" is one policy.`
+              : kind === "system"
+                ? "Grants systems of one kind, or every flagged system."
+                : "Grants exactly the integration you choose."}
+          </span>
         </label>
       )}
       {wantsIntegration && (

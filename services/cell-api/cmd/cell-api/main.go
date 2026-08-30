@@ -299,6 +299,35 @@ func main() {
 	alertEngine := alerting.NewEngine(alertStore, metricEvaluatorAdapter{chStore, catalogStore, integrations.DefaultOrgID}, logCounterAdapter{chStore, catalogStore, integrations.DefaultOrgID}, traceErrorCounterAdapter{chStore, catalogStore, erroracksStore, integrations.DefaultOrgID}, integrations.DefaultOrgID, logger)
 	// Route deliveries through global/integration/team channels when a rule
 	// has none of its own.
+	// Name-pattern access policies resolve "integrations called abc*" to
+	// concrete ids at grant time, so identity needs a way to enumerate
+	// them. Injected rather than imported, keeping identity at the bottom
+	// of the dependency graph like the expanders above it.
+	identityStore.SetEntityListers(
+		func(ctx context.Context, orgID uuid.UUID) ([]identity.NamedEntity, error) {
+			rows, err := integrationStore.List(ctx, orgID)
+			if err != nil {
+				return nil, err
+			}
+			out := make([]identity.NamedEntity, 0, len(rows))
+			for _, r := range rows {
+				out = append(out, identity.NamedEntity{ID: r.ID, Name: r.Name})
+			}
+			return out, nil
+		},
+		func(ctx context.Context, orgID uuid.UUID) ([]identity.NamedEntity, error) {
+			rows, err := catalogStore.ListSystems(ctx, orgID)
+			if err != nil {
+				return nil, err
+			}
+			out := make([]identity.NamedEntity, 0, len(rows))
+			for _, r := range rows {
+				out = append(out, identity.NamedEntity{ID: r.ID, Name: r.Name})
+			}
+			return out, nil
+		},
+	)
+
 	alertEngine.SetChannelResolver(profilesStore)
 	// Trace-latency rules ("response time over X") read the same service set
 	// as trace_error, then ask ClickHouse for the windowed quantile latency.
