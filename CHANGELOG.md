@@ -3,8 +3,14 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.130 — 2026-08-30
+
+- fix(rbac): make the pattern editor say what it actually matches (b58d719)
+- feat(rbac): grant integrations and systems by name pattern (7d884ab)
+
 ## v0.11.129 — 2026-08-29
 
+- release v0.11.129 — refresh internal changelog (ce14a9e)
 - feat(rbac): edit a group's access policy instead of deleting and rebuilding it (d464659)
 
 ## v0.11.128 — 2026-08-29
