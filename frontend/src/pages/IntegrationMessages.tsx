@@ -865,7 +865,7 @@ export default function IntegrationMessagesPage() {
             empty={
               <div className="px-4 py-6 text-sm text-muted">
                 {delayedOnly
-                  ? "No delayed traces in this window. When a trace breaches a completion SLA it'll appear here."
+                  ? "No delayed messages in this window. When one breaches a completion SLA it'll appear here."
                   : hasResults
                     ? "No messages match in this integration for the current filters."
                     : "Set up filters above to run a search."}
@@ -1008,7 +1008,7 @@ export default function IntegrationMessagesPage() {
                     type="button"
                     className="text-right text-xs hover:underline"
                     style={{ color: "var(--warn)" }}
-                    title="Mark this delayed trace as handled (e.g. the message was resent). It stops counting as delayed."
+                    title="Mark this delayed message as handled (e.g. it was resent). It stops counting as delayed."
                     onClick={(e) => {
                       e.stopPropagation();
                       void markTraceHandled(r.trace_id);

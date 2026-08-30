@@ -184,8 +184,8 @@ export default function IntegrationErrors() {
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <SummaryTile label="unacknowledged errors" value={openCount} tone={openCount > 0 ? "err" : "ok"} />
             <SummaryTile label="failing health checks" value={checksCount} tone={checksCount > 0 ? "err" : "ok"} />
-            <SummaryTile label="failed traces" value={failedCount} tone={failedCount > 0 ? "err" : "ok"} />
-            <SummaryTile label="delayed traces" value={delayedCount} tone={delayedCount > 0 ? "warn" : "ok"} />
+            <SummaryTile label="failed messages" value={failedCount} tone={failedCount > 0 ? "err" : "ok"} />
+            <SummaryTile label="delayed messages" value={delayedCount} tone={delayedCount > 0 ? "warn" : "ok"} />
           </div>
 
           {allClear ? (
@@ -197,7 +197,7 @@ export default function IntegrationErrors() {
                 All clear
               </div>
               <p className="mt-1 text-sm text-muted">
-                No failing health checks, failed traces, or delayed traces in this window.
+                No failing health checks, failed messages, or delayed messages in this window.
               </p>
             </section>
           ) : (
@@ -293,7 +293,7 @@ export default function IntegrationErrors() {
                 title="Failed traces"
                 count={failedCount}
                 subtitle="Traces with an error span on one of this integration's services."
-                empty="No failed traces."
+                empty="No failed messages."
                 footer={
                   failedCount > 0 ? (
                     <Link
@@ -329,7 +329,7 @@ export default function IntegrationErrors() {
                 ))}
                 {failedCount > 0 && errorTraces.length === 0 && (
                   <div className="px-4 py-3 text-sm text-muted">
-                    {formatNumber(failedCount)} failed trace{failedCount === 1 ? "" : "s"} in this window — view them on the Messages tab.
+                    {formatNumber(failedCount)} failed message{failedCount === 1 ? "" : "s"} in this window — view them on the Messages tab.
                   </div>
                 )}
               </Section>
@@ -339,7 +339,7 @@ export default function IntegrationErrors() {
                 title="Delayed traces"
                 count={delayedCount}
                 subtitle="Traces that breached a trace-completion SLA and haven't been handled."
-                empty="No delayed traces."
+                empty="No delayed messages."
                 footer={
                   delayedCount > 0 ? (
                     <Link
@@ -347,7 +347,7 @@ export default function IntegrationErrors() {
                       className="text-xs hover:underline"
                       style={{ color: "var(--primary)" }}
                     >
-                      View all delayed traces →
+                      View all delayed messages →
                     </Link>
                   ) : undefined
                 }
@@ -387,7 +387,7 @@ export default function IntegrationErrors() {
                 ))}
                 {delayedCount > 0 && delayed.length === 0 && (
                   <div className="px-4 py-3 text-sm text-muted">
-                    {formatNumber(delayedCount)} delayed trace{delayedCount === 1 ? "" : "s"} in this window — view them on the Messages tab.
+                    {formatNumber(delayedCount)} delayed message{delayedCount === 1 ? "" : "s"} in this window — view them on the Messages tab.
                   </div>
                 )}
               </Section>
@@ -419,7 +419,7 @@ function OpenErrorRow({
 }) {
   const [busy, setBusy] = useState(false);
   const acknowledge = async () => {
-    if (!window.confirm(`Acknowledge ${formatNumber(err.error_traces)} error trace${err.error_traces === 1 ? "" : "s"} on ${err.service_name}? New error traces after this re-open it.`)) {
+    if (!window.confirm(`Acknowledge ${formatNumber(err.error_traces)} failed message${err.error_traces === 1 ? "" : "s"} on ${err.service_name}? New error traces after this re-open it.`)) {
       return;
     }
     setBusy(true);
@@ -443,7 +443,7 @@ function OpenErrorRow({
           {err.service_name}
         </ServiceRef>
         <div className="text-xs text-muted">
-          {formatNumber(err.error_traces)} unacknowledged error trace{err.error_traces === 1 ? "" : "s"} · since {formatRelative(err.first_error_at)}
+          {formatNumber(err.error_traces)} unacknowledged failed message{err.error_traces === 1 ? "" : "s"} · since {formatRelative(err.first_error_at)}
         </div>
       </div>
       <div className="truncate text-xs">

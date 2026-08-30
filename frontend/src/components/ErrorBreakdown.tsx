@@ -25,7 +25,7 @@ import { useCurrentUser } from "../lib/useCurrentUser";
 import CreateTraceAlertDrawer from "./CreateTraceAlertDrawer";
 
 // The Messages tab understands ?s=<status>; "err only" pre-filters the
-// integration's message list to failed traces.
+// integration's message list to failed messages.
 const ERRORS_ONLY_QUERY = `?s=${encodeURIComponent("err only")}`;
 
 interface Breakdown {
@@ -79,8 +79,8 @@ export default function ErrorBreakdown({
   // Computed BEFORE the "no error traces" early return below, which
   // sums per-service counts that respect the acknowledgement watermark.
   // The page header counts raw failing traces in the window, so an
-  // integration whose errors were acknowledged showed "3 error traces"
-  // at the top and "No error traces 🎉" immediately underneath. The
+  // integration whose errors were acknowledged showed "3 failed messages"
+  // at the top and "No failed messages 🎉" immediately underneath. The
   // server attribution agrees with the header, so it has to be able to
   // speak before the client-side sum declares the all-clear.
   // One service carrying this integration: "100% of failures come from
@@ -98,9 +98,9 @@ export default function ErrorBreakdown({
     return (
       <div className="space-y-3">
         <div>
-          <h3 className="text-lg font-semibold">Where are the error traces?</h3>
+          <h3 className="text-lg font-semibold">Where are the failures?</h3>
           <p className="text-xs text-muted">
-            {formatNumber(byDimension.error_traces)} failing trace
+            {formatNumber(byDimension.error_traces)} failed message
             {byDimension.error_traces === 1 ? "" : "s"} · {byDimension.reason}
           </p>
         </div>
@@ -188,12 +188,12 @@ export default function ErrorBreakdown({
           {canOpenServices ? (
             <>
               <div className="font-semibold">
-                No error traces in this window, but {unhealthy.length} service
+                No failed messages in this window, but {unhealthy.length} service
                 {unhealthy.length === 1 ? " is" : "s are"} unhealthy.
               </div>
               <div className="mt-1" style={{ opacity: 0.85 }}>
                 A failing health check (metric or log) can flip a service unhealthy without producing
-                error traces. Open the service to see which check is failing:
+                failed messages. Open the service to see which check is failing:
               </div>
               <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
                 {unhealthy.map((s) => (
@@ -211,7 +211,7 @@ export default function ErrorBreakdown({
           ) : (
             <>
               <div className="font-semibold">
-                No error traces in this window, but this integration is unhealthy.
+                No failed messages in this window, but this integration is unhealthy.
               </div>
               <div className="mt-1" style={{ opacity: 0.85 }}>
                 A failing health check can flip an integration unhealthy without producing a single
@@ -227,7 +227,7 @@ export default function ErrorBreakdown({
         className="rounded-md border p-4 text-sm text-muted"
         style={{ borderColor: "var(--border)" }}
       >
-        No error traces in this window. 🎉
+        No failed messages in this window. 🎉
       </div>
     );
   }
@@ -252,9 +252,9 @@ export default function ErrorBreakdown({
     <div className="space-y-3">
       <div className="flex items-baseline justify-between">
         <div>
-          <h3 className="text-lg font-semibold">Where are the error traces?</h3>
+          <h3 className="text-lg font-semibold">Where are the failures?</h3>
           <p className="text-xs text-muted">
-            {total} error trace{total === 1 ? "" : "s"}
+            {total} failed message{total === 1 ? "" : "s"}
             {canOpenServices && (
               <>
                 {" "}across {breakdowns.length} service{breakdowns.length === 1 ? "" : "s"}
@@ -309,7 +309,7 @@ export default function ErrorBreakdown({
         </div>
         ) : (
           <div className="text-base leading-snug">
-            {formatNumber(total)} failed trace{total === 1 ? "" : "s"} in this window.
+            {formatNumber(total)} failed message{total === 1 ? "" : "s"} in this window.
           </div>
         )}
         <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-sm">

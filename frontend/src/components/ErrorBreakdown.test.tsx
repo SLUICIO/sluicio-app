@@ -45,7 +45,8 @@ describe("ErrorBreakdown without service access", () => {
   it("names no service anywhere", async () => {
     canOpen.value = false;
     view();
-    expect(await screen.findByText(/failed trace/i)).toBeTruthy();
+    // The subtitle and the callout both say it now, hence findAll.
+    expect((await screen.findAllByText(/failed message/i)).length).toBeGreaterThan(0);
     expect(screen.queryByText(/order-fulfillment/)).toBeNull();
     expect(screen.queryByText(/Queue input/)).toBeNull();
     expect(screen.queryByText(/of failures/)).toBeNull();

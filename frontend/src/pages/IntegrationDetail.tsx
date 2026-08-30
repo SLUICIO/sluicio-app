@@ -366,18 +366,18 @@ export default function IntegrationDetailPage() {
               tone={stats.successPct >= 99 ? "ok" : stats.successPct >= 95 ? "warn" : "err"}
             />
             <MetricTile
-              label="error traces"
+              label="failed messages"
               value={formatNumber(stats.errors)}
               tone={stats.errors > 0 ? "err" : "default"}
               to={stats.errors > 0 ? `/integrations/${encodeURIComponent(id)}/errors` : undefined}
-              title={stats.errors > 0 ? "See the error traces on the Errors tab" : undefined}
+              title={stats.errors > 0 ? "See the failed messages on the Errors tab" : undefined}
             />
             <MetricTile
               label="delayed (open)"
               value={delayedCount === null ? "—" : formatNumber(delayedCount)}
               tone={delayedCount && delayedCount > 0 ? "warn" : "default"}
               to={`/integrations/${encodeURIComponent(id)}/messages?delayed=1`}
-              title="View delayed traces on the Messages tab"
+              title="View delayed messages on the Messages tab"
             />
             {/* Dropped for a reader who cannot open a service (issue
                 #32). It counts things they are refused, and a number

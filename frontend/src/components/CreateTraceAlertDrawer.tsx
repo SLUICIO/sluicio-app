@@ -43,6 +43,12 @@ export default function CreateTraceAlertDrawer({
   onClose: () => void;
 }) {
   const scopeNoun = serviceName ? "this service" : "this integration's services";
+  // Same drawer, two lenses. On a service the reader is looking at spans and
+  // the word is "trace"; on an integration they are looking at business
+  // events and the word is "message" - which is also what that surface's own
+  // API field is called (error_message_count). One noun for both would be
+  // wrong on one of them.
+  const failureNoun = serviceName ? "trace" : "message";
   const [channels, setChannels] = useState<NotificationChannel[]>([]);
   const [name, setName] = useState("Failed traces");
   const [threshold, setThreshold] = useState(1);
@@ -102,14 +108,14 @@ export default function CreateTraceAlertDrawer({
   };
 
   return (
-    <EditDrawer title="Alert on failed traces" width="narrow" onClose={onClose}>
+    <EditDrawer title={`Alert on failed ${failureNoun}s`} width="narrow" onClose={onClose}>
       {done ? (
         <div className="p-1">
           <div className="text-sm" style={{ color: "var(--ok)" }}>
             Alert rule created.
           </div>
           <p className="muted mt-1" style={{ fontSize: 13 }}>
-            It fires when {scopeNoun} {serviceName ? "has" : "have"} ≥ {threshold} failed trace
+            It fires when {scopeNoun} {serviceName ? "has" : "have"} ≥ {threshold} failed {failureNoun}
             {threshold === 1 ? "" : "s"} in the selected window. Manage it on the{" "}
             <Link to="/alerts" style={{ color: "var(--primary)" }} className="hover:underline">
               Alerts page
@@ -126,7 +132,7 @@ export default function CreateTraceAlertDrawer({
         <form onSubmit={submit} className="form" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {error && <div className="alert alert--error">{error}</div>}
           <p className="muted" style={{ fontSize: 13, lineHeight: 1.5 }}>
-            Notifies you when {scopeNoun} accumulate failed traces (a trace with
+            Notifies you when {scopeNoun} accumulate failed {failureNoun}s (a trace with
             an error span) above a threshold.
           </p>
           <label className="form__label">
@@ -143,7 +149,7 @@ export default function CreateTraceAlertDrawer({
                 value={threshold}
                 onChange={(e) => setThreshold(Math.max(1, parseInt(e.target.value || "1", 10)))}
               />
-              <span className="form__hint">failed traces</span>
+              <span className="form__hint">failed {failureNoun}s</span>
             </label>
             <label className="form__label" style={{ flex: 1 }}>
               Within
