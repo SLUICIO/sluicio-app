@@ -538,6 +538,38 @@ func (s *Store) ClaimDueJobs(ctx context.Context, limit int) ([]DeliveryJob, err
 	return jobs, nil
 }
 
+// ReclaimStuckJobs re-queues deliveries stranded in 'running'.
+//
+// ClaimDueJobs flips a job to 'running' before the delivery is attempted,
+// and only MarkJobSucceeded / MarkJobFailed move it out again. If the
+// process dies in between - a crash, an OOM kill, or the container being
+// recreated during an upgrade - the job stays 'running' for ever, and the
+// claim query only ever looks at 'pending'. The notification is dropped
+// with nothing to say so.
+//
+// Reclaiming counts as an attempt, so a delivery that reliably kills the
+// worker is still bounded by maxAttempts rather than looping for ever.
+//
+// This is at-least-once: a process that died AFTER the send but before
+// recording it will deliver again. For an alert that is the right way to
+// be wrong - a duplicate is noise, a silent drop is the thing the product
+// exists to prevent.
+func (s *Store) ReclaimStuckJobs(ctx context.Context, olderThan time.Duration) (int64, error) {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE notification_jobs
+		 SET state = 'pending',
+		     attempts = attempts + 1,
+		     last_error = 'delivery interrupted (worker restarted); re-queued',
+		     next_attempt_at = now(),
+		     updated_at = now()
+		 WHERE state = 'running' AND updated_at < now() - $1::interval`,
+		olderThan)
+	if err != nil {
+		return 0, fmt.Errorf("reclaim stuck jobs: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 // MarkJobSucceeded closes a job after a successful delivery, recording
 // the rendered subject/body that was actually sent (for the
 // delivery-history view).

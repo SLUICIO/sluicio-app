@@ -156,6 +156,12 @@ type Engine struct {
 	evalInterval time.Duration
 	deliveryPoll time.Duration
 	maxAttempts  int
+	// A claimed job still 'running' after stuckAfter is assumed to belong
+	// to a worker that is gone. Comfortably above any single delivery
+	// (the HTTP client times out at 10s, SMTP well inside a minute), so
+	// the sweep cannot race a delivery that is merely slow.
+	stuckAfter      time.Duration
+	reclaimInterval time.Duration
 	client       *http.Client
 
 	// Short-TTL cache of the org's active maintenance windows, consulted
@@ -380,6 +386,9 @@ func NewEngine(store *Store, eval MetricEvaluator, logEval LogCounter, traceEval
 		evalInterval: 30 * time.Second,
 		deliveryPoll: 5 * time.Second,
 		maxAttempts:  5,
+
+		stuckAfter:      5 * time.Minute,
+		reclaimInterval: time.Minute,
 		client:       &http.Client{Timeout: 10 * time.Second},
 	}
 	if d := envDuration("ALERT_EVAL_INTERVAL"); d > 0 {
@@ -425,6 +434,11 @@ func (e *Engine) Run(ctx context.Context) {
 	// off the set of firing unacked instances (independent of which signal
 	// opened them).
 	go e.loop(ctx, e.evalInterval, e.renotifyOnce)
+	// Immediately, not on the first tick: the jobs worth recovering are
+	// the ones the PREVIOUS process left behind, and an upgrade is
+	// exactly when they appear.
+	e.reclaimOnce(ctx)
+	go e.loop(ctx, e.reclaimInterval, e.reclaimOnce)
 	e.loop(ctx, e.deliveryPoll, e.deliverOnce)
 }
 
@@ -1009,6 +1023,20 @@ func (e *Engine) renotifyInstance(ctx context.Context, instanceID uuid.UUID, rul
 		e.log.Error("renotify: mark notified failed", "instance", instanceID, "err", err)
 	}
 	e.log.Info("alert "+reason, "rule", rule.Name, "instance", instanceID)
+}
+
+// reclaimOnce re-queues deliveries left 'running' by a worker that died
+// mid-send. Logged at info when it finds any: a restart during delivery
+// is normal, silently losing the notification is not.
+func (e *Engine) reclaimOnce(ctx context.Context) {
+	n, err := e.store.ReclaimStuckJobs(ctx, e.stuckAfter)
+	if err != nil {
+		e.log.Error("alert delivery: reclaim stuck jobs failed", "err", err)
+		return
+	}
+	if n > 0 {
+		e.log.Info("alert delivery: re-queued interrupted deliveries", "jobs", n, "stuck_after", e.stuckAfter)
+	}
 }
 
 // deliverOnce claims due jobs and delivers them, recording success or a
