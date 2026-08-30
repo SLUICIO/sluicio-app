@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.136 — 2026-08-30
+
+- fix(alerts): a delivery interrupted by a restart is no longer lost (2cefc03)
+
 ## v0.11.135 — 2026-08-30
 
+- release v0.11.135 — refresh internal changelog (7d0fd4e)
 - feat(alerts): notification channels can be edited (0816288)
 - fix(editor): the code editor follows the app into dark mode (0460e70)
 - fix(alerts): notifications carry the partner's name, not ours (704c372)
