@@ -3,6 +3,7 @@
 package alerting
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -12,7 +13,7 @@ import (
 // trusts a preview from a second implementation finds out it disagreed when an
 // alert fails to arrive.
 func TestWebhookPreviewRendersTheTemplate(t *testing.T) {
-	out, err := RenderWebhookPreview(
+	out, err := RenderWebhookPreview(context.Background(),
 		`{"from":{"email":"alerts@example.com"},"subject":"$alert.summary","severity":"$alert.severity"}`,
 		NotificationContent{}, SampleAlertContext())
 	if err != nil {
@@ -33,7 +34,7 @@ func TestWebhookPreviewRendersTheTemplate(t *testing.T) {
 // An empty template previews the built-in payload, which is what an empty
 // template delivers.
 func TestWebhookPreviewFallsBackToTheDefaultPayload(t *testing.T) {
-	out, err := RenderWebhookPreview("  ", NotificationContent{}, SampleAlertContext())
+	out, err := RenderWebhookPreview(context.Background(), "  ", NotificationContent{}, SampleAlertContext())
 	if err != nil {
 		t.Fatalf("preview failed: %v", err)
 	}
@@ -47,7 +48,7 @@ func TestWebhookPreviewFallsBackToTheDefaultPayload(t *testing.T) {
 // A typo in a path must fail loudly in the editor rather than silently
 // delivering null.
 func TestWebhookPreviewRejectsAnUnknownPath(t *testing.T) {
-	if _, err := RenderWebhookPreview(`{"x":"$alert.sumary"}`, NotificationContent{}, SampleAlertContext()); err == nil {
+	if _, err := RenderWebhookPreview(context.Background(), `{"x":"$alert.sumary"}`, NotificationContent{}, SampleAlertContext()); err == nil {
 		t.Fatal("expected an error for an unknown path")
 	}
 }

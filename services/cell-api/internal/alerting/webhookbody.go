@@ -75,6 +75,23 @@ func refPath(m []string) string {
 	return m[2]
 }
 
+// TemplateReferencesEmail reports whether a body template mentions any
+// email.* binding, so delivery only pays for rendering the email when the
+// template actually asks for it - resolving the template ladder reads the
+// settings store, and most webhook bodies never mention it.
+//
+// Scans the raw text rather than the parsed document: a template that no
+// longer parses has already fallen back to the canonical payload, and
+// answering "no" there costs nothing.
+func TemplateReferencesEmail(tmpl string) bool {
+	for _, m := range refPattern.FindAllStringSubmatch(tmpl, -1) {
+		if p := refPath(m); p == "email" || strings.HasPrefix(p, "email.") {
+			return true
+		}
+	}
+	return false
+}
+
 // ValidateWebhookTemplate parses a template and checks every reference
 // against the known variable paths.
 //

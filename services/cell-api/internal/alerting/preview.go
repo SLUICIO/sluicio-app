@@ -113,7 +113,7 @@ func SampleAlertContext() *AlertContext {
 // built-in payload. Same code path delivery uses, so what the editor shows is
 // what the receiver gets — a preview rendered by a second implementation
 // would agree right up to the case that matters.
-func RenderWebhookPreview(tmpl string, content NotificationContent, c *AlertContext) (string, error) {
+func RenderWebhookPreview(ctx context.Context, tmpl string, content NotificationContent, c *AlertContext) (string, error) {
 	tmpl = strings.TrimSpace(tmpl)
 	if tmpl == "" {
 		raw, _ := json.MarshalIndent(c.webhookPayload(content), "", "  ")
@@ -122,7 +122,19 @@ func RenderWebhookPreview(tmpl string, content NotificationContent, c *AlertCont
 	if _, err := ValidateWebhookTemplate(tmpl); err != nil {
 		return "", err
 	}
-	rendered, ok := RenderWebhookTemplate(tmpl, c.bindings(content))
+	b := c.bindings(content)
+	if TemplateReferencesEmail(tmpl) {
+		// Resolve the real ladder, not a placeholder. A preview that shows
+		// an empty email.html while delivery posts the org's designed mail
+		// is the failure this whole editor exists to prevent: the author
+		// concludes the binding is broken and rebuilds something that
+		// worked. A zero job scopes the walk to the org/cell default -
+		// which rule will fire is not knowable here, so a rule-inline
+		// override cannot be previewed.
+		b["email"] = c.emailParts(ctx, DeliveryJob{}, content, false,
+			c.Alert.Summary, withLink(c.Alert.Summary, c.Org.Product, c.Alert.Link)).bindings()
+	}
+	rendered, ok := RenderWebhookTemplate(tmpl, b)
 	if !ok {
 		return "", errors.New("template could not be rendered")
 	}

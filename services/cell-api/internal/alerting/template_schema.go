@@ -17,6 +17,10 @@ import (
 	"strings"
 )
 
+// ScopeWebhook marks a variable offered only in the webhook body
+// template.
+const ScopeWebhook = "webhook"
+
 // TemplateVariable is one palette entry.
 type TemplateVariable struct {
 	Path        string `json:"path"`
@@ -29,6 +33,11 @@ type TemplateVariable struct {
 	// firing — the difference between "check.value" meaning nothing and
 	// meaning "4.2%". Empty when the sample has nothing for the path.
 	Sample string `json:"sample,omitempty"`
+	// Scope limits where a variable is offered. Empty = everywhere.
+	// "webhook" = the webhook body template only: email.* is the rendered
+	// email, which inside an email template would be the template asking
+	// for its own output.
+	Scope string `json:"scope,omitempty"`
 }
 
 // varDoc is the hand-maintained half: description + availability per
@@ -80,6 +89,22 @@ var templateVariableDocs = map[string]varDoc{
 	"include.integration":          {"true when the rule includes the integration block", "always"},
 	"include.service_metadata":     {"true when the rule includes service metadata", "always"},
 	"include.integration_metadata": {"true when the rule includes integration metadata", "always"},
+
+	// Webhook-only: the rendered email, for a receiver that is itself an
+	// email sender. See webhookEmailPaths.
+	"email.subject": {"the alert email's subject, from the org/team template ladder", "webhook body templates"},
+	"email.text":    {"the alert email's plaintext body", "webhook body templates"},
+	"email.html":    {"the alert email's HTML body, exactly as an email channel would send it", "webhook body templates"},
+}
+
+// webhookEmailPaths are offered in the webhook body template only. They
+// carry the rendered email so a receiver that sends mail (AhaSend,
+// Postmark, SES) posts the message the org already designed, rather than
+// a second, plainer one hand-written into the webhook body.
+var webhookEmailPaths = map[string]string{
+	"email.subject": "string",
+	"email.text":    "string",
+	"email.html":    "string",
 }
 
 // includePaths are the non-reflected `include.*` bindings (see above).
@@ -127,12 +152,21 @@ func TemplateContextSchema() []TemplateVariable {
 	samples := SampleAlertContext().bindings(NotificationContent{
 		Service: true, Integration: true, ServiceMetadata: true, IntegrationMetadata: true, Check: true,
 	})
-	out := make([]TemplateVariable, 0, len(paths))
+	out := make([]TemplateVariable, 0, len(paths)+len(webhookEmailPaths))
 	for path, typ := range paths {
 		doc := templateVariableDocs[path] // zero value when missing — the test catches it
 		out = append(out, TemplateVariable{
 			Path: path, Type: typ, Description: doc.Description, Available: doc.Available,
 			Sample: sampleFor(samples, path),
+		})
+	}
+	// Not reflected from AlertContext: these are rendered output, not
+	// context, and they exist only for the webhook body.
+	for path, typ := range webhookEmailPaths {
+		doc := templateVariableDocs[path]
+		out = append(out, TemplateVariable{
+			Path: path, Type: typ, Description: doc.Description, Available: doc.Available,
+			Scope: ScopeWebhook,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })

@@ -217,16 +217,9 @@ func messageFromJob(ctx context.Context, job DeliveryJob, product, env, company 
 		// Render the Liquid HTML email unless the rule carries a legacy Go
 		// text/template (whose author chose plaintext). A bad template falls
 		// back to the plaintext body via renderLiquid's ok=false.
-		if !legacyTmpl {
-			b := actx.bindings(content)
-			subTmpl, bodyTmpl := effectiveEmailTemplate(ctx, job, content)
-			if s, ok := renderLiquid(subTmpl, b); ok {
-				msg.Subject = s
-			}
-			if h, ok := renderLiquid(bodyTmpl, b); ok {
-				msg.BodyHTML = h
-			}
-		}
+		parts := actx.emailParts(ctx, job, content, legacyTmpl, msg.Subject, msg.Body)
+		msg.Subject = parts.Subject
+		msg.BodyHTML = parts.HTML
 	case ChannelSlack:
 		// Ladder-resolved Slack template (rule inline → team → org). No
 		// template anywhere = leave SlackText empty — the notifier's
@@ -258,7 +251,15 @@ func messageFromJob(ctx context.Context, job DeliveryJob, product, env, company 
 		// far better outcome than an alert that quietly went nowhere.
 		if tmpl := strings.TrimSpace(job.Channel.Config["body_template"]); tmpl != "" &&
 			strings.EqualFold(strings.TrimSpace(job.Channel.Config["format"]), FormatTemplate) {
-			if rendered, ok := RenderWebhookTemplate(tmpl, actx.bindings(content)); ok {
+			b := actx.bindings(content)
+			// Only when asked for: resolving the email template ladder
+			// reads the settings store, and most webhook bodies never
+			// mention email.*. The reference scan is a pass over at most
+			// 32 KB, against a database round trip per delivery.
+			if TemplateReferencesEmail(tmpl) {
+				b["email"] = actx.emailParts(ctx, job, content, legacyTmpl, msg.Subject, msg.Body).bindings()
+			}
+			if rendered, ok := RenderWebhookTemplate(tmpl, b); ok {
 				msg.Payload = rendered
 				return msg
 			}

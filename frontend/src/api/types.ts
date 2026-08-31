@@ -1784,6 +1784,11 @@ export interface TemplateVariable {
   available: string;
   // What this path renders as against the preview's sample firing.
   sample?: string;
+  // Where the variable is offered. Absent = everywhere; "webhook" = the
+  // webhook body template only (email.*, the rendered alert mail, which
+  // inside an email template would be the template asking for its own
+  // output). The palette endpoint omits scoped variables unless asked.
+  scope?: string;
 }
 
 export interface AlertRule {

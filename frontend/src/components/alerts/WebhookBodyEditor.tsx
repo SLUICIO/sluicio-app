@@ -25,7 +25,7 @@ const CodeEditor = lazy(() => import("../CodeEditor"));
 
 // A body that shows every rule worth knowing: a bare reference, an
 // interpolated one, and a literal the receiver requires.
-const STARTER = `{
+const STARTER_PLAIN = `{
   "from": { "email": "alerts@example.com" },
   "recipients": [{ "email": "oncall@example.com" }],
   "content": {
@@ -33,6 +33,33 @@ const STARTER = `{
     "text_body": "\${alert.summary}\\n\\n\${alert.link}"
   }
 }`;
+
+// The other half of the job: a receiver that is itself an email sender
+// wants the message the org already designed, not a plainer one written
+// again by hand here. email.* is the rendered mail, subject and both
+// bodies, straight out of the template ladder.
+const STARTER_EMAIL = `{
+  "from": { "email": "alerts@example.com" },
+  "recipients": [{ "email": "oncall@example.com" }],
+  "content": {
+    "subject": "$email.subject",
+    "html_body": "$email.html",
+    "text_body": "$email.text"
+  }
+}`;
+
+const STARTERS: { label: string; title: string; body: string }[] = [
+  {
+    label: "Start from an example",
+    title: "A body that writes the message itself, from the alert's own fields",
+    body: STARTER_PLAIN,
+  },
+  {
+    label: "Send the alert email",
+    title: "For a receiver that sends mail: posts the rendered alert email, subject and both bodies",
+    body: STARTER_EMAIL,
+  },
+];
 
 export default function WebhookBodyEditor({
   value,
@@ -51,7 +78,9 @@ export default function WebhookBodyEditor({
 
   useEffect(() => {
     void api
-      .templateContextSchema()
+      // Webhook scope, so the palette also carries email.* - the rendered
+      // alert mail, for a receiver that is itself an email sender.
+      .templateContextSchema("webhook")
       .then((r) => setVariables(r.variables ?? []))
       .catch(() => setVariables([]));
   }, []);
@@ -103,19 +132,22 @@ export default function WebhookBodyEditor({
             JSON. Write <code>{'"$alert.summary"'}</code> for the value itself, or{" "}
             <code>{"\"[${alert.severity}] ${rule.name}\""}</code> to build a string.
           </span>
-          {!disabled && (
-            <button
-              type="button"
-              className="btn btn--link"
-              style={{ padding: 0, fontSize: 11.5 }}
-              onClick={() => {
-                if (value.trim() && !window.confirm("Replace the body template with the example?")) return;
-                onChange(STARTER);
-              }}
-            >
-              Start from an example
-            </button>
-          )}
+          {!disabled &&
+            STARTERS.map((st) => (
+              <button
+                key={st.label}
+                type="button"
+                className="btn btn--link"
+                style={{ padding: 0, fontSize: 11.5 }}
+                title={st.title}
+                onClick={() => {
+                  if (value.trim() && !window.confirm(`Replace the body template with "${st.label}"?`)) return;
+                  onChange(st.body);
+                }}
+              >
+                {st.label}
+              </button>
+            ))}
         </div>
         <Suspense
           fallback={

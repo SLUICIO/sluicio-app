@@ -103,7 +103,7 @@ func (h *Handlers) previewAlertTemplate(w http.ResponseWriter, r *http.Request) 
 		// The body template has its own grammar (structural JSON, not
 		// Liquid), and its errors are the ones an author most needs to
 		// see: a bad path here means the receiver gets null.
-		body, err := alerting.RenderWebhookPreview(req.BodyTemplate, req.Content, alerting.SampleAlertContext())
+		body, err := alerting.RenderWebhookPreview(r.Context(), req.BodyTemplate, req.Content, alerting.SampleAlertContext())
 		if err != nil {
 			httpserver.WriteError(w, http.StatusBadRequest, err.Error())
 			return

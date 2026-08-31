@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -250,8 +251,19 @@ func (h *Handlers) putGroupNotificationTemplates(w http.ResponseWriter, r *http.
 // (any authed) — the editors' variable palette, reflected from
 // AlertContext. Paths are a public contract: additive only.
 func (h *Handlers) templateContextSchema(w http.ResponseWriter, r *http.Request) {
+	// Scope-filtered: the email and Slack editors must not be offered
+	// email.*, which inside an email template would be the template
+	// asking for its own output. Omitting the parameter returns exactly
+	// what it always did, so existing callers are unaffected.
+	scope := strings.TrimSpace(r.URL.Query().Get("scope"))
+	vars := make([]alerting.TemplateVariable, 0, 64)
+	for _, v := range alerting.TemplateContextSchema() {
+		if v.Scope == "" || v.Scope == scope {
+			vars = append(vars, v)
+		}
+	}
 	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
-		"variables": alerting.TemplateContextSchema(),
+		"variables": vars,
 		// The built-in templates, so the editor can offer "start from
 		// the default" instead of an empty field.
 		"defaults": alerting.StarterTemplates(),

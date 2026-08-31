@@ -33,9 +33,35 @@ Object **keys** are never substituted, and literals you write are passed through
 
 Because a text template that produces JSON breaks on the first alert whose summary contains a quote or a newline. The receiver answers `400`, and you find out when an alert does not arrive. Building the body structurally means values are encoded by the JSON serialiser, and any string can appear in any field.
 
+## Reusing the alert email
+
+A common receiver is itself an email sender. In that case the body does not want the alert's raw fields, it wants the message: the org already designed one in the notification templates, and writing a second, plainer one into the webhook body by hand means maintaining two.
+
+`email.subject`, `email.text` and `email.html` carry the rendered mail - resolved through the same rule → team → org ladder an email channel uses, so it is the message, not a lookalike:
+
+```json
+{
+  "from": { "email": "alerts@example.com" },
+  "recipients": [{ "email": "oncall@example.com" }],
+  "content": {
+    "subject": "$email.subject",
+    "html_body": "$email.html",
+    "text_body": "$email.text"
+  }
+}
+```
+
+Notes worth knowing:
+
+- The three values are exactly what an email channel would put in its multipart message. Change a team's template and both change together.
+- The ladder resolves per firing rule, so a webhook shared by several teams posts each team's own design. That is usually what you want; it does mean the same channel produces different-looking mail depending on who owns the rule.
+- A rule carrying its own plaintext template opted out of HTML, and `email.html` is empty for it - the same choice the mail itself honours.
+- The editor's preview resolves the org and team templates. Which rule will fire is not knowable there, so a rule-level override shows only once it actually delivers.
+- These variables exist in the webhook body only. Inside an email template they would be the template asking for its own output, so the email and Slack editors do not offer them.
+
 ## Variables
 
-The available paths are the same ones the email and Slack templates use - `alert.*`, `rule.*`, `check.*`, `service.*`, `integration.*`, `org.*` - and the editor lists them with sample values beside the field. `GET /api/v1/alerting/template-context-schema` returns the same list. The paths are an additive-only contract: existing ones keep working.
+The available paths are the same ones the email and Slack templates use - `alert.*`, `rule.*`, `check.*`, `service.*`, `integration.*`, `org.*` - plus the webhook-only `email.*` above, and the editor lists them with sample values beside the field. `GET /api/v1/alerting/template-context-schema?scope=webhook` returns the same list; without the parameter the response omits the webhook-only variables. The paths are an additive-only contract: existing ones keep working.
 
 A path that does not exist is rejected when the channel is saved, with the name of the offending reference. This is deliberate: the alternative is a body that delivers `null` forever and looks fine.
 

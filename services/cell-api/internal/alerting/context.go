@@ -223,6 +223,52 @@ func effectiveEmailTemplate(ctx context.Context, job DeliveryJob, content Notifi
 	return subject, body
 }
 
+// EmailParts is the subject, plaintext and HTML an email channel sends
+// for a job - the three pieces the multipart message is built from.
+//
+// Also handed to a webhook body template as email.subject / email.text /
+// email.html, so a receiver that is itself an email sender (AhaSend,
+// Postmark, SES) posts the message the org already designed instead of a
+// second, plainer one written into the webhook body by hand.
+type EmailParts struct {
+	Subject string `json:"subject"`
+	Text    string `json:"text"`
+	HTML    string `json:"html"`
+}
+
+// bindings is the shape the webhook renderer resolves paths against: it
+// walks map[string]any, so handing it the struct would leave every
+// $email.* reference unresolved - null in the body, silently, for ever.
+func (p EmailParts) bindings() map[string]any {
+	return map[string]any{"subject": p.Subject, "text": p.Text, "html": p.HTML}
+}
+
+// emailParts renders what an email channel would send. Deliberately the
+// ONE implementation: the email branch and the webhook email.* bindings
+// both call it, so "what the webhook posts" cannot drift from "what the
+// mail would have looked like" - which is the entire promise of the
+// feature.
+//
+// subject/text are the plaintext defaults already computed for the job
+// (summary line plus the deep link); they stand when no template renders.
+// legacy = the rule carries its own Go text/template, whose author chose
+// plaintext, so no HTML is produced - the same choice SMTP honours.
+func (c *AlertContext) emailParts(ctx context.Context, job DeliveryJob, content NotificationContent, legacy bool, subject, text string) EmailParts {
+	parts := EmailParts{Subject: subject, Text: text}
+	if legacy {
+		return parts
+	}
+	b := c.bindings(content)
+	subTmpl, bodyTmpl := effectiveEmailTemplate(ctx, job, content)
+	if s, ok := renderLiquid(subTmpl, b); ok {
+		parts.Subject = s
+	}
+	if h, ok := renderLiquid(bodyTmpl, b); ok {
+		parts.HTML = h
+	}
+	return parts
+}
+
 // effectiveSlackTemplate resolves the Slack title + body per field: rule
 // inline → team set → org set. BOTH empty = no template configured
 // anywhere — the notifier's built-in line (icon + state prefix +

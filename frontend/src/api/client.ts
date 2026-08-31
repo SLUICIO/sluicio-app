@@ -843,8 +843,13 @@ export const api = {
     ),
   putGroupNotificationTemplate: (groupId: string, body: Partial<NotificationTemplateSet>) =>
     put<NotificationTemplateSet>(`/settings/groups/${encodeURIComponent(groupId)}/notification-template`, body),
-  templateContextSchema: () =>
-    get<{ variables: TemplateVariable[]; defaults?: Record<string, string> }>(`/alerting/template-context-schema`),
+  // scope "webhook" adds the variables that only make sense in a webhook
+  // body (email.*, the rendered mail). Omitted, the response is what the
+  // email and Slack editors have always received.
+  templateContextSchema: (scope?: string) =>
+    get<{ variables: TemplateVariable[]; defaults?: Record<string, string> }>(
+      `/alerting/template-context-schema${scope ? `?scope=${encodeURIComponent(scope)}` : ""}`,
+    ),
 
   previewAlertTemplate: (kind: string, content: NotificationContent, bodyTemplate?: string) =>
     post<{ subject: string; body: string }>(`/alert-templates/preview`, {
