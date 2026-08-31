@@ -27,6 +27,9 @@ endpoint seals itself after the first login.)
   (add `-v` to also delete the data).
 - **Try Enterprise features:** set `SLUICIO_LICENSE_KEY` in your environment
   before `up` (see [`CONTRIBUTING.md`](../../CONTRIBUTING.md) for a dev key).
+  For a real deployment where the license is renewed each contract period,
+  use a token file instead so renewals need no restart - see
+  [license renewal](../../docs/license-renewal.md).
 
 > ⚠ **Evaluation / local use only.** This ships weak default passwords and no
 > TLS. For a real deployment use [`../server/`](../server/) (single host,

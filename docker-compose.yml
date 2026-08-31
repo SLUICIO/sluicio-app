@@ -82,6 +82,14 @@ services:
       # Optional Enterprise license. Set in your shell or a .env file to
       # light up EE features; empty = Community.
       SLUICIO_LICENSE_KEY: ${SLUICIO_LICENSE_KEY:-}
+      # Renewals without a restart: point this at a mounted token file and
+      # cell-api re-reads it (LICENSE_RELOAD_INTERVAL, default 1m), so a
+      # term-length license can be replaced by copying a file. Set
+      # LICENSE_DIR to the host directory holding license.key. Ignored when
+      # SLUICIO_LICENSE_KEY is set - an inline token cannot change without
+      # a restart, so it takes precedence and nothing is watched.
+      SLUICIO_LICENSE_FILE: ${SLUICIO_LICENSE_FILE:-}
+      LICENSE_RELOAD_INTERVAL: ${LICENSE_RELOAD_INTERVAL:-1m}
       # Optional MFA encryption key (base64 32 bytes). Unset = auto-
       # generated + persisted in cell_settings.
       SLUICIO_MFA_KEY: ${SLUICIO_MFA_KEY:-}
@@ -93,6 +101,11 @@ services:
       # shipping. Deploy-time only, on purpose — see docs/audit-log.md.
       SLUICIO_AUDIT_SINK_URL: ${SLUICIO_AUDIT_SINK_URL:-}
       SLUICIO_AUDIT_SINK_SECRET: ${SLUICIO_AUDIT_SINK_SECRET:-}
+    volumes:
+      # Read-only, and a directory rather than a single file: a bind mount
+      # of a file that does not exist yet is silently created as a
+      # directory, which fails in a way nobody enjoys diagnosing.
+      - ${LICENSE_DIR:-./deploy/server/license}:/etc/sluicio/license:ro
     ports:
       - "8081:8081"
 

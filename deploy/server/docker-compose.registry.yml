@@ -118,9 +118,22 @@ services:
       # Authoritative: when set, the in-app ingest-URL setting is read-only.
       SLUICIO_INGEST_URL: ${SLUICIO_INGEST_URL:-}
       SLUICIO_LICENSE_KEY: ${SLUICIO_LICENSE_KEY:-}
+      # Renewals without a restart: point this at a mounted token file and
+      # cell-api re-reads it (LICENSE_RELOAD_INTERVAL, default 1m), so a
+      # term-length license can be replaced by copying a file. Set
+      # LICENSE_DIR to the host directory holding license.key. Ignored when
+      # SLUICIO_LICENSE_KEY is set - an inline token cannot change without
+      # a restart, so it takes precedence and nothing is watched.
+      SLUICIO_LICENSE_FILE: ${SLUICIO_LICENSE_FILE:-}
+      LICENSE_RELOAD_INTERVAL: ${LICENSE_RELOAD_INTERVAL:-1m}
       # AES-256 key (base64) encrypting MFA TOTP secrets at rest; required for
       # MFA enrollment. Empty = MFA enrollment unavailable.
       SLUICIO_MFA_KEY: ${SLUICIO_MFA_KEY:-}
+    volumes:
+      # Read-only, and a directory rather than a single file: a bind mount
+      # of a file that does not exist yet is silently created as a
+      # directory, which fails in a way nobody enjoys diagnosing.
+      - ${LICENSE_DIR:-./license}:/etc/sluicio/license:ro
     ports:
       # reverse proxy forwards <ui-host>/api/* here. Override CELL_API_PORT
       # when running multiple instances on one host.

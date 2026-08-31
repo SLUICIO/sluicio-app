@@ -18,6 +18,7 @@
 package license
 
 import (
+	"context"
 	"crypto/ed25519"
 	_ "embed"
 	"encoding/base64"
@@ -145,6 +146,13 @@ type Manager struct {
 	mu     sync.RWMutex
 	pub    ed25519.PublicKey
 	claims *Claims // nil when unlicensed
+	// filePath is set when the license came from SLUICIO_LICENSE_FILE,
+	// which is the only case that can be watched: an inline
+	// SLUICIO_LICENSE_KEY cannot change without a restart anyway.
+	filePath string
+	// lastToken is the raw text last read from filePath, so an unchanged
+	// file costs a read and a string compare rather than a verify.
+	lastToken string
 }
 
 // NewManager builds a Manager around the embedded public key. It returns an
@@ -170,13 +178,129 @@ func (m *Manager) LoadFromEnv() error {
 		return m.Load(tok)
 	}
 	if path := strings.TrimSpace(os.Getenv("SLUICIO_LICENSE_FILE")); path != "" {
+		m.mu.Lock()
+		m.filePath = path
+		m.mu.Unlock()
 		b, err := os.ReadFile(path)
 		if err != nil {
 			return fmt.Errorf("license: read %s: %w", path, err)
 		}
-		return m.Load(string(b))
+		if err := m.Load(string(b)); err != nil {
+			return err
+		}
+		// Recorded only after a successful load, exactly as in
+		// ReloadFromFile. Recording it first would mark a token that was
+		// already invalid at startup as "current", so the watcher would
+		// call the file unchanged and never look again - and correcting a
+		// typo in the very first install would need the restart this
+		// exists to avoid.
+		m.mu.Lock()
+		m.lastToken = strings.TrimSpace(string(b))
+		m.mu.Unlock()
+		return nil
 	}
 	return nil
+}
+
+// FilePath is the license file being watched, or "" when the license came
+// from the inline variable or there is none.
+func (m *Manager) FilePath() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.filePath
+}
+
+// ReloadFromFile re-reads the license file and loads it if the contents
+// changed. Reports whether the license actually changed.
+//
+// Renewal is the normal case for term-length licenses: a quarterly
+// contract means a new key four times a year, and without this each one
+// costs a restart of the cell - on the customer's box, taking the UI and
+// alert evaluation down with it.
+//
+// Every failure keeps the license already in force. A file that is
+// missing, empty or half-written (the usual non-atomic copy) is a
+// transient state of the delivery, not a statement that the customer is
+// no longer entitled, and disabling their Enterprise features over it
+// would be a self-inflicted outage.
+func (m *Manager) ReloadFromFile() (bool, error) {
+	path := m.FilePath()
+	if path == "" {
+		return false, nil
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return false, fmt.Errorf("license: read %s: %w", path, err)
+	}
+	tok := strings.TrimSpace(string(b))
+	if tok == "" {
+		return false, fmt.Errorf("license: %s is empty", path)
+	}
+	m.mu.RLock()
+	unchanged := tok == m.lastToken
+	m.mu.RUnlock()
+	if unchanged {
+		return false, nil
+	}
+	if err := m.Load(tok); err != nil {
+		return false, err
+	}
+	// Recorded only after a successful load, so a rejected token is
+	// retried on the next tick rather than remembered as current.
+	m.mu.Lock()
+	m.lastToken = tok
+	m.mu.Unlock()
+	return true, nil
+}
+
+// WatchFile re-reads the license file every `every` until ctx is done,
+// calling onReload after each attempt that changed something or failed.
+// A no-op when the license did not come from a file.
+//
+// Polls rather than watching for filesystem events: a renewed license
+// arrives as a copy or an rsync, which replaces the inode and would break
+// a watch on the path itself. A few hundred bytes on an interval is
+// cheaper than being wrong about that.
+func (m *Manager) WatchFile(ctx context.Context, every time.Duration, onReload func(changed bool, err error)) {
+	if m.FilePath() == "" {
+		return
+	}
+	if every <= 0 {
+		every = time.Minute
+	}
+	t := time.NewTicker(every)
+	defer t.Stop()
+	// A file that stays broken is retried every tick - that is how fixing
+	// it takes effect without a restart - but reported only when the
+	// problem changes. Otherwise a token with a bad signature writes the
+	// same warning every interval for as long as the cell runs, and the
+	// one line that matters is buried under a thousand copies of itself.
+	var lastErr string
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			changed, err := m.ReloadFromFile()
+			switch {
+			case err != nil:
+				if err.Error() == lastErr {
+					continue
+				}
+				lastErr = err.Error()
+			default:
+				// Cleared, so the same problem recurring after a good
+				// period is reported again rather than swallowed.
+				lastErr = ""
+				if !changed {
+					continue
+				}
+			}
+			if onReload != nil {
+				onReload(changed, err)
+			}
+		}
+	}
 }
 
 // Load verifies a token's signature and stores its claims. On any error the

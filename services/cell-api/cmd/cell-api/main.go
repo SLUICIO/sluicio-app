@@ -190,6 +190,34 @@ func main() {
 	} else {
 		logger.Info("running without an enterprise license; EE features disabled")
 	}
+	// Watch the license file, when that is where the license came from.
+	// A term-length license is renewed as often as the contract runs -
+	// quarterly means four new keys a year - and without this each one
+	// costs a restart of the cell, taking the UI and alert evaluation
+	// down with it on the customer's own box.
+	if path := licenseMgr.FilePath(); path != "" {
+		every := env.Duration("LICENSE_RELOAD_INTERVAL", time.Minute)
+		logger.Info("watching the license file for renewals", "path", path, "interval", every)
+		go licenseMgr.WatchFile(ctx, every, func(changed bool, err error) {
+			if err != nil {
+				// Keeps the license already in force: a half-written or
+				// briefly missing file is the delivery in progress, not a
+				// customer who stopped being entitled.
+				logger.Warn("license reload failed; keeping the license in force", "path", path, "err", err)
+				return
+			}
+			if !changed {
+				return
+			}
+			st := licenseMgr.Status()
+			logger.Info("license reloaded", "customer", st.Customer, "plan", st.Plan,
+				"entitlements", st.Entitlements, "expires_at", st.ExpiresAt, "warning", st.Warning)
+		})
+	} else if os.Getenv("SLUICIO_LICENSE_KEY") != "" {
+		// Worth saying out loud: someone who sets both and then edits the
+		// file will watch nothing happen and have no way to tell why.
+		logger.Info("license came from SLUICIO_LICENSE_KEY; renewals need a restart (use SLUICIO_LICENSE_FILE to reload in place)")
+	}
 
 	chStore := store.New(chConn)
 	// cell-api's own loopback base, for the HTTP MCP endpoint's self-dispatch.

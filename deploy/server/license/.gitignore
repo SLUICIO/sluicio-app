@@ -1,0 +1,4 @@
+# The license token is per-customer and secret; only the directory is
+# tracked so the bind mount has something to attach to.
+*
+!.gitignore

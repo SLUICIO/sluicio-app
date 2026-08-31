@@ -44,7 +44,14 @@ services:
       SLUICIO_APP_URL: ${SLUICIO_APP_URL:-}
       SLUICIO_INGEST_URL: ${SLUICIO_INGEST_URL:-}
       SLUICIO_LICENSE_KEY: ${SLUICIO_LICENSE_KEY:-}
+      # Renewals without a restart: point this at a mounted token file and
+      # cell-api re-reads it, so a term-length license is replaced by
+      # copying a file. Ignored when SLUICIO_LICENSE_KEY is set.
+      SLUICIO_LICENSE_FILE: ${SLUICIO_LICENSE_FILE:-}
+      LICENSE_RELOAD_INTERVAL: ${LICENSE_RELOAD_INTERVAL:-1m}
       SLUICIO_MFA_KEY: ${SLUICIO_MFA_KEY:-}
+    volumes:
+      - ${LICENSE_DIR:-./license}:/etc/sluicio/license:ro
     ports:
       - "${CELL_API_PORT:-8081}:8081"
 
