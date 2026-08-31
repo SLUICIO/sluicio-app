@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.137 — 2026-08-31
+
+- feat(alerts): a webhook body can post the alert email itself (7c1a206)
+
 ## v0.11.136 — 2026-08-30
 
+- release v0.11.136 — refresh internal changelog (3095e45)
 - fix(alerts): a delivery interrupted by a restart is no longer lost (2cefc03)
 
 ## v0.11.135 — 2026-08-30
