@@ -50,49 +50,43 @@ func (s *Store) Conn() driver.Conn {
 type ServiceRow struct {
 	ServiceName      string
 	ServiceNamespace string
-	FirstSeen        time.Time
-	LastSeen         time.Time
-	TraceCount       uint64
-	ErrorTraceCount  uint64
+	// FirstSeen is zero from ListServices — see the note there. Read
+	// first_seen_at from the Postgres catalog instead.
+	FirstSeen       time.Time
+	LastSeen        time.Time
+	TraceCount      uint64
+	ErrorTraceCount uint64
 }
 
 // ListServices returns one row per service seen in the given range,
-// most recently active first. Each row carries an all-time FirstSeen
-// joined in from the unbounded traces table.
+// most recently active first.
+//
+// Counts are approximate (uniq, not uniqExact). Exact distinct counting
+// builds a hash set of every TraceId in the window, which is free at
+// 21k traces and is not at 588k - the Services page went from instant at
+// one hour to a visible wait at six, on the same nine services. The
+// number is a magnitude in a table cell; HyperLogLog's ~0.5% is invisible
+// there, and it stays exact at the low cardinalities where error counts
+// live.
+//
+// No FirstSeen. It used to be joined in from a 30-day scan of the whole
+// traces table on every call - ten read paths, every page render - and
+// nothing read it: the Services handler takes first_seen_at from the
+// Postgres catalog, and the reconciler that maintains it has its own
+// query (DiscoverServices). The field stays on ServiceRow, zero-valued,
+// rather than churning ten call sites.
 func (s *Store) ListServices(ctx context.Context, from, to time.Time) ([]ServiceRow, error) {
 	const q = `
 		SELECT
-			s.ServiceName,
-			s.ServiceNamespace,
-			s.LastSeen,
-			s.TraceCount,
-			s.ErrorTraceCount,
-			f.FirstSeen
-		FROM (
-			SELECT
-				ServiceName,
-				any(ServiceNamespace) AS ServiceNamespace,
-				max(Timestamp) AS LastSeen,
-				toUInt64(uniqExact(TraceId)) AS TraceCount,
-				toUInt64(uniqExactIf(TraceId, StatusCode = 'Error')) AS ErrorTraceCount
-			FROM traces
-			WHERE Timestamp >= ? AND Timestamp <= ?
-			GROUP BY ServiceName
-		) AS s
-		LEFT JOIN (
-			-- Bounded to the TTL window so this isn't a full-table
-			-- scan on every Services page render. FirstSeen older than
-			-- the TTL has been dropped on the server anyway, so this
-			-- yields the same answer for any row that still exists.
-			-- Long-term fix: source FirstSeen from the Postgres catalog
-			-- (service_catalog.first_seen_at, maintained by the
-			-- reconciler). Tracked in docs/performance-audit.md → P0-2.
-			SELECT ServiceName, min(Timestamp) AS FirstSeen
-			FROM traces
-			WHERE Timestamp >= toDate(now()) - INTERVAL 30 DAY
-			GROUP BY ServiceName
-		) AS f ON f.ServiceName = s.ServiceName
-		ORDER BY s.LastSeen DESC
+			ServiceName,
+			any(ServiceNamespace)                        AS ServiceNamespace,
+			max(Timestamp)                               AS LastSeen,
+			toUInt64(uniq(TraceId))                      AS TraceCount,
+			toUInt64(uniqIf(TraceId, StatusCode = 'Error')) AS ErrorTraceCount
+		FROM traces
+		WHERE Timestamp >= ? AND Timestamp <= ?
+		GROUP BY ServiceName
+		ORDER BY LastSeen DESC
 		LIMIT 5000
 	`
 	rows, err := s.conn.Query(ctx, q, from, to)
@@ -106,7 +100,7 @@ func (s *Store) ListServices(ctx context.Context, from, to time.Time) ([]Service
 		var r ServiceRow
 		if err := rows.Scan(
 			&r.ServiceName, &r.ServiceNamespace, &r.LastSeen,
-			&r.TraceCount, &r.ErrorTraceCount, &r.FirstSeen,
+			&r.TraceCount, &r.ErrorTraceCount,
 		); err != nil {
 			return nil, err
 		}
@@ -1874,6 +1868,10 @@ func (s *Store) ServiceEdges(ctx context.Context, services []string, from, to ti
 		SELECT
 		    parent.ServiceName AS source,
 		    child.ServiceName  AS target,
+		    -- Deliberately still EXACT. Switching these to uniq was tried
+		    -- and measured at 825.8 vs 823.9 MiB: the memory here is the
+		    -- join's hash table, not the distinct counting, so the
+		    -- approximation bought nothing and cost exactness.
 		    toUInt64(uniqExact(child.TraceId)) AS trace_count,
 		    toUInt64(uniqExactIf(child.TraceId, child.StatusCode = 'Error' OR parent.StatusCode = 'Error')) AS error_count
 		FROM traces AS child
