@@ -1009,7 +1009,15 @@ function SideNav() {
     <aside
       className="flex w-[200px] shrink-0 flex-col border-r border-border bg-surface-2 py-3"
     >
-      <nav className="flex-1 space-y-3 px-2">
+      {/* min-h-0 with the overflow, or the classic flexbox failure: a
+          flex item will not shrink below its content, so a nav taller
+          than the viewport pushed the whole document past h-screen. The
+          page then had TWO scroll regions - main, which is the intended
+          one, and the document, which existed only because of this. With
+          the pointer over the content you scrolled main, and reaching its
+          end you had to stop and start a second gesture to move the
+          document the rest of the way. */}
+      <nav className="min-h-0 flex-1 space-y-3 overflow-y-auto px-2">
         {visibleGroups.map((group, gi) => (
           <div key={group.header}>
             <div
