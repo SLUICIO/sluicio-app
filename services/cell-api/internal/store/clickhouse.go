@@ -1119,31 +1119,57 @@ func promotedColumnSQL(keys []string) (selects string, args []any) {
 // When the filter list is empty the result set is "every trace in the
 // window" capped at limit, ordered most-recent-first — the UI uses
 // this for the empty Messages view.
-func (s *Store) SearchMessages(ctx context.Context, p MessagesSearchParams) ([]SearchTraceRow, error) {
+// buildMessagesSearchSQL compiles the message search into SQL + binds.
+//
+// Two aggregation passes rather than one, and the reason is memory. The
+// single-pass version carried argMax(ResourceAttributes) and
+// argMax(SpanAttributes) - two whole maps - in the aggregation state of
+// EVERY TraceId in the window, and only then applied the LIMIT. A day of
+// traffic on a busy service is millions of groups each holding a copy of
+// both maps, which is how a customer's message search became
+// "Memory limit (for query) exceeded" rather than a slow page.
+//
+// candidates aggregates only what the ordering and the filters need: a
+// timestamp and an error flag, about sixteen bytes per trace. matching
+// then reads the attributes for the survivors alone, so the expensive
+// state exists for at most `limit` groups instead of the whole window.
+//
+// The predicates appear in both passes because matched_* must describe
+// the spans that MATCHED, not every span in the trace - the same
+// distinction matchedSpanIDsExpr encodes. Their binds are therefore
+// repeated, and the order below is the order the statement reads them.
+//
+// argMax orders on (Timestamp, SpanId), not Timestamp alone. Spans in one
+// trace routinely share a timestamp, and argMax then picks among the tied
+// rows arbitrarily - which row depends on the read order, so the same
+// search could report a different span on every reload. promotedColumnSQL
+// already broke ties this way; these columns did not, and splitting the
+// query is what made the two disagree in a test.
+func buildMessagesSearchSQL(p MessagesSearchParams) (string, []any) {
 	whereClauses := []string{"Timestamp >= ? AND Timestamp <= ?"}
-	args := []any{p.From, p.To}
-	for _, c := range p.Clauses {
-		whereClauses = append(whereClauses, c)
-	}
-	args = append(args, p.Args...)
+	whereArgs := []any{p.From, p.To}
+	whereClauses = append(whereClauses, p.Clauses...)
+	whereArgs = append(whereArgs, p.Args...)
 
 	if len(p.ServiceFilter) > 0 {
 		placeholders := make([]string, len(p.ServiceFilter))
 		for i, name := range p.ServiceFilter {
 			placeholders[i] = "?"
-			args = append(args, name)
+			whereArgs = append(whereArgs, name)
 		}
 		whereClauses = append(whereClauses, "ServiceName IN ("+strings.Join(placeholders, ",")+")")
 	}
+	where := strings.Join(whereClauses, " AND ")
 
 	// The status filter (err only / ok only) and the keyset cursor both
-	// go in the matching CTE's HAVING so they apply BEFORE the candidate
-	// LIMIT. A post-JOIN status filter (the previous design) shrinks a
-	// page below the limit, which both hides matches beyond the first
-	// candidate window and makes keyset pagination stop early. has_error
-	// is computed over the matched spans here and reused for display, so
-	// the filter and the row's status pill always agree.
+	// go in the candidate pass's HAVING so they apply BEFORE the LIMIT. A
+	// post-JOIN status filter (an older design) shrinks a page below the
+	// limit, which both hides matches beyond the first candidate window
+	// and makes keyset pagination stop early. has_error is computed over
+	// the matched spans and reused for display, so the filter and the
+	// row's status pill always agree.
 	havingConds := []string{}
+	cursorArgs := []any{}
 	switch {
 	case p.OnlyFailed:
 		havingConds = append(havingConds, "has_error = 1")
@@ -1152,40 +1178,48 @@ func (s *Store) SearchMessages(ctx context.Context, p MessagesSearchParams) ([]S
 	}
 	if p.Before != nil {
 		havingConds = append(havingConds, "(toUnixTimestamp64Nano(latest_match) < ? OR (toUnixTimestamp64Nano(latest_match) = ? AND TraceId < ?))")
-		args = append(args, p.Before.LatestMatchNano, p.Before.LatestMatchNano, p.Before.TraceID)
+		cursorArgs = append(cursorArgs, p.Before.LatestMatchNano, p.Before.LatestMatchNano, p.Before.TraceID)
 	}
 	having := ""
 	if len(havingConds) > 0 {
 		having = "HAVING " + strings.Join(havingConds, " AND ")
 	}
 
-	args = append(args, p.Limit)
-
-	// The promoted expressions live in `summary`, which appears AFTER
-	// `matching` in the statement, so their binds go last.
 	promotedSelects, promotedArgs := promotedColumnSQL(p.PromotedKeys)
-	args = append(args, promotedArgs...)
 	promotedOuter := ""
 	for i := range p.PromotedKeys {
 		promotedOuter += fmt.Sprintf(",\n\t\t    s.promoted_%d", i)
 	}
 
+	args := []any{}
+	args = append(args, whereArgs...)    // candidates
+	args = append(args, cursorArgs...)   // candidates HAVING
+	args = append(args, p.Limit)         // candidates LIMIT
+	args = append(args, whereArgs...)    // matching, same predicates
+	args = append(args, promotedArgs...) // summary
+
 	sql := fmt.Sprintf(`
-		WITH matching AS (
+		WITH candidates AS (
 		    SELECT TraceId,
-		           argMax(ServiceName, Timestamp)         AS matched_service,
-		           argMax(SpanName, Timestamp)            AS matched_span_name,
-		           argMax(ResourceAttributes, Timestamp)  AS matched_resource_attrs,
-		           argMax(SpanAttributes, Timestamp)      AS matched_span_attrs,
-		           %s                                     AS matched_span_ids,
-		           max(Timestamp)                         AS latest_match,
-		           countIf(StatusCode = 'Error') > 0      AS has_error
+		           max(Timestamp)                    AS latest_match,
+		           countIf(StatusCode = 'Error') > 0 AS has_error
 		    FROM traces
 		    WHERE %s
 		    GROUP BY TraceId
 		    %s
 		    ORDER BY latest_match DESC, TraceId DESC
 		    LIMIT ?
+		),
+		matching AS (
+		    SELECT TraceId,
+		           argMax(ServiceName, (Timestamp, SpanId))        AS matched_service,
+		           argMax(SpanName, (Timestamp, SpanId))           AS matched_span_name,
+		           argMax(ResourceAttributes, (Timestamp, SpanId)) AS matched_resource_attrs,
+		           argMax(SpanAttributes, (Timestamp, SpanId))     AS matched_span_attrs,
+		           %s                                              AS matched_span_ids
+		    FROM traces
+		    WHERE TraceId IN (SELECT TraceId FROM candidates) AND %s
+		    GROUP BY TraceId
 		),
 		summary AS (
 		    SELECT TraceId,
@@ -1194,14 +1228,14 @@ func (s *Store) SearchMessages(ctx context.Context, p MessagesSearchParams) ([]S
 		           toUInt64(count())                                                                                  AS total_spans,
 		           toUInt64(length(arrayDistinct(groupArray(ServiceName))))                                           AS service_count%s
 		    FROM traces
-		    WHERE TraceId IN (SELECT TraceId FROM matching)
+		    WHERE TraceId IN (SELECT TraceId FROM candidates)
 		    GROUP BY TraceId
 		)
 		SELECT
 		    s.TraceId,
 		    s.trace_start,
 		    s.duration_ms,
-		    m.has_error,
+		    c.has_error,
 		    s.total_spans,
 		    s.service_count,
 		    m.matched_service,
@@ -1209,11 +1243,18 @@ func (s *Store) SearchMessages(ctx context.Context, p MessagesSearchParams) ([]S
 		    m.matched_resource_attrs,
 		    m.matched_span_attrs,
 		    m.matched_span_ids,
-		    m.latest_match%s
+		    c.latest_match%s
 		FROM summary AS s
 		INNER JOIN matching AS m ON s.TraceId = m.TraceId
-		ORDER BY m.latest_match DESC, m.TraceId DESC
-	`, matchedSpanIDsExpr(len(p.Clauses) > 0), strings.Join(whereClauses, " AND "), having, promotedSelects, promotedOuter)
+		INNER JOIN candidates AS c ON s.TraceId = c.TraceId
+		ORDER BY c.latest_match DESC, c.TraceId DESC
+	`, where, having, matchedSpanIDsExpr(len(p.Clauses) > 0), where, promotedSelects, promotedOuter)
+
+	return sql, args
+}
+
+func (s *Store) SearchMessages(ctx context.Context, p MessagesSearchParams) ([]SearchTraceRow, error) {
+	sql, args := buildMessagesSearchSQL(p)
 
 	rows, err := s.conn.Query(ctx, sql, args...)
 	if err != nil {
