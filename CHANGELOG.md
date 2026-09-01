@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.143 — 2026-09-01
+
+- fix(shell): one scroll region, not two (fa1c1b7)
+
 ## v0.11.142 — 2026-09-01
 
+- release v0.11.142 — refresh internal changelog (1bd2001)
 - perf(services): compute dependency degrees only when something asks for them (1bf47c4)
 
 ## v0.11.141 — 2026-09-01
