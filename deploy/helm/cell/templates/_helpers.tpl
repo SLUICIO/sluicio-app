@@ -155,3 +155,19 @@ value is set, else nothing. Call with:
       key: {{ .appKey }}
 {{- end -}}
 {{- end -}}
+
+{{/*
+cell.licenseSecretName — the Secret holding the license token, whether the
+operator supplied their own or the chart made one from license.key.
+*/}}
+{{- define "cell.licenseSecretName" -}}
+{{- if .Values.license.existingSecret }}{{ .Values.license.existingSecret }}{{ else }}{{ .Release.Name }}-app{{ end -}}
+{{- end -}}
+
+{{/*
+cell.licenseMounted — true when there is a license AND it should be
+mounted as a file rather than injected as an environment variable.
+*/}}
+{{- define "cell.licenseMounted" -}}
+{{- if and .Values.license.mountAsFile (or .Values.license.existingSecret .Values.license.key) }}true{{ end -}}
+{{- end -}}

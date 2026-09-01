@@ -41,7 +41,17 @@ spec:
             - name: SLUICIO_INGEST_URL
               value: {{ . | quote }}
             {{- end }}
+            {{- if include "cell.licenseMounted" . }}
+            # Mounted rather than injected, so a renewed token takes
+            # effect without a rollout: update the Secret, the kubelet
+            # refreshes the volume, cell-api re-reads the file.
+            - name: SLUICIO_LICENSE_FILE
+              value: {{ printf "/etc/sluicio/license/%s" .Values.license.secretKey | quote }}
+            - name: LICENSE_RELOAD_INTERVAL
+              value: {{ .Values.license.reloadInterval | quote }}
+            {{- else }}
             {{- include "cell.secretEnv" (dict "root" . "name" "SLUICIO_LICENSE_KEY" "cfg" .Values.license "appKey" "license") | nindent 12 }}
+            {{- end }}
             {{- include "cell.secretEnv" (dict "root" . "name" "SLUICIO_MFA_KEY" "cfg" .Values.mfa "appKey" "mfa-key") | nindent 12 }}
             {{- if .Values.smtp.host }}
             - name: SLUICIO_SMTP_HOST
@@ -80,6 +90,24 @@ spec:
             initialDelaySeconds: 30
             periodSeconds: 20
           resources: {{- toYaml .Values.cellApi.resources | nindent 12 }}
+          {{- if include "cell.licenseMounted" . }}
+          volumeMounts:
+            # No subPath: a subPath mount is copied once and never
+            # refreshed, which would silently reintroduce the restart this
+            # exists to avoid.
+            - name: license
+              mountPath: /etc/sluicio/license
+              readOnly: true
+          {{- end }}
+      {{- if include "cell.licenseMounted" . }}
+      volumes:
+        - name: license
+          secret:
+            secretName: {{ include "cell.licenseSecretName" . }}
+            # Absent rather than fatal: the cell logs it and runs
+            # unlicensed, the same as any other unreadable token.
+            optional: true
+      {{- end }}
       {{- with .Values.cellApi.nodeSelector }}
       nodeSelector: {{- toYaml . | nindent 8 }}
       {{- end }}

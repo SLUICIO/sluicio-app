@@ -84,6 +84,37 @@ reinstall — the databases are untouched.
 Note that a **non-empty `existingSecret` naming a Secret that doesn't exist**
 is worse than leaving it empty: the pod won't start (see Troubleshooting).
 
+### Renewing without a rollout
+
+An environment variable is read once, when the container starts, so updating
+the Secret does nothing until the pod restarts. That is fine for a perpetual
+license and tiresome for one issued per contract period: a quarterly
+agreement means four renewals a year, each one a rollout of a Deployment
+that must stay single-replica.
+
+```yaml
+license:
+  existingSecret: sluicio-license
+  mountAsFile: true
+```
+
+The token is then mounted rather than injected, and renewing is:
+
+```bash
+kubectl create secret generic sluicio-license   --from-literal=license=<new-token> --dry-run=client -o yaml | kubectl apply -f -
+```
+
+The kubelet refreshes the mounted Secret (up to about a minute) and cell-api
+re-reads the file on `license.reloadInterval`. Nothing restarts, no
+notification is lost, no alert evaluation is missed. The mount deliberately
+avoids `subPath`, which is copied once and never refreshed.
+
+Off by default because the two forms fail differently. A Secret key that
+does not exist makes an env-var reference fail the pod outright, which is
+impossible to miss; mounted, the file is simply absent and the cell runs
+unlicensed with a warning in its log. Every other failure keeps the license
+already in force - see [license renewal](../../../docs/license-renewal.md).
+
 Two more keys worth setting on day one:
 
 ```yaml

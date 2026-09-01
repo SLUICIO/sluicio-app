@@ -40,6 +40,24 @@ license:
   key: ""                 # inline token (convenient, but ends up in the release Secret)
   existingSecret: ""      # name of a Secret you created (wins over key)
   secretKey: "license"    # key inside that Secret
+  # Mount the token as a FILE instead of injecting it as an environment
+  # variable, so renewing it needs no restart.
+  #
+  # Worth turning on when the license is issued for the contract period: a
+  # quarterly agreement means four new tokens a year, and an env var is
+  # read once at container start, so each one otherwise costs a rollout of
+  # a single-replica Deployment. Mounted, the kubelet refreshes the volume
+  # after you update the Secret and cell-api re-reads it on its own.
+  #
+  # Off by default because the two fail differently. A Secret key that
+  # does not exist makes an env-var reference fail the pod outright
+  # (CreateContainerConfigError, impossible to miss); mounted, the file is
+  # simply absent and the cell runs unlicensed with a warning in its log.
+  mountAsFile: false
+  # How often cell-api re-reads the mounted file. Only used with
+  # mountAsFile. The kubelet's own Secret refresh takes up to about a
+  # minute on top of this.
+  reloadInterval: "1m"
 
 # AES-256 key (base64, 32 bytes) encrypting MFA TOTP secrets at rest.
 # Required for MFA enrollment; empty = MFA enrollment unavailable.

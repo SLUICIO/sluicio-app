@@ -43,4 +43,17 @@ A license that was already invalid when the cell started is retried too, so fixi
 
 ## Kubernetes
 
-The Helm chart currently injects the token as an environment variable from a Secret, which cannot be reloaded in place - updating a Secret does not update an env var in a running container. Mounting the same Secret as a file and setting `SLUICIO_LICENSE_FILE` would make renewals land on their own, since Kubernetes does refresh mounted Secret volumes. Not wired up yet.
+The Helm chart supports the same thing through `license.mountAsFile`:
+
+```yaml
+license:
+  existingSecret: sluicio-license
+  mountAsFile: true
+  reloadInterval: "1m"
+```
+
+The token is mounted instead of injected, so updating the Secret is the renewal. The kubelet refreshes a mounted Secret on its own (up to about a minute) and cell-api re-reads the file on the interval; an environment variable would not change until the pod restarted.
+
+The mount deliberately does not use `subPath`. A `subPath` mount is copied once and never refreshed, which would silently reintroduce the restart this exists to avoid.
+
+It is off by default because the two forms fail differently. A Secret key that does not exist makes an env-var reference fail the pod outright, which nobody can miss; mounted, the file is simply absent and the cell runs unlicensed with a warning in its log.
