@@ -178,10 +178,18 @@ type ServiceAttribute struct {
 // traces table — logs and metrics carry the same ResourceAttributes
 // shape (it's the OTel resource), so sampling traces is enough.
 //
-// We cap the per-service value-count at a sane default to avoid a
-// long tail of one-off attribute values from blowing up the snapshot
-// when a service emits high-cardinality resource attrs (anti-pattern,
-// but defensive).
+// Capped per (service, key), because the comment used to promise a cap
+// the query did not have. Without one, a service carrying a churning
+// k8s.pod.name returns every value it ever had in the window - thousands
+// of rows per service, all loaded into memory here and then upserted,
+// to describe an attribute whose current value is the only one anybody
+// wanted.
+// maxResourceAttrValuesPerKey bounds the long tail. The consumer keeps
+// one value per key anyway (the map it builds is keyed by key), so this
+// only ever discards values that were about to be overwritten - most
+// recent first, so the one that survives is the current one.
+const maxResourceAttrValuesPerKey = 5
+
 func (s *Store) DiscoverServiceResourceAttributes(ctx context.Context, from, to time.Time) ([]ServiceAttribute, error) {
 	// ARRAY JOIN over the Map directly yields (key, value) tuples in
 	// lockstep — one row per map entry per source row. The previous
@@ -196,8 +204,9 @@ func (s *Store) DiscoverServiceResourceAttributes(ctx context.Context, from, to 
 		ARRAY JOIN ResourceAttributes AS kv
 		WHERE Timestamp >= ? AND Timestamp <= ?
 		GROUP BY ServiceName, key, value
-		ORDER BY ServiceName, key, value`
-	rows, err := s.conn.Query(ctx, q, from, to)
+		ORDER BY ServiceName, key, max(Timestamp) DESC
+		LIMIT ? BY ServiceName, key`
+	rows, err := s.conn.Query(ctx, q, from, to, maxResourceAttrValuesPerKey)
 	if err != nil {
 		return nil, fmt.Errorf("discover service resource attributes: %w", err)
 	}

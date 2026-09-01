@@ -107,6 +107,50 @@ type Reconciler struct {
 	// lastFacetPass gates the cadence above. Not mutex-guarded: RunOnce
 	// is only ever called from the single Run goroutine, or by tests.
 	lastFacetPass time.Time
+
+	// AttrInterval is how often the resource-attribute snapshot runs,
+	// and AttrWindow how far back it looks.
+	//
+	// It used to run on every reconcile tick over the reconcile window,
+	// which meant an ARRAY JOIN across ninety days of the traces table
+	// every thirty seconds, for ever. On a customer cell that was two
+	// seconds and 94 MiB, twice a minute, permanently - not slow enough
+	// to fail, just enough to make every page share a small box with it.
+	// The facet pass right below already had the answer: wide window,
+	// slow cadence. This one had the window without the cadence.
+	//
+	// A resource attribute is host.name, k8s.pod.name,
+	// deployment.environment. It changes on deploy, not by the second,
+	// and it feeds attribute-based access policies that degrade to "no
+	// match" on stale data rather than doing anything dangerous.
+	AttrInterval time.Duration
+	AttrWindow   time.Duration
+
+	// lastAttrPass gates AttrInterval, like lastFacetPass above.
+	lastAttrPass time.Time
+}
+
+// attrWindow is how far back the resource-attribute snapshot looks.
+//
+// A day, not the reconcile window's ninety. The snapshot answers "what
+// resource attributes does this service carry NOW", and a service that
+// has emitted nothing for a day has nothing current to say. Ninety days
+// also drags in every value a churning pod name ever had.
+func (r *Reconciler) attrWindow() time.Duration {
+	if r.AttrWindow > 0 {
+		return r.AttrWindow
+	}
+	return 24 * time.Hour
+}
+
+// attrDue reports whether the resource-attribute snapshot should run on
+// this tick, and gates the expensive half of the reconcile.
+func (r *Reconciler) attrDue(now time.Time) bool {
+	interval := r.AttrInterval
+	if interval <= 0 {
+		interval = 15 * time.Minute
+	}
+	return r.lastAttrPass.IsZero() || now.Sub(r.lastAttrPass) >= interval
 }
 
 // NewReconciler builds a reconciler. interval is the tick cadence;
@@ -236,8 +280,9 @@ func (r *Reconciler) RunOnce(ctx context.Context) error {
 	//    rewrite are the critical-path; attribute snapshot is only a
 	//    convenience for the policy resolver, which degrades to "no
 	//    match" on stale data).
-	if r.attrs != nil {
-		attrRows, err := r.clickhouse.DiscoverServiceResourceAttributes(ctx, from, now)
+	if r.attrs != nil && r.attrDue(now) {
+		attrFrom := now.Add(-r.attrWindow())
+		attrRows, err := r.clickhouse.DiscoverServiceResourceAttributes(ctx, attrFrom, now)
 		if err != nil {
 			r.logger.Warn("discover service resource attributes failed", "err", err)
 		} else {
@@ -251,6 +296,7 @@ func (r *Reconciler) RunOnce(ctx context.Context) error {
 				}
 				m[sa.Key] = sa.Value
 			}
+			r.lastAttrPass = now
 			for svc, kv := range perService {
 				if err := r.attrs.UpsertServiceResourceAttributes(ctx, r.orgID, svc, kv); err != nil {
 					r.logger.Warn("upsert service resource attributes failed", "err", err, "service", svc)

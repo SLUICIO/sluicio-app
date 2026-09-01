@@ -316,6 +316,13 @@ func main() {
 	// common case for a host running several flows.
 	catalogReconciler.DetectIntegrationFacets = handlers.DetectIntegrationFacetsForOrg
 	catalogReconciler.FacetInterval = 15 * time.Minute
+	// The resource-attribute snapshot gets the same treatment as facet
+	// detection, and for the same reason: it is an ARRAY JOIN over the
+	// traces table, and it used to run on every 30s tick over the
+	// reconcile window's ninety days. Measured on a customer cell at two
+	// seconds and 94 MiB a pass, twice a minute, for ever.
+	catalogReconciler.AttrInterval = 15 * time.Minute
+	catalogReconciler.AttrWindow = 24 * time.Hour
 	// Evidence window tracks telemetry retention: a facet lasts exactly
 	// as long as the spans that could re-detect it.
 	catalogReconciler.FacetEvidenceWindow = 14 * 24 * time.Hour
