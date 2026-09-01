@@ -3,8 +3,16 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.141 — 2026-09-01
+
+- perf(catalog): stop rediscovering resource attributes every 30 seconds (efa8809)
+- perf(services): stop the services list scanning a month of traces per render (e05635b)
+- fix(dependencies): size the service boxes to the names they carry (b59888e)
+- fix(trace): straighten the step connectors and stop the service name overflowing (b655743)
+
 ## v0.11.140 — 2026-09-01
 
+- release v0.11.140 — refresh internal changelog (71e8d56)
 - perf(search): stop aggregating every trace in the window before the limit (47dea28)
 
 ## v0.11.139 — 2026-09-01
