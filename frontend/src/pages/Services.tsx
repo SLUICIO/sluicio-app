@@ -91,6 +91,12 @@ export default function Services() {
   const [metadataFields, setMetadataFields] = useState<MetadataField[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // Whether the loaded data carries dependency degrees. The table keeps
+  // rendering the previous response while a refetch is in flight, so
+  // without this the moment you switch the filter on, the OLD rows are
+  // filtered on degrees they do not have - undefined reads as zero, and
+  // "has upstream" confidently shows nothing for a second.
+  const [depsLoaded, setDepsLoaded] = useState(false);
 
   // URL is the source of truth for tag / metadata / dependency filters so the
   // whole query is shareable and survives reload.
@@ -145,9 +151,15 @@ export default function Services() {
   const refresh = () => {
     setLoading(true);
     setError(null);
+    const wantDeps = dep !== "";
     api
-      .listServices(windowVal)
-      .then((d) => setData(d))
+      // Only pay for dependency degrees when the filter that reads them
+      // is actually set. Flipping the filter refetches.
+      .listServices(windowVal, wantDeps)
+      .then((d) => {
+        setData(d);
+        setDepsLoaded(wantDeps);
+      })
       .catch((e) => setError(String(e.message ?? e)))
       .finally(() => setLoading(false));
     api
@@ -162,8 +174,11 @@ export default function Services() {
 
   useEffect(() => {
     refresh();
+    // Keyed on whether degrees are WANTED, not on which dependency
+    // filter is chosen: switching between "has upstream" and "no
+    // downstream" needs no new data.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [windowVal]);
+  }, [windowVal, dep !== ""]);
 
   const services: ServiceSummary[] = useMemo(() => data?.services ?? [], [data]);
   const okCount = services.filter((s) => s.status === "ok").length;
@@ -215,6 +230,9 @@ export default function Services() {
 
   const depMatches = (s: ServiceSummary): boolean => {
     if (!dep) return true;
+    // Degrees not in hand yet — show everything rather than filter on
+    // absent numbers. The refetch is already in flight.
+    if (!depsLoaded) return true;
     // (b): only evaluate dependency for services active in the window — a
     // quiet service has no edges and isn't meaningfully "isolated".
     if (s.trace_count === 0) return false;

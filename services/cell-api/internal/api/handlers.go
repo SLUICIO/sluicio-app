@@ -1698,10 +1698,20 @@ func (h *Handlers) listServices(w http.ResponseWriter, r *http.Request) {
 }
 
 // enrichServiceListExtras decorates the services list with the data only the
-// list view needs: custom metadata values (for the metadata filter) and the
-// service dependency degrees — how many distinct services called each service
-// (upstream callers) and how many it called (downstream callees), from the
-// window's flow graph. Failures are non-fatal; the list still renders.
+// list view needs: custom metadata values (for the metadata filter) and,
+// on request, the service dependency degrees — how many distinct services
+// called each service (upstream callers) and how many it called
+// (downstream callees), from the window's flow graph. Failures are
+// non-fatal; the list still renders.
+//
+// The degrees are computed only when ?dependencies=1 asks for them,
+// because they are expensive and almost never wanted. They are never
+// DISPLAYED: the two fields are read in exactly one place in the
+// frontend, inside the "Dependencies" filter, which defaults to "any" and
+// therefore filters nothing. Producing them costs a self-join of the
+// traces table across the whole window - three seconds and 833 MiB on a
+// customer cell over two days, four times in half an hour, for two
+// numbers nobody looked at.
 func (h *Handlers) enrichServiceListExtras(r *http.Request, tr TimeRange, out []ServiceSummary) {
 	if len(out) == 0 {
 		return
@@ -1741,6 +1751,9 @@ func (h *Handlers) enrichServiceListExtras(r *http.Request, tr TimeRange, out []
 
 	// Dependency degrees from the window's service flow graph (distinct
 	// callers in, distinct callees out).
+	if r.URL.Query().Get("dependencies") != "1" {
+		return
+	}
 	edges, err := h.Store.ServiceEdges(r.Context(), names, tr.From, tr.To, nil)
 	if err != nil {
 		h.Logger.Warn("service list: service edges failed", "err", err)

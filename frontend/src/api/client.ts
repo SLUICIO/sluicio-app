@@ -252,8 +252,14 @@ export const api = {
   markAlertInstanceOpened: (id: string) =>
     post<void>(`/alert-instances/${encodeURIComponent(id)}/opened`, {}).catch(() => undefined),
 
-  listServices: (window: string = "1h") =>
-    get<ServicesResponse>(`/services?range=${encodeURIComponent(window)}`),
+  // withDependencies asks the cell to compute per-service dependency
+  // degrees. Off by default: they cost a self-join of the traces table
+  // across the window - seconds on a busy cell - and the only thing that
+  // reads them is the Dependencies filter, which is usually not set.
+  listServices: (window: string = "1h", withDependencies = false) =>
+    get<ServicesResponse>(
+      `/services?range=${encodeURIComponent(window)}${withDependencies ? "&dependencies=1" : ""}`,
+    ),
 
   // Services flagged as monitored "systems" (RabbitMQ, SQL Server, …).
   // System entities (phase 2). The list returns entities with visible members.
