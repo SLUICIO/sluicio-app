@@ -28,14 +28,67 @@ interface Props {
   highlight?: string;
 }
 
-const NODE_W = 168;
+// Measured against the real font at the 13px label size, on actual
+// service names - lowercase and hyphens: a 40-character name renders
+// 263px wide, which is 6.6 per character. Both the sizing and the
+// shortening read it, so they cannot disagree about what fits.
+const PX_PER_CHAR = 6.6;
+const NODE_CHROME = 24;
+const MIN_NODE_W = 168;
+const MAX_NODE_W = 320;
 const NODE_H = 56;
 const COL_GAP = 80;
 const ROW_GAP = 28;
 const PADDING = 24;
 
+/**
+ * How wide the nodes need to be for the names they actually carry.
+ *
+ * A fixed 168px box was fine for "checkout-api" and hopeless for
+ * "product-consolidation-aggregator-service": centred, the name ran
+ * over its neighbours on both sides and three of them collided into one
+ * unreadable line.
+ *
+ * Truncating instead was tried and abandoned. Services in one flow share
+ * long prefixes AND suffixes - product-consolidation-aggregator-service
+ * and product-consolidation-extractor-service differ only in the middle
+ * - so every truncation scheme rendered them identically, and the graph
+ * stopped distinguishing the things it exists to distinguish. The label
+ * is the data; the box should fit it.
+ *
+ * Capped, because one pathological name should not push the rest of the
+ * flow off the screen. Past the cap the name IS shortened, and the node
+ * carries a title so the full one is still one hover away.
+ */
+export function nodeWidthFor(names: string[]): number {
+  // ~6.6px per character at the 13px label size, plus padding. Measuring
+  // the glyphs properly would need a canvas and a font that is loaded;
+  // over-estimating slightly is cheaper and only ever adds air.
+  const longest = names.reduce((m, n) => Math.max(m, n.length), 0);
+  // Ceil, not round: rounding down half a pixel came back as a whole
+  // character when fitServiceName divided the width again, so a name
+  // the box was widened for was then shortened by one.
+  return Math.min(MAX_NODE_W, Math.max(MIN_NODE_W, Math.ceil(longest * PX_PER_CHAR) + NODE_CHROME));
+}
+
+/**
+ * Characters that fit in a node of the given width, for the rare name
+ * past the cap.
+ *
+ * Shares PX_PER_CHAR with nodeWidthFor deliberately. Given its own
+ * estimate it cut a name the box had just been widened to hold - two
+ * answers to one question, disagreeing by a character. With one
+ * constant, a name that sized its box can never be truncated by it.
+ */
+export function fitServiceName(name: string, width: number): string {
+  const max = Math.floor((width - NODE_CHROME) / PX_PER_CHAR);
+  if (name.length <= max) return name;
+  return name.slice(0, Math.max(1, max - 1)) + "…";
+}
+
 export default function ServiceFlowGraph({ nodes, edges, singleTrace = false, highlight }: Props) {
-  const layout = useMemo(() => computeLayout(nodes, edges), [nodes, edges]);
+  const nodeW = useMemo(() => nodeWidthFor(nodes.map((n) => n.service_name)), [nodes]);
+  const layout = useMemo(() => computeLayout(nodes, edges, nodeW), [nodes, edges, nodeW]);
   // Integration (aggregated) view shows service HEALTH, not raw trace errors:
   // nodes colour by their configured health checks and carry no error count,
   // and edges aren't reddened by error traces. The single-trace view keeps
@@ -113,7 +166,7 @@ export default function ServiceFlowGraph({ nodes, edges, singleTrace = false, hi
           const from = layout.nodes.get(e.source);
           const to = layout.nodes.get(e.target);
           if (!from || !to) return null;
-          const x1 = from.x + NODE_W;
+          const x1 = from.x + nodeW;
           const y1 = from.y + NODE_H / 2;
           const x2 = to.x;
           const y2 = to.y + NODE_H / 2;
@@ -183,7 +236,7 @@ export default function ServiceFlowGraph({ nodes, edges, singleTrace = false, hi
               }}
             >
               <rect
-                width={NODE_W}
+                width={nodeW}
                 height={NODE_H}
                 rx={8}
                 strokeWidth={isError || isMe ? 2 : 1}
@@ -198,17 +251,17 @@ export default function ServiceFlowGraph({ nodes, edges, singleTrace = false, hi
                 }}
               />
               <text
-                x={NODE_W / 2}
+                x={nodeW / 2}
                 y={22}
                 textAnchor="middle"
                 fontSize="13"
                 fontWeight={500}
                 style={{ fill: "var(--text)" }}
               >
-                {n.service_name}
+                {fitServiceName(n.service_name, nodeW)}
               </text>
               <text
-                x={NODE_W / 2}
+                x={nodeW / 2}
                 y={42}
                 textAnchor="middle"
                 fontSize="11"
@@ -220,6 +273,9 @@ export default function ServiceFlowGraph({ nodes, edges, singleTrace = false, hi
                   ? ` · ${formatNumber(n.error_trace_count)} error trace${n.error_trace_count === 1 ? "" : "s"}`
                   : ""}
               </text>
+              {/* The label is shortened to fit, so the full name has to
+                  be recoverable without leaving the graph. */}
+              <title>{n.service_name}</title>
             </g>
           );
         })}
@@ -241,7 +297,7 @@ interface Layout {
   nodes: Map<string, NodePos>;
 }
 
-function computeLayout(nodes: FlowNode[], edges: FlowEdge[]): Layout {
+function computeLayout(nodes: FlowNode[], edges: FlowEdge[], nodeW: number): Layout {
   // Build incoming-edges map for depth assignment.
   const incoming = new Map<string, string[]>();
   for (const n of nodes) incoming.set(n.service_name, []);
@@ -281,7 +337,7 @@ function computeLayout(nodes: FlowNode[], edges: FlowEdge[]): Layout {
 
   const innerHeight = Math.max(NODE_H, maxColLen * NODE_H + (maxColLen - 1) * ROW_GAP);
   const innerWidth =
-    (maxDepth + 1) * NODE_W + maxDepth * COL_GAP;
+    (maxDepth + 1) * nodeW + maxDepth * COL_GAP;
 
   const positions = new Map<string, NodePos>();
   for (const [d, services] of columns) {
@@ -289,7 +345,7 @@ function computeLayout(nodes: FlowNode[], edges: FlowEdge[]): Layout {
     const startY = PADDING + (innerHeight - colHeight) / 2;
     services.forEach((s, i) => {
       positions.set(s, {
-        x: PADDING + d * (NODE_W + COL_GAP),
+        x: PADDING + d * (nodeW + COL_GAP),
         y: startY + i * (NODE_H + ROW_GAP),
       });
     });
