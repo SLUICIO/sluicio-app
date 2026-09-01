@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.142 — 2026-09-01
+
+- perf(services): compute dependency degrees only when something asks for them (1bf47c4)
+
 ## v0.11.141 — 2026-09-01
 
+- release v0.11.141 — refresh internal changelog (cfcf321)
 - perf(catalog): stop rediscovering resource attributes every 30 seconds (efa8809)
 - perf(services): stop the services list scanning a month of traces per render (e05635b)
 - fix(dependencies): size the service boxes to the names they carry (b59888e)
