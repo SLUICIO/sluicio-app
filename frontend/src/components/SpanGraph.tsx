@@ -13,7 +13,7 @@
 // count is capped before we draw, and a layout engine would be a large
 // dependency for a small problem.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { LinkedTrace, SpanSummary } from "../api/types";
 import { buildSpanGraph, graphRefusal, type SpanNode } from "../lib/spanGraph";
 import { useProductName } from "../lib/useProductName";
@@ -40,12 +40,20 @@ function truncate(s: string, max: number): string {
  * into the target. Rounded corners so it reads as one line rather than
  * three segments.
  */
-function detour(
+export function detour(
   from: { x: number; y: number },
   to: { x: number; y: number },
   lane: number,
 ): string {
   const r = 8;
+  // Directly below: a straight drop, no lane and no corners. When the
+  // card is narrow enough to wrap after every column, source and target
+  // share an x, and routing that through the lane produced a 16px
+  // left-then-right jog between two arrowheads - a squiggle that reads
+  // as the arrows changing their minds rather than as one connector.
+  if (Math.abs(to.x - from.x) < 1) {
+    return `M${from.x},${from.y} V${to.y}`;
+  }
   const dir = to.x > from.x ? 1 : -1;
   return [
     `M${from.x},${from.y}`,
@@ -200,15 +208,32 @@ export default function SpanGraph({
   // wrap instead, so the whole message fits without scrolling anywhere.
   const wrapRef = useRef<HTMLDivElement>(null);
   const [availWidth, setAvailWidth] = useState(0);
-  useEffect(() => {
-    const el = wrapRef.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(([entry]) => {
-      setAvailWidth(entry.contentRect.width);
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
+  // Measured three ways, and deliberately not by ResizeObserver alone.
+  // The observer is the nicest of the three and the only one that can
+  // silently never fire - an element observed while its tab is
+  // display:none is the everyday case - and when it doesn't, availWidth
+  // stays 0, nothing wraps, and the graph runs off the side of its card
+  // with the only route to it a hidden overlay scrollbar. The
+  // synchronous read covers the first paint, the listener the rest.
+  useLayoutEffect(() => {
+    const measure = () => {
+      const el = wrapRef.current;
+      if (el) setAvailWidth(el.clientWidth);
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    let ro: ResizeObserver | undefined;
+    if (typeof ResizeObserver !== "undefined" && wrapRef.current) {
+      ro = new ResizeObserver(([entry]) => setAvailWidth(entry.contentRect.width));
+      ro.observe(wrapRef.current);
+    }
+    return () => {
+      window.removeEventListener("resize", measure);
+      ro?.disconnect();
+    };
+    // No dependency array on purpose: a sibling can resize this element
+    // without anything in here changing, and a stale width is the bug.
+  });
   // Predecessors: the resolved heads, plus any link this trace carries
   // whose head we could not resolve. The second group still gets a node
   // — an unresolvable hand-off is a fact, and dropping it would report
@@ -535,8 +560,14 @@ export default function SpanGraph({
                 stroke={active ? "var(--primary)" : n.failed ? "var(--err)" : "var(--border)"}
                 strokeWidth={active || n.failed ? 2 : 1}
               />
+              {/* Truncated like every other label here. Left raw, a
+                  40-character service name ran straight through the
+                  right border and over whatever was beside it - the
+                  neighbour boxes have always truncated, so only the
+                  span nodes showed it. The count badge occupies the
+                  right side, so the budget shrinks when one is there. */}
               <text x={10} y={17} fontSize={10} fill="var(--muted)">
-                {n.service}
+                {truncate(n.service, n.count > 1 ? 19 : 27)}
               </text>
               <text x={10} y={32} fontSize={12} fontWeight={600} fill="var(--ink)">
                 {n.name.length > 22 ? n.name.slice(0, 21) + "…" : n.name}
