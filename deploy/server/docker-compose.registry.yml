@@ -51,6 +51,13 @@ x-ch-env: &ch-env
   CLICKHOUSE_DATABASE: telemetry
   CLICKHOUSE_USERNAME: ${CLICKHOUSE_USER}
   CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+  # Per-query memory ceiling in bytes (default 2e9 = 1.86 GiB, which is
+  # the number that shows up in "Memory limit (for query) exceeded").
+  # Raise it on a host with room: a message search over a busy service
+  # aggregates every trace in the window, and the ceiling is ours, not
+  # ClickHouse's. Aggregations spill to disk at half this value rather
+  # than failing, so a bigger number buys speed, not just survival.
+  CLICKHOUSE_MAX_MEMORY_USAGE: ${CLICKHOUSE_MAX_MEMORY_USAGE:-2000000000}
 
 services:
   postgres:

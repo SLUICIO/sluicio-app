@@ -75,6 +75,7 @@ services:
       POSTGRES_DSN: postgres://controlplane:controlplane@postgres:5432/controlplane?sslmode=disable
       CLICKHOUSE_ENDPOINT: clickhouse:9000
       CLICKHOUSE_DATABASE: telemetry
+      CLICKHOUSE_MAX_MEMORY_USAGE: ${CLICKHOUSE_MAX_MEMORY_USAGE:-2000000000}
       CELL_API_ADDR: ":8081"
       # Public origin the SPA is served from — used to build links in
       # account email (password-reset). Matches the Vite dev server.
@@ -119,6 +120,7 @@ services:
       POSTGRES_DSN: postgres://controlplane:controlplane@postgres:5432/controlplane?sslmode=disable
       CLICKHOUSE_ENDPOINT: clickhouse:9000
       CLICKHOUSE_DATABASE: telemetry
+      CLICKHOUSE_MAX_MEMORY_USAGE: ${CLICKHOUSE_MAX_MEMORY_USAGE:-2000000000}
       CELL_INGEST_ADDR: ":4318"
       # Dev convenience: accept unauthenticated OTLP (the test apps don't
       # send an ingest key). Set false to require a key.

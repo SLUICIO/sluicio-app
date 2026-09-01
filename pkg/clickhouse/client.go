@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,6 +32,10 @@ type Config struct {
 	Password string
 	// DialTimeout for opening the connection. Defaults to 5s.
 	DialTimeout time.Duration
+	// MaxMemoryUsage is the per-query memory ceiling in bytes. Defaults
+	// to 2 GB; raise it on a host with room. See Open for why spilling
+	// matters more than the ceiling itself.
+	MaxMemoryUsage int64
 }
 
 // ConfigFromEnv loads a ClickHouse config from the standard environment
@@ -47,7 +52,18 @@ func ConfigFromEnv() Config {
 		Username:    envOr("CLICKHOUSE_USERNAME", "default"),
 		Password:    os.Getenv("CLICKHOUSE_PASSWORD"),
 		DialTimeout: 5 * time.Second,
+		// CLICKHOUSE_MAX_MEMORY_USAGE, in bytes.
+		MaxMemoryUsage: envInt64("CLICKHOUSE_MAX_MEMORY_USAGE", 2_000_000_000),
 	}
+}
+
+func envInt64(key string, fallback int64) int64 {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
+			return n
+		}
+	}
+	return fallback
 }
 
 func envOr(key, fallback string) string {
@@ -66,6 +82,10 @@ func Open(ctx context.Context, cfg Config) (driver.Conn, error) {
 	if cfg.Database == "" {
 		cfg.Database = "telemetry"
 	}
+	if cfg.MaxMemoryUsage <= 0 {
+		cfg.MaxMemoryUsage = 2_000_000_000
+	}
+	maxMem := cfg.MaxMemoryUsage
 	if cfg.Username == "" {
 		cfg.Username = "default"
 	}
@@ -94,12 +114,23 @@ func Open(ctx context.Context, cfg Config) (driver.Conn, error) {
 		// under each. A long-running maintenance task can override
 		// via a per-query Settings map if needed later.
 		Settings: clickhouse.Settings{
-			"max_execution_time":     30,            // seconds wall clock
-			"max_rows_to_read":       2_000_000_000, // 2B row hard cap
-			"max_bytes_to_read":      50_000_000_000, // 50GB hard cap
-			"read_overflow_mode":     "throw",
-			"max_memory_usage":       2_000_000_000, // 2GB per-query
-			"group_by_overflow_mode": "throw",
+			"max_execution_time": 30,             // seconds wall clock
+			"max_rows_to_read":   2_000_000_000,  // 2B row hard cap
+			"max_bytes_to_read":  50_000_000_000, // 50GB hard cap
+			"read_overflow_mode": "throw",
+			// Per-query ceiling. This is OURS, not the server's: a
+			// customer whose host had memory to spare still met
+			// "Memory limit (for query) exceeded ... maximum: 1.86 GiB"
+			// and had no way to raise it. Now CLICKHOUSE_MAX_MEMORY_USAGE.
+			"max_memory_usage": maxMem,
+			// Spill the GROUP BY to disk instead of throwing when it
+			// grows past half the ceiling. Without this an aggregation
+			// that needs one byte more than the limit fails outright,
+			// which is how a message search on a busy service turned
+			// into a 500 rather than a slow page.
+			"max_bytes_before_external_group_by": maxMem / 2,
+			"max_bytes_before_external_sort":     maxMem / 2,
+			"group_by_overflow_mode":             "throw",
 		},
 	})
 	if err != nil {
