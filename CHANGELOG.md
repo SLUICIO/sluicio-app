@@ -3,8 +3,14 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
-## v0.11.138 — 2026-08-31
+## v0.11.139 — 2026-09-01
 
+- fix(clickhouse): let aggregations spill to disk, and make the ceiling ours to raise (e62e442)
+- feat(helm): renew a license by updating the Secret, no rollout (40eea9c)
+
+## v0.11.138 — 2026-09-01
+
+- release v0.11.138 — refresh internal changelog (5233d8a)
 - feat(license): renew a license without restarting the cell (fb77e8b)
 
 ## v0.11.137 — 2026-08-31
