@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.140 — 2026-09-01
+
+- perf(search): stop aggregating every trace in the window before the limit (47dea28)
+
 ## v0.11.139 — 2026-09-01
 
+- release v0.11.139 — refresh internal changelog (51caa87)
 - fix(clickhouse): let aggregations spill to disk, and make the ceiling ours to raise (e62e442)
 - feat(helm): renew a license by updating the Secret, no rollout (40eea9c)
 
