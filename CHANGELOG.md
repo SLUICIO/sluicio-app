@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.138 — 2026-08-31
+
+- feat(license): renew a license without restarting the cell (fb77e8b)
+
 ## v0.11.137 — 2026-08-31
 
+- release v0.11.137 — refresh internal changelog (050e32a)
 - feat(alerts): a webhook body can post the alert email itself (7c1a206)
 
 ## v0.11.136 — 2026-08-30
