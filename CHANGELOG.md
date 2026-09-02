@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.144 — 2026-09-02
+
+- feat(matching): match on an absent attribute, and on negations (b80af5f)
+
 ## v0.11.143 — 2026-09-01
 
+- release v0.11.143 — refresh internal changelog (88a9bc1)
 - fix(shell): one scroll region, not two (fa1c1b7)
 
 ## v0.11.142 — 2026-09-01
