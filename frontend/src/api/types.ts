@@ -690,7 +690,18 @@ export interface ServiceTracesResponse {
   traces: TraceSummary[];
 }
 
-export type MatcherOperator = "equals" | "prefix" | "suffix" | "contains" | "regex";
+export type MatcherOperator =
+  | "equals"
+  | "prefix"
+  | "suffix"
+  | "contains"
+  | "regex"
+  | "not_equals"
+  | "not_contains"
+  // exists / not_exists ask whether the attribute is carried. Attribute
+  // conditions only - the backend rejects them on the service name.
+  | "exists"
+  | "not_exists";
 
 export interface Integration {
   id: string;
@@ -1529,11 +1540,21 @@ export type LogAttrOp =
   | "contains"
   | "not_contains"
   | "starts_with"
+  | "ends_with"
+  | "matches"
+  // exists / not_exists ask whether the attribute is CARRIED, which is a
+  // different question from what its value is: an absent attribute and
+  // one set to the empty string read identically through every other
+  // operator, and only these two tell them apart.
   | "exists"
+  | "not_exists"
   | "gt"
   | "gte"
   | "lt"
   | "lte";
+
+// Operators that take no value — the value input is hidden for these.
+export const VALUELESS_ATTR_OPS: LogAttrOp[] = ["exists", "not_exists"];
 
 export interface LogAttrFilter {
   key: string;

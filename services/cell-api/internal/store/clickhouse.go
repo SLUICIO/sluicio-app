@@ -2756,10 +2756,16 @@ const (
 	AttrOpEndsWith    = "ends_with"
 	AttrOpMatches     = "matches" // RE2 regex (ClickHouse match())
 	AttrOpExists      = "exists"
-	AttrOpGt          = "gt"
-	AttrOpGte         = "gte"
-	AttrOpLt          = "lt"
-	AttrOpLte         = "lte"
+	// AttrOpNotExists is the counterpart, and it is NOT the same as
+	// `neq ''`. A ClickHouse Map returns the empty string for a key it
+	// does not hold, so an absent attribute and one explicitly set to ""
+	// read identically through the value expression; only mapContains
+	// tells them apart.
+	AttrOpNotExists = "not_exists"
+	AttrOpGt        = "gt"
+	AttrOpGte       = "gte"
+	AttrOpLt        = "lt"
+	AttrOpLte       = "lte"
 )
 
 // LogQueryParams is the parameter bag for SearchLogs. The zero value of
@@ -2854,6 +2860,22 @@ func attrClauseIn(primaryMap string, f LogAttrFilter) (string, []any) {
 			return "SpanName != ''", nil
 		}
 		return fmt.Sprintf("(mapContains(%[1]s, '%[2]s') OR mapContains(ResourceAttributes, '%[2]s'))", primaryMap, f.Key), nil
+	case AttrOpNotExists:
+		// Deliberately mapContains and not `= ''`. The value expression
+		// cannot distinguish "no such key" from "key set to the empty
+		// string", and this operator exists precisely to answer the
+		// first question - "this row does not carry rpc.service at all".
+		//
+		// Both maps, mirroring exists and the value expression above: an
+		// attribute is absent only when NEITHER the primary map nor the
+		// resource attributes hold it.
+		if f.Key == serviceNameAttrKey {
+			return "ServiceName = ''", nil
+		}
+		if f.Key == spanNameAttrKey && primaryMap == "SpanAttributes" {
+			return "SpanName = ''", nil
+		}
+		return fmt.Sprintf("(NOT mapContains(%[1]s, '%[2]s') AND NOT mapContains(ResourceAttributes, '%[2]s'))", primaryMap, f.Key), nil
 	case AttrOpGt, AttrOpGte, AttrOpLt, AttrOpLte:
 		cmp := map[string]string{AttrOpGt: ">", AttrOpGte: ">=", AttrOpLt: "<", AttrOpLte: "<="}[f.Op]
 		n, err := strconv.ParseFloat(f.Value, 64)

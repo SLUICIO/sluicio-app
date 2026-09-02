@@ -22,11 +22,28 @@ const (
 	OperatorSuffix   Operator = "suffix"
 	OperatorContains Operator = "contains"
 	OperatorRegex    Operator = "regex"
+
+	OperatorNotEquals   Operator = "not_equals"
+	OperatorNotContains Operator = "not_contains"
+	// OperatorExists and OperatorNotExists ask whether the attribute is
+	// CARRIED, which no value comparison can answer: an attribute a span
+	// does not have reads as the empty string, so "not_equals abc"
+	// already matches it. These two are how you address that row
+	// specifically. They take no value.
+	OperatorExists    Operator = "exists"
+	OperatorNotExists Operator = "not_exists"
 )
+
+// ValuelessOperators take no value — asking whether an attribute is
+// present is a question about the key, not about what it holds.
+func (o Operator) Valueless() bool {
+	return o == OperatorExists || o == OperatorNotExists
+}
 
 // AllOperators enumerates the operators for validation and UI hints.
 var AllOperators = []Operator{
 	OperatorEquals, OperatorPrefix, OperatorSuffix, OperatorContains, OperatorRegex,
+	OperatorNotEquals, OperatorNotContains, OperatorExists, OperatorNotExists,
 }
 
 // Integration is a user-defined logical grouping of services.

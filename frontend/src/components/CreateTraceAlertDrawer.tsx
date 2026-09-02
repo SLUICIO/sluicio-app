@@ -31,6 +31,7 @@ const ATTR_OPS: { value: LogAttrOp; label: string }[] = [
   { value: "lt", label: "<" },
   { value: "lte", label: "≤" },
   { value: "exists", label: "exists" },
+  { value: "not_exists", label: "is absent" },
 ];
 
 export default function CreateTraceAlertDrawer({

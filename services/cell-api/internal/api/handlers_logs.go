@@ -251,7 +251,9 @@ var attrKeyRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$`)
 var validAttrOps = map[string]bool{
 	store.AttrOpEq: true, store.AttrOpNeq: true,
 	store.AttrOpContains: true, store.AttrOpNotContains: true,
-	store.AttrOpStartsWith: true, store.AttrOpExists: true,
+	store.AttrOpStartsWith: true, store.AttrOpEndsWith: true,
+	store.AttrOpMatches: true,
+	store.AttrOpExists:  true, store.AttrOpNotExists: true,
 	store.AttrOpGt: true, store.AttrOpGte: true,
 	store.AttrOpLt: true, store.AttrOpLte: true,
 }

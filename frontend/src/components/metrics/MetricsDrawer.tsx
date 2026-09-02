@@ -15,7 +15,9 @@ import MetricTypePill, { metricTypeLabel } from "./MetricTypePill";
 
 const OP_GLYPH: Record<string, string> = {
   eq: "=", neq: "≠", contains: "contains", not_contains: "!contains",
-  starts_with: "starts", exists: "exists", gt: ">", gte: "≥", lt: "<", lte: "≤",
+  starts_with: "starts", ends_with: "ends", matches: "matches",
+  exists: "exists", not_exists: "is absent",
+  gt: ">", gte: "≥", lt: "<", lte: "≤",
 };
 
 export default function MetricsDrawer({

@@ -853,6 +853,14 @@ func attrFilterFromMatcher(m integrations.Matcher) store.LogAttrFilter {
 		op = store.AttrOpContains
 	case integrations.OperatorRegex:
 		op = store.AttrOpMatches
+	case integrations.OperatorNotEquals:
+		op = store.AttrOpNeq
+	case integrations.OperatorNotContains:
+		op = store.AttrOpNotContains
+	case integrations.OperatorExists:
+		op = store.AttrOpExists
+	case integrations.OperatorNotExists:
+		op = store.AttrOpNotExists
 	}
 	return store.LogAttrFilter{Key: m.Attribute, Op: op, Value: m.Value}
 }

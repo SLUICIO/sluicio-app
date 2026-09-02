@@ -9,6 +9,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api/client";
+import { VALUELESS_ATTR_OPS } from "../../api/types";
 import type { LogAttrFilter, LogAttrOp, LogAttrValue, LogFieldEntry } from "../../api/types";
 
 interface Props {
@@ -39,6 +40,11 @@ const STRING_OPS: { op: LogAttrOp; label: string }[] = [
   { op: "not_contains", label: "!contains" },
   { op: "starts_with", label: "starts" },
   { op: "exists", label: "exists" },
+  // "is absent" and "≠ anything" are different questions: an attribute a
+  // row does not carry reads as the empty string through every value
+  // operator, so ≠ already matches those rows. This is how you ask for
+  // them specifically.
+  { op: "not_exists", label: "is absent" },
 ];
 const NUMBER_OPS: { op: LogAttrOp; label: string }[] = [
   { op: "eq", label: "=" },
@@ -48,6 +54,7 @@ const NUMBER_OPS: { op: LogAttrOp; label: string }[] = [
   { op: "lt", label: "<" },
   { op: "lte", label: "≤" },
   { op: "exists", label: "exists" },
+  { op: "not_exists", label: "is absent" },
 ];
 
 function formatCard(n: number): string {
@@ -172,9 +179,9 @@ export default function AttributeSuggest({
 
   const commit = (value: string) => onPick({ key: picked!.key, op, value });
 
-  // exists needs no value — pick immediately when chosen
+  // exists / not_exists need no value — pick immediately when chosen
   const chooseOp = (next: LogAttrOp) => {
-    if (next === "exists") onPick({ key: picked!.key, op: "exists", value: "" });
+    if (next === "exists" || next === "not_exists") onPick({ key: picked!.key, op: next, value: "" });
     else setOp(next);
   };
 
@@ -272,7 +279,7 @@ export default function AttributeSuggest({
                 type="button"
                 className={`level-seg__btn ${op === o.op ? "is-warn" : ""}`}
                 aria-checked={op === o.op}
-                style={op === o.op && o.op !== "exists" ? { background: "var(--primary-soft)", color: "var(--primary-ink)", fontWeight: 600 } : undefined}
+                style={op === o.op && !VALUELESS_ATTR_OPS.includes(o.op) ? { background: "var(--primary-soft)", color: "var(--primary-ink)", fontWeight: 600 } : undefined}
                 onClick={() => chooseOp(o.op)}
               >
                 {o.label}

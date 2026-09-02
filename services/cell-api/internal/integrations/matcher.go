@@ -43,7 +43,14 @@ func (m Matcher) Match(serviceName string) bool {
 			return false
 		}
 		return re.MatchString(serviceName)
+	case OperatorNotEquals:
+		return serviceName != m.Value
+	case OperatorNotContains:
+		return !strings.Contains(serviceName, m.Value)
 	}
+	// exists / not_exists never reach here: Validate requires an
+	// attribute for them, which makes them attribute matchers, and those
+	// are applied at query time rather than against a service name.
 	return false
 }
 
@@ -51,11 +58,22 @@ func (m Matcher) Match(serviceName string) bool {
 // are well-formed. Empty values are rejected — an empty matcher would
 // match every service.
 func (m Matcher) Validate() error {
+	// The valueless operators ask about the key, so the empty-value rule
+	// below does not apply to them. They do need an attribute: "the
+	// service name is absent" is not a question worth answering, and
+	// without one they would be taken for service matchers.
+	if m.Operator.Valueless() {
+		if m.IsServiceMatcher() {
+			return errInvalid(string(m.Operator) + " needs an attribute; it cannot be asked of the service name")
+		}
+		return nil
+	}
 	if m.Value == "" {
 		return errInvalid("value must not be empty")
 	}
 	switch m.Operator {
-	case OperatorEquals, OperatorPrefix, OperatorSuffix, OperatorContains:
+	case OperatorEquals, OperatorPrefix, OperatorSuffix, OperatorContains,
+		OperatorNotEquals, OperatorNotContains:
 		// nothing more to check
 	case OperatorRegex:
 		if _, err := regexp.Compile(m.Value); err != nil {
