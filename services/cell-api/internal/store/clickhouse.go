@@ -1071,6 +1071,22 @@ type MessagesSearchParams struct {
 	// to coincide would push that constraint onto the customer's flow
 	// design. Capped by the caller; see integrations.MaxMessageColumns.
 	PromotedKeys []string
+	// ExcludeClauses hold the POSITIVE form of each negated filter row,
+	// and turn into an anti-join rather than a flipped predicate.
+	//
+	// A negation over a MESSAGE is universal: "no step has rpc.service =
+	// abc", not "some step does not". Applied to spans the way a positive
+	// filter is, a negation would match any message with at least one
+	// span lacking the attribute - which is nearly every message, for
+	// nearly every negation, so the filter would look applied and sift
+	// out almost nothing.
+	//
+	// The anti-join is deliberately NOT constrained by Clauses. A trace
+	// with a span matching a positive row and a DIFFERENT span carrying
+	// the excluded value must still be excluded; conjoining the two would
+	// only exclude traces where one span did both.
+	ExcludeClauses []string
+	ExcludeArgs    []any
 }
 
 // promotedColumnSQL builds the aggregate expressions that resolve
@@ -1149,20 +1165,43 @@ func promotedColumnSQL(keys []string) (selects string, args []any) {
 // already broke ties this way; these columns did not, and splitting the
 // query is what made the two disagree in a test.
 func buildMessagesSearchSQL(p MessagesSearchParams) (string, []any) {
-	whereClauses := []string{"Timestamp >= ? AND Timestamp <= ?"}
-	whereArgs := []any{p.From, p.To}
-	whereClauses = append(whereClauses, p.Clauses...)
-	whereArgs = append(whereArgs, p.Args...)
-
+	// The SCOPE - window and service allow-list - is kept separate from
+	// the row predicates, because the exclusion subquery needs the scope
+	// without them. It is also what keeps a message's absence explicable:
+	// the anti-join looks only at spans the reader could have seen on
+	// this page, so nothing disappears because of a step outside it.
+	scopeClauses := []string{"Timestamp >= ? AND Timestamp <= ?"}
+	scopeArgs := []any{p.From, p.To}
 	if len(p.ServiceFilter) > 0 {
 		placeholders := make([]string, len(p.ServiceFilter))
 		for i, name := range p.ServiceFilter {
 			placeholders[i] = "?"
-			whereArgs = append(whereArgs, name)
+			scopeArgs = append(scopeArgs, name)
 		}
-		whereClauses = append(whereClauses, "ServiceName IN ("+strings.Join(placeholders, ",")+")")
+		scopeClauses = append(scopeClauses, "ServiceName IN ("+strings.Join(placeholders, ",")+")")
 	}
-	where := strings.Join(whereClauses, " AND ")
+	scope := strings.Join(scopeClauses, " AND ")
+
+	where := strings.Join(append([]string{scope}, p.Clauses...), " AND ")
+	whereArgs := append(append([]any{}, scopeArgs...), p.Args...)
+
+	// The exclusion is a TRACE-level filter, so it belongs to the
+	// candidate pass alone. The attribute pass is already restricted to
+	// the candidates that survived it; repeating it there would
+	// re-evaluate the subquery to remove nothing.
+	//
+	// One anti-join covers every negated row: excluding traces that have
+	// a span matching A OR B is exactly "no span has A" AND "no span has
+	// B", at one pass instead of one per row.
+	candidateWhere := where
+	candidateArgs := append([]any{}, whereArgs...)
+	if len(p.ExcludeClauses) > 0 {
+		candidateWhere += fmt.Sprintf(
+			" AND TraceId NOT IN (SELECT TraceId FROM traces WHERE %s AND (%s))",
+			scope, strings.Join(p.ExcludeClauses, " OR "))
+		candidateArgs = append(candidateArgs, scopeArgs...)
+		candidateArgs = append(candidateArgs, p.ExcludeArgs...)
+	}
 
 	// The status filter (err only / ok only) and the keyset cursor both
 	// go in the candidate pass's HAVING so they apply BEFORE the LIMIT. A
@@ -1195,11 +1234,11 @@ func buildMessagesSearchSQL(p MessagesSearchParams) (string, []any) {
 	}
 
 	args := []any{}
-	args = append(args, whereArgs...)    // candidates
-	args = append(args, cursorArgs...)   // candidates HAVING
-	args = append(args, p.Limit)         // candidates LIMIT
-	args = append(args, whereArgs...)    // matching, same predicates
-	args = append(args, promotedArgs...) // summary
+	args = append(args, candidateArgs...) // candidates, incl. any exclusion
+	args = append(args, cursorArgs...)    // candidates HAVING
+	args = append(args, p.Limit)          // candidates LIMIT
+	args = append(args, whereArgs...)     // matching, the same row predicates
+	args = append(args, promotedArgs...)  // summary
 
 	sql := fmt.Sprintf(`
 		WITH candidates AS (
@@ -1251,7 +1290,7 @@ func buildMessagesSearchSQL(p MessagesSearchParams) (string, []any) {
 		INNER JOIN matching AS m ON s.TraceId = m.TraceId
 		INNER JOIN candidates AS c ON s.TraceId = c.TraceId
 		ORDER BY c.latest_match DESC, c.TraceId DESC
-	`, where, having, matchedSpanIDsExpr(len(p.Clauses) > 0), where, promotedSelects, promotedOuter)
+	`, candidateWhere, having, matchedSpanIDsExpr(len(p.Clauses) > 0), where, promotedSelects, promotedOuter)
 
 	return sql, args
 }

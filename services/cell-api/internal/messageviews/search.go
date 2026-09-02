@@ -35,6 +35,11 @@ type SQL struct {
 	// name selected by the user (the FilterEditor stores names, not
 	// IDs). The caller resolves this to a service-name allowlist.
 	IntegrationName string
+	// ExcludeClauses are the positive forms of negated rows. The caller
+	// turns them into an anti-join, which is what makes a negation mean
+	// "no step in this message" rather than "some step does not".
+	ExcludeClauses []string
+	ExcludeArgs    []any
 }
 
 // Build translates the UI filter list into ClickHouse predicates and
@@ -134,12 +139,21 @@ func Build(filters []Filter) (SQL, error) {
 			if !SafeAttributeKey(f.FieldPath) {
 				return SQL{}, fmt.Errorf("invalid payload field path: %q", f.FieldPath)
 			}
-			c, args, err := payloadClause(f.FieldPath, f.Op, f.Value)
+			// A negated row compiles to its POSITIVE form and goes to
+			// the exclusion list: the caller anti-joins it, so the row
+			// means "no step in this message satisfies it" rather than
+			// "some step does not". See MessagesSearchParams.
+			c, args, err := payloadClause(f.FieldPath, f.Op.positiveForm(), f.Value)
 			if err != nil {
 				return SQL{}, err
 			}
-			out.Clauses = append(out.Clauses, c)
-			out.Args = append(out.Args, args...)
+			if f.Op.Negated() {
+				out.ExcludeClauses = append(out.ExcludeClauses, c)
+				out.ExcludeArgs = append(out.ExcludeArgs, args...)
+			} else {
+				out.Clauses = append(out.Clauses, c)
+				out.Args = append(out.Args, args...)
+			}
 		}
 	}
 	return out, nil
@@ -172,6 +186,12 @@ func payloadClause(key string, op Operator, value string) (string, []any, error)
 		// anchors. We sanity-cap the pattern length in Validate.
 		clause := fmt.Sprintf("(match(%s, ?) OR match(%s, ?))", keyExpr, resExpr)
 		return clause, []any{value, value}, nil
+	case OpExists:
+		// mapContains, not `!= ''`: a Map returns the empty string for a
+		// key it does not hold, so no value comparison can tell an
+		// absent attribute from one set to "".
+		clause := fmt.Sprintf("(mapContains(SpanAttributes, '%s') OR mapContains(ResourceAttributes, '%s'))", key, key)
+		return clause, nil, nil
 	case OpIn:
 		vals := splitList(value)
 		if len(vals) == 0 {

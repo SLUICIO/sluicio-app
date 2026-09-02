@@ -670,6 +670,11 @@ func (h *Handlers) searchMessages(w http.ResponseWriter, r *http.Request) {
 		Args:         append(append([]any{}, plan.Args...), accessArgs...),
 		Before:       parseMessageCursor(req.Cursor),
 		PromotedKeys: integrations.MessageColumnKeys(messageColumns),
+		// Negated rows, as their positive forms. The store anti-joins
+		// them so they mean "no step in this message", which is what a
+		// reader means by "messages that did not go via X".
+		ExcludeClauses: plan.ExcludeClauses,
+		ExcludeArgs:    plan.ExcludeArgs,
 	})
 	if err != nil {
 		h.Logger.Error("messages search failed", "err", err)

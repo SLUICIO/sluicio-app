@@ -11,7 +11,23 @@ import type { MessageAttributeKey, MessageFieldDescriptor } from "../../api/type
 import { uid } from "../../lib/uid";
 
 export type Field = "payload" | "time" | "integration" | "status" | "service" | "errorType" | "traceId" | "spanId";
-export type Operator = "equals" | "contains" | "is" | "in" | "matches";
+export type Operator =
+  | "equals"
+  | "contains"
+  | "is"
+  | "in"
+  | "matches"
+  // Negations read UNIVERSALLY over a message: "no step in this message
+  // satisfies the positive form". A message is a trace of many steps,
+  // and asking span-by-span the way a positive row does would match
+  // almost every message for almost every negation.
+  | "not_equals"
+  | "not_contains"
+  | "exists"
+  | "not_exists";
+
+/** Operators that ask about the key, so no value is entered. */
+export const VALUELESS_OPS: Operator[] = ["exists", "not_exists"];
 
 // The fields the add-field picker offers by default (global Message Search).
 // Scoped surfaces can pass a narrower `fields` prop — e.g. the integration
@@ -133,12 +149,24 @@ const FIELD_LABELS: Record<Field, string> = {
   spanId: "span ID",
 };
 
+// A negation is a claim about the WHOLE message, and the label is the
+// only place a reader can check which claim was made. "is not" invites
+// the step-by-step reading and would be quietly wrong.
+//
+// "never" rather than "no step", because these render in the position
+// `field op value` - both in the pill and in the summary sentence - and
+// a prefix phrase lands backwards there: "rpc.service no step has"
+// against "rpc.service is never present".
 const OP_LABELS: Record<Operator, string> = {
   equals: "equals",
   contains: "contains",
   is: "is",
   in: "in",
   matches: "matches",
+  not_equals: "never equals",
+  not_contains: "never contains",
+  exists: "is present",
+  not_exists: "is never present",
 };
 
 export default function FilterEditor({
@@ -404,6 +432,10 @@ function FilterRow({
           />
         )}
       />
+      {/* No value pill for exists / not_exists: the question is whether
+          the attribute is there, and an empty pill beside it reads as a
+          value the user forgot to fill in. */}
+      {!VALUELESS_OPS.includes(filter.op) && (
       <Pill
         kind="value"
         label={filter.value || "—"}
@@ -428,6 +460,7 @@ function FilterRow({
           />
         )}
       />
+      )}
       {locked ? (
         <span
           className="ml-auto text-xs text-muted"
@@ -725,7 +758,16 @@ function OpPicker({ current, field, onPick }: OpPickerProps) {
           ["is", "contains"]
         : field === "status" || field === "integration" || field === "service"
           ? ["is", "in"]
-          : ["equals", "contains", "matches", "in"];
+          : [
+              "equals",
+              "contains",
+              "matches",
+              "in",
+              "not_equals",
+              "not_contains",
+              "exists",
+              "not_exists",
+            ];
   return (
     <div className="space-y-1 text-sm">
       <div className="text-xs text-muted">Operator</div>
@@ -1138,8 +1180,15 @@ function buildSummary(filters: Filter[], attributeKeys?: MessageAttributeKey[]):
                   ? attributeRowLabel(f.fieldPath, attributeKeys)
                   : FIELD_LABELS[f.field]}
               </b>{" "}
-              <span className="text-muted">{OP_LABELS[f.op]}</span>{" "}
-              <b>{f.value || "—"}</b>
+              <span className="text-muted">{OP_LABELS[f.op]}</span>
+              {/* exists / not_exists carry no value; printing the em dash
+                  placeholder would read as a value the user forgot. */}
+              {!VALUELESS_OPS.includes(f.op) && (
+                <>
+                  {" "}
+                  <b>{f.value || "—"}</b>
+                </>
+              )}
             </span>
           ))}
         </>

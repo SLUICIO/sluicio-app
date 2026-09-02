@@ -1186,7 +1186,14 @@ export type MessageOperator =
   | "contains"
   | "is"
   | "in"
-  | "matches";
+  | "matches"
+  // Negations are universal over a message: the server compiles them to
+  // an anti-join, so the row means "no step in this message satisfies
+  // the positive form" rather than "some step does not".
+  | "not_equals"
+  | "not_contains"
+  | "exists"
+  | "not_exists";
 
 export interface MessageFilter {
   id?: string;

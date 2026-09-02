@@ -52,7 +52,50 @@ const (
 	OpIs       Operator = "is"
 	OpIn       Operator = "in"
 	OpMatches  Operator = "matches"
+
+	// The negations, and the two existence checks.
+	//
+	// Over a MESSAGE these read universally: "no step in this message
+	// satisfies the positive form". A message is a trace of many spans,
+	// and applying a negation span-by-span the way a positive filter is
+	// applied would return any message with at least one span lacking
+	// the attribute - nearly every message, for nearly every negation.
+	//
+	// OpExists stays existential, which is the reading that matches the
+	// word: some step carries it. Its counterpart is universal for the
+	// same reason as the rest - "no step carries it".
+	OpNotEquals   Operator = "not_equals"
+	OpNotContains Operator = "not_contains"
+	OpExists      Operator = "exists"
+	OpNotExists   Operator = "not_exists"
 )
+
+// Negated reports whether the operator excludes messages rather than
+// selecting them, which decides whether its predicate goes in the
+// span-level WHERE or in the anti-join.
+func (o Operator) Negated() bool {
+	return o == OpNotEquals || o == OpNotContains || o == OpNotExists
+}
+
+// Valueless reports whether the operator asks about the key rather than
+// its value.
+func (o Operator) Valueless() bool {
+	return o == OpExists || o == OpNotExists
+}
+
+// positiveForm is the operator whose matches a negated row excludes.
+// not_equals excludes the messages that equals would have selected.
+func (o Operator) positiveForm() Operator {
+	switch o {
+	case OpNotEquals:
+		return OpEquals
+	case OpNotContains:
+		return OpContains
+	case OpNotExists:
+		return OpExists
+	}
+	return o
+}
 
 // Filter is one row in a saved view. FieldPath is only meaningful when
 // Field == "payload" (it's the attribute key inside the merged span/
@@ -84,10 +127,17 @@ func (f Filter) Validate() error {
 		return fmt.Errorf("unknown field %q", f.Field)
 	}
 	switch f.Op {
-	case OpEquals, OpContains, OpIs, OpIn, OpMatches:
+	case OpEquals, OpContains, OpIs, OpIn, OpMatches,
+		OpNotEquals, OpNotContains, OpExists, OpNotExists:
 		// ok
 	default:
 		return fmt.Errorf("unknown operator %q", f.Op)
+	}
+	// The existence checks only make sense against an attribute: every
+	// other field is a column that is always there, so "status exists"
+	// is not a question.
+	if f.Op.Valueless() && f.Field != FieldPayload {
+		return fmt.Errorf("operator %q applies to payload attributes only, not %q", f.Op, f.Field)
 	}
 	// A payload filter without a fieldPath is INCOMPLETE, not invalid:
 	// it's the FilterEditor's default freshly-added row, it round-trips
