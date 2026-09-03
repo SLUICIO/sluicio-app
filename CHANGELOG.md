@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.145 — 2026-09-02
+
+- feat(messages): negation in views and filters, read over the whole message (0d8ee51)
+
 ## v0.11.144 — 2026-09-02
 
+- release v0.11.144 — refresh internal changelog (fad41db)
 - feat(matching): match on an absent attribute, and on negations (b80af5f)
 
 ## v0.11.143 — 2026-09-01
