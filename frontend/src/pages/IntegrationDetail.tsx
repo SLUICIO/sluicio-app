@@ -59,6 +59,13 @@ export default function IntegrationDetailPage() {
   const canWrite = data?.can_manage ?? can("integration.write");
   const canDelete = canWrite && (can("integration.delete") || (data?.can_manage ?? false));
   const [flow, setFlow] = useState<FlowResponse | null>(null);
+  // Set by the "show historical shape" button. Kept in state rather than
+  // fetched inline so a refresh keeps showing what the reader asked for,
+  // and reset when the window changes - a new window is a new question.
+  const [showHistorical, setShowHistorical] = useState(false);
+  useEffect(() => {
+    setShowHistorical(false);
+  }, [windowVal]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -101,7 +108,11 @@ export default function IntegrationDetailPage() {
     api
       // ?trace= projects one message onto the graph (issue #15). Read
       // from the URL so the view is linkable straight into a ticket.
-      .integrationFlow(id, windowVal, traceParam || undefined)
+      //
+      // No historical fill on the automatic load: it is a self-join over
+      // ninety days, and the panel offers it as a button when the window
+      // turns out to be empty.
+      .integrationFlow(id, windowVal, traceParam || undefined, showHistorical)
       .then(setFlow)
       .catch(() => setFlow(null));
     api
@@ -142,7 +153,10 @@ export default function IntegrationDetailPage() {
     return created;
   };
 
-  useEffect(refresh, [id, windowVal, traceParam]);
+  // showHistorical belongs here: the flag is read inside refresh, so
+  // without it the button set state and nothing refetched - a control
+  // that looked live and did nothing.
+  useEffect(refresh, [id, windowVal, traceParam, showHistorical]);
 
   // Delayed-count tile: counts currently-firing trace-completion
   // alert instances on this integration. 30s cadence matches the
@@ -452,6 +466,17 @@ export default function IntegrationDetailPage() {
                   <div>
                     <h2 className="text-base font-semibold flex items-center gap-2">
                       Service flow
+                      {flow?.historical_available && !flow?.historical && (
+                        <button
+                          type="button"
+                          className="btn btn--link"
+                          style={{ padding: 0, fontSize: 11 }}
+                          title="Nothing flowed between these services in the selected range. Look back over 90 days to draw the shape they usually take — this reads a lot of history, so it is not done automatically."
+                          onClick={() => setShowHistorical(true)}
+                        >
+                          show historical shape
+                        </button>
+                      )}
                       {flow?.historical && (
                         <span
                           className="rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide"

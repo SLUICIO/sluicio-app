@@ -506,10 +506,15 @@ export const api = {
     get<ErrorBreakdownResponse>(
       `/integrations/${encodeURIComponent(id)}/error-breakdown?range=${encodeURIComponent(window)}`
     ),
-  integrationFlow: (id: string, window: string = "1h", trace?: string) =>
+  // historical asks the cell to fill an empty window from a wide
+  // historical one. Off by default: it is a self-join across ninety days
+  // of traces, and a window with no hops is ordinary - an hour on an
+  // integration that runs every four hours, a night, a weekend.
+  integrationFlow: (id: string, window: string = "1h", trace?: string, historical = false) =>
     get<FlowResponse>(
       `/integrations/${encodeURIComponent(id)}/flow?range=${encodeURIComponent(window)}` +
-        (trace ? `&trace=${encodeURIComponent(trace)}` : "")
+        (trace ? `&trace=${encodeURIComponent(trace)}` : "") +
+        (historical ? "&historical=1" : "")
     ),
 
   // Service facets — multi-facet classification of a service.

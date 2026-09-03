@@ -580,10 +580,9 @@ func (h *Handlers) integrationFlow(w http.ResponseWriter, r *http.Request) {
 		serviceNames = append(serviceNames, name)
 	}
 
-	// Edges: query the user's window first; if it has no hops, fall
-	// back to a wide historical window with zeroed counts so the user
-	// still sees the structural connections. Historical is reported so
-	// the UI can badge the panel.
+	// Edges over the user's window. When it holds no hops a structural
+	// shape can be drawn from a wide historical window instead - offered
+	// rather than taken, see below.
 	edgesFrom, edgesTo := tr.From, tr.To
 	historical := false
 
@@ -601,10 +600,23 @@ func (h *Handlers) integrationFlow(w http.ResponseWriter, r *http.Request) {
 	} else {
 		edgeRows = append(edgeRows, linkRows...)
 	}
-	if len(edgeRows) == 0 && len(serviceNames) > 1 {
-		// No hops in this window — fall back to the structural shape
-		// over a wide historical window. Per-edge counts get zeroed
-		// below so they reflect the user's (empty) window.
+	// Whether a historical shape COULD be shown, without paying to find
+	// out. Reported to the client so the panel can offer it.
+	historicalAvailable := len(edgeRows) == 0 && len(serviceNames) > 1
+
+	// The historical fallback is opt-in, and used to be automatic.
+	//
+	// It is a self-join across ninety days of the traces table, and the
+	// condition that triggered it - no hops in the selected window - is
+	// ordinary: an hour on an integration that runs every four hours, a
+	// night, a weekend. Measured on an integration whose window held 288
+	// traces: 3.16 million rows read, twice, plus 2.11 million more for
+	// the link edges. Seven seconds on a customer cell, to draw a graph
+	// nobody had asked for, on every visit.
+	//
+	// The structural shape is worth having. It is not worth having
+	// without being asked.
+	if historicalAvailable && r.URL.Query().Get("historical") == "1" {
 		histFrom := time.Now().UTC().Add(-90 * 24 * time.Hour)
 		histTo := time.Now().UTC()
 		if histEdges, errH := h.Store.ServiceEdges(r.Context(), serviceNames, histFrom, histTo, flowAttrs); errH == nil && len(histEdges) > 0 {
@@ -748,14 +760,15 @@ func (h *Handlers) integrationFlow(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httpserver.WriteJSON(w, http.StatusOK, FlowResponse{
-		Window:             tr.Window(),
-		Nodes:              nodes,
-		Edges:              edges,
-		Historical:         historical,
-		ServiceSchemas:     serviceSchemas,
-		Maps:               flowMaps,
-		Trace:              projection,
-		TraceOutsideWindow: traceOutsideWindow,
+		Window:              tr.Window(),
+		Nodes:               nodes,
+		Edges:               edges,
+		Historical:          historical,
+		HistoricalAvailable: historicalAvailable,
+		ServiceSchemas:      serviceSchemas,
+		Maps:                flowMaps,
+		Trace:               projection,
+		TraceOutsideWindow:  traceOutsideWindow,
 	})
 }
 

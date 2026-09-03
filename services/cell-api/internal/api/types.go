@@ -274,6 +274,11 @@ type FlowResponse struct {
 	// window so the topology still renders. Per-node counts then
 	// reflect that historical fallback, not the empty current window.
 	Historical bool `json:"historical,omitempty"`
+	// HistoricalAvailable says a structural shape COULD be drawn from a
+	// wide historical window, without having paid to draw it. Finding
+	// out costs a self-join across ninety days of traces, so the client
+	// asks for it (?historical=1) rather than getting it on every visit.
+	HistoricalAvailable bool `json:"historical_available,omitempty"`
 	// ServiceSchemas maps a member service name to the schemas pinned
 	// to it (with in/out direction) — the data shapes flowing through
 	// that node. Omitted when no member service has schema links.

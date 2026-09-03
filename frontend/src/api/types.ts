@@ -535,6 +535,12 @@ export interface FlowResponse {
   // graph still renders. Per-node counts reflect that historical
   // window in that case — the UI badges the panel accordingly.
   historical?: boolean;
+  /**
+   * A structural shape could be drawn from a wider historical window.
+   * Reported without drawing it, because finding out costs a self-join
+   * across ninety days of traces - the panel offers it instead.
+   */
+  historical_available?: boolean;
   // One message projected onto this graph, present only when the flow
   // was requested with a trace id.
   trace?: TraceProjection;
