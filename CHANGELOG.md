@@ -3,8 +3,14 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.147 — 2026-09-03
+
+- perf(topology): the historical fallback is opt-in here too (0190b30)
+- perf(integrations): stop drawing a graph nobody asked for (61287f3)
+
 ## v0.11.146 — 2026-09-03
 
+- release v0.11.146 — refresh internal changelog (ab1e44f)
 - fix(ui): a link styled as a button hovers like a button (52bd316)
 
 ## v0.11.145 — 2026-09-03
