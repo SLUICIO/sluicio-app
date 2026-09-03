@@ -84,7 +84,17 @@ func (h *Handlers) topologyGraph(w http.ResponseWriter, r *http.Request) {
 		edgeRows = append(edgeRows, linkRows...)
 	}
 	historical := false
-	if len(edgeRows) == 0 && len(names) > 1 {
+	// Whether a structural shape COULD be drawn from a wide window,
+	// which costs nothing to know.
+	historicalAvailable := len(edgeRows) == 0 && len(names) > 1
+
+	// Opt-in, as on an integration's flow graph and for the same reason:
+	// this is a self-join across ninety days of the traces table, and the
+	// condition that reaches it - a quiet window - is ordinary rather
+	// than exceptional. It is wider here than on an integration, because
+	// the topology spans every service the reader can see rather than
+	// one integration's members.
+	if historicalAvailable && r.URL.Query().Get("historical") == "1" {
 		histFrom := time.Now().UTC().Add(-90 * 24 * time.Hour)
 		histTo := time.Now().UTC()
 		if he, e := h.Store.ServiceEdges(r.Context(), names, histFrom, histTo, nil); e == nil && len(he) > 0 {
@@ -98,7 +108,7 @@ func (h *Handlers) topologyGraph(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.URL.Query().Get("view") == "integrations" {
-		h.writeIntegrationTopology(w, r, orgID, tr, names, byName, statusOf, edgeRows, historical)
+		h.writeIntegrationTopology(w, r, orgID, tr, names, byName, statusOf, edgeRows, historical, historicalAvailable)
 		return
 	}
 
@@ -116,14 +126,17 @@ func (h *Handlers) topologyGraph(w http.ResponseWriter, r *http.Request) {
 		}
 		edges = append(edges, FlowEdge{Source: e.Source, Target: e.Target, CallCount: cc, ErrorCount: ec, Kind: e.Kind})
 	}
-	httpserver.WriteJSON(w, http.StatusOK, FlowResponse{Window: tr.Window(), Nodes: nodes, Edges: edges, Historical: historical})
+	httpserver.WriteJSON(w, http.StatusOK, FlowResponse{
+		Window: tr.Window(), Nodes: nodes, Edges: edges,
+		Historical: historical, HistoricalAvailable: historicalAvailable,
+	})
 }
 
 // writeIntegrationTopology rolls the service graph up to the integration level:
 // nodes are integrations (traffic = sum of member traffic, status = aggregate
 // of member health), and an edge A→B exists when a service in A calls a service
 // in B (counts summed over the underlying service hops; self-edges dropped).
-func (h *Handlers) writeIntegrationTopology(w http.ResponseWriter, r *http.Request, orgID uuid.UUID, tr TimeRange, names []string, byName map[string]store.ServiceRow, statusOf map[string]string, edgeRows []store.ServiceEdgeRow, historical bool) {
+func (h *Handlers) writeIntegrationTopology(w http.ResponseWriter, r *http.Request, orgID uuid.UUID, tr TimeRange, names []string, byName map[string]store.ServiceRow, statusOf map[string]string, edgeRows []store.ServiceEdgeRow, historical, historicalAvailable bool) {
 	members, err := h.Catalog.IntegrationServicesBulk(r.Context(), orgID)
 	if err != nil {
 		h.Logger.Error("topology(int): membership failed", "err", err)
@@ -222,5 +235,8 @@ func (h *Handlers) writeIntegrationTopology(w http.ResponseWriter, r *http.Reque
 		edges = append(edges, FlowEdge{Source: k.s, Target: k.t, CallCount: cc, ErrorCount: ec, Kind: kind})
 	}
 
-	httpserver.WriteJSON(w, http.StatusOK, FlowResponse{Window: tr.Window(), Nodes: nodes, Edges: edges, Historical: historical})
+	httpserver.WriteJSON(w, http.StatusOK, FlowResponse{
+		Window: tr.Window(), Nodes: nodes, Edges: edges,
+		Historical: historical, HistoricalAvailable: historicalAvailable,
+	})
 }

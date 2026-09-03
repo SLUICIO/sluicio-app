@@ -119,6 +119,13 @@ export default function Topology() {
   const [field, setField] = useState("all");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // Set by the "show it anyway" link below. Reset when the window or the
+  // perspective changes - a new question deserves a fresh answer rather
+  // than an inherited ninety-day scan.
+  const [showHistorical, setShowHistorical] = useState(false);
+  useEffect(() => {
+    setShowHistorical(false);
+  }, [range, perspective]);
 
   useEffect(() => {
     let live = true;
@@ -127,7 +134,11 @@ export default function Topology() {
     const fail = (e: unknown) => live && setError(errText(e));
     const done = () => live && setLoading(false);
     if (perspective === "services") {
-      api.getTopology(range, "services").then((d) => live && setFlow(d)).catch(fail).finally(done);
+      api
+        .getTopology(range, "services", showHistorical)
+        .then((d) => live && setFlow(d))
+        .catch(fail)
+        .finally(done);
     } else if (perspective === "integrations") {
       api.listIntegrations(range).then((d) => live && setIntegrations(d.integrations)).catch(fail).finally(done);
     } else if (perspective === "systems") {
@@ -145,7 +156,9 @@ export default function Topology() {
     return () => {
       live = false;
     };
-  }, [perspective, range]);
+    // showHistorical belongs in here: it is read by the fetch above, so
+    // without it the link would set state and nothing would reload.
+  }, [perspective, range, showHistorical]);
 
   const statusByService = useMemo(() => {
     const m: Record<string, ServiceStatus> = {};
@@ -233,6 +246,20 @@ export default function Topology() {
         )}
       </div>
 
+      {perspective === "services" && flow?.historical_available && !flow?.historical && (
+        <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
+          No hops in the selected window.{" "}
+          <button
+            type="button"
+            className="btn btn--link"
+            style={{ padding: 0, fontSize: 12 }}
+            title="Looks back over 90 days to draw the shape these services usually take. It reads a lot of history, so it is not done automatically."
+            onClick={() => setShowHistorical(true)}
+          >
+            Show the structural graph from history
+          </button>
+        </div>
+      )}
       {perspective === "services" && flow?.historical && (
         <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
           No hops in the selected window — showing the structural graph from historical data (edge counts shown as zero).

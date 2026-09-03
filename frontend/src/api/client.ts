@@ -474,8 +474,19 @@ export const api = {
     ),
 
   // Org-wide topology graph. view = "services" (default) | "integrations".
-  getTopology: (window: string = "24h", view: "services" | "integrations" = "services") =>
-    get<FlowResponse>(`/topology?range=${encodeURIComponent(window)}&view=${view}`),
+  // historical fills an empty window from a wide one. Off by default: it
+  // is a self-join across ninety days of traces, over every service the
+  // reader can see, and a quiet window is ordinary rather than
+  // exceptional.
+  getTopology: (
+    window: string = "24h",
+    view: "services" | "integrations" = "services",
+    historical = false,
+  ) =>
+    get<FlowResponse>(
+      `/topology?range=${encodeURIComponent(window)}&view=${view}` +
+        (historical ? "&historical=1" : ""),
+    ),
   // Metadata relationship graph: integrations ↔ metadata values + tags.
   getMetadataGraph: () => get<MetaGraphResponse>(`/metadata-graph`),
   // `trace` projects one message onto the graph (issue #15): the same
