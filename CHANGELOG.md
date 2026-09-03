@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
-## v0.11.145 — 2026-09-02
+## v0.11.146 — 2026-09-03
 
+- fix(ui): a link styled as a button hovers like a button (52bd316)
+
+## v0.11.145 — 2026-09-03
+
+- release v0.11.145 — refresh internal changelog (6ec9a19)
 - feat(messages): negation in views and filters, read over the whole message (0d8ee51)
 
 ## v0.11.144 — 2026-09-02
