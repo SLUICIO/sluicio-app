@@ -40,6 +40,64 @@ function truncate(s: string, max: number): string {
  * into the target. Rounded corners so it reads as one line rather than
  * three segments.
  */
+/**
+ * A connector that has to get past the steps sitting between its two
+ * ends: out of the source, along a lane beside the column, down, and
+ * back in to the target.
+ *
+ * The straight drop in detour() is right for the NEXT step and wrong for
+ * anything further, because in a single column the shortest path runs
+ * through the middle of every box in between. A fan-out then draws
+ * several collinear lines with arrowheads scattered along them, which
+ * reads as arrows pointing in both directions rather than as one parent
+ * with three children.
+ *
+ * laneX is the column to run down; callers space concurrent skips apart
+ * so two of them do not overlap and recreate the problem.
+ */
+export function sideRoute(
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+  laneX: number,
+): string {
+  const r = 8;
+  const dir = laneX > from.x ? 1 : -1;
+  const drop = 12; // clear the source box before turning
+  return [
+    `M${from.x},${from.y}`,
+    `V${from.y + drop - r}`,
+    `Q${from.x},${from.y + drop} ${from.x + r * dir},${from.y + drop}`,
+    `H${laneX - r * dir}`,
+    `Q${laneX},${from.y + drop} ${laneX},${from.y + drop + r}`,
+    `V${to.y - drop - r}`,
+    `Q${laneX},${to.y - drop} ${laneX - r * dir},${to.y - drop}`,
+    `H${to.x + r * dir}`,
+    `Q${to.x},${to.y - drop} ${to.x},${to.y - drop + r}`,
+    `V${to.y}`,
+  ].join(" ");
+}
+
+/**
+ * Would a straight drop from src to dst run through one of the boxes?
+ * Asked of the geometry directly: two rounds of reasoning about rows
+ * and bands each missed a case that the intersection test answers
+ * outright.
+ */
+export function crossesABox(
+  src: { x: number; y: number },
+  dst: { x: number; y: number },
+  boxes: { x: number; y: number }[],
+): boolean {
+  if (src.x !== dst.x) return false;
+  return boxes.some(
+    (q) =>
+      src.x > q.x + 2 &&
+      src.x < q.x + NODE_W - 2 &&
+      Math.min(src.y, dst.y) < q.y + NODE_H - 2 &&
+      Math.max(src.y, dst.y) > q.y + 2,
+  );
+}
+
 export function detour(
   from: { x: number; y: number },
   to: { x: number; y: number },
@@ -351,6 +409,38 @@ export default function SpanGraph({
 
     const bandCols = Math.min(cols, perBand);
     const bodyRight = PAD + leftGutter + bandCols * NODE_W + (bandCols - 1) * COL_GAP;
+
+    // Wrap connectors are routed here rather than at render time: a
+    // lane beside the last column sits outside bodyRight, and the box
+    // has to be measured wide enough to hold it. Routing them in the
+    // markup left the width unaware of them and the viewBox cut the
+    // detours off at the edge of the card.
+    const wrapPaths = new Map<string, string>();
+    let laneRight = 0;
+    for (const e of graph.edges) {
+      const p = pos.get(e.from);
+      const q = pos.get(e.to);
+      if (!p || !q) continue;
+      const fromBand = bandOf(depth.get(e.from) ?? 0);
+      const toBand = bandOf(depth.get(e.to) ?? 0);
+      if (fromBand === toBand) continue;
+      const src = { x: p.x + NODE_W / 2, y: p.y + NODE_H };
+      const dst = { x: q.x + NODE_W / 2, y: q.y };
+      const between = graph.nodes
+        .filter((o) => o.id !== e.from && o.id !== e.to)
+        .map((o) => pos.get(o.id))
+        .filter((b): b is { x: number; y: number } => !!b);
+      if (crossesABox(src, dst, between)) {
+        // One lane per row of the target, so the siblings of a fan-out
+        // do not stack on top of each other either.
+        const laneStep = (rowOf.get(e.to) ?? 0) + (toBand - fromBand);
+        const laneX = src.x + NODE_W / 2 + 10 + (laneStep - 1) * 12;
+        laneRight = Math.max(laneRight, laneX);
+        wrapPaths.set(`${e.from}-${e.to}`, sideRoute(src, dst, laneX));
+      } else {
+        wrapPaths.set(`${e.from}-${e.to}`, detour(src, dst, bandLane[fromBand]));
+      }
+    }
     // The tallest of the three stacks decides the height: a trace with
     // one span and four successors still has to fit all four.
     const neighbourRows = Math.max(predecessors.length, successors.length)
@@ -363,13 +453,19 @@ export default function SpanGraph({
     return {
       pos,
       depth,
+      // Which row a node sits on inside its band. A connector dropping
+      // straight into row 0 has a clear path; one dropping into a lower
+      // row would cross every box stacked above it in the same column,
+      // which is what a fan-out looks like when it is drawn naively.
+      rowOf,
       bandOf,
       bandLane,
       bands,
       leftX: PAD,
       rightX: bodyRight + COL_GAP,
       detourY,
-      width: bodyRight + rightGutter + PAD,
+      wrapPaths,
+      width: Math.max(bodyRight + rightGutter + PAD, laneRight + PAD),
       height: detourY + PAD,
       sorted,
     };
@@ -404,8 +500,13 @@ export default function SpanGraph({
         aria-label={`Span graph: ${graph.nodes.length} steps across ${new Set(graph.nodes.map((n) => n.service)).size} services`}
       >
         <defs>
-          <marker id="sg-arrow" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
-            <path d="M0,0 L0,6 L7,3 z" fill="var(--border)" />
+          {/* --muted, not --border. A connector is a line the reader
+              FOLLOWS, and --border is for the outline of a box that is
+              already a solid shape: measured at 1.18:1 against the card,
+              against 6.1:1 for --muted. The arrows were fainter than the
+              boxes they joined. */}
+          <marker id="sg-arrow" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L7,3 z" fill="var(--muted)" />
           </marker>
         </defs>
 
@@ -415,26 +516,21 @@ export default function SpanGraph({
             .filter((e) => e.to === n.id)
             .map((e) => {
               const p = l.pos.get(e.from)!;
-              const fromBand = l.bandOf(l.depth.get(e.from) ?? 0);
-              const toBand = l.bandOf(l.depth.get(n.id) ?? 0);
+              const wrap = l.wrapPaths.get(`${e.from}-${e.to}`);
               // A step that wrapped onto the next band. A bezier here
               // would sweep back across the whole picture and read as
               // an edge to everything it passed; the carriage return
               // drops out of the source, runs along a lane of its own
               // and rises into the target, so every arrow still points
               // right and the wrap is visibly a wrap.
-              if (fromBand !== toBand) {
+              if (wrap) {
                 return (
                   <path
                     key={`${e.from}-${e.to}`}
-                    d={detour(
-                      { x: p.x + NODE_W / 2, y: p.y + NODE_H },
-                      { x: from.x + NODE_W / 2, y: from.y },
-                      l.bandLane[fromBand],
-                    )}
+                    d={wrap}
                     fill="none"
-                    stroke="var(--border)"
-                    strokeWidth={1.5}
+                    stroke="var(--muted)"
+                    strokeWidth={1.75}
                     markerEnd="url(#sg-arrow)"
                   />
                 );
@@ -449,8 +545,8 @@ export default function SpanGraph({
                   key={`${e.from}-${e.to}`}
                   d={`M${x1},${y1} C${mid},${y1} ${mid},${y2} ${x2},${y2}`}
                   fill="none"
-                  stroke="var(--border)"
-                  strokeWidth={1.5}
+                  stroke="var(--muted)"
+                  strokeWidth={1.75}
                   markerEnd="url(#sg-arrow)"
                 />
               );
@@ -487,13 +583,23 @@ export default function SpanGraph({
           if (!anchor) return null;
           const y = PAD + i * (NEIGHBOUR_H + ROW_GAP);
           const from = { x: l.leftX + NODE_W / 2, y: y + NEIGHBOUR_H };
-          const to = { x: anchor.x + NODE_W / 2, y: anchor.y + NODE_H };
+          // Arrives at the box's left quarter, not its centre. The
+          // centre-bottom is where this step's own children leave from,
+          // and an arrowhead pointing UP into the same point as three
+          // lines heading DOWN reads as one confused double-headed
+          // arrow rather than as two different kinds of connection.
+          const to = { x: anchor.x + NODE_W / 4, y: anchor.y + NODE_H };
           return (
+            // Same weight and colour as an in-trace connector; the DASH
+            // is what says "this leaves the message". Carrying that
+            // distinction in the colour instead left these at 1.42:1
+            // against the card, which is not a line so much as a rumour
+            // of one.
             <path
               key={`from-edge-${p.traceId}`}
               d={detour(from, to, l.detourY)}
-              stroke="var(--border-strong)"
-              strokeWidth={1.5}
+              stroke="var(--muted)"
+              strokeWidth={1.75}
               strokeDasharray="4 3"
               fill="none"
               markerEnd="url(#sg-arrow)"
@@ -504,14 +610,17 @@ export default function SpanGraph({
           const anchor = s.anchorNodeId ? l.pos.get(s.anchorNodeId) : undefined;
           if (!anchor) return null;
           const y = PAD + i * (NEIGHBOUR_H + ROW_GAP);
-          const from = { x: anchor.x + NODE_W / 2, y: anchor.y + NODE_H };
+          // Leaves from the right quarter, for the same reason the
+          // incoming one arrives at the left: three kinds of line meet
+          // at a box, and they should not meet at the same point.
+          const from = { x: anchor.x + (NODE_W * 3) / 4, y: anchor.y + NODE_H };
           const to = { x: l.rightX + NODE_W / 2, y: y + NEIGHBOUR_H };
           return (
             <path
               key={`into-edge-${s.traceId}`}
               d={detour(from, to, l.detourY)}
-              stroke="var(--border-strong)"
-              strokeWidth={1.5}
+              stroke="var(--muted)"
+              strokeWidth={1.75}
               strokeDasharray="4 3"
               fill="none"
               markerEnd="url(#sg-arrow)"
