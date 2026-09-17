@@ -72,6 +72,12 @@ export interface Rule {
   // How the attribute conditions combine within this rule.
   combine: "any" | "all";
   attrs: AttrCond[];
+  // Take the spans this rule matches AND everything below them in the
+  // trace, whether or not the children satisfy the conditions. A rule
+  // property rather than a condition's: on the wire it applies to a whole
+  // match group, and an "all" rule is one group, so a per-condition
+  // switch would claim a precision the query does not have.
+  descendants?: boolean;
 }
 
 export type MatcherInput = {
@@ -79,6 +85,7 @@ export type MatcherInput = {
   operator: MatcherOperator;
   value: string;
   match_group: number;
+  include_descendants?: boolean;
 };
 
 export const blankAttr = (): AttrCond => ({ attribute: "", operator: "equals", value: "" });
@@ -149,8 +156,11 @@ export function rulesToMatchers(rules: Rule[]): MatcherInput[] {
   for (const r of rules) {
     const service = r.service.trim();
     if (!service) continue; // incomplete rule — skip
-    const svc = { attribute: SERVICE_NAME_ATTR, operator: r.serviceOp, value: service };
-    const attrs = validAttrs(r);
+    // Every row of every group the rule expands into carries the flag,
+    // so the rule reads back the same whichever row is looked at.
+    const flag = r.descendants ? { include_descendants: true } : {};
+    const svc = { attribute: SERVICE_NAME_ATTR, operator: r.serviceOp, value: service, ...flag };
+    const attrs = validAttrs(r).map((a) => ({ ...a, ...flag }));
     if (attrs.length === 0) {
       out.push({ ...svc, match_group: group });
       group++;
@@ -176,7 +186,13 @@ export function rulesToMatchers(rules: Rule[]): MatcherInput[] {
 // (attribute-only) becomes a rule with an empty service so it stays visible
 // and editable rather than being silently dropped.
 export function matchersToRules(
-  matchers: { attribute: string; operator: MatcherOperator; value: string; match_group: number }[],
+  matchers: {
+    attribute: string;
+    operator: MatcherOperator;
+    value: string;
+    match_group: number;
+    include_descendants?: boolean;
+  }[],
 ): Rule[] {
   const byGroup = new Map<number, typeof matchers>();
   for (const m of matchers) {
@@ -193,8 +209,15 @@ export function matchersToRules(
     const attrs: AttrCond[] = ms
       .filter((m) => m.attribute !== SERVICE_NAME_ATTR)
       .map((m) => ({ attribute: m.attribute, operator: m.operator, value: m.value }));
+    const descendants = ms.some((m) => m.include_descendants);
     if (!svc) {
-      noService.push({ serviceOp: "equals", service: "", combine: attrs.length > 1 ? "all" : "any", attrs });
+      noService.push({
+        serviceOp: "equals",
+        service: "",
+        combine: attrs.length > 1 ? "all" : "any",
+        attrs,
+        descendants,
+      });
       continue;
     }
     // \u0000 as the escape, not the byte. Written literally it made this
@@ -208,6 +231,7 @@ export function matchersToRules(
       ruleMap.set(key, rule);
       order.push(key);
     }
+    rule.descendants = rule.descendants || descendants;
     if (attrs.length === 1) {
       rule.attrs.push(attrs[0]); // OR across single-attr groups
     } else if (attrs.length > 1) {
@@ -226,10 +250,11 @@ export function rulesPreview(rules: Rule[]): string {
       if (!service) return null;
       const svc = `service ${sym(r.serviceOp)} ${service}`;
       const attrs = validAttrs(r);
-      if (attrs.length === 0) return `(${svc})`;
+      const children = r.descendants ? " + child spans" : "";
+      if (attrs.length === 0) return `(${svc})${children}`;
       const joiner = r.combine === "all" ? " AND " : " OR ";
       const inner = attrs.map((a) => `${a.attribute} ${sym(a.operator)} ${a.value}`).join(joiner);
-      return `(${svc} AND (${inner}))`;
+      return `(${svc} AND (${inner}))${children}`;
     })
     .filter(Boolean);
   return parts.join("  OR  ");
@@ -388,6 +413,24 @@ export default function MatcherRules({
               <button type="button" className="btn" onClick={() => addAttr(ri)} style={{ marginTop: 4 }}>
                 + condition
               </button>
+              <label
+                className="muted"
+                style={{ display: "flex", gap: 6, alignItems: "flex-start", fontSize: 13, marginTop: 10 }}
+              >
+                <input
+                  type="checkbox"
+                  checked={!!rule.descendants}
+                  onChange={(e) => update(ri, { descendants: e.target.checked })}
+                  style={{ marginTop: 3 }}
+                />
+                <span>
+                  Include child spans
+                  <span style={{ display: "block", fontSize: 11 }}>
+                    Also take every span below a matching span in its trace, even when the child spans do not
+                    match the conditions themselves.
+                  </span>
+                </span>
+              </label>
             </div>
           )}
           {rule.attrs.length === 0 && (

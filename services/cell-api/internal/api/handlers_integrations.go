@@ -31,6 +31,8 @@ type matcherInput struct {
 	Operator   integrations.Operator `json:"operator"`
 	Value      string                `json:"value"`
 	MatchGroup int                   `json:"match_group"`
+	// IncludeDescendants: see integrations.Matcher.
+	IncludeDescendants bool `json:"include_descendants"`
 }
 
 type createIntegrationRequest struct {
@@ -837,10 +839,11 @@ func (h *Handlers) createIntegration(w http.ResponseWriter, r *http.Request) {
 			attr = "service.name"
 		}
 		in.Matchers = append(in.Matchers, integrations.Matcher{
-			Attribute:  attr,
-			Operator:   m.Operator,
-			Value:      m.Value,
-			MatchGroup: m.MatchGroup,
+			Attribute:          attr,
+			Operator:           m.Operator,
+			Value:              m.Value,
+			MatchGroup:         m.MatchGroup,
+			IncludeDescendants: m.IncludeDescendants,
 		})
 	}
 
@@ -1134,20 +1137,22 @@ func (h *Handlers) addMatcher(w http.ResponseWriter, r *http.Request) {
 		attr = "service.name"
 	}
 	prospective := integrations.Matcher{
-		Attribute:  attr,
-		Operator:   in.Operator,
-		Value:      in.Value,
-		MatchGroup: in.MatchGroup,
+		Attribute:          attr,
+		Operator:           in.Operator,
+		Value:              in.Value,
+		MatchGroup:         in.MatchGroup,
+		IncludeDescendants: in.IncludeDescendants,
 	}
 	if ok, why := h.matcherContainmentOK(r, []integrations.Matcher{prospective}); !ok {
 		httpserver.WriteError(w, http.StatusForbidden, why)
 		return
 	}
 	created, err := h.Integrations.AddMatcher(r.Context(), id, integrations.Matcher{
-		Attribute:  attr,
-		Operator:   in.Operator,
-		Value:      in.Value,
-		MatchGroup: in.MatchGroup,
+		Attribute:          attr,
+		Operator:           in.Operator,
+		Value:              in.Value,
+		MatchGroup:         in.MatchGroup,
+		IncludeDescendants: in.IncludeDescendants,
 	})
 	if err != nil {
 		if integrations.IsValidationError(err) {

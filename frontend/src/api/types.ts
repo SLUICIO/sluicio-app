@@ -769,6 +769,9 @@ export interface Matcher {
   operator: MatcherOperator;
   value: string;
   match_group: number;
+  // The group this matcher belongs to selects its matching spans plus
+  // every span below them in the trace. Read per match_group.
+  include_descendants?: boolean;
   created_at: string;
 }
 
@@ -883,7 +886,13 @@ export interface CreateIntegrationRequest {
   slug: string;
   name: string;
   description: string;
-  matchers: { attribute?: string; operator: MatcherOperator; value: string; match_group?: number }[];
+  matchers: {
+    attribute?: string;
+    operator: MatcherOperator;
+    value: string;
+    match_group?: number;
+    include_descendants?: boolean;
+  }[];
 }
 
 // Service facets and widgets --------------------------------------------
@@ -1215,6 +1224,10 @@ export interface MessageFilter {
   // optional: the user has muted this row but kept it as a reminder.
   // The search engine treats optional rows as a no-op.
   optional?: boolean;
+  // A positive payload row can ask for the steps below its matches too.
+  // The rest of the query then picks the anchor steps and their children
+  // follow whether or not they match.
+  includeDescendants?: boolean;
 }
 
 // MessageViewScope pins a saved view to a specific entity. The frontend

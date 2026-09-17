@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/integrations"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/servicetypes"
@@ -47,7 +48,7 @@ func TestIntegrationPredicateDistinguishesFlowsOnOneService(t *testing.T) {
 	seen := map[string]string{}
 	for _, c := range cases {
 		groups := AttrGroupsFromMatchers(sharedRuntimeMatchers(c.key, c.value))
-		sql, args := store.SpanAttrGroupsClause(groups)
+		sql, args := store.SpanAttrGroupsClause(groups, time.Time{}, time.Time{})
 		if sql == "" {
 			t.Fatalf("%s: no predicate, so its facets would be the whole service's", c.name)
 		}
@@ -72,7 +73,7 @@ func TestServiceNameMatcherAloneLeavesTheSliceUnnarrowed(t *testing.T) {
 	groups := AttrGroupsFromMatchers([]integrations.Matcher{
 		{Attribute: "service.name", Operator: "equals", Value: "romaitab-nodered", MatchGroup: 0},
 	})
-	sql, _ := store.SpanAttrGroupsClause(groups)
+	sql, _ := store.SpanAttrGroupsClause(groups, time.Time{}, time.Time{})
 	for _, attrMap := range []string{"SpanAttributes", "ResourceAttributes"} {
 		if strings.Contains(sql, attrMap) {
 			t.Errorf("service-only integration narrows on %s: %q", attrMap, sql)
@@ -89,7 +90,7 @@ func TestSharedRuntimeIntegrationNarrowsOnAnAttribute(t *testing.T) {
 	// Node-RED integrations are profiled over the same spans and get the
 	// same facets.
 	groups := AttrGroupsFromMatchers(sharedRuntimeMatchers("node_red.flow.id", "tab_paperless"))
-	sql, _ := store.SpanAttrGroupsClause(groups)
+	sql, _ := store.SpanAttrGroupsClause(groups, time.Time{}, time.Time{})
 	if !strings.Contains(sql, "SpanAttributes") {
 		t.Errorf("flow matcher did not narrow the slice: %q", sql)
 	}

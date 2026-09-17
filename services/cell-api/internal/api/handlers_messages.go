@@ -568,7 +568,7 @@ func (h *Handlers) searchMessages(w http.ResponseWriter, r *http.Request) {
 		// Messages view shows only the integration's slice of its services'
 		// traffic.
 		if id, ok := h.integrationIDByName(r.Context(), plan.IntegrationName); ok {
-			if clause, cargs := store.SpanAttrGroupsClause(h.integrationGroups(r.Context(), id)); clause != "" {
+			if clause, cargs := store.SpanAttrGroupsClause(h.integrationGroups(r.Context(), id), tr.From, tr.To); clause != "" {
 				plan.Clauses = append(plan.Clauses, clause)
 				plan.Args = append(plan.Args, cargs...)
 			}
@@ -627,7 +627,7 @@ func (h *Handlers) searchMessages(w http.ResponseWriter, r *http.Request) {
 	// integration's slice of their traffic and nothing else, so
 	// widening the service list alone would hand back every sibling
 	// flow on the same runtime.
-	scope := h.visibleSpanScope(r, identity.SignalMessages)
+	scope := h.visibleSpanScope(r, identity.SignalMessages, tr.From, tr.To)
 	if scope.Empty {
 		httpserver.WriteJSON(w, http.StatusOK, SearchResponse{
 			Window:         tr.Window(),
@@ -653,6 +653,33 @@ func (h *Handlers) searchMessages(w http.ResponseWriter, r *http.Request) {
 		serviceFilter = narrowed
 		accessClause = append(accessClause, scope.Clause)
 		accessArgs = append(accessArgs, scope.Args...)
+	}
+
+	// A row asked for the steps below its matches. Everything the query
+	// says - the rows, the integration's own slice, the caller's reach -
+	// picks the anchor steps, and the search then reads those steps and
+	// all their descendants, so a message's status and its highlighted
+	// steps cover the children too.
+	//
+	// The reach goes into the anchor AS WELL AS staying on every step.
+	// On the steps it keeps a child the caller may not see out of the
+	// result; in the anchor it keeps a step the caller may not see from
+	// deciding which of their own steps match, which would otherwise
+	// answer "does a hidden step carry abc = 123".
+	if plan.Descendants && len(plan.Clauses) > 0 {
+		anchorParts := append([]string{}, plan.Clauses...)
+		anchorArgs := append([]any{}, plan.Args...)
+		if len(serviceFilter) > 0 {
+			anchorParts = append(anchorParts, "ServiceName IN ("+placeholders(len(serviceFilter))+")")
+			for _, n := range serviceFilter {
+				anchorArgs = append(anchorArgs, n)
+			}
+		}
+		anchorParts = append(anchorParts, accessClause...)
+		anchorArgs = append(anchorArgs, accessArgs...)
+		sub, subArgs := store.SpanSubtreeClause("("+strings.Join(anchorParts, " AND ")+")", anchorArgs, tr.From, tr.To)
+		plan.Clauses = []string{sub}
+		plan.Args = subArgs
 	}
 
 	rows, err := h.Store.SearchMessages(r.Context(), store.MessagesSearchParams{

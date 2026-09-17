@@ -49,6 +49,7 @@ package api
 import (
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/identity"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/store"
@@ -81,7 +82,12 @@ type spanScope struct {
 // of every other visibility helper here: a database blip must not hide
 // data somebody is entitled to. It fails CLOSED (Empty) only when the
 // resolution succeeded and genuinely returned nothing.
-func (h *Handlers) visibleSpanScope(r *http.Request, sig identity.Signal) spanScope {
+//
+// from and to bound the lookup behind an integration whose matchers
+// include child spans. Pass the window of the query the scope will be
+// ANDed into; zero values are for callers that only ask whether the
+// scope is empty.
+func (h *Handlers) visibleSpanScope(r *http.Request, sig identity.Signal, from, to time.Time) spanScope {
 	allowed, restricted := h.signalServiceFilter(r, sig)
 	if !restricted {
 		return spanScope{Unrestricted: true}
@@ -131,7 +137,7 @@ func (h *Handlers) visibleSpanScope(r *http.Request, sig identity.Signal) spanSc
 		// The integration's own matchers. Without them this disjunct is
 		// "every span of the member services", which is the phase 1 bug
 		// wearing a different hat.
-		if attrSQL, attrArgs := store.SpanAttrGroupsClause(h.integrationGroups(r.Context(), id)); attrSQL != "" {
+		if attrSQL, attrArgs := store.SpanAttrGroupsClause(h.integrationGroups(r.Context(), id), from, to); attrSQL != "" {
 			clause = "(" + clause + " AND " + attrSQL + ")"
 			memberArgs = append(memberArgs, attrArgs...)
 		}
@@ -176,7 +182,10 @@ func (h *Handlers) traceReachedByIntegration(r *http.Request, traceID string) (m
 		if err != nil || len(members) == 0 {
 			continue
 		}
-		clause, args := store.SpanAttrGroupsClause(h.integrationGroups(r.Context(), id))
+		// No window: the question is whether the TRACE is in the slice,
+		// and a trace holds a child of a matching span only if it holds
+		// the matching span, so the anchor condition answers it exactly.
+		clause, args := store.SpanAttrGroupsClause(h.integrationGroups(r.Context(), id), time.Time{}, time.Time{})
 		inScope, err := h.Store.TraceMatches(r.Context(), traceID, members, clause, args)
 		if err != nil {
 			h.Logger.Warn("trace scope check failed", "err", err, "integration", id)

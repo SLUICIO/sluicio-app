@@ -81,8 +81,13 @@ type Matcher struct {
 	// MatchGroup groups ATTRIBUTE matchers for OR matching: matchers with
 	// the same group are AND-ed, and the groups are OR-ed (DNF). Ignored
 	// for service.name matchers (membership). 0 = the default AND-group.
-	MatchGroup int       `json:"match_group"`
-	CreatedAt  time.Time `json:"created_at"`
+	MatchGroup int `json:"match_group"`
+	// IncludeDescendants makes this matcher's group select the spans its
+	// conditions match plus every span below them in the same trace, so
+	// "abc = 123" on a parent brings its children along although they do
+	// not carry abc. Read per group: one matcher setting it is enough.
+	IncludeDescendants bool      `json:"include_descendants"`
+	CreatedAt          time.Time `json:"created_at"`
 }
 
 // IntegrationWithMatchers is the full read-model used by the detail API.

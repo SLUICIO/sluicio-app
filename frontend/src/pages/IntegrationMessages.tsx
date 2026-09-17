@@ -143,6 +143,7 @@ function filtersToWire(filters: Filter[]): MessageFilter[] {
       value: f.value,
       removable: f.removable,
       locked: f.locked,
+      includeDescendants: f.includeDescendants,
     }));
 }
 
@@ -170,6 +171,7 @@ function viewFromWire(v: MessageView): SavedView {
         value: f.value,
         removable: f.removable ?? true,
         locked: f.locked,
+        includeDescendants: f.includeDescendants,
         optional: f.optional,
       })),
   };

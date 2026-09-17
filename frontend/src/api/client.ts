@@ -458,7 +458,10 @@ export const api = {
       body,
     ),
 
-  addMatcher: (id: string, body: { operator: string; value: string; attribute?: string; match_group?: number }) =>
+  addMatcher: (
+    id: string,
+    body: { operator: string; value: string; attribute?: string; match_group?: number; include_descendants?: boolean },
+  ) =>
     post<Matcher>(`/integrations/${encodeURIComponent(id)}/matchers`, body),
 
   removeMatcher: (id: string, matcherId: string) =>

@@ -862,7 +862,7 @@ func attrFilterFromMatcher(m integrations.Matcher) store.LogAttrFilter {
 	case integrations.OperatorNotExists:
 		op = store.AttrOpNotExists
 	}
-	return store.LogAttrFilter{Key: m.Attribute, Op: op, Value: m.Value}
+	return store.LogAttrFilter{Key: m.Attribute, Op: op, Value: m.Value, Descendants: m.IncludeDescendants}
 }
 
 // integrationGroups returns an integration's matchers as a DNF predicate: a
@@ -2543,7 +2543,7 @@ func (h *Handlers) search(w http.ResponseWriter, r *http.Request) {
 	// filters have been applied.
 	// Reach is a predicate, not just an allowlist: an integration-only
 	// grant is a slice of its members' traffic (issue #28).
-	scope := h.visibleSpanScope(r, identity.SignalMessages)
+	scope := h.visibleSpanScope(r, identity.SignalMessages, tr.From, tr.To)
 	emptyResult := func() {
 		httpserver.WriteJSON(w, http.StatusOK, SearchResponse{
 			Query:   q,

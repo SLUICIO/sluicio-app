@@ -29,6 +29,7 @@ package api
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/sluicio/sluicio-app/pkg/httpserver"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/api/middleware"
@@ -110,7 +111,7 @@ func (h *Handlers) getNavigation(w http.ResponseWriter, r *http.Request) {
 		// Messages follows the span scope rather than the service set,
 		// because an integration-only grant reaches its own slice even
 		// with no service of its own (#28 phase 2).
-		Messages: !h.visibleSpanScope(r, identity.SignalMessages).Empty,
+		Messages: !h.visibleSpanScope(r, identity.SignalMessages, time.Time{}, time.Time{}).Empty,
 		Metrics:  signalReaches(identity.SignalMetrics),
 		Logs:     signalReaches(identity.SignalLogs),
 		// Errors is attributed per service today, so it follows the

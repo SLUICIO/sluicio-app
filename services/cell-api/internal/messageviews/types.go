@@ -114,6 +114,10 @@ type Filter struct {
 	Removable bool     `json:"removable,omitempty"`
 	Locked    bool     `json:"locked,omitempty"`
 	Optional  bool     `json:"optional,omitempty"`
+	// IncludeDescendants widens a positive payload row from the steps
+	// that carry the attribute to those steps and every step below them
+	// in the message. See SQL.Descendants for how it combines.
+	IncludeDescendants bool `json:"includeDescendants,omitempty"`
 }
 
 // Validate returns nil if the filter is well-formed. It does not check

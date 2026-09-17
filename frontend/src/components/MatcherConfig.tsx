@@ -43,7 +43,7 @@ export default function MatcherConfig({
   // Re-initialise the draft whenever the stored matcher set changes (mount,
   // and after a save → onChanged → refetch). dirty tracks unsaved edits.
   const matchersSig = useMemo(
-    () => JSON.stringify((data.matchers ?? []).map((m) => [m.attribute, m.operator, m.value, m.match_group])),
+    () => JSON.stringify((data.matchers ?? []).map((m) => [m.attribute, m.operator, m.value, m.match_group, !!m.include_descendants])),
     [data.matchers],
   );
   const [rules, setRules] = useState<Rule[]>(() => matchersToRules(data.matchers ?? []));

@@ -177,6 +177,9 @@ type Matcher struct {
 	Operator   string `json:"operator"`
 	Value      string `json:"value"`
 	MatchGroup int16  `json:"match_group"`
+	// omitempty keeps bundles written before the flag byte-identical, and
+	// a bundle without it imports as the old span-by-span match.
+	IncludeDescendants bool `json:"include_descendants,omitempty"`
 }
 
 type AccessPolicy struct {

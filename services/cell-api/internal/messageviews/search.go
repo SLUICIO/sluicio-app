@@ -40,6 +40,13 @@ type SQL struct {
 	// "no step in this message" rather than "some step does not".
 	ExcludeClauses []string
 	ExcludeArgs    []any
+	// Descendants is set when a positive payload row asked for the steps
+	// below its matches. It applies to the query as a whole, not to that
+	// row: the caller ANDs every clause into one anchor condition and
+	// replaces them with "is an anchor step or below one". The other
+	// rows therefore choose the anchor, and the children follow whether
+	// or not they satisfy them - which is the point of asking.
+	Descendants bool
 }
 
 // Build translates the UI filter list into ClickHouse predicates and
@@ -153,6 +160,9 @@ func Build(filters []Filter) (SQL, error) {
 			} else {
 				out.Clauses = append(out.Clauses, c)
 				out.Args = append(out.Args, args...)
+				// A negated row is an anti-join over whole messages, so
+				// there is nothing below it to include.
+				out.Descendants = out.Descendants || f.IncludeDescendants
 			}
 		}
 	}

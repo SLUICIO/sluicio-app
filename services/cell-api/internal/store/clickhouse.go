@@ -249,7 +249,7 @@ func (s *Store) DistinctSpanNames(ctx context.Context, serviceNames []string, fr
 	}
 	args = append(args, from, to)
 	attrSQL := ""
-	if clause, cargs := attrGroupsClause("SpanAttributes", attrGroups); clause != "" {
+	if clause, cargs := attrGroupsClause("SpanAttributes", attrGroups, from, to); clause != "" {
 		attrSQL = " AND " + clause
 		args = append(args, cargs...)
 	}
@@ -296,7 +296,7 @@ func (s *Store) DistinctTraceCounts(ctx context.Context, serviceNames []string, 
 		args = append(args, name)
 	}
 	attrSQL := ""
-	if clause, cargs := attrGroupsClause("SpanAttributes", attrGroups); clause != "" {
+	if clause, cargs := attrGroupsClause("SpanAttributes", attrGroups, from, to); clause != "" {
 		attrSQL = " AND " + clause
 		args = append(args, cargs...)
 	}
@@ -410,7 +410,7 @@ func (s *Store) ServiceTraceCountsFiltered(ctx context.Context, services []strin
 		args = append(args, n)
 	}
 	attrSQL := ""
-	if clause, cargs := attrGroupsClause("SpanAttributes", attrGroups); clause != "" {
+	if clause, cargs := attrGroupsClause("SpanAttributes", attrGroups, from, to); clause != "" {
 		attrSQL = " AND " + clause
 		args = append(args, cargs...)
 	}
@@ -459,7 +459,7 @@ func (s *Store) CountDistinctTracesIn(ctx context.Context, serviceNames, traceID
 		args = append(args, t)
 	}
 	attrSQL := ""
-	if clause, cargs := attrGroupsClause("SpanAttributes", attrGroups); clause != "" {
+	if clause, cargs := attrGroupsClause("SpanAttributes", attrGroups, from, to); clause != "" {
 		attrSQL = " AND " + clause
 		args = append(args, cargs...)
 	}
@@ -632,7 +632,7 @@ func (s *Store) DistinctTraceCountsGated(ctx context.Context, serviceNames, star
 	// "has a span matching the predicate" aggregate that must hold (HAVING).
 	attrAgg := ""
 	attrHaving := ""
-	if clause, cargs := attrGroupsClause("SpanAttributes", attrGroups); clause != "" {
+	if clause, cargs := attrGroupsClause("SpanAttributes", attrGroups, from, to); clause != "" {
 		attrAgg = ",\n\t\t\t\tcountIf(" + clause + ") > 0 AS has_attr"
 		attrHaving = " AND has_attr"
 		args = append(args, cargs...)
@@ -840,7 +840,7 @@ func (s *Store) ErrorTraceCountSinceFiltered(
 		args = append(args, n)
 	}
 	attrSQL := ""
-	if clause, cargs := attrGroupsClause("SpanAttributes", attrGroups); clause != "" {
+	if clause, cargs := attrGroupsClause("SpanAttributes", attrGroups, since, to); clause != "" {
 		attrSQL = " AND " + clause
 		args = append(args, cargs...)
 	}
@@ -898,7 +898,7 @@ func (s *Store) ErrorTraceStatsScoped(ctx context.Context, services []string, fr
 	for i := range services {
 		ph[i] = "?"
 	}
-	attrSQL, attrArgs := SpanAttrGroupsClause(groups)
+	attrSQL, attrArgs := SpanAttrGroupsClause(groups, from, to)
 	predicate := ""
 	if attrSQL != "" {
 		predicate = " AND " + attrSQL
@@ -1518,7 +1518,7 @@ func (s *Store) DistinctAttributeKeysScoped(ctx context.Context, serviceNames []
 	// integration-scoped span queries.
 	attrSQL := ""
 	var attrArgs []any
-	if clause, cargs := attrGroupsClause("SpanAttributes", attrGroups); clause != "" {
+	if clause, cargs := attrGroupsClause("SpanAttributes", attrGroups, from, to); clause != "" {
 		attrSQL = " AND " + clause
 		attrArgs = cargs
 	}
@@ -1896,7 +1896,7 @@ func (s *Store) ServiceEdges(ctx context.Context, services []string, from, to ti
 	// matches the integration's DNF predicate. Expressed as a TraceId
 	// subquery so the predicate isn't confined to the parent/child join rows.
 	attrFilter := ""
-	if clause, cargs := attrGroupsClause("SpanAttributes", attrGroups); clause != "" {
+	if clause, cargs := attrGroupsClause("SpanAttributes", attrGroups, from, to); clause != "" {
 		subArgs := []any{from, to}
 		for _, name := range services {
 			subArgs = append(subArgs, name)
@@ -2602,7 +2602,7 @@ func (s *Store) IntegrationProfile(ctx context.Context, resolver facetmappings.R
 		ph[i] = "?"
 	}
 
-	attrSQL, attrArgs := SpanAttrGroupsClause(groups)
+	attrSQL, attrArgs := SpanAttrGroupsClause(groups, from, to)
 	predicate := ""
 	if attrSQL != "" {
 		predicate = " AND " + attrSQL
@@ -2781,6 +2781,12 @@ type LogAttrFilter struct {
 	Key   string `json:"key"`
 	Op    string `json:"op"`
 	Value string `json:"value"`
+	// Descendants widens a DNF group from the spans it matches to those
+	// spans and everything below them in the same trace. It is a property
+	// of the GROUP: when any filter in a group carries it, the group's
+	// conditions pick the anchor spans and the children follow whether or
+	// not they satisfy them. See attrGroupsClause.
+	Descendants bool `json:"descendants,omitempty"`
 }
 
 // Attribute filter operators. Text ops compare the attribute value as a
@@ -2943,20 +2949,54 @@ func SpanAttrClause(f LogAttrFilter) (string, []any) { return attrClauseIn("Span
 // `(g0a AND g0b) OR (g1a) OR …`. This is how an integration's grouped
 // attribute matchers express OR. Empty groups/filters are skipped; returns
 // ("", nil) when there's nothing to match so the caller adds no clause.
-func attrGroupsClause(primaryMap string, groups [][]LogAttrFilter) (string, []any) {
+//
+// A group marked Descendants matches the spans its conditions select AND
+// every span below them in the same trace (see subtreeClause). Its cost is
+// a lookup bounded by [from, to], so the window is required for it. A zero
+// window renders the anchor condition alone, which is exact for any
+// question asked of a trace as a whole - a trace holds a descendant of an
+// anchor only if it holds the anchor - and narrower than the subtree for a
+// question asked span by span.
+//
+// Metrics carry no span tree, so there the condition applies as written.
+// Logs keep their own match and add the logs of the subtree's spans.
+func attrGroupsClause(primaryMap string, groups [][]LogAttrFilter, from, to time.Time) (string, []any) {
 	orParts := make([]string, 0, len(groups))
 	var args []any
 	for _, g := range groups {
 		andParts := make([]string, 0, len(g))
+		var andArgs []any
+		descendants := false
 		for _, f := range g {
 			clause, cargs := attrClauseIn(primaryMap, f)
 			andParts = append(andParts, clause)
-			args = append(args, cargs...)
+			andArgs = append(andArgs, cargs...)
+			descendants = descendants || f.Descendants
 		}
 		if len(andParts) == 0 {
 			continue
 		}
-		orParts = append(orParts, "("+strings.Join(andParts, " AND ")+")")
+		plain := "(" + strings.Join(andParts, " AND ") + ")"
+		if !descendants || primaryMap == "MetricAttributes" || from.IsZero() || to.IsZero() {
+			orParts = append(orParts, plain)
+			args = append(args, andArgs...)
+			continue
+		}
+		// The anchor is a question about SPANS whichever table the outer
+		// query reads, so it is rendered against the span attributes.
+		anchor, anchorArgs := plain, andArgs
+		if primaryMap != "SpanAttributes" {
+			anchor, anchorArgs = attrGroupsClause("SpanAttributes", [][]LogAttrFilter{stripDescendants(g)}, time.Time{}, time.Time{})
+		}
+		sub, subArgs := subtreeClause(anchor, anchorArgs, from, to)
+		if primaryMap == "SpanAttributes" {
+			orParts = append(orParts, sub)
+			args = append(args, subArgs...)
+			continue
+		}
+		orParts = append(orParts, "("+plain+" OR "+sub+")")
+		args = append(args, andArgs...)
+		args = append(args, subArgs...)
 	}
 	if len(orParts) == 0 {
 		return "", nil
@@ -2964,11 +3004,70 @@ func attrGroupsClause(primaryMap string, groups [][]LogAttrFilter) (string, []an
 	return "(" + strings.Join(orParts, " OR ") + ")", args
 }
 
+func stripDescendants(g []LogAttrFilter) []LogAttrFilter {
+	out := make([]LogAttrFilter, len(g))
+	for i, f := range g {
+		f.Descendants = false
+		out[i] = f
+	}
+	return out
+}
+
+// subtreeDepthCap bounds the walk down a trace. One level is added per
+// step, so the cap is the deepest nesting followed; a trace is capped at
+// its own span count first, which is the deepest it can be. The cap only
+// guards a malformed trace whose parent links form a cycle.
+const subtreeDepthCap = 512
+
+// subtreeClause renders "this row's (TraceId, SpanId) is an anchor span or
+// sits anywhere below one", for an anchor condition over the traces table.
+//
+// ClickHouse has no dependable recursive query for this, so the tree is
+// walked per trace in arrays: each trace that holds an anchor is gathered
+// as its (SpanId, ParentSpanId) edges, and arrayFold grows the set one
+// level at a time from the anchors, keeping the newest level as the
+// frontier so each step only asks about the spans it just added.
+//
+// Only traces holding an anchor are gathered, and both passes are bounded
+// by the window: a child that started outside it is not followed, which is
+// the same edge every windowed query already has.
+func subtreeClause(anchor string, anchorArgs []any, from, to time.Time) (string, []any) {
+	sql := fmt.Sprintf(`(TraceId, SpanId) IN (
+		SELECT TraceId, arrayJoin(arrayDistinct(arrayFold(
+		    (acc, _) -> (
+		        arrayConcat(acc.1, arrayMap(e -> e.1, arrayFilter(e -> has(acc.2, e.2), edges))),
+		        arrayMap(e -> e.1, arrayFilter(e -> has(acc.2, e.2), edges))),
+		    range(least(length(edges), %d)), (anchors, anchors)).1))
+		FROM (
+		    SELECT TraceId,
+		           groupArray((SpanId, ParentSpanId)) AS edges,
+		           groupArrayIf(SpanId, %[2]s)        AS anchors
+		    FROM traces
+		    WHERE Timestamp >= ? AND Timestamp <= ?
+		      AND TraceId IN (SELECT TraceId FROM traces WHERE Timestamp >= ? AND Timestamp <= ? AND %[2]s)
+		    GROUP BY TraceId
+		)
+	)`, subtreeDepthCap, anchor)
+	args := make([]any, 0, 2*len(anchorArgs)+4)
+	args = append(args, anchorArgs...)
+	args = append(args, from, to, from, to)
+	args = append(args, anchorArgs...)
+	return sql, args
+}
+
 // SpanAttrGroupsClause is the span-table form of attrGroupsClause (primary
 // map = SpanAttributes) for callers that AND a raw DNF predicate into a
-// trace / message search.
-func SpanAttrGroupsClause(groups [][]LogAttrFilter) (string, []any) {
-	return attrGroupsClause("SpanAttributes", groups)
+// trace / message search. The window bounds any Descendants group; pass
+// zero values only where the question is about a trace as a whole.
+func SpanAttrGroupsClause(groups [][]LogAttrFilter, from, to time.Time) (string, []any) {
+	return attrGroupsClause("SpanAttributes", groups, from, to)
+}
+
+// SpanSubtreeClause is subtreeClause for callers holding a raw anchor
+// condition rather than attribute groups: the saved-view search, whose
+// filters are already compiled to ClickHouse fragments.
+func SpanSubtreeClause(anchor string, anchorArgs []any, from, to time.Time) (string, []any) {
+	return subtreeClause(anchor, anchorArgs, from, to)
 }
 
 // SearchLogs returns logs in the range, newest first, with the optional
@@ -3241,7 +3340,7 @@ func (s *Store) TraceAttrValuesScoped(ctx context.Context, serviceNames []string
 	// Same matcher predicate the message search applies — so the value list
 	// reflects only rows that actually belong to the integration.
 	attrSQL := ""
-	if clause, cargs := attrGroupsClause("SpanAttributes", attrGroups); clause != "" {
+	if clause, cargs := attrGroupsClause("SpanAttributes", attrGroups, from, to); clause != "" {
 		attrSQL = " AND " + clause
 		args = append(args, cargs...)
 	}
@@ -3325,7 +3424,7 @@ func logPredicates(p LogQueryParams) ([]string, []any) {
 	}
 	// AttrGroups is a DNF predicate (e.g. an integration's OR matchers),
 	// AND-ed in against the log attribute map.
-	if clause, cargs := attrGroupsClause("LogAttributes", p.AttrGroups); clause != "" {
+	if clause, cargs := attrGroupsClause("LogAttributes", p.AttrGroups, p.From, p.To); clause != "" {
 		where = append(where, clause)
 		args = append(args, cargs...)
 	}
@@ -3835,7 +3934,7 @@ func metricPredicates(p MetricCatalogParams) ([]string, []any) {
 		where = append(where, clause)
 		args = append(args, cargs...)
 	}
-	if clause, cargs := attrGroupsClause("MetricAttributes", p.AttrGroups); clause != "" {
+	if clause, cargs := attrGroupsClause("MetricAttributes", p.AttrGroups, p.From, p.To); clause != "" {
 		where = append(where, clause)
 		args = append(args, cargs...)
 	}
@@ -4647,7 +4746,7 @@ func (s *Store) ErrorTracesByDimension(
 		args = append(args, n)
 	}
 	attrSQL := ""
-	if clause, cargs := attrGroupsClause("SpanAttributes", attrGroups); clause != "" {
+	if clause, cargs := attrGroupsClause("SpanAttributes", attrGroups, from, to); clause != "" {
 		attrSQL = " AND " + clause
 		args = append(args, cargs...)
 	}
@@ -4716,7 +4815,7 @@ func (s *Store) ErrorTraceTotalFiltered(
 		args = append(args, n)
 	}
 	attrSQL := ""
-	if clause, cargs := attrGroupsClause("SpanAttributes", attrGroups); clause != "" {
+	if clause, cargs := attrGroupsClause("SpanAttributes", attrGroups, from, to); clause != "" {
 		attrSQL = " AND " + clause
 		args = append(args, cargs...)
 	}

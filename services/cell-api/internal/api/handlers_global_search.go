@@ -211,7 +211,7 @@ func (h *Handlers) globalSearch(w http.ResponseWriter, r *http.Request) {
 		// Same predicate as the dedicated search surface, so global
 		// search cannot become the back door an integration-only grant
 		// walks through (issue #28).
-		msgScope := h.visibleSpanScope(r, identity.SignalMessages)
+		msgScope := h.visibleSpanScope(r, identity.SignalMessages, tr.From, tr.To)
 		msgServiceIn := serviceIn
 		msgClause, msgArgs := "", []any(nil)
 		if !msgScope.Unrestricted && !msgScope.Empty {

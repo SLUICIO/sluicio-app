@@ -91,7 +91,18 @@ export interface Filter {
   // reminder of what filters are available. Renders dashed/faded and
   // the search engine treats it as a no-op.
   optional?: boolean;
+  // includeDescendants: a positive payload row also takes every step
+  // below the steps it matches, whether or not they carry the attribute.
+  includeDescendants?: boolean;
 }
+
+// The rows that exclude whole messages. They compile to an anti-join, so
+// there is nothing below them to include and the child-spans switch is
+// not offered on them.
+const NEGATED_OPS: Operator[] = ["not_equals", "not_contains", "not_exists"];
+
+export const canIncludeDescendants = (f: Pick<Filter, "field" | "op" | "fieldPath">) =>
+  f.field === "payload" && !!f.fieldPath && !NEGATED_OPS.includes(f.op);
 
 interface Props {
   filters: Filter[];
@@ -460,6 +471,25 @@ function FilterRow({
           />
         )}
       />
+      )}
+      {canIncludeDescendants(filter) && !locked && (
+        <button
+          type="button"
+          onClick={() => onUpdate({ includeDescendants: !filter.includeDescendants })}
+          aria-pressed={!!filter.includeDescendants}
+          title="Also take every step below a matching step in its message, even when those steps do not carry the attribute."
+          className="rounded-full border px-2 py-0.5 text-xs"
+          style={{
+            borderStyle: optional ? "dashed" : "solid",
+            borderColor: filter.includeDescendants
+              ? "color-mix(in oklab, var(--primary) 35%, transparent)"
+              : "var(--border)",
+            background: filter.includeDescendants ? "var(--primary-soft)" : "transparent",
+            color: filter.includeDescendants ? "var(--primary-ink)" : "var(--muted)",
+          }}
+        >
+          {filter.includeDescendants ? "✓ with child spans" : "+ child spans"}
+        </button>
       )}
       {locked ? (
         <span
@@ -1188,6 +1218,9 @@ function buildSummary(filters: Filter[], attributeKeys?: MessageAttributeKey[]):
                   {" "}
                   <b>{f.value || "—"}</b>
                 </>
+              )}
+              {f.includeDescendants && canIncludeDescendants(f) && (
+                <span className="text-muted"> (and its child spans)</span>
               )}
             </span>
           ))}

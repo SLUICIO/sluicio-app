@@ -141,3 +141,30 @@ func TestAnyStatusNeverNarrows(t *testing.T) {
 		}
 	}
 }
+
+// Asking for the steps below a match is a property of the query: the
+// caller folds every clause into one anchor. A negated row is an anti-join
+// over whole messages and has nothing below it, so it cannot ask.
+func TestIncludeDescendantsComesFromPositivePayloadRows(t *testing.T) {
+	pos, err := Build([]Filter{{Field: FieldPayload, FieldPath: "abc", Op: OpEquals, Value: "123", IncludeDescendants: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !pos.Descendants {
+		t.Error("a positive payload row asking for descendants was dropped")
+	}
+	neg, err := Build([]Filter{{Field: FieldPayload, FieldPath: "abc", Op: OpNotEquals, Value: "123", IncludeDescendants: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if neg.Descendants {
+		t.Error("a negated row turned the query into a subtree search")
+	}
+	muted, err := Build([]Filter{{Field: FieldPayload, FieldPath: "abc", Op: OpEquals, Value: "123", IncludeDescendants: true, Optional: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if muted.Descendants {
+		t.Error("a muted row still widened the search")
+	}
+}

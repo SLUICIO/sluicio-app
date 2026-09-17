@@ -473,14 +473,14 @@ func exportIntegrations(ctx context.Context, tx pgx.Tx, org string, b *Bundle, t
 	}
 	for i, iid := range iids {
 		mrows, err := tx.Query(ctx, `
-			SELECT attribute, operator::text, value, COALESCE(match_group,0)
+			SELECT attribute, operator::text, value, COALESCE(match_group,0), include_descendants
 			FROM integration_matchers WHERE integration_id=$1 ORDER BY match_group, attribute, value`, iid)
 		if err != nil {
 			return err
 		}
 		for mrows.Next() {
 			var m Matcher
-			if err := mrows.Scan(&m.Attribute, &m.Operator, &m.Value, &m.MatchGroup); err != nil {
+			if err := mrows.Scan(&m.Attribute, &m.Operator, &m.Value, &m.MatchGroup, &m.IncludeDescendants); err != nil {
 				mrows.Close()
 				return err
 			}
