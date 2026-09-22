@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## Unreleased
+
+- fix(e2e): name the matcher selects instead of finding them by position (6ba1740)
+
 ## v0.11.149 — 2026-09-22
 
+- release v0.11.149 — refresh internal changelog (a8aaa8c)
 - feat(integrations): rules can be required to hold together (73b1bdf)
 
 ## v0.11.148 — 2026-09-22
