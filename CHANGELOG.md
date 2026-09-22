@@ -3,8 +3,16 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.152 — 2026-09-22
+
+- chore(dev): pass the state-export settings through the dev compose (57616e6)
+- fix(export): take the environment from the cell, not from a second setting (305514b)
+- feat(export): notice when the export points at this cell's own ingest (8677581)
+- feat(export): push integration and system state as OTLP metrics (d621bce)
+
 ## v0.11.151 — 2026-09-22
 
+- release v0.11.151 — refresh internal changelog (3778471)
 - fix(messages): a filter row with no value restricts nothing (28c6e5a)
 
 ## v0.11.150 — 2026-09-22
