@@ -4,7 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "license": "SEE LICENSE IN ../LICENSE",
-  "engines": { "node": ">=24" },
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
@@ -24,12 +26,12 @@
     "@types/js-yaml": "^4.0.9",
     "@types/prismjs": "^1.26.6",
     "@uiw/react-codemirror": "^4.25.10",
-    "js-yaml": "^4.2.0",
+    "js-yaml": "^4.3.2",
     "prismjs": "^1.30.0",
     "qrcode.react": "^4.2.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-router-dom": "^6.30.4",
+    "react-router-dom": "^7.18.4",
     "react-window": "^1.8.11",
     "reactflow": "^11.11.4",
     "recharts": "^2.15.0"
