@@ -134,9 +134,13 @@ jobs:
           cache: true
       # Reachability-aware Go vuln scan: only fails on advisories your code
       # actually calls, so findings are actionable rather than noise.
+      # Pinned, not @latest: the toolchain here is the one go.work pins, and
+      # govulncheck v1.8.0 requires go 1.26, so @latest started failing to
+      # install the day it shipped - on every branch at once, unrelated to
+      # anything the commit changed. Raise this when the workspace moves.
       - name: govulncheck (root module)
         run: |
-          go install golang.org/x/vuln/cmd/govulncheck@latest
+          go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
           "$(go env GOPATH)/bin/govulncheck" ./...
       - name: govulncheck (plugins module)
         run: (cd plugins && "$(go env GOPATH)/bin/govulncheck" ./...)
