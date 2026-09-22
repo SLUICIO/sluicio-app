@@ -1837,8 +1837,6 @@ func (h *Handlers) serviceSummaries(r *http.Request, tr TimeRange) ([]ServiceSum
 	}
 	// "Clear errors" watermarks — applied to the error count below.
 	errAcks := h.errorAcks(r.Context(), middleware.OrgID(r))
-	// Persisted, unacknowledged trace errors — drive "unhealthy" until acked.
-	openErrors := h.openErrorServices(r.Context(), middleware.OrgID(r))
 
 	// Bulk tag load for the full catalog list.
 	serviceNames := make([]string, 0, len(catalogServices))
@@ -1873,10 +1871,7 @@ func (h *Handlers) serviceSummaries(r *http.Request, tr TimeRange) ([]ServiceSum
 		// window — and pushed/telemetry health checks both fire through
 		// the same instance path, so firingServices covers them.
 		effErr := h.effectiveErrorCount(r.Context(), cs.ServiceName, win.ErrorTraceCount, tr.From, tr.To, errAcks)
-		status := statusWithOpenErrors(
-			computeServiceStatus(effErr, firingServices[cs.ServiceName]),
-			openErrors[cs.ServiceName],
-		)
+		status := computeServiceStatus(effErr, firingServices[cs.ServiceName])
 
 		// Discovery timestamps come from the catalog (window-independent).
 		firstSeen := cs.FirstSeenAt
@@ -2099,10 +2094,18 @@ func (h *Handlers) effectiveErrorCountScoped(
 
 // computeServiceStatus returns a service's status. Health is driven SOLELY
 // by configured health checks: a service is "unhealthy" iff a check bound to
-// it is firing, otherwise "ok". Raw trace errors no longer flip a service to
-// an error state on their own — only an unhealthy health check does. The
-// errorCount arg is retained (callers still pass the windowed error count for
-// the response body) but deliberately does not affect status.
+// it is firing, otherwise "ok".
+//
+// Two things deliberately do NOT affect it, and both used to. Raw trace
+// errors in the window: the errorCount arg is retained because callers
+// still pass the windowed count for the response body. And persisted,
+// unacknowledged errors: those stay visible on the Errors page and are
+// counted there, but they no longer colour a service red.
+//
+// That second decision used to live in a statusWithOpenErrors() that
+// took the flag and ignored it. An identity function reads like a rule,
+// and it cost a ClickHouse query per integration on every render of the
+// list to compute an argument nothing looked at.
 func computeServiceStatus(errorCount uint64, healthRuleFiring bool) string {
 	_ = errorCount // intentionally ignored: status is health-check-driven only
 	if healthRuleFiring {
@@ -2167,18 +2170,6 @@ func statusWithIntegrationCheck(base string, failing bool) string {
 	if failing {
 		return "unhealthy"
 	}
-	return base
-}
-
-// statusWithOpenErrors used to escalate a service to "unhealthy" on
-// persisted, unacknowledged trace errors (the built-in "error span detected"
-// signal). That auto-flag is gone: a service's health now reflects ONLY its
-// configured health checks, so unacknowledged error traces no longer change
-// its status. The function is kept (callers still pass the open-error flag)
-// but is now a pass-through. The errors themselves remain visible on the
-// Errors page; they just don't colour the service red by themselves.
-func statusWithOpenErrors(base string, hasOpenErrors bool) string {
-	_ = hasOpenErrors // intentionally ignored: open errors no longer drive status
 	return base
 }
 
@@ -2442,10 +2433,7 @@ func (h *Handlers) serviceDetail(w http.ResponseWriter, r *http.Request) {
 	// The count is also surfaced so the health-check view can show the
 	// built-in "error span detected" check as the firing reason.
 	openErrCount := h.openErrorCount(r.Context(), middleware.OrgID(r), name)
-	status := statusWithOpenErrors(
-		computeServiceStatus(effErr, firingServices[name]),
-		openErrCount > 0,
-	)
+	status := computeServiceStatus(effErr, firingServices[name])
 
 	resp := ServiceDetail{
 		ServiceName:      name,
