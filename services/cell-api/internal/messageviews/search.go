@@ -124,6 +124,10 @@ func Build(filters []Filter) (SQL, error) {
 			}
 
 		case FieldErrorType:
+			// Same rule: no value, no restriction.
+			if strings.TrimSpace(f.Value) == "" {
+				continue
+			}
 			// Match against StatusMessage and the conventional
 			// exception.type attribute on the span.
 			c, args, err := errorTypeClause(f.Op, f.Value)
@@ -138,9 +142,19 @@ func Build(filters []Filter) (SQL, error) {
 		case FieldPayload:
 			// An incomplete row — no attribute key picked yet. The
 			// FilterEditor's freshly added row is exactly this shape;
-			// treat it as a no-op (like Optional) instead of failing the
-			// whole search.
+			// treat it as a no-op instead of failing the whole search.
 			if strings.TrimSpace(f.FieldPath) == "" {
+				continue
+			}
+			// A row with a key and no value is incomplete in the same
+			// way, and it was NOT inert: equals compiled to
+			// `attribute = ''`, and a ClickHouse Map answers the empty
+			// string for a key it does not hold - so a half-filled row
+			// quietly searched for the messages LACKING the attribute.
+			//
+			// The exception is the pair that asks about the key itself.
+			// "is absent" is how you address those rows deliberately.
+			if !f.Op.Valueless() && strings.TrimSpace(f.Value) == "" {
 				continue
 			}
 			if !SafeAttributeKey(f.FieldPath) {

@@ -168,3 +168,47 @@ func TestIncludeDescendantsComesFromPositivePayloadRows(t *testing.T) {
 		t.Error("a muted row still widened the search")
 	}
 }
+
+// A row with an attribute picked and no value yet is incomplete, and it
+// used to filter: equals compiled to `attribute = ''`, which a ClickHouse
+// Map answers for every row that does not carry the key at all. The
+// Messages tab seeds exactly this shape from an integration's configured
+// filter fields, so the page quietly showed the messages LACKING the
+// attribute until somebody typed a value.
+func TestAnUnfilledRowDoesNotRestrict(t *testing.T) {
+	for _, op := range []Operator{OpEquals, OpContains, OpMatches, OpIs, OpIn} {
+		out, err := Build([]Filter{{Field: FieldPayload, FieldPath: "edi.message_type", Op: op, Value: ""}})
+		if err != nil {
+			t.Fatalf("%s: %v", op, err)
+		}
+		if len(out.Clauses) != 0 || len(out.ExcludeClauses) != 0 {
+			t.Errorf("%s with no value compiled to %v / %v", op, out.Clauses, out.ExcludeClauses)
+		}
+	}
+	// The negations are no different: "never equals nothing" is not a
+	// question, and as an anti-join it would exclude every message
+	// carrying no such attribute.
+	for _, op := range []Operator{OpNotEquals, OpNotContains} {
+		out, err := Build([]Filter{{Field: FieldPayload, FieldPath: "edi.message_type", Op: op, Value: ""}})
+		if err != nil {
+			t.Fatalf("%s: %v", op, err)
+		}
+		if len(out.ExcludeClauses) != 0 {
+			t.Errorf("%s with no value compiled to %v", op, out.ExcludeClauses)
+		}
+	}
+}
+
+// The two that ask whether the attribute is carried are complete without
+// a value, and must survive the rule above.
+func TestExistenceRowsSurviveWithoutAValue(t *testing.T) {
+	for _, op := range []Operator{OpExists, OpNotExists} {
+		out, err := Build([]Filter{{Field: FieldPayload, FieldPath: "edi.message_type", Op: op}})
+		if err != nil {
+			t.Fatalf("%s: %v", op, err)
+		}
+		if len(out.Clauses)+len(out.ExcludeClauses) == 0 {
+			t.Errorf("%s was dropped for want of a value it does not take", op)
+		}
+	}
+}

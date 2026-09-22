@@ -1185,7 +1185,12 @@ function AttrValuePicker({
 // sentence. Optional rows are stripped out (they don't restrict the
 // query).
 function buildSummary(filters: Filter[], attributeKeys?: MessageAttributeKey[]): React.ReactNode {
-  const effective = filters.filter((f) => !f.optional);
+  // The sentence says what the query does, so a row that restricts
+  // nothing has no place in it: muted rows, and rows still waiting for a
+  // value. The engine skips exactly the same ones.
+  const effective = filters.filter(
+    (f) => !f.optional && (VALUELESS_OPS.includes(f.op) || f.value.trim() !== "" || f.locked),
+  );
   if (effective.length === 0) {
     return (
       <span className="text-muted">

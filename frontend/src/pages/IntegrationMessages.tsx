@@ -556,7 +556,11 @@ export default function IntegrationMessagesPage() {
         // Removable: a seeded row is a suggestion, not the page's scope.
         // Somebody who does not want it should be able to take it away.
         removable: true,
-        optional: true,
+        // NOT muted. A seeded row and a row you add yourself are the same
+        // thing - an attribute chosen, no value yet - and drawing one of
+        // them greyed out says they behave differently when they do not.
+        // Neither restricts anything until it has a value; the search
+        // engine skips both (messageviews.Build).
       }));
     });
   }, [detail, activeView]);
