@@ -3,8 +3,12 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
-## v0.11.148 — 2026-09-17
+## v0.11.148 — 2026-09-22
 
+- fix(deps): js-yaml 4.3.2 and react-router 7 for the audit advisories (cf1c826)
+- fix(deps): grpc 1.83.1 for the HTTP/2 DATA frame OOM (62f95f7)
+- ci: pin govulncheck to the version our toolchain can install (2f8b2df)
+- release v0.11.148 — refresh internal changelog (b6b3aa9)
 - feat(matching): include the child spans of a match (a190096)
 - fix(traces): make the step connectors legible (51b1a7a)
 
