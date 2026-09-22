@@ -83,6 +83,12 @@ services:
       # Optional Enterprise license. Set in your shell or a .env file to
       # light up EE features; empty = Community.
       SLUICIO_LICENSE_KEY: ${SLUICIO_LICENSE_KEY:-}
+      # OTLP state export (Enterprise). Unset = the exporter never
+      # starts, which is what a dev cell wants by default.
+      SLUICIO_METRICS_EXPORT_ENDPOINT: ${SLUICIO_METRICS_EXPORT_ENDPOINT:-}
+      SLUICIO_METRICS_EXPORT_HEADERS: ${SLUICIO_METRICS_EXPORT_HEADERS:-}
+      SLUICIO_METRICS_EXPORT_INTERVAL: ${SLUICIO_METRICS_EXPORT_INTERVAL:-}
+      SLUICIO_CELL_NAME: ${SLUICIO_CELL_NAME:-}
       # Renewals without a restart: point this at a mounted token file and
       # cell-api re-reads it (LICENSE_RELOAD_INTERVAL, default 1m), so a
       # term-length license can be replaced by copying a file. Set
