@@ -5,6 +5,8 @@ _Internal: not shown anywhere in the Sluicio product._
 
 ## v0.11.148 — 2026-09-22
 
+- revert(deps): back to react-router 6.30.6 for this release (c8b0612)
+- release v0.11.148 — refresh internal changelog (1d9317c)
 - fix(deps): js-yaml 4.3.2 and react-router 7 for the audit advisories (cf1c826)
 - fix(deps): grpc 1.83.1 for the HTTP/2 DATA frame OOM (62f95f7)
 - ci: pin govulncheck to the version our toolchain can install (2f8b2df)
