@@ -152,9 +152,11 @@ func (h *Handlers) listIntegrations(w http.ResponseWriter, r *http.Request) {
 		h.Logger.Warn("firing health integrations failed", "err", err)
 		firingIntegrations = map[uuid.UUID]bool{}
 	}
-	// Services with persisted, unacknowledged trace errors → unhealthy (and
-	// thus their integrations), independent of the active window.
-	openErrors := h.openErrorServices(r.Context(), middleware.OrgID(r))
+	// Open errors no longer colour an integration: a service's health is
+	// its configured checks alone (see statusWithOpenErrors, which has
+	// been a pass-through since that decision). The per-org lookup that
+	// fed it is gone with it rather than left computing an answer nobody
+	// reads.
 
 	// One round trip to grab every (integration, tag) pair for the
 	// org; we fan it out into the per-row Tags field below.
@@ -350,17 +352,6 @@ func (h *Handlers) listIntegrations(w http.ResponseWriter, r *http.Request) {
 				valuesByKey[k] = v
 			}
 		}
-		// A member with persisted, unacknowledged errors makes the
-		// integration unhealthy even if that service had no traffic in the
-		// current window (so it isn't in `statuses` above) — the error is
-		// open until acknowledged, regardless of the view's time range.
-		integHasOpenErr := false
-		for svcName := range openErrors {
-			if anyMatcherMatches(matchers, svcName) {
-				integHasOpenErr = true
-				break
-			}
-		}
 		// Likewise, a matched member with a firing service-bound health check
 		// makes the integration unhealthy even when that service had no
 		// traffic this window (so it never entered `statuses`). Mirrors
@@ -376,7 +367,7 @@ func (h *Handlers) listIntegrations(w http.ResponseWriter, r *http.Request) {
 		}
 		summaries = append(summaries, IntegrationSummary{
 			Integration:       integ,
-			Status:            statusWithIntegrationCheck(statusWithOpenErrors(statusWithDelays(aggregateStatus(statuses), delayed), integHasOpenErr), firingIntegrations[integ.ID] || integHasFiringCheck),
+			Status:            integrationRollupStatus(statuses, delayed, firingIntegrations[integ.ID] || integHasFiringCheck),
 			ServiceCount:      len(matchedNames),
 			Services:          matchedNames,
 			UnhealthyCount:    unhealthy,
@@ -1006,10 +997,7 @@ func (h *Handlers) getIntegration(w http.ResponseWriter, r *http.Request) {
 	for _, s := range matched {
 		statuses = append(statuses, s.Status)
 	}
-	status := statusWithIntegrationCheck(
-		statusWithDelays(aggregateStatus(statuses), uint64(delayedMessageCount)),
-		firingIntegrations[id],
-	)
+	status := integrationRollupStatus(statuses, uint64(delayedMessageCount), firingIntegrations[id])
 
 	integTags, err := h.Tags.ListForIntegration(r.Context(), middleware.OrgID(r), id)
 	if err != nil {

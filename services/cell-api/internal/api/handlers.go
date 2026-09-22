@@ -2134,6 +2134,19 @@ func aggregateStatus(statuses []string) string {
 	return "ok"
 }
 
+// integrationRollupStatus is the one place an integration's state is
+// decided: the health of the members that emitted in the window, pulled
+// to "errors" by an open SLA breach and to "unhealthy" by a firing check
+// bound to the integration or to one of its members.
+//
+// It exists because the same fold is needed by the list, by the detail
+// page and by the OTLP state export (issue #36), and three copies of an
+// expression like this drift. An estate tool reading a state that
+// disagrees with the page is worse than no export at all.
+func integrationRollupStatus(serviceStatuses []string, delayed uint64, firingCheck bool) string {
+	return statusWithIntegrationCheck(statusWithDelays(aggregateStatus(serviceStatuses), delayed), firingCheck)
+}
+
 // statusWithDelays folds trace-completion delays into an integration's
 // aggregate status. A missed SLA is a failure, so any open delay pulls
 // an otherwise-healthy integration to "errors". It never downgrades

@@ -82,11 +82,20 @@ const (
 	// An unlicensed cell keeps the Sluicio mark. A licensed one may
 	// replace it.
 	FeatureWhiteLabel Feature = "white_label"
+	// FeatureStateExport gates pushing the cell's own judgement out as
+	// OTLP metrics: each integration's and system's state, and how many
+	// messages an integration carried (issue #36).
+	//
+	// What it sells is Sluicio's place in an estate that runs several
+	// monitoring tools, with Sluicio as the master for integrations and
+	// something else watching the whole. A cell that is the only tool in
+	// the building has nowhere to push to.
+	FeatureStateExport Feature = "state_export"
 )
 
 // AllFeatures is the canonical list, used to render the features map in the
 // status response so the frontend always sees every gate.
-var AllFeatures = []Feature{FeatureSSO, FeatureRBACAdvanced, FeatureAuditLog, FeatureRetentionLong, FeatureMFAPolicy, FeatureAdvisor, FeatureWhiteLabel}
+var AllFeatures = []Feature{FeatureSSO, FeatureRBACAdvanced, FeatureAuditLog, FeatureRetentionLong, FeatureMFAPolicy, FeatureAdvisor, FeatureWhiteLabel, FeatureStateExport}
 
 // Limits are optional numeric caps carried by a license. Zero means "no
 // explicit limit from the license" (callers apply their own free-tier

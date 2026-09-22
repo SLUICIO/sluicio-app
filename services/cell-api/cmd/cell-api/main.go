@@ -85,6 +85,7 @@ import (
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/servicemeta"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/servicetypes"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/settings"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/stateexport"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/store"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/systemtypes"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/tags"
@@ -695,6 +696,29 @@ func main() {
 	go advisorEngine.Run(bgCtx)
 	logger.Info("advisor started")
 
+	// State export (issue #36): push this cell's own judgement out as
+	// OTLP metrics, for an estate that runs another tool alongside.
+	// Configured entirely by environment, because the endpoint and its
+	// token belong with the rest of the deployment rather than in a form.
+	stateExporter := stateexport.New(
+		stateexport.Config{
+			Endpoint:     strings.TrimSpace(os.Getenv("SLUICIO_METRICS_EXPORT_ENDPOINT")),
+			Headers:      parseHeaderList(os.Getenv("SLUICIO_METRICS_EXPORT_HEADERS")),
+			Interval:     envDuration("SLUICIO_METRICS_EXPORT_INTERVAL", 0),
+			Lag:          envDuration("SLUICIO_METRICS_EXPORT_LAG", 0),
+			HealthWindow: envDuration("SLUICIO_METRICS_EXPORT_HEALTH_WINDOW", 0),
+			CellName:     strings.TrimSpace(os.Getenv("SLUICIO_CELL_NAME")),
+			Environment:  strings.TrimSpace(os.Getenv("SLUICIO_ENVIRONMENT")),
+		},
+		stateExportSource{h: handlers},
+		integrations.DefaultOrgID,
+		logger,
+		func() bool { return licenseMgr.Entitled(license.FeatureStateExport) },
+	)
+	if stateExporter.Enabled() {
+		go stateExporter.Run(bgCtx)
+	}
+
 	mux := http.NewServeMux()
 	handlers.Mount(mux)
 
@@ -1242,4 +1266,64 @@ func (a traceCompletionAlertAdapter) SuppressingWindowForIntegration(ctx context
 
 func (a traceCompletionAlertAdapter) MarkInstanceSuppressed(ctx context.Context, instanceID, windowID uuid.UUID) error {
 	return a.s.MarkInstanceSuppressed(ctx, instanceID, windowID)
+}
+
+// stateExportSource adapts the API handlers, where the product decides
+// what healthy means, to the exporter's own row type. The conversion is
+// here rather than in either package so neither has to know the other.
+type stateExportSource struct{ h *api.Handlers }
+
+func (s stateExportSource) IntegrationStates(ctx context.Context, orgID uuid.UUID, healthFrom, healthTo, countFrom, countTo time.Time) ([]stateexport.Entity, error) {
+	rows, err := s.h.IntegrationStates(ctx, orgID, healthFrom, healthTo, countFrom, countTo)
+	return toExportEntities(rows), err
+}
+
+func (s stateExportSource) SystemStates(ctx context.Context, orgID uuid.UUID, healthFrom, healthTo time.Time) ([]stateexport.Entity, error) {
+	rows, err := s.h.SystemStates(ctx, orgID, healthFrom, healthTo)
+	return toExportEntities(rows), err
+}
+
+func toExportEntities(rows []api.EntityState) []stateexport.Entity {
+	out := make([]stateexport.Entity, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, stateexport.Entity{
+			ID: r.ID, Name: r.Name, Slug: r.Slug, Kind: r.Kind, Status: r.Status, Messages: r.Messages,
+		})
+	}
+	return out
+}
+
+// parseHeaderList reads "Authorization=Bearer xyz,X-Scope=team" into a
+// header map. A value may contain "=", so only the first one splits.
+func parseHeaderList(raw string) map[string]string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	out := map[string]string{}
+	for _, pair := range strings.Split(raw, ",") {
+		k, v, ok := strings.Cut(strings.TrimSpace(pair), "=")
+		if !ok {
+			continue
+		}
+		if k = strings.TrimSpace(k); k != "" {
+			out[k] = strings.TrimSpace(v)
+		}
+	}
+	return out
+}
+
+// envDuration reads a Go duration from the environment, falling back on
+// an unset or unparseable value rather than refusing to start: a typo in
+// a cadence must not keep a cell down.
+func envDuration(key string, fallback time.Duration) time.Duration {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return fallback
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		return fallback
+	}
+	return d
 }

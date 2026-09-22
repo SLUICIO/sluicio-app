@@ -96,6 +96,23 @@ cellApi:
     limits:   { cpu: 1000m, memory: 1Gi }
   # Extra environment variables (e.g. SLUICIO_AUDIT_SINK_URL,
   # ERROR_NOTIFY_INTERVAL) — appended verbatim.
+  #
+  # The OTLP state export (Enterprise, entitlement `state_export`) is
+  # configured here too. Unset means the exporter never starts:
+  #   SLUICIO_METRICS_EXPORT_ENDPOINT      OTLP/HTTP endpoint; a bare
+  #                                        origin gets /v1/metrics
+  #   SLUICIO_METRICS_EXPORT_HEADERS       Authorization=Api-Token xyz
+  #   SLUICIO_METRICS_EXPORT_INTERVAL      default 60s
+  #   SLUICIO_METRICS_EXPORT_LAG           default 60s; how far behind
+  #                                        the clock the counting window
+  #                                        ends, for late spans
+  #   SLUICIO_METRICS_EXPORT_HEALTH_WINDOW default 1h; the stretch a
+  #                                        state is judged over
+  #   SLUICIO_CELL_NAME, SLUICIO_ENVIRONMENT   resource attributes, so
+  #                                        several cells reporting to one
+  #                                        receiver stay apart
+  # Put the token in a Secret and reference it with valueFrom rather than
+  # writing it here.
   extraEnv: []
   nodeSelector: {}
   tolerations: []

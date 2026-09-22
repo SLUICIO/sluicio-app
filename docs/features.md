@@ -5,7 +5,7 @@
 The canonical list of shipped features, split by edition. **Community**
 is everything in the open-source product; **Enterprise** is the six
 license-gated entitlements (`pkg/license`: `sso`, `rbac_advanced`,
-`audit_log`, `retention_long`, `mfa_policy`, `advisor`). Each feature has a stable
+`audit_log`, `retention_long`, `mfa_policy`, `advisor`, `state_export`). Each feature has a stable
 slug — other trackers (docs, announcements, marketing) key off it, so
 don't rename slugs; add new rows when features ship.
 
@@ -96,6 +96,7 @@ catalog in docs/testing/protocols/).
 | `audit-log` | Audit log | `audit_log` | Hash-chained, tamper-evident audit trail with UI verification, filters, CSV export, configurable retention |
 | `retention-long` | Long retention | `retention_long` | Telemetry retention beyond the free 14-day cap |
 | `mfa-policy` | Org-wide MFA policy | `mfa_policy` | Require MFA enrolment for every member (server-side enforcement) |
+| `state-export` | OTLP state export | `state_export` | Pushes this cell's own judgement out as OTLP metrics on a schedule: `sluicio.integration.state`, `sluicio.integration.messages` (delta) and `sluicio.system.state`, for an estate that runs another monitoring tool alongside Sluicio. Configured by environment on cell-api (`SLUICIO_METRICS_EXPORT_*`) |
 | `advisor` | Telemetry & Alert Fatigue advisors | `advisor` | What this cell collects that nothing consumes, and which alert rules nobody acts on — each with counted evidence, what would be lost, and a ready-to-paste collector config. The demand ledger underneath is Community and always recording, so the history is there on the day a licence is enabled |
 
 Licensing note: `max_integrations` (integrations + systems) is an
