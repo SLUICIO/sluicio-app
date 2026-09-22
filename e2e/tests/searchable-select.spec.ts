@@ -13,7 +13,7 @@ test("typeahead focuses its filter input on open", async ({ page }) => {
   await logIn(page);
   await page.goto("/integrations/new");
   // The typeahead appears once the rule operator is "is" (equals).
-  await page.getByRole("combobox").first().selectOption("equals");
+  await page.getByRole("combobox", { name: "Service match operator" }).first().selectOption("equals");
   await page.getByRole("button", { name: /Pick a service/i }).first().click();
   const filter = page.getByRole("listbox").getByRole("searchbox");
   await expect(filter).toBeVisible();
@@ -27,7 +27,7 @@ test("typeahead popover stays inside a short viewport", async ({ page }) => {
   await page.setViewportSize({ width: 1100, height: 500 });
   await logIn(page);
   await page.goto("/integrations/new");
-  await page.getByRole("combobox").first().selectOption("equals");
+  await page.getByRole("combobox", { name: "Service match operator" }).first().selectOption("equals");
   const trigger = page.getByRole("button", { name: /Pick a service/i }).first();
   await trigger.scrollIntoViewIfNeeded();
   await trigger.click();

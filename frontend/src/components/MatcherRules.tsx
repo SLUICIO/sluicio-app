@@ -336,6 +336,7 @@ export default function MatcherRules({
               className="toolbar__select"
               value={rule.serviceOp}
               onChange={(e) => update(ri, { serviceOp: e.target.value as MatcherOperator })}
+              aria-label="Service match operator"
             >
               {RULE_OPERATORS.map((o) => (
                 <option key={o.value} value={o.value}>{o.label}</option>
@@ -415,6 +416,7 @@ export default function MatcherRules({
                         className="toolbar__select"
                         value={a.operator}
                         onChange={(e) => updateAttr(ri, ai, { operator: e.target.value as MatcherOperator })}
+                        aria-label="Attribute match operator"
                       >
                         {ATTR_OPERATORS.map((o) => (
                           <option key={o.value} value={o.value}>{o.label}</option>

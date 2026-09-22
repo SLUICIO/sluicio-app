@@ -42,7 +42,7 @@ test("protocol: group-granted visibility of one integration", async ({ page }) =
   // 2. Create an integration called ABC, matching that service.
   await page.goto("/integrations/new");
   await page.getByLabel(/^Name/).first().fill(INTEG);
-  await page.getByRole("combobox").first().selectOption("equals");
+  await page.getByRole("combobox", { name: "Service match operator" }).first().selectOption("equals");
   await page.getByRole("button", { name: /Pick a service/i }).first().click();
   await page.getByRole("listbox").getByRole("searchbox").fill(svc!);
   await page.getByRole("option", { name: svc! }).first().click();
