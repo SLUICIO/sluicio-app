@@ -444,7 +444,7 @@ func exportProfiles(ctx context.Context, tx pgx.Tx, org string, b *Bundle, group
 
 func exportIntegrations(ctx context.Context, tx pgx.Tx, org string, b *Bundle, tagSlug, fieldKey, profileName, ids map[string]string) error {
 	rows, err := tx.Query(ctx, `
-		SELECT id, slug, name, COALESCE(description,''), badge_public, notification_profile_id
+		SELECT id, slug, name, COALESCE(description,''), badge_public, rule_match, notification_profile_id
 		FROM integrations WHERE organization_id=$1 ORDER BY slug`, org)
 	if err != nil {
 		return err
@@ -454,7 +454,7 @@ func exportIntegrations(ctx context.Context, tx pgx.Tx, org string, b *Bundle, t
 		var id string
 		var pid *string
 		var in Integration
-		if err := rows.Scan(&id, &in.Slug, &in.Name, &in.Description, &in.BadgePublic, &pid); err != nil {
+		if err := rows.Scan(&id, &in.Slug, &in.Name, &in.Description, &in.BadgePublic, &in.RuleMatch, &pid); err != nil {
 			rows.Close()
 			return err
 		}

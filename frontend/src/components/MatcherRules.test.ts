@@ -54,3 +54,27 @@ describe("include child spans", () => {
     expect(rulesPreview([rule({})])).not.toContain("child spans");
   });
 });
+
+describe("how the rules combine", () => {
+  const twoRules: Rule[] = [
+    { serviceOp: "equals", service: "svc-a", combine: "any", attrs: [{ attribute: "a", operator: "equals", value: "1" }] },
+    { serviceOp: "equals", service: "svc-b", combine: "any", attrs: [{ attribute: "b", operator: "equals", value: "3" }] },
+  ];
+
+  it("reads as a union by default", () => {
+    const p = rulesPreview(twoRules);
+    expect(p).toContain(")  OR  (");
+    expect(p).not.toContain(")  AND  (");
+    expect(p).not.toContain("within one trace");
+  });
+
+  it("says what every rule means, since the operator alone does not", () => {
+    const p = rulesPreview(twoRules, "all");
+    expect(p).toContain(")  AND  (");
+    expect(p).toContain("within one trace");
+  });
+
+  it("does not claim anything about a single rule", () => {
+    expect(rulesPreview([twoRules[0]], "all")).not.toContain("within one trace");
+  });
+});

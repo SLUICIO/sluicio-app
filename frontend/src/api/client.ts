@@ -443,7 +443,10 @@ export const api = {
   createIntegration: (req: CreateIntegrationRequest) =>
     post<IntegrationDetail>(`/integrations`, req),
 
-  updateIntegration: (id: string, body: { name: string; description: string }) =>
+  updateIntegration: (
+    id: string,
+    body: { name: string; description: string; rule_match?: "any" | "all" },
+  ) =>
     put<Integration>(`/integrations/${encodeURIComponent(id)}`, body),
 
   deleteIntegration: (id: string) =>

@@ -46,10 +46,14 @@ export interface SpanInput {
   attrs?: Record<string, string | number>;
   /** epoch ms; defaults to now */
   atMs?: number;
+  /** 32 hex chars. Give several spans the same one to make them one
+   *  trace - the default is a fresh id per span, so each is its own. */
+  traceId?: string;
 }
 
 // Builds an ExportTraceServiceRequest with one resource (service.name)
-// carrying `spans`, each as its own root span/trace.
+// carrying `spans`, each as its own root span/trace unless it names a
+// traceId of its own.
 export function encodeTraceExport(service: string, spans: SpanInput[]): Buffer {
   // ResourceSpans.resource(1) → Resource{attributes(1): KeyValue} — two
   // nesting levels: the Resource message itself, then its field slot.
@@ -57,7 +61,7 @@ export function encodeTraceExport(service: string, spans: SpanInput[]): Buffer {
   const encoded = spans.map((s) => {
     const at = BigInt(s.atMs ?? Date.now()) * 1_000_000n;
     const parts: Uint8Array[] = [
-      lenDelim(1, crypto.randomBytes(16)), // trace_id
+      lenDelim(1, s.traceId ? Buffer.from(s.traceId, "hex") : crypto.randomBytes(16)), // trace_id
       lenDelim(2, crypto.randomBytes(8)), // span_id
       str(5, s.name),
       uvarintField(6, 2n), // kind = SERVER

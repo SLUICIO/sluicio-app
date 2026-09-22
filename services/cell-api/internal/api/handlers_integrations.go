@@ -40,11 +40,17 @@ type createIntegrationRequest struct {
 	Name        string         `json:"name"`
 	Description string         `json:"description"`
 	Matchers    []matcherInput `json:"matchers"`
+	// RuleMatch defaults to "any", the union this has always been.
+	RuleMatch integrations.RuleMatch `json:"rule_match,omitempty"`
 }
 
 type updateIntegrationRequest struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
+	// RuleMatch is optional: absent leaves the mode as it is. The matcher
+	// editor sends it and the details form does not, and neither should
+	// revert the other.
+	RuleMatch *integrations.RuleMatch `json:"rule_match,omitempty"`
 }
 
 // listIntegrations: GET /api/v1/integrations?window=1h
@@ -74,8 +80,10 @@ func (h *Handlers) listIntegrations(w http.ResponseWriter, r *http.Request) {
 		h.Logger.Warn("all matchers failed", "err", err)
 	}
 	matchersByIntegration := map[uuid.UUID][]integrations.Matcher{}
+	modeByIntegration := map[uuid.UUID]integrations.RuleMatch{}
 	for _, mi := range all {
 		matchersByIntegration[mi.Integration.ID] = append(matchersByIntegration[mi.Integration.ID], mi.Matcher)
+		modeByIntegration[mi.Integration.ID] = mi.Integration.RuleMatch
 	}
 
 	services, err := h.Store.ListServices(r.Context(), tr.From, tr.To)
@@ -221,7 +229,7 @@ func (h *Handlers) listIntegrations(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		rowOpenErrors := h.openErrorsInScope(
-			r.Context(), middleware.OrgID(r), rowMembers, AttrGroupsFromMatchers(matchers))
+			r.Context(), middleware.OrgID(r), rowMembers, AttrGroupsFromMatchers(matchers, integ.RuleMatch))
 		// statuses (health rollup) + window traffic come from services that
 		// actually emitted in the window. An integration with no window traffic
 		// rolls up to "quiet" (statuses stays empty).
@@ -400,7 +408,7 @@ func (h *Handlers) listIntegrations(w http.ResponseWriter, r *http.Request) {
 		scopes = append(scopes, IntegrationFacetScope{
 			ID:       s.ID,
 			Services: s.Services,
-			Groups:   AttrGroupsFromMatchers(matchersByIntegration[s.ID]),
+			Groups:   AttrGroupsFromMatchers(matchersByIntegration[s.ID], modeByIntegration[s.ID]),
 		})
 	}
 	if len(scopes) > 0 {
@@ -830,6 +838,7 @@ func (h *Handlers) createIntegration(w http.ResponseWriter, r *http.Request) {
 			Slug:           req.Slug,
 			Name:           req.Name,
 			Description:    req.Description,
+			RuleMatch:      req.RuleMatch,
 		},
 		Matchers: make([]integrations.Matcher, 0, len(req.Matchers)),
 	}
@@ -847,6 +856,10 @@ func (h *Handlers) createIntegration(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	if !req.RuleMatch.Valid() {
+		httpserver.WriteError(w, http.StatusBadRequest, `rule_match must be "any" or "all"`)
+		return
+	}
 	if ok, why := h.matcherContainmentOK(r, in.Matchers); !ok {
 		httpserver.WriteError(w, http.StatusForbidden, why)
 		return
@@ -1078,7 +1091,11 @@ func (h *Handlers) updateIntegration(w http.ResponseWriter, r *http.Request) {
 		httpserver.WriteError(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	updated, err := h.Integrations.Update(r.Context(), middleware.OrgID(r), id, req.Name, req.Description)
+	if req.RuleMatch != nil && !req.RuleMatch.Valid() {
+		httpserver.WriteError(w, http.StatusBadRequest, `rule_match must be "any" or "all"`)
+		return
+	}
+	updated, err := h.Integrations.Update(r.Context(), middleware.OrgID(r), id, req.Name, req.Description, req.RuleMatch)
 	if err != nil {
 		if errors.Is(err, integrations.ErrNotFound) {
 			httpserver.WriteError(w, http.StatusNotFound, "integration not found")

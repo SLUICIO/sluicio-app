@@ -29,7 +29,7 @@ func NewStore(pool *pgxpool.Pool) *Store {
 // List returns every integration for the org, ordered by name.
 func (s *Store) List(ctx context.Context, orgID uuid.UUID) ([]Integration, error) {
 	const q = `
-		SELECT id, organization_id, slug, name, COALESCE(description, ''), created_at, updated_at
+		SELECT id, organization_id, slug, name, COALESCE(description, ''), rule_match, created_at, updated_at
 		FROM integrations
 		WHERE organization_id = $1
 		ORDER BY name
@@ -43,7 +43,7 @@ func (s *Store) List(ctx context.Context, orgID uuid.UUID) ([]Integration, error
 	var out []Integration
 	for rows.Next() {
 		var i Integration
-		if err := rows.Scan(&i.ID, &i.OrganizationID, &i.Slug, &i.Name, &i.Description, &i.CreatedAt, &i.UpdatedAt); err != nil {
+		if err := rows.Scan(&i.ID, &i.OrganizationID, &i.Slug, &i.Name, &i.Description, &i.RuleMatch, &i.CreatedAt, &i.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, i)
@@ -54,7 +54,7 @@ func (s *Store) List(ctx context.Context, orgID uuid.UUID) ([]Integration, error
 // Get returns a single integration with its matchers.
 func (s *Store) Get(ctx context.Context, orgID, id uuid.UUID) (IntegrationWithMatchers, error) {
 	const q = `
-		SELECT id, organization_id, slug, name, COALESCE(description, ''), badge_public,
+		SELECT id, organization_id, slug, name, COALESCE(description, ''), badge_public, rule_match,
 		       COALESCE(message_columns, '[]'::jsonb), COALESCE(message_filters, '[]'::jsonb),
 		       created_at, updated_at
 		FROM integrations
@@ -62,7 +62,7 @@ func (s *Store) Get(ctx context.Context, orgID, id uuid.UUID) (IntegrationWithMa
 	`
 	var i Integration
 	var cols, filters []byte
-	err := s.pool.QueryRow(ctx, q, orgID, id).Scan(&i.ID, &i.OrganizationID, &i.Slug, &i.Name, &i.Description, &i.BadgePublic, &cols, &filters, &i.CreatedAt, &i.UpdatedAt)
+	err := s.pool.QueryRow(ctx, q, orgID, id).Scan(&i.ID, &i.OrganizationID, &i.Slug, &i.Name, &i.Description, &i.BadgePublic, &i.RuleMatch, &cols, &filters, &i.CreatedAt, &i.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return IntegrationWithMatchers{}, ErrNotFound
 	}
@@ -178,11 +178,11 @@ func (s *Store) Create(ctx context.Context, in IntegrationWithMatchers) (Integra
 
 	var i Integration
 	err = tx.QueryRow(ctx, `
-		INSERT INTO integrations (organization_id, slug, name, description)
-		VALUES ($1, $2, $3, $4)
-		RETURNING id, organization_id, slug, name, COALESCE(description, ''), created_at, updated_at
-	`, in.OrganizationID, in.Slug, in.Name, in.Description).Scan(
-		&i.ID, &i.OrganizationID, &i.Slug, &i.Name, &i.Description, &i.CreatedAt, &i.UpdatedAt,
+		INSERT INTO integrations (organization_id, slug, name, description, rule_match)
+		VALUES ($1, $2, $3, $4, COALESCE(NULLIF($5, ''), 'any'))
+		RETURNING id, organization_id, slug, name, COALESCE(description, ''), rule_match, created_at, updated_at
+	`, in.OrganizationID, in.Slug, in.Name, in.Description, string(in.RuleMatch)).Scan(
+		&i.ID, &i.OrganizationID, &i.Slug, &i.Name, &i.Description, &i.RuleMatch, &i.CreatedAt, &i.UpdatedAt,
 	)
 	if err != nil {
 		return IntegrationWithMatchers{}, fmt.Errorf("insert integration: %w", err)
@@ -213,17 +213,26 @@ func (s *Store) Create(ctx context.Context, in IntegrationWithMatchers) (Integra
 	return IntegrationWithMatchers{Integration: i, Matchers: matchers}, nil
 }
 
-// Update changes the mutable fields (name, description) of an integration.
-// Slug is intentionally immutable to keep URLs stable.
-func (s *Store) Update(ctx context.Context, orgID, id uuid.UUID, name, description string) (Integration, error) {
+// Update changes the mutable fields (name, description, rule_match) of an
+// integration. Slug is intentionally immutable to keep URLs stable.
+//
+// A nil ruleMatch leaves the mode alone: the matcher editor saves the mode
+// and the details form saves the name, and neither should quietly revert
+// what the other set.
+func (s *Store) Update(ctx context.Context, orgID, id uuid.UUID, name, description string, ruleMatch *RuleMatch) (Integration, error) {
+	var mode *string
+	if ruleMatch != nil {
+		v := string(*ruleMatch)
+		mode = &v
+	}
 	var i Integration
 	err := s.pool.QueryRow(ctx, `
 		UPDATE integrations
-		SET name = $3, description = $4, updated_at = now()
+		SET name = $3, description = $4, rule_match = COALESCE($5, rule_match), updated_at = now()
 		WHERE organization_id = $1 AND id = $2
-		RETURNING id, organization_id, slug, name, COALESCE(description, ''), created_at, updated_at
-	`, orgID, id, name, description).Scan(
-		&i.ID, &i.OrganizationID, &i.Slug, &i.Name, &i.Description, &i.CreatedAt, &i.UpdatedAt,
+		RETURNING id, organization_id, slug, name, COALESCE(description, ''), rule_match, created_at, updated_at
+	`, orgID, id, name, description, mode).Scan(
+		&i.ID, &i.OrganizationID, &i.Slug, &i.Name, &i.Description, &i.RuleMatch, &i.CreatedAt, &i.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Integration{}, ErrNotFound
@@ -293,6 +302,22 @@ func (s *Store) RemoveServiceMatchers(ctx context.Context, integrationID uuid.UU
 	return tag.RowsAffected(), nil
 }
 
+// RuleMatchForIntegration returns how this integration's rules combine.
+// A missing row reads as the union, which is what a caller that cannot
+// find the integration should assume rather than an empty slice.
+func (s *Store) RuleMatchForIntegration(ctx context.Context, integrationID uuid.UUID) (RuleMatch, error) {
+	var mode RuleMatch
+	err := s.pool.QueryRow(ctx,
+		`SELECT rule_match FROM integrations WHERE id = $1`, integrationID).Scan(&mode)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return RuleMatchAny, nil
+	}
+	if err != nil {
+		return RuleMatchAny, fmt.Errorf("rule match for integration: %w", err)
+	}
+	return mode, nil
+}
+
 // MatchersForIntegration returns all matchers for the given integration.
 func (s *Store) MatchersForIntegration(ctx context.Context, integrationID uuid.UUID) ([]Matcher, error) {
 	rows, err := s.pool.Query(ctx, `
@@ -328,7 +353,7 @@ func (s *Store) AllMatchersWithIntegration(ctx context.Context, orgID uuid.UUID)
 	const q = `
 		SELECT
 			m.id, m.integration_id, m.attribute, m.operator, m.value, m.match_group, m.include_descendants, m.created_at,
-			i.id, i.organization_id, i.slug, i.name, COALESCE(i.description, ''),
+			i.id, i.organization_id, i.slug, i.name, COALESCE(i.description, ''), i.rule_match,
 			i.created_at, i.updated_at
 		FROM integration_matchers m
 		JOIN integrations i ON i.id = m.integration_id
@@ -345,7 +370,7 @@ func (s *Store) AllMatchersWithIntegration(ctx context.Context, orgID uuid.UUID)
 		var mi MatcherWithIntegration
 		if err := rows.Scan(
 			&mi.Matcher.ID, &mi.Matcher.IntegrationID, &mi.Matcher.Attribute, &mi.Matcher.Operator, &mi.Matcher.Value, &mi.Matcher.MatchGroup, &mi.Matcher.IncludeDescendants, &mi.Matcher.CreatedAt,
-			&mi.Integration.ID, &mi.Integration.OrganizationID, &mi.Integration.Slug, &mi.Integration.Name, &mi.Integration.Description,
+			&mi.Integration.ID, &mi.Integration.OrganizationID, &mi.Integration.Slug, &mi.Integration.Name, &mi.Integration.Description, &mi.Integration.RuleMatch,
 			&mi.Integration.CreatedAt, &mi.Integration.UpdatedAt,
 		); err != nil {
 			return nil, err

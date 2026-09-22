@@ -691,15 +691,15 @@ func (r *resolver) importIntegrations(integrations []Integration) func() error {
 				func() (string, error) {
 					var id string
 					err := r.tx.QueryRow(r.ctx, `
-						INSERT INTO integrations (organization_id, slug, name, description, badge_public, notification_profile_id)
-						VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
-						r.org, in.Slug, in.Name, in.Description, in.BadgePublic, pid).Scan(&id)
+						INSERT INTO integrations (organization_id, slug, name, description, badge_public, rule_match, notification_profile_id)
+						VALUES ($1,$2,$3,$4,$5,COALESCE(NULLIF($6,''),'any'),$7) RETURNING id`,
+						r.org, in.Slug, in.Name, in.Description, in.BadgePublic, in.RuleMatch, pid).Scan(&id)
 					return id, err
 				},
 				func(id string) error {
 					_, err := r.tx.Exec(r.ctx, `
-						UPDATE integrations SET name=$2, description=$3, badge_public=$4, notification_profile_id=$5, updated_at=now() WHERE id=$1`,
-						id, in.Name, in.Description, in.BadgePublic, pid)
+						UPDATE integrations SET name=$2, description=$3, badge_public=$4, rule_match=COALESCE(NULLIF($5,''),'any'), notification_profile_id=$6, updated_at=now() WHERE id=$1`,
+						id, in.Name, in.Description, in.BadgePublic, in.RuleMatch, pid)
 					return err
 				})
 			if err != nil {

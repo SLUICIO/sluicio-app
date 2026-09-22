@@ -19,7 +19,7 @@ import MatcherRules, {
   matchersToRules,
   rulesToMatchers,
 } from "./MatcherRules";
-import type { IntegrationDetail } from "../api/types";
+import type { IntegrationDetail, RuleMatch } from "../api/types";
 
 const SERVICE_NAME_ATTR = "service.name";
 
@@ -47,18 +47,24 @@ export default function MatcherConfig({
     [data.matchers],
   );
   const [rules, setRules] = useState<Rule[]>(() => matchersToRules(data.matchers ?? []));
+  const [combine, setCombine] = useState<RuleMatch>(data.integration.rule_match ?? "any");
   const [dirty, setDirty] = useState(false);
   useEffect(() => {
     setRules(matchersToRules(data.matchers ?? []));
+    setCombine(data.integration.rule_match ?? "any");
     setDirty(false);
     // Intentionally keyed off matchersSig (a value-equality signature of
     // data.matchers), not data.matchers itself: depending on the array
     // identity would re-init the draft on every parent re-render that
     // hands us a new-but-equal array, blowing away unsaved edits.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [matchersSig]);
+  }, [matchersSig, data.integration.rule_match]);
   const onRulesChange = (r: Rule[]) => {
     setRules(r);
+    setDirty(true);
+  };
+  const onCombineChange = (mode: RuleMatch) => {
+    setCombine(mode);
     setDirty(true);
   };
 
@@ -88,6 +94,16 @@ export default function MatcherConfig({
     setError(null);
     setSaving(true);
     try {
+      // The mode first: if the matcher write fails halfway the rules are
+      // still the ones the user is looking at, whereas a mode saved after
+      // a failed write would describe rules that were never stored.
+      if (combine !== (data.integration.rule_match ?? "any")) {
+        await api.updateIntegration(id, {
+          name: data.integration.name,
+          description: data.integration.description,
+          rule_match: combine,
+        });
+      }
       const desired = rulesToMatchers(rules);
       await Promise.all(desired.map((d) => api.addMatcher(id, d)));
       await Promise.all((data.matchers ?? []).map((m) => api.removeMatcher(id, m.id)));
@@ -181,6 +197,8 @@ export default function MatcherConfig({
               onChange={onRulesChange}
               knownServices={knownServices}
               attrKeys={attrKeys}
+              combine={combine}
+              onCombineChange={onCombineChange}
             />
             <div style={{ display: "flex", gap: 8, marginTop: 12, alignItems: "center" }}>
               <button
@@ -203,6 +221,7 @@ export default function MatcherConfig({
               onChange={() => {}}
               knownServices={knownServices}
               attrKeys={attrKeys}
+              combine={combine}
             />
             <p className="muted" style={{ fontSize: 12, marginTop: 12 }}>
               Your role doesn't allow editing matchers. Ask an{" "}

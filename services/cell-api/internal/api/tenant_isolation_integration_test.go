@@ -158,7 +158,7 @@ func TestTenantIsolation(t *testing.T) {
 		if err := ints.SetBadgePublic(ctx, orgA, intB.ID, true); !errors.Is(err, integrations.ErrNotFound) {
 			t.Fatalf("cross-org SetBadgePublic: want ErrNotFound, got %v", err)
 		}
-		if _, err := ints.Update(ctx, orgA, intB.ID, "hijacked", ""); !errors.Is(err, integrations.ErrNotFound) {
+		if _, err := ints.Update(ctx, orgA, intB.ID, "hijacked", "", nil); !errors.Is(err, integrations.ErrNotFound) {
 			t.Fatalf("cross-org Update: want ErrNotFound, got %v", err)
 		}
 		if err := ints.Delete(ctx, orgA, intB.ID); !errors.Is(err, integrations.ErrNotFound) {

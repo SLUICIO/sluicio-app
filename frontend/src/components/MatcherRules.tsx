@@ -21,7 +21,7 @@
 //   rulesPreview     — render the full boolean expression for the live preview
 
 import SearchableSelect from "./SearchableSelect";
-import type { MatcherOperator } from "../api/types";
+import type { MatcherOperator, RuleMatch } from "../api/types";
 
 export const RULE_OPERATORS: { value: MatcherOperator; label: string; sym: string }[] = [
   { value: "equals", label: "is", sym: "=" },
@@ -243,7 +243,7 @@ export function matchersToRules(
 }
 
 // rulesPreview renders the full boolean expression for the live preview.
-export function rulesPreview(rules: Rule[]): string {
+export function rulesPreview(rules: Rule[], combine: RuleMatch = "any"): string {
   const parts = rules
     .map((r) => {
       const service = r.service.trim();
@@ -257,6 +257,12 @@ export function rulesPreview(rules: Rule[]): string {
       return `(${svc} AND (${inner}))${children}`;
     })
     .filter(Boolean);
+  if (combine === "all") {
+    // Said plainly, because the difference is not in the operator but in
+    // what the operator is applied to: every rule has to be satisfied by
+    // some step of the SAME trace.
+    return parts.join("  AND  ") + (parts.length > 1 ? "   (all within one trace)" : "");
+  }
   return parts.join("  OR  ");
 }
 
@@ -265,11 +271,15 @@ export default function MatcherRules({
   onChange,
   knownServices,
   attrKeys,
+  combine = "any",
+  onCombineChange,
 }: {
   rules: Rule[];
   onChange: (rules: Rule[]) => void;
   knownServices: string[];
   attrKeys: string[];
+  combine?: RuleMatch;
+  onCombineChange?: (mode: RuleMatch) => void;
 }) {
   const update = (i: number, patch: Partial<Rule>) =>
     onChange(rules.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
@@ -282,13 +292,32 @@ export default function MatcherRules({
   const removeAttr = (ri: number, ai: number) =>
     update(ri, { attrs: rules[ri].attrs.filter((_, idx) => idx !== ai) });
 
-  const preview = rulesPreview(rules);
+  const preview = rulesPreview(rules, combine);
   // The field picker lists every persisted attribute key plus the "custom"
   // escape hatch, shared by reference across the rows in one render.
   const fieldOptions = [...attrKeys, CUSTOM_FIELD];
 
   return (
     <div>
+      {onCombineChange && (
+        <div className="matcher-form" style={{ alignItems: "center", marginBottom: 10 }}>
+          <span style={{ fontSize: 13 }}>Traffic belongs here when it matches</span>
+          <select
+            className="toolbar__select"
+            value={combine}
+            onChange={(e) => onCombineChange(e.target.value as RuleMatch)}
+            aria-label="How the rules combine"
+          >
+            <option value="any">any rule</option>
+            <option value="all">every rule</option>
+          </select>
+          <span className="muted" style={{ fontSize: 11 }}>
+            {combine === "all"
+              ? "Every rule has to be satisfied by some step of the same trace. A trace that satisfies only one of them does not belong."
+              : "A step belongs if it satisfies any one rule. The rules do not have to hold together."}
+          </span>
+        </div>
+      )}
       {preview && (
         <p className="muted form__hint" style={{ fontSize: 12, marginBottom: 10 }}>
           Matches: <span className="mono">{preview}</span>

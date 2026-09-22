@@ -7,6 +7,7 @@ import type { CreateTagRequest, MetadataField, Tag } from "../api/types";
 import { FieldInput } from "../components/MetadataPanel";
 import ServiceDependencySuggestions from "../components/ServiceDependencySuggestions";
 import MatcherRules, { Rule, blankRule, rulesToMatchers } from "../components/MatcherRules";
+import type { RuleMatch } from "../api/types";
 import TagPicker from "../components/tags/TagPicker";
 import { useCurrentUser } from "../lib/useCurrentUser";
 import { usePageTitle } from "../lib/usePageTitle";
@@ -36,6 +37,7 @@ export default function IntegrationNew() {
   const [rules, setRules] = useState<Rule[]>([
     blankRule(seedService ? { serviceOp: "equals", service: seedService } : { serviceOp: "prefix" }),
   ]);
+  const [combine, setCombine] = useState<RuleMatch>("any");
   // Tag ids selected for attachment after the integration is created.
   // The picker can also create new tags inline via createTag below.
   const [tagIds, setTagIds] = useState<string[]>([]);
@@ -151,6 +153,7 @@ export default function IntegrationNew() {
         name: name.trim(),
         description: description.trim(),
         matchers: rulesToMatchers(rules),
+        rule_match: combine,
       });
       // Attach any preselected tags now that we have the new id.
       // Tag attach failures are non-fatal — surface them but still
@@ -326,6 +329,8 @@ export default function IntegrationNew() {
             onChange={setRules}
             knownServices={knownServices}
             attrKeys={attrKeys}
+            combine={combine}
+            onCombineChange={setCombine}
           />
         </div>
 

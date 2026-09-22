@@ -822,14 +822,20 @@ func (h *Handlers) canSeeAlertTarget(r *http.Request, serviceName string, integr
 // flow's traffic and calls the silent one healthy. That is how a
 // low-traffic check on an integration with zero traces of its own stayed
 // quiet while a sibling integration on the same service was busy.
-func AttrGroupsFromMatchers(matchers []integrations.Matcher) [][]store.LogAttrFilter {
+// mode decides how the groups COMBINE: the union they have always been,
+// or every group within one trace (see integrations.RuleMatch). It rides
+// on each filter because the predicate travels as a plain group list
+// through every store call that carries it.
+func AttrGroupsFromMatchers(matchers []integrations.Matcher, mode integrations.RuleMatch) [][]store.LogAttrFilter {
 	byGroup := map[int][]store.LogAttrFilter{}
 	order := make([]int, 0)
 	for _, m := range matchers {
 		if _, ok := byGroup[m.MatchGroup]; !ok {
 			order = append(order, m.MatchGroup)
 		}
-		byGroup[m.MatchGroup] = append(byGroup[m.MatchGroup], attrFilterFromMatcher(m))
+		f := attrFilterFromMatcher(m)
+		f.RequireAllGroups = mode.RequiresAll()
+		byGroup[m.MatchGroup] = append(byGroup[m.MatchGroup], f)
 	}
 	if len(order) == 0 {
 		return nil
@@ -884,7 +890,13 @@ func (h *Handlers) integrationGroups(ctx context.Context, integrationID uuid.UUI
 		h.Logger.Warn("integration groups: load matchers failed", "err", err, "integration", integrationID)
 		return nil
 	}
-	return AttrGroupsFromMatchers(matchers)
+	mode, err := h.Integrations.RuleMatchForIntegration(ctx, integrationID)
+	if err != nil {
+		// Fail to the union rather than to nothing: the wrong answer
+		// here is a wider slice, not an empty page.
+		h.Logger.Warn("integration groups: load rule match failed", "err", err, "integration", integrationID)
+	}
+	return AttrGroupsFromMatchers(matchers, mode)
 }
 
 // resolveFacets applies a service's manual overrides to its

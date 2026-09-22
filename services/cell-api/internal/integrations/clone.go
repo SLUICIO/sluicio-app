@@ -102,11 +102,14 @@ func (s *Store) Clone(ctx context.Context, orgID, srcID uuid.UUID, opt CloneOpti
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	var srcDescription string
+	var (
+		srcDescription string
+		srcRuleMatch   string
+	)
 	err = tx.QueryRow(ctx,
-		`SELECT description FROM integrations WHERE id = $1 AND organization_id = $2`,
+		`SELECT description, rule_match FROM integrations WHERE id = $1 AND organization_id = $2`,
 		srcID, orgID,
-	).Scan(&srcDescription)
+	).Scan(&srcDescription, &srcRuleMatch)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Integration{}, ErrSourceNotFound
 	}
@@ -118,11 +121,11 @@ func (s *Store) Clone(ctx context.Context, orgID, srcID uuid.UUID, opt CloneOpti
 	// badge_public is left at its column default: a clone never inherits
 	// a public endpoint (see the file comment).
 	err = tx.QueryRow(ctx, `
-		INSERT INTO integrations (organization_id, slug, name, description)
-		VALUES ($1, $2, $3, $4)
-		RETURNING id, organization_id, slug, name, description, created_at, updated_at`,
-		orgID, slug, name, srcDescription,
-	).Scan(&out.ID, &out.OrganizationID, &out.Slug, &out.Name, &out.Description, &out.CreatedAt, &out.UpdatedAt)
+		INSERT INTO integrations (organization_id, slug, name, description, rule_match)
+		VALUES ($1, $2, $3, $4, $5)
+		RETURNING id, organization_id, slug, name, description, rule_match, created_at, updated_at`,
+		orgID, slug, name, srcDescription, srcRuleMatch,
+	).Scan(&out.ID, &out.OrganizationID, &out.Slug, &out.Name, &out.Description, &out.RuleMatch, &out.CreatedAt, &out.UpdatedAt)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {

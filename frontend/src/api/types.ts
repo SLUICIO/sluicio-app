@@ -723,6 +723,9 @@ export interface Integration {
   // Public status-badge opt-in. Present on single-integration (detail)
   // responses; absent on the list endpoint.
   badge_public?: boolean;
+  /** How the matcher rules combine: "any" (the union, the default) or
+   *  "all" (every rule, satisfied within one trace). */
+  rule_match?: RuleMatch;
   // Span attributes promoted to columns in this integration's message
   // list, in column order. Detail responses only; empty/absent means
   // the default columns.
@@ -882,6 +885,8 @@ export interface TagWithUsage extends Tag {
   service_count: number;
 }
 
+export type RuleMatch = "any" | "all";
+
 export interface CreateIntegrationRequest {
   slug: string;
   name: string;
@@ -893,6 +898,7 @@ export interface CreateIntegrationRequest {
     match_group?: number;
     include_descendants?: boolean;
   }[];
+  rule_match?: RuleMatch;
 }
 
 // Service facets and widgets --------------------------------------------

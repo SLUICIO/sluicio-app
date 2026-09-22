@@ -46,6 +46,31 @@ var AllOperators = []Operator{
 	OperatorNotEquals, OperatorNotContains, OperatorExists, OperatorNotExists,
 }
 
+// RuleMatch says how an integration's rules combine.
+//
+// RuleMatchAny is the union it has always been: a span belongs if it
+// satisfies any rule. RuleMatchAll asks the question of the TRACE: every
+// rule must be satisfied by some span of the same trace, and only then do
+// that trace's matching spans belong.
+//
+// The difference only shows once a rule carries an attribute condition.
+// With Any, "b2b-gateway where the control reference is X" pulled in a
+// trace whose order-validator span said anything at all, because the
+// gateway rule had been satisfied on its own.
+type RuleMatch string
+
+const (
+	RuleMatchAny RuleMatch = "any"
+	RuleMatchAll RuleMatch = "all"
+)
+
+// Valid reports whether r is a known mode. An empty value reads as Any,
+// which is what every integration written before this existed means.
+func (r RuleMatch) Valid() bool { return r == "" || r == RuleMatchAny || r == RuleMatchAll }
+
+// RequiresAll reports whether every rule must be satisfied within one trace.
+func (r RuleMatch) RequiresAll() bool { return r == RuleMatchAll }
+
 // Integration is a user-defined logical grouping of services.
 type Integration struct {
 	ID             uuid.UUID `json:"id"`
@@ -53,6 +78,9 @@ type Integration struct {
 	Slug           string    `json:"slug"`
 	Name           string    `json:"name"`
 	Description    string    `json:"description"`
+	// RuleMatch is how the matcher rules combine: "any" (the union, the
+	// default) or "all" (every rule, within one trace).
+	RuleMatch RuleMatch `json:"rule_match"`
 	// BadgePublic opts this integration into a public (unauthenticated) status
 	// badge at /api/v1/badges/integration/<id>. Only populated by Get.
 	BadgePublic bool `json:"badge_public"`

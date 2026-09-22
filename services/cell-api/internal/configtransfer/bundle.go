@@ -166,6 +166,10 @@ type Integration struct {
 	Name        string            `json:"name"`
 	Description string            `json:"description,omitempty"`
 	BadgePublic bool              `json:"badge_public"`
+	// RuleMatch is "any" (the union) or "all" (every rule within one
+	// trace). omitempty keeps older bundles byte-identical, and a bundle
+	// without it imports as the union it was written under.
+	RuleMatch string `json:"rule_match,omitempty"`
 	Profile     *string           `json:"notification_profile,omitempty"` // profile name
 	Matchers    []Matcher         `json:"matchers,omitempty"`
 	Tags        []string          `json:"tags,omitempty"`     // tag slugs

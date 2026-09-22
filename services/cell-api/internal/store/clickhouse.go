@@ -2787,6 +2787,12 @@ type LogAttrFilter struct {
 	// conditions pick the anchor spans and the children follow whether or
 	// not they satisfy them. See attrGroupsClause.
 	Descendants bool `json:"descendants,omitempty"`
+	// RequireAllGroups turns the DNF from a union into a conjunction asked
+	// of the TRACE: every group must be satisfied by some span of the same
+	// trace before any of that trace's spans belong. A property of the
+	// whole predicate, carried on each row of it because the predicate
+	// travels as a plain group list. See attrGroupsClause.
+	RequireAllGroups bool `json:"require_all_groups,omitempty"`
 }
 
 // Attribute filter operators. Text ops compare the attribute value as a
@@ -2963,6 +2969,12 @@ func SpanAttrClause(f LogAttrFilter) (string, []any) { return attrClauseIn("Span
 func attrGroupsClause(primaryMap string, groups [][]LogAttrFilter, from, to time.Time) (string, []any) {
 	orParts := make([]string, 0, len(groups))
 	var args []any
+	// Kept alongside the compiled OR so the trace-level gate below can ask
+	// for each group separately: the union says a span matched SOME rule,
+	// and the gate says the trace satisfied EVERY one of them.
+	groupSQL := make([]string, 0, len(groups))
+	groupArgs := make([][]any, 0, len(groups))
+	requireAll := false
 	for _, g := range groups {
 		andParts := make([]string, 0, len(g))
 		var andArgs []any
@@ -2977,6 +2989,19 @@ func attrGroupsClause(primaryMap string, groups [][]LogAttrFilter, from, to time
 			continue
 		}
 		plain := "(" + strings.Join(andParts, " AND ") + ")"
+		for _, f := range g {
+			requireAll = requireAll || f.RequireAllGroups
+		}
+		// The gate reads the traces table whatever the outer query reads,
+		// so the group is rendered against the span attributes for it. A
+		// log's own attribute map does not exist there, and asking for it
+		// is not a wrong answer but a query that will not run.
+		gateSQL, gateArgs := plain, andArgs
+		if primaryMap != "SpanAttributes" {
+			gateSQL, gateArgs = attrGroupsClause("SpanAttributes", [][]LogAttrFilter{stripDescendants(g)}, time.Time{}, time.Time{})
+		}
+		groupSQL = append(groupSQL, gateSQL)
+		groupArgs = append(groupArgs, gateArgs)
 		if !descendants || primaryMap == "MetricAttributes" || from.IsZero() || to.IsZero() {
 			orParts = append(orParts, plain)
 			args = append(args, andArgs...)
@@ -3001,13 +3026,59 @@ func attrGroupsClause(primaryMap string, groups [][]LogAttrFilter, from, to time
 	if len(orParts) == 0 {
 		return "", nil
 	}
-	return "(" + strings.Join(orParts, " OR ") + ")", args
+	clause := "(" + strings.Join(orParts, " OR ") + ")"
+	if gate, gateArgs := allGroupsClause(primaryMap, groupSQL, groupArgs, requireAll, from, to); gate != "" {
+		clause = "(" + clause + " AND " + gate + ")"
+		args = append(args, gateArgs...)
+	}
+	return clause, args
 }
 
+// allGroupsClause renders "and this row's trace satisfies every one of the
+// groups", for a predicate whose rules are combined with all rather than
+// any.
+//
+// The question cannot be asked of a row: a rule names a service, and one
+// span is in one service, so a span can only ever satisfy one of them. It
+// is asked of the trace, which is the unit a message is anyway.
+//
+// Metrics carry no trace, and a single group is already its own
+// conjunction, so both render nothing and the caller keeps the union.
+func allGroupsClause(primaryMap string, groups []string, args [][]any, requireAll bool, from, to time.Time) (string, []any) {
+	if !requireAll || len(groups) < 2 || primaryMap == "MetricAttributes" || from.IsZero() || to.IsZero() {
+		return "", nil
+	}
+	having := make([]string, 0, len(groups))
+	for _, g := range groups {
+		having = append(having, "countIf("+g+") > 0")
+	}
+	// The WHERE narrows to the spans that satisfy SOME group before the
+	// grouping, so the pass reads the integration's own traffic rather
+	// than every span in the window.
+	sql := fmt.Sprintf(`TraceId IN (
+		SELECT TraceId FROM traces
+		WHERE Timestamp >= ? AND Timestamp <= ? AND (%s)
+		GROUP BY TraceId
+		HAVING %s
+	)`, strings.Join(groups, " OR "), strings.Join(having, " AND "))
+	out := []any{from, to}
+	for _, a := range args {
+		out = append(out, a...)
+	}
+	for _, a := range args {
+		out = append(out, a...)
+	}
+	return sql, out
+}
+
+// stripDescendants returns the group with the two predicate-level flags
+// cleared, for rendering it as a plain condition inside a lookup that is
+// already the flag's own doing.
 func stripDescendants(g []LogAttrFilter) []LogAttrFilter {
 	out := make([]LogAttrFilter, len(g))
 	for i, f := range g {
 		f.Descendants = false
+		f.RequireAllGroups = false
 		out[i] = f
 	}
 	return out

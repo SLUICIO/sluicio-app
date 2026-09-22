@@ -1181,7 +1181,14 @@ func (a traceVolumeEvaluatorAdapter) TotalTraces(ctx context.Context, q alerting
 		// service keep a silent one looking healthy — a Node-RED cell is
 		// one service with an integration per flow, so this is the normal
 		// shape, not an edge case.
-		total, _, err := a.s.DistinctTraceCounts(ctx, svcs, q.From, q.To, api.AttrGroupsFromMatchers(ms))
+		// The mode matters here too: an integration whose rules must all
+		// hold within one trace counts the traces that satisfy them, not
+		// the traces that satisfied any one of them.
+		mode, err := a.integs.RuleMatchForIntegration(ctx, *q.IntegrationID)
+		if err != nil {
+			return 0, false, err
+		}
+		total, _, err := a.s.DistinctTraceCounts(ctx, svcs, q.From, q.To, api.AttrGroupsFromMatchers(ms, mode))
 		return total, true, err
 	}
 	// A named service is always in scope, even with no traffic — that is

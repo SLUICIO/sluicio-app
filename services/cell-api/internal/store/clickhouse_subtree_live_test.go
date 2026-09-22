@@ -107,6 +107,24 @@ func TestSubtreeLive(t *testing.T) {
 		t.Errorf("subtree OR plain: got %s, want a,a1,a11,c", got)
 	}
 
+	// Rules combined with all: the question is asked of the trace. This
+	// trace has an anchor span (abc = 123) and a span named b, so it
+	// satisfies both rules; a trace with only one of them would not.
+	bothRules := [][]LogAttrFilter{
+		{{Key: "abc", Op: AttrOpEq, Value: "123", RequireAllGroups: true}},
+		{{Key: "span.name", Op: AttrOpEq, Value: "b", RequireAllGroups: true}},
+	}
+	if got := strings.Join(query(bothRules), ","); got != "a,b" {
+		t.Errorf("require all, both satisfied: got %s, want a,b", got)
+	}
+	missingRule := [][]LogAttrFilter{
+		{{Key: "abc", Op: AttrOpEq, Value: "123", RequireAllGroups: true}},
+		{{Key: "span.name", Op: AttrOpEq, Value: "nosuchspan", RequireAllGroups: true}},
+	}
+	if got := strings.Join(query(missingRule), ","); got != "" {
+		t.Errorf("require all, one rule unsatisfied: got %s, want nothing", got)
+	}
+
 	// Logs: a log written inside a1 carries no abc of its own and is
 	// reached only through its span. One inside b is not reached.
 	logBatch, err := conn.PrepareBatch(ctx, "INSERT INTO logs (Timestamp, TraceId, SpanId, ServiceName, Body, OrganizationId)")

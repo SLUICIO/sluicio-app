@@ -176,8 +176,10 @@ func (h *Handlers) DetectIntegrationFacetsForOrg(ctx context.Context, orgID uuid
 		return nil
 	}
 	matchersByIntegration := map[uuid.UUID][]integrations.Matcher{}
+	modeByIntegration := map[uuid.UUID]integrations.RuleMatch{}
 	for _, mi := range all {
 		matchersByIntegration[mi.Integration.ID] = append(matchersByIntegration[mi.Integration.ID], mi.Matcher)
+		modeByIntegration[mi.Integration.ID] = mi.Integration.RuleMatch
 	}
 	members, err := h.Catalog.IntegrationServicesBulk(ctx, orgID)
 	if err != nil {
@@ -193,7 +195,7 @@ func (h *Handlers) DetectIntegrationFacetsForOrg(ctx context.Context, orgID uuid
 		scopes = append(scopes, IntegrationFacetScope{
 			ID:       id,
 			Services: names,
-			Groups:   AttrGroupsFromMatchers(matchersByIntegration[id]),
+			Groups:   AttrGroupsFromMatchers(matchersByIntegration[id], modeByIntegration[id]),
 		})
 	}
 	return h.DetectIntegrationFacets(ctx, scopes, from, to)

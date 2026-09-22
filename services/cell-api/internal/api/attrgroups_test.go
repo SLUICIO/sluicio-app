@@ -28,7 +28,7 @@ func TestAttrGroupsCarriesNonServiceMatchers(t *testing.T) {
 	groups := AttrGroupsFromMatchers([]integrations.Matcher{
 		{Attribute: "service.name", Operator: integrations.OperatorEquals, Value: "romaitab-nodered"},
 		{Attribute: "node_red.flow.id", Operator: integrations.OperatorEquals, Value: "tab_paperless"},
-	})
+	}, "")
 	if len(groups) != 1 {
 		t.Fatalf("want one AND-group, got %d", len(groups))
 	}
@@ -50,7 +50,7 @@ func TestAttrGroupsSeparatesMatchGroups(t *testing.T) {
 	groups := AttrGroupsFromMatchers([]integrations.Matcher{
 		{Attribute: "a", Operator: integrations.OperatorEquals, Value: "1", MatchGroup: 0},
 		{Attribute: "b", Operator: integrations.OperatorEquals, Value: "2", MatchGroup: 1},
-	})
+	}, "")
 	if len(groups) != 2 {
 		t.Fatalf("want two alternatives, got %d: %+v", len(groups), groups)
 	}
@@ -60,7 +60,7 @@ func TestAttrGroupsIsNilWithoutMatchers(t *testing.T) {
 	// nil means "no predicate", which the query layer reads as "every
 	// trace on these services". An empty non-nil slice risks being
 	// rendered as an unsatisfiable WHERE.
-	if got := AttrGroupsFromMatchers(nil); got != nil {
+	if got := AttrGroupsFromMatchers(nil, ""); got != nil {
 		t.Errorf("want nil, got %+v", got)
 	}
 }
@@ -78,7 +78,7 @@ func TestAttrGroupsMapsEveryOperator(t *testing.T) {
 	for op, want := range cases {
 		groups := AttrGroupsFromMatchers([]integrations.Matcher{
 			{Attribute: "k", Operator: op, Value: "v"},
-		})
+		}, "")
 		if len(groups) != 1 || len(groups[0]) != 1 {
 			t.Fatalf("%s: unexpected shape %+v", op, groups)
 		}
