@@ -397,9 +397,8 @@ function FilterRow({
             ? "optional · ignored unless a value is set"
             : undefined
       }
-      style={{ opacity: optional ? 0.55 : 1 }}
     >
-      <span className="w-14 text-xs text-muted">
+      <span className="w-14 text-xs text-muted" style={{ opacity: optional ? 0.55 : 1 }}>
         {conjunction}
         {optional && (
           <span className="ml-1 text-[10px] uppercase">opt.</span>
@@ -410,6 +409,7 @@ function FilterRow({
         label={fieldLabel}
         locked={locked}
         dashed={optional}
+        dimmed={optional}
         editor={({ close }) => (
           <FieldPicker
             current={filter.field}
@@ -432,6 +432,7 @@ function FilterRow({
         label={OP_LABELS[filter.op]}
         locked={locked}
         dashed={optional}
+        dimmed={optional}
         editor={({ close }) => (
           <OpPicker
             current={filter.op}
@@ -453,6 +454,7 @@ function FilterRow({
         accent={!locked}
         locked={locked}
         dashed={optional}
+        dimmed={optional}
         showLockIcon={locked}
         editor={({ close }) => (
           <ValuePicker
@@ -480,6 +482,7 @@ function FilterRow({
           title="Also take every step below a matching step in its message, even when those steps do not carry the attribute."
           className="rounded-full border px-2 py-0.5 text-xs"
           style={{
+            opacity: optional ? 0.55 : 1,
             borderStyle: optional ? "dashed" : "solid",
             borderColor: filter.includeDescendants
               ? "color-mix(in oklab, var(--primary) 35%, transparent)"
@@ -520,6 +523,9 @@ interface PillProps {
   accent?: boolean;
   locked?: boolean;
   dashed?: boolean;
+  /** Muted (an optional row). Applies to the pill itself; the popover it
+   *  opens stays fully opaque. */
+  dimmed?: boolean;
   showLockIcon?: boolean;
   editor: (props: { close: () => void }) => React.ReactNode;
 }
@@ -530,6 +536,7 @@ function Pill({
   accent,
   locked,
   dashed,
+  dimmed,
   showLockIcon,
   editor,
 }: PillProps) {
@@ -568,6 +575,12 @@ function Pill({
         aria-disabled={locked || undefined}
         className="inline-flex items-center gap-1 rounded-full border px-3 py-1 text-sm transition-colors"
         style={{
+          // On the TRIGGER, not on the row. Opacity applies to a whole
+          // subtree and a child cannot climb back out of it, so fading
+          // the row faded the picker this pill opens: the popover went
+          // see-through and the table underneath read straight through
+          // its text.
+          opacity: dimmed ? 0.55 : 1,
           borderColor: locked
             ? "var(--border)"
             : accent
