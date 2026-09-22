@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.151 — 2026-09-22
+
+- fix(messages): a filter row with no value restricts nothing (28c6e5a)
+
 ## v0.11.150 — 2026-09-22
 
+- release v0.11.150 — refresh internal changelog (2b1ea6a)
 - fix(messages): the field picker on a muted filter row is solid again (d78326a)
 
 ## v0.11.149 — 2026-09-22
