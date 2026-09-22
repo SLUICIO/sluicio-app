@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -112,6 +113,10 @@ type Config struct {
 	// several cells can report to one receiver without colliding.
 	CellName    string
 	Environment string
+	// SelfIngestURL is this cell's own ingest, when the deployment
+	// tells us (SLUICIO_INGEST_URL). Only used to notice that the export
+	// has been pointed back here.
+	SelfIngestURL string
 }
 
 // Exporter runs the loop. Zero value is not usable; see New.
@@ -170,6 +175,14 @@ func (e *Exporter) Run(ctx context.Context) {
 	e.log.Info("state export started",
 		"endpoint", e.cfg.Endpoint, "interval", e.cfg.Interval,
 		"lag", e.cfg.Lag, "health_window", e.cfg.HealthWindow)
+	// Pointed at ourselves, the cell measures its own reporting and
+	// every export produces traffic to export. It still runs: somebody
+	// may want exactly that for a smoke test, and refusing to start
+	// would be a worse surprise than saying so.
+	if PointsAtSelf(e.cfg.Endpoint, e.cfg.SelfIngestURL) {
+		e.log.Warn("state export is pointed at this cell's own ingest; it will measure its own reporting",
+			"endpoint", e.cfg.Endpoint, "ingest", e.cfg.SelfIngestURL)
+	}
 	t := time.NewTicker(e.cfg.Interval)
 	cellhealth.Register("state-export", e.cfg.Interval)
 	defer t.Stop()
@@ -374,6 +387,29 @@ func MetricsURL(endpoint string) string {
 		return e
 	}
 	return e + "/v1/metrics"
+}
+
+// PointsAtSelf reports whether the export endpoint is this cell's own
+// ingest. Host and port only: the path differs (/v1/metrics either way)
+// and the scheme may, through a proxy.
+func PointsAtSelf(endpoint, selfIngest string) bool {
+	a, b := hostPort(endpoint), hostPort(selfIngest)
+	return a != "" && a == b
+}
+
+func hostPort(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	if !strings.Contains(raw, "://") {
+		raw = "http://" + raw
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return strings.ToLower(u.Host)
 }
 
 func str(k, v string) *commonpb.KeyValue {

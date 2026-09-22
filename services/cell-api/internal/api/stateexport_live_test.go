@@ -128,9 +128,14 @@ func TestStateExportLive(t *testing.T) {
 		h.Logger,
 		nil,
 	)
+	started := time.Now()
 	if err := exp.ExportOnce(ctx, now); err != nil {
 		t.Fatalf("export: %v", err)
 	}
+	// The cost per tick, which is the number that decides whether this
+	// is safe to run every minute on a cell with many integrations.
+	t.Logf("one export over %d integrations and %d systems took %s",
+		len(states), len(systems), time.Since(started).Round(time.Millisecond))
 	if payloads != 1 {
 		t.Fatalf("expected one payload at the receiver, got %d", payloads)
 	}

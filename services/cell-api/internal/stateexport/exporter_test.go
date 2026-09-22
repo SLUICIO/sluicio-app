@@ -293,3 +293,26 @@ func TestNothingToReport(t *testing.T) {
 		t.Error("an empty cell should send no payload at all")
 	}
 }
+
+// Pointed at our own ingest, the cell measures its own reporting: every
+// export produces traffic, which is exported, which produces traffic.
+func TestPointsAtSelf(t *testing.T) {
+	cases := []struct {
+		endpoint, self string
+		want           bool
+	}{
+		{"http://localhost:4318/v1/metrics", "http://localhost:4318", true},
+		{"https://cell.example.com", "https://cell.example.com/v1/traces", true},
+		{"localhost:4318", "http://localhost:4318", true},
+		{"https://otlp.dynatrace.com/v1/metrics", "https://cell.example.com", false},
+		// A cell that was never told its own ingest cannot be compared,
+		// and guessing would warn on every deployment that omits it.
+		{"https://otlp.example.com", "", false},
+		{"", "https://cell.example.com", false},
+	}
+	for _, c := range cases {
+		if got := PointsAtSelf(c.endpoint, c.self); got != c.want {
+			t.Errorf("PointsAtSelf(%q, %q) = %v, want %v", c.endpoint, c.self, got, c.want)
+		}
+	}
+}

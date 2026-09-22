@@ -125,6 +125,15 @@ services:
       # Authoritative: when set, the in-app ingest-URL setting is read-only.
       SLUICIO_INGEST_URL: ${SLUICIO_INGEST_URL:-}
       SLUICIO_LICENSE_KEY: ${SLUICIO_LICENSE_KEY:-}
+      # OTLP state export (Enterprise, entitlement state_export). Unset
+      # endpoint means the exporter never starts. A bare origin gets
+      # /v1/metrics appended. Headers are "K=V,K2=V2".
+      SLUICIO_METRICS_EXPORT_ENDPOINT: ${SLUICIO_METRICS_EXPORT_ENDPOINT:-}
+      SLUICIO_METRICS_EXPORT_HEADERS: ${SLUICIO_METRICS_EXPORT_HEADERS:-}
+      SLUICIO_METRICS_EXPORT_INTERVAL: ${SLUICIO_METRICS_EXPORT_INTERVAL:-}
+      SLUICIO_METRICS_EXPORT_LAG: ${SLUICIO_METRICS_EXPORT_LAG:-}
+      SLUICIO_METRICS_EXPORT_HEALTH_WINDOW: ${SLUICIO_METRICS_EXPORT_HEALTH_WINDOW:-}
+      SLUICIO_CELL_NAME: ${SLUICIO_CELL_NAME:-}
       # Renewals without a restart: point this at a mounted token file and
       # cell-api re-reads it (LICENSE_RELOAD_INTERVAL, default 1m), so a
       # term-length license can be replaced by copying a file. Set
