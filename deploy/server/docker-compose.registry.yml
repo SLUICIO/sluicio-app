@@ -133,6 +133,8 @@ services:
       SLUICIO_METRICS_EXPORT_INTERVAL: ${SLUICIO_METRICS_EXPORT_INTERVAL:-}
       SLUICIO_METRICS_EXPORT_LAG: ${SLUICIO_METRICS_EXPORT_LAG:-}
       SLUICIO_METRICS_EXPORT_HEALTH_WINDOW: ${SLUICIO_METRICS_EXPORT_HEALTH_WINDOW:-}
+      # Names this cell on the exported resource. The environment comes
+      # from the cell's own setting, the one the header shows.
       SLUICIO_CELL_NAME: ${SLUICIO_CELL_NAME:-}
       # Renewals without a restart: point this at a mounted token file and
       # cell-api re-reads it (LICENSE_RELOAD_INTERVAL, default 1m), so a

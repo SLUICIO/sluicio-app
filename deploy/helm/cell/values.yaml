@@ -108,9 +108,12 @@ cellApi:
   #                                        ends, for late spans
   #   SLUICIO_METRICS_EXPORT_HEALTH_WINDOW default 1h; the stretch a
   #                                        state is judged over
-  #   SLUICIO_CELL_NAME, SLUICIO_ENVIRONMENT   resource attributes, so
-  #                                        several cells reporting to one
-  #                                        receiver stay apart
+  #   SLUICIO_CELL_NAME                    names this cell on the
+  #                                        exported resource, so several
+  #                                        cells reporting to one
+  #                                        receiver stay apart. The
+  #                                        environment attribute comes
+  #                                        from the cell's own setting.
   # Put the token in a Secret and reference it with valueFrom rather than
   # writing it here.
   extraEnv: []

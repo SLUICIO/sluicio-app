@@ -101,7 +101,9 @@ func TestPayloadCarriesTheThreeMetrics(t *testing.T) {
 		systems:      []Entity{{ID: uuid.New(), Name: "Prod broker", Kind: "rabbitmq", Status: "unhealthy"}},
 	}
 	e, got, heads := newTestExporter(t, src, Config{
-		Headers: map[string]string{"Authorization": "Api-Token abc"}, CellName: "cell-eu-1", Environment: "prod",
+		Headers:     map[string]string{"Authorization": "Api-Token abc"},
+		CellName:    "cell-eu-1",
+		Environment: func(context.Context) string { return "prod" },
 	})
 	if err := e.ExportOnce(context.Background(), time.Now().UTC()); err != nil {
 		t.Fatal(err)

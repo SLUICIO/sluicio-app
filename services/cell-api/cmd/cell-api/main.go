@@ -702,13 +702,22 @@ func main() {
 	// token belong with the rest of the deployment rather than in a form.
 	stateExporter := stateexport.New(
 		stateexport.Config{
-			Endpoint:      strings.TrimSpace(os.Getenv("SLUICIO_METRICS_EXPORT_ENDPOINT")),
-			Headers:       parseHeaderList(os.Getenv("SLUICIO_METRICS_EXPORT_HEADERS")),
-			Interval:      envDuration("SLUICIO_METRICS_EXPORT_INTERVAL", 0),
-			Lag:           envDuration("SLUICIO_METRICS_EXPORT_LAG", 0),
-			HealthWindow:  envDuration("SLUICIO_METRICS_EXPORT_HEALTH_WINDOW", 0),
-			CellName:      strings.TrimSpace(os.Getenv("SLUICIO_CELL_NAME")),
-			Environment:   strings.TrimSpace(os.Getenv("SLUICIO_ENVIRONMENT")),
+			Endpoint:     strings.TrimSpace(os.Getenv("SLUICIO_METRICS_EXPORT_ENDPOINT")),
+			Headers:      parseHeaderList(os.Getenv("SLUICIO_METRICS_EXPORT_HEADERS")),
+			Interval:     envDuration("SLUICIO_METRICS_EXPORT_INTERVAL", 0),
+			Lag:          envDuration("SLUICIO_METRICS_EXPORT_LAG", 0),
+			HealthWindow: envDuration("SLUICIO_METRICS_EXPORT_HEALTH_WINDOW", 0),
+			CellName:     strings.TrimSpace(os.Getenv("SLUICIO_CELL_NAME")),
+			Environment: func(ctx context.Context) string {
+				// The cell's own setting, so the exported environment is
+				// the one the header shows rather than a second answer
+				// configured beside it.
+				env, err := settingsStore.GetEnvironment(ctx)
+				if err != nil {
+					return ""
+				}
+				return env
+			},
 			SelfIngestURL: strings.TrimSpace(os.Getenv("SLUICIO_INGEST_URL")),
 		},
 		stateExportSource{h: handlers},

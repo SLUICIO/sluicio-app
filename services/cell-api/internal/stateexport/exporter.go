@@ -109,10 +109,15 @@ type Config struct {
 	// which is what the Integrations page defaults to, so the exported
 	// state and the page agree.
 	HealthWindow time.Duration
-	// CellName and Environment identify this cell on the resource, so
-	// several cells can report to one receiver without colliding.
-	CellName    string
-	Environment string
+	// CellName identifies this cell on the resource, so several cells
+	// can report to one receiver without colliding.
+	CellName string
+	// Environment reads the cell's own environment setting, the one the
+	// header shows as "ENV · PRODUCTION". A function rather than a
+	// string because an admin can change it while the exporter runs, and
+	// the resource attribute should follow what the product says rather
+	// than what the process was started with.
+	Environment func(context.Context) string
 	// SelfIngestURL is this cell's own ingest, when the deployment
 	// tells us (SLUICIO_INGEST_URL). Only used to notice that the export
 	// has been pointed back here.
@@ -131,6 +136,9 @@ type Exporter struct {
 	// warnedUnlicensed keeps the licence complaint to once per process.
 	// A message repeated every minute is how a log stops being read.
 	warnedUnlicensed bool
+	// env is the cell's environment as of the last export, for the
+	// resource attribute.
+	env string
 	// nextFrom is where the next counting window starts: the end of the
 	// last window that was actually delivered. Counting from there makes
 	// the deltas tile rather than overlap or leave gaps, and makes a
@@ -243,6 +251,9 @@ func (e *Exporter) ExportOnce(ctx context.Context, now time.Time) error {
 		return nil
 	}
 
+	if e.cfg.Environment != nil {
+		e.env = e.cfg.Environment(ctx)
+	}
 	req := e.buildRequest(integrations, systems, countFrom, countTo)
 	if err := e.post(ctx, req); err != nil {
 		// The window was never delivered, so the next run starts where
@@ -335,8 +346,8 @@ func (e *Exporter) buildRequest(integrations, systems []Entity, countFrom, count
 	if e.cfg.CellName != "" {
 		res = append(res, str("sluicio.cell.name", e.cfg.CellName))
 	}
-	if e.cfg.Environment != "" {
-		res = append(res, str("deployment.environment", e.cfg.Environment))
+	if e.env != "" {
+		res = append(res, str("deployment.environment", e.env))
 	}
 	return &colmetricspb.ExportMetricsServiceRequest{
 		ResourceMetrics: []*metricspb.ResourceMetrics{{
