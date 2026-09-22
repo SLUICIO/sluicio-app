@@ -3,8 +3,14 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.148 — 2026-09-17
+
+- feat(matching): include the child spans of a match (a190096)
+- fix(traces): make the step connectors legible (51b1a7a)
+
 ## v0.11.147 — 2026-09-03
 
+- release v0.11.147 — refresh internal changelog (1f45a60)
 - perf(topology): the historical fallback is opt-in here too (0190b30)
 - perf(integrations): stop drawing a graph nobody asked for (61287f3)
 
