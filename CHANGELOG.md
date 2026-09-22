@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.149 — 2026-09-22
+
+- feat(integrations): rules can be required to hold together (73b1bdf)
+
 ## v0.11.148 — 2026-09-22
 
+- release v0.11.148 — refresh internal changelog (7aeb308)
 - revert(deps): back to react-router 6.30.6 for this release (c8b0612)
 - release v0.11.148 — refresh internal changelog (1d9317c)
 - fix(deps): js-yaml 4.3.2 and react-router 7 for the audit advisories (cf1c826)
