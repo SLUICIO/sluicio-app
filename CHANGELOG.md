@@ -3,12 +3,14 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
-## Unreleased
+## v0.11.150 — 2026-09-22
 
-- fix(e2e): name the matcher selects instead of finding them by position (6ba1740)
+- fix(messages): the field picker on a muted filter row is solid again (d78326a)
 
 ## v0.11.149 — 2026-09-22
 
+- release v0.11.149 — refresh internal changelog (4df7f1b)
+- fix(e2e): name the matcher selects instead of finding them by position (6ba1740)
 - release v0.11.149 — refresh internal changelog (a8aaa8c)
 - feat(integrations): rules can be required to hold together (73b1bdf)
 
