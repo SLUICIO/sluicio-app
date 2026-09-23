@@ -4,6 +4,7 @@
 // use relative paths from the browser.
 
 import type {
+  IntegrationStats,
   AdvisorLedger,
   Branding,
   CollectorTarget,
@@ -430,9 +431,31 @@ export const api = {
   // Integrations. Pass { series: true } to include each integration's
   // traffic sparkline series (the dashboard); the plain list omits it to
   // avoid the extra per-row query.
-  listIntegrations: (window: string = "1h", opts: { series?: boolean } = {}) =>
-    get<{ integrations: Integration[]; metadata_fields?: MetadataField[] }>(
-      `/integrations?range=${encodeURIComponent(window)}${opts.series ? "&series=1" : ""}`
+  // `stats: "defer"` answers from Postgres alone: names, members, tags
+  // and metadata, no telemetry. The caller then fills the numbers in
+  // from integrationStats a batch at a time, so a cell with many
+  // integrations renders at once instead of after every count is in.
+  listIntegrations: (
+    window: string = "1h",
+    opts: { series?: boolean; stats?: "defer" } = {},
+  ) =>
+    get<{
+      integrations: Integration[];
+      metadata_fields?: MetadataField[];
+      stats_pending?: boolean;
+    }>(
+      `/integrations?range=${encodeURIComponent(window)}${opts.series ? "&series=1" : ""}${
+        opts.stats === "defer" ? "&stats=defer" : ""
+      }`
+    ),
+
+  // The deferred half: the numbers for a handful of integrations. The
+  // server caps the batch, so the caller chunks.
+  integrationStats: (ids: string[], window: string = "1h", opts: { series?: boolean } = {}) =>
+    get<{ stats: IntegrationStats[] }>(
+      `/integrations/stats?ids=${encodeURIComponent(ids.join(","))}&range=${encodeURIComponent(
+        window,
+      )}${opts.series ? "&series=1" : ""}`
     ),
 
   getIntegration: (id: string, window: string = "1h") =>

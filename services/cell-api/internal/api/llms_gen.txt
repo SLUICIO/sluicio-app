@@ -158,6 +158,7 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 - PUT /api/v1/integrations/{id}/message-columns — Update integration
 - PUT /api/v1/integrations/{id}/message-filters — Update integration
 - GET /api/v1/integrations — List integrations
+- GET /api/v1/integrations/stats — List integrations
 - GET /api/v1/integrations/{id} — Get integration
 - GET /api/v1/integrations/{id}/span-names — List integrations
 - GET /api/v1/integrations/{id}/attribute-keys — List integrations

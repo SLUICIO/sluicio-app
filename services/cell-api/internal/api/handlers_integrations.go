@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"sort"
 	"strings"
@@ -18,6 +19,7 @@ import (
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/erroracks"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/identity"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/integrations"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/metadata"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/servicetypes"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/store"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/tags"
@@ -65,12 +67,106 @@ func (h *Handlers) listIntegrations(w http.ResponseWriter, r *http.Request) {
 	// asks for it (?series=1); the plain Integrations list skips the extra
 	// per-row ClickHouse query.
 	wantSeries := r.URL.Query().Get("series") == "1"
+	// ?stats=defer answers from Postgres alone: the integrations, their
+	// members, tags and metadata, and nothing that needs a telemetry
+	// read. The caller then asks /integrations/stats for the numbers, a
+	// few rows at a time. On a cell with many integrations the list is
+	// on screen in milliseconds and fills in, instead of the reader
+	// waiting seconds for a page that is mostly names.
+	withStats := r.URL.Query().Get("stats") != "defer"
+
+	summaries, integrationFields, ok := h.buildIntegrationSummaries(w, r, tr, integrationSummaryOpts{
+		WithStats:  withStats,
+		WithSeries: wantSeries,
+		WithMeta:   true,
+	})
+	if !ok {
+		return
+	}
+	var payload any = summaries
+	if !withStats {
+		// The stats fields are omitted rather than sent as zeroes. A
+		// trace_count of 0 on a row whose count has not been read yet
+		// reads as "nothing came through here", which is a different
+		// statement and a wrong one.
+		payload = deferredRows(summaries)
+	}
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
+		"integrations":    payload,
+		"window":          tr.Window(),
+		"metadata_fields": integrationFields,
+		"stats_pending":   !withStats,
+	})
+}
+
+// deferredIntegrationRow is an integration before its numbers are in:
+// what Postgres knows, and nothing that needed a telemetry read.
+type deferredIntegrationRow struct {
+	integrations.Integration
+	// Services is the persisted catalog membership, which is a fact
+	// about the integration rather than about the window, so it travels
+	// with the fast half.
+	Services       []string          `json:"services"`
+	ServiceCount   int               `json:"service_count"`
+	Tags           []tags.Tag        `json:"tags"`
+	MetadataValues map[string]string `json:"metadata_values,omitempty"`
+	ServiceFacets  []ServiceFacetRef `json:"service_facets,omitempty"`
+}
+
+func deferredRows(summaries []IntegrationSummary) []deferredIntegrationRow {
+	out := make([]deferredIntegrationRow, 0, len(summaries))
+	for _, s := range summaries {
+		out = append(out, deferredIntegrationRow{
+			Integration:    s.Integration,
+			Services:       s.Services,
+			ServiceCount:   s.ServiceCount,
+			Tags:           s.Tags,
+			MetadataValues: s.MetadataValues,
+			ServiceFacets:  s.ServiceFacets,
+		})
+	}
+	return out
+}
+
+// integrationSummaryOpts says how much of a summary the caller needs.
+// The list wants everything; the stats endpoint wants the numbers for a
+// handful of ids and none of the Postgres decoration; the deferred list
+// wants everything except the numbers.
+type integrationSummaryOpts struct {
+	// IDs narrows the work to these integrations. Nil means all of them.
+	IDs map[uuid.UUID]bool
+	// WithStats does the telemetry reads: statuses, counts, delays.
+	WithStats bool
+	// WithSeries adds the per-integration sparkline, one more read each.
+	WithSeries bool
+	// WithMeta adds tags, metadata values and facets, which the stats
+	// endpoint does not return and should not pay for.
+	WithMeta bool
+}
+
+// buildIntegrationSummaries is the one place an integration row is
+// assembled, so the deferred numbers cannot disagree with the ones the
+// full list returns. It writes the error response itself and reports
+// false when it did.
+func (h *Handlers) buildIntegrationSummaries(
+	w http.ResponseWriter, r *http.Request, tr TimeRange, opts integrationSummaryOpts,
+) ([]IntegrationSummary, []metadata.Field, bool) {
+	wantSeries := opts.WithSeries
 
 	rows, err := h.Integrations.List(r.Context(), middleware.OrgID(r))
 	if err != nil {
 		h.Logger.Error("list integrations failed", "err", err)
 		httpserver.WriteError(w, http.StatusInternalServerError, "query failed")
-		return
+		return nil, nil, false
+	}
+	if opts.IDs != nil {
+		kept := rows[:0]
+		for _, row := range rows {
+			if opts.IDs[row.ID] {
+				kept = append(kept, row)
+			}
+		}
+		rows = kept
 	}
 
 	// Fetch the matchers, services, and metric snapshots once and
@@ -86,10 +182,15 @@ func (h *Handlers) listIntegrations(w http.ResponseWriter, r *http.Request) {
 		modeByIntegration[mi.Integration.ID] = mi.Integration.RuleMatch
 	}
 
-	services, err := h.Store.ListServices(r.Context(), tr.From, tr.To)
-	if err != nil {
-		h.Logger.Warn("list services for integration list failed", "err", err)
-		services = nil
+	// Window traffic. Only for the numbers: the deferred list takes its
+	// membership from the catalog, which is the persisted answer anyway.
+	var services []store.ServiceRow
+	if opts.WithStats {
+		services, err = h.Store.ListServices(r.Context(), tr.From, tr.To)
+		if err != nil {
+			h.Logger.Warn("list services for integration list failed", "err", err)
+			services = nil
+		}
 	}
 
 	// Persisted integration → service membership (catalog). This is the source
@@ -163,28 +264,36 @@ func (h *Handlers) listIntegrations(w http.ResponseWriter, r *http.Request) {
 	for _, integ := range rows {
 		integIDs = append(integIDs, integ.ID)
 	}
-	tagsByIntegration, err := h.Tags.ListForIntegrations(r.Context(), middleware.OrgID(r), integIDs)
-	if err != nil {
-		h.Logger.Warn("list tags for integrations failed", "err", err)
-		tagsByIntegration = map[uuid.UUID][]tags.Tag{}
+	tagsByIntegration := map[uuid.UUID][]tags.Tag{}
+	if opts.WithMeta {
+		tagsByIntegration, err = h.Tags.ListForIntegrations(r.Context(), middleware.OrgID(r), integIDs)
+		if err != nil {
+			h.Logger.Warn("list tags for integrations failed", "err", err)
+			tagsByIntegration = map[uuid.UUID][]tags.Tag{}
+		}
 	}
 
 	// User-defined metadata: pull the org schema and every integration's
 	// saved values in two round-trips, then index by key for the per-row
 	// payload below.
-	allMetadataFields, mfErr := h.Metadata.ListFields(r.Context(), middleware.OrgID(r))
-	if mfErr != nil {
-		h.Logger.Warn("list metadata fields failed", "err", mfErr)
-	}
-	integrationFields := scopedFields(allMetadataFields, true)
-	keyByFieldID := make(map[uuid.UUID]string, len(allMetadataFields))
-	for _, f := range allMetadataFields {
-		keyByFieldID[f.ID] = f.Key
-	}
-	bulkValues, mvErr := h.Metadata.IntegrationValuesBulk(r.Context(), integIDs)
-	if mvErr != nil {
-		h.Logger.Warn("bulk integration metadata values failed", "err", mvErr)
-		bulkValues = map[uuid.UUID]map[uuid.UUID]string{}
+	var integrationFields []metadata.Field
+	keyByFieldID := map[uuid.UUID]string{}
+	bulkValues := map[uuid.UUID]map[uuid.UUID]string{}
+	if opts.WithMeta {
+		allMetadataFields, mfErr := h.Metadata.ListFields(r.Context(), middleware.OrgID(r))
+		if mfErr != nil {
+			h.Logger.Warn("list metadata fields failed", "err", mfErr)
+		}
+		integrationFields = scopedFields(allMetadataFields, true)
+		for _, f := range allMetadataFields {
+			keyByFieldID[f.ID] = f.Key
+		}
+		vals, mvErr := h.Metadata.IntegrationValuesBulk(r.Context(), integIDs)
+		if mvErr != nil {
+			h.Logger.Warn("bulk integration metadata values failed", "err", mvErr)
+		} else {
+			bulkValues = vals
+		}
 	}
 
 	// Enabled trace-completion rules for the org, grouped by integration.
@@ -280,8 +389,24 @@ func (h *Handlers) listIntegrations(w http.ResponseWriter, r *http.Request) {
 		// Attribute-defined integrations also narrow the count to their
 		// matching slice (and switch to a distinct-trace count so the list
 		// card matches the detail header).
-		integAttrs := h.integrationGroups(r.Context(), integ.ID)
+		// Built from the matchers already in hand. Asking the store per
+		// row cost two Postgres queries an integration for rows that
+		// were loaded in one.
+		integAttrs := AttrGroupsFromMatchers(matchers, modeByIntegration[integ.ID])
 		intRules := rulesByIntegration[integ.ID]
+		if !opts.WithStats {
+			// Everything from here down reads telemetry. A deferred row
+			// carries its identity and its members, and the numbers
+			// arrive in their own request.
+			summaries = append(summaries, IntegrationSummary{
+				Integration:    integ,
+				ServiceCount:   len(matchedNames),
+				Services:       matchedNames,
+				Tags:           integTagsFor(tagsByIntegration, integ.ID),
+				MetadataValues: metadataValuesFor(bulkValues, keyByFieldID, integ.ID),
+			})
+			continue
+		}
 		if startSpans := startSpansOf(intRules); len(startSpans) > 0 {
 			gt, ge, gErr := h.Store.DistinctTraceCountsGated(r.Context(), matchedNames, startSpans, tr.From, tr.To, integAttrs)
 			if gErr != nil {
@@ -320,18 +445,8 @@ func (h *Handlers) listIntegrations(w http.ResponseWriter, r *http.Request) {
 			}
 			trafficSeries = s
 		}
-		integTags := tagsByIntegration[integ.ID]
-		if integTags == nil {
-			integTags = []tags.Tag{}
-		}
-		// Translate field-id keyed values to field-key keyed for the
-		// frontend, which doesn't carry uuid → key mapping.
-		valuesByKey := map[string]string{}
-		for fid, v := range bulkValues[integ.ID] {
-			if k, ok := keyByFieldID[fid]; ok {
-				valuesByKey[k] = v
-			}
-		}
+		integTags := integTagsFor(tagsByIntegration, integ.ID)
+		valuesByKey := metadataValuesFor(bulkValues, keyByFieldID, integ.ID)
 		// Likewise, a matched member with a firing service-bound health check
 		// makes the integration unhealthy even when that service had no
 		// traffic this window (so it never entered `statuses`). Mirrors
@@ -373,6 +488,9 @@ func (h *Handlers) listIntegrations(w http.ResponseWriter, r *http.Request) {
 	// has must not change with the time picker.
 	scopes := make([]IntegrationFacetScope, 0, len(summaries))
 	for _, s := range summaries {
+		if !opts.WithMeta {
+			break
+		}
 		if len(s.Services) == 0 {
 			continue
 		}
@@ -409,11 +527,7 @@ func (h *Handlers) listIntegrations(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
-		"integrations":    summaries,
-		"window":          tr.Window(),
-		"metadata_fields": integrationFields,
-	})
+	return summaries, integrationFields, true
 }
 
 // withoutCore drops the always-on "core" facet and sorts for a stable
@@ -1727,5 +1841,93 @@ func (h *Handlers) integrationErrorBreakdown(w http.ResponseWriter, r *http.Requ
 		Reason:       choice.Reason,
 		Buckets:      out,
 		ErrorTraces:  total,
+	})
+}
+
+// integTagsFor returns an integration's tags, never nil: the column
+// renders a list, and a null reads as an error in the client rather than
+// as "no tags".
+func integTagsFor(byIntegration map[uuid.UUID][]tags.Tag, id uuid.UUID) []tags.Tag {
+	if t := byIntegration[id]; t != nil {
+		return t
+	}
+	return []tags.Tag{}
+}
+
+// metadataValuesFor translates field-id keyed values to field-key keyed,
+// for a frontend that does not carry the uuid to key mapping.
+func metadataValuesFor(bulk map[uuid.UUID]map[uuid.UUID]string, keyByFieldID map[uuid.UUID]string, id uuid.UUID) map[string]string {
+	out := map[string]string{}
+	for fid, v := range bulk[id] {
+		if k, ok := keyByFieldID[fid]; ok {
+			out[k] = v
+		}
+	}
+	return out
+}
+
+// maxStatsIDs bounds one stats request. The caller asks in batches so
+// the rows fill in as the answers arrive; an unbounded list would put
+// the whole slow query back in one request and undo the point.
+const maxStatsIDs = 25
+
+// integrationStats: GET /api/v1/integrations/stats?ids=a,b,c
+//
+// The numbers for a handful of integrations: status, members, traces,
+// errors, delays, and the sparkline when asked. The list endpoint
+// answers with ?stats=defer from Postgres alone, and the reader's page
+// fills in from here a batch at a time, which is the difference between
+// a page that is on screen at once and a page that arrives in four
+// seconds.
+//
+// Same assembly as the list, so a number here cannot disagree with the
+// same number there.
+func (h *Handlers) integrationStats(w http.ResponseWriter, r *http.Request) {
+	tr := ParseRange(r, time.Hour)
+	raw := strings.TrimSpace(r.URL.Query().Get("ids"))
+	if raw == "" {
+		httpserver.WriteError(w, http.StatusBadRequest, "ids is required")
+		return
+	}
+	ids := map[uuid.UUID]bool{}
+	for _, part := range strings.Split(raw, ",") {
+		id, err := uuid.Parse(strings.TrimSpace(part))
+		if err != nil {
+			httpserver.WriteError(w, http.StatusBadRequest, "invalid integration id "+part)
+			return
+		}
+		ids[id] = true
+		if len(ids) > maxStatsIDs {
+			httpserver.WriteError(w, http.StatusBadRequest,
+				fmt.Sprintf("at most %d ids per request", maxStatsIDs))
+			return
+		}
+	}
+
+	summaries, _, ok := h.buildIntegrationSummaries(w, r, tr, integrationSummaryOpts{
+		IDs:        ids,
+		WithStats:  true,
+		WithSeries: r.URL.Query().Get("series") == "1",
+	})
+	if !ok {
+		return
+	}
+	out := make([]map[string]any, 0, len(summaries))
+	for _, s := range summaries {
+		out = append(out, map[string]any{
+			"id":                  s.ID,
+			"status":              s.Status,
+			"service_count":       s.ServiceCount,
+			"services":            s.Services,
+			"unhealthy_count":     s.UnhealthyCount,
+			"trace_count":         s.TraceCount,
+			"error_trace_count":   s.ErrorTraceCount,
+			"delayed_trace_count": s.DelayedTraceCount,
+			"traffic_series":      s.TrafficSeries,
+		})
+	}
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
+		"stats":  out,
+		"window": tr.Window(),
 	})
 }

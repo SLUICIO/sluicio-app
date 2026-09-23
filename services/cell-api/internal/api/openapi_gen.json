@@ -1529,6 +1529,23 @@
         ]
       }
     },
+    "/api/v1/integrations/stats": {
+      "get": {
+        "operationId": "get_api_v1_integrations_stats",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "List integrations",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
     "/api/v1/integrations/{id}": {
       "delete": {
         "operationId": "delete_api_v1_integrations_id_",

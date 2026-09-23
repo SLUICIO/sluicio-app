@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: FSL-1.1-Apache-2.0
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useCanOpenServices } from "../lib/useNavigationReach";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
@@ -80,6 +80,13 @@ export default function Integrations() {
   const [metadataFields, setMetadataFields] = useState<MetadataField[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // Rows whose numbers are still on their way. Distinct from "no data":
+  // a pending cell says so rather than showing a dash that reads as
+  // zero traffic.
+  const [pendingStats, setPendingStats] = useState<Set<string>>(new Set());
+  // Identifies the current fill pass, so a slow batch from an older
+  // window cannot write its numbers over the current one.
+  const statsRun = useRef(0);
 
   // URL is the source of truth for the active filter. That makes the
   // back button work, makes the filter shareable as a link, and lets
@@ -121,23 +128,77 @@ export default function Integrations() {
     );
   };
 
+  // The numbers arrive after the names. The list itself is a Postgres
+  // read and lands in milliseconds; the counts and statuses behind each
+  // row are telemetry reads, and on a cell with many integrations they
+  // are what kept the page blank for seconds. They now fill in a batch
+  // at a time, top down, which is also the order the reader looks.
+  const STATS_BATCH = 10;
   const refresh = () => {
     setLoading(true);
     setError(null);
+    const run = ++statsRun.current;
     api
-      .listIntegrations(windowVal)
+      .listIntegrations(windowVal, { stats: "defer" })
       .then((d) => {
-        setItems(d.integrations ?? []);
+        const rows = d.integrations ?? [];
+        setItems(rows);
         setMetadataFields(d.metadata_fields ?? []);
+        setLoading(false);
+        if (!d.stats_pending) {
+          setPendingStats(new Set());
+          return;
+        }
+        setPendingStats(new Set(rows.map((r) => r.id)));
+        void fillStats(rows.map((r) => r.id), run);
       })
-      .catch((e) => setError(String(e.message ?? e)))
-      .finally(() => setLoading(false));
+      .catch((e) => {
+        setError(String(e.message ?? e));
+        setLoading(false);
+      });
     api
       .listTags()
       .then((d) => setAllTags(d.tags ?? []))
       .catch(() => setAllTags([]));
   };
 
+  // One batch at a time rather than all at once: the server caps a
+  // request, and a single burst would put the whole slow query back on
+  // one connection and undo the point of splitting it.
+  const fillStats = async (ids: string[], run: number) => {
+    for (let i = 0; i < ids.length; i += STATS_BATCH) {
+      const batch = ids.slice(i, i + STATS_BATCH);
+      try {
+        const d = await api.integrationStats(batch, windowVal);
+        // A window change (or a refresh) started a newer pass; this
+        // one's answers describe a range nobody is looking at.
+        if (statsRun.current !== run) return;
+        const byID = new Map((d.stats ?? []).map((sRow) => [sRow.id, sRow]));
+        setItems((prev) =>
+          (prev ?? []).map((row) => {
+            const stats = byID.get(row.id);
+            return stats ? { ...row, ...stats } : row;
+          }),
+        );
+      } catch {
+        // A failed batch leaves those rows without numbers rather than
+        // taking the page down: the names, members and tags are still
+        // the thing most visits came for.
+      }
+      if (statsRun.current !== run) return;
+      setPendingStats((prev) => {
+        const next = new Set(prev);
+        for (const id of batch) next.delete(id);
+        return next;
+      });
+    }
+  };
+
+  // Keyed off the window alone. refresh and fillStats are redefined on
+  // every render, so listing them would refetch the page on every
+  // keystroke; the run token above is what keeps a stale pass from
+  // writing its numbers over a newer one.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(refresh, [windowVal]);
 
   // Resolve the active slugs against the loaded vocabulary. Unknown
@@ -614,16 +675,24 @@ export default function Integrations() {
       case "trace_count":
         return (
           <td key={id} className="num">
-            {typeof i.trace_count === "number" ? formatNumber(i.trace_count) : <span className="muted">—</span>}
+            {typeof i.trace_count === "number" ? (
+              formatNumber(i.trace_count)
+            ) : (
+              <PendingOrDash id={i.id} pending={pendingStats} />
+            )}
           </td>
         );
       case "error_trace_count":
         return (
           <td key={id} className="num">
-            {typeof i.error_trace_count === "number" && i.error_trace_count > 0 ? (
-              <span className="pill pill--errors">{formatNumber(i.error_trace_count)}</span>
+            {typeof i.error_trace_count === "number" ? (
+              i.error_trace_count > 0 ? (
+                <span className="pill pill--errors">{formatNumber(i.error_trace_count)}</span>
+              ) : (
+                <span className="muted">—</span>
+              )
             ) : (
-              <span className="muted">—</span>
+              <PendingOrDash id={i.id} pending={pendingStats} />
             )}
           </td>
         );
@@ -633,7 +702,7 @@ export default function Integrations() {
             {i.status ? (
               <span className={`pill pill--${i.status}`}>{statusLabel(i.status)}</span>
             ) : (
-              <span className="muted">—</span>
+              <PendingOrDash id={i.id} pending={pendingStats} />
             )}
           </td>
         );
@@ -911,4 +980,16 @@ function renderMetadataCell(field: MetadataField, raw: string | undefined) {
     return <span className="mono">{raw}</span>;
   }
   return raw;
+}
+
+// PendingOrDash tells "not read yet" apart from "nothing here". A dash
+// in a count column reads as zero traffic, which is a claim; a row whose
+// numbers are still arriving has not made one yet.
+function PendingOrDash({ id, pending }: { id: string; pending: Set<string> }) {
+  if (!pending.has(id)) return <span className="muted">—</span>;
+  return (
+    <span className="muted" aria-label="loading" title="Still loading">
+      ···
+    </span>
+  );
 }

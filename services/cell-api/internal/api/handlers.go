@@ -1067,6 +1067,9 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/v1/services/{name}/clear-errors", h.writeService(h.unclearServiceErrors))
 
 	mux.HandleFunc("GET /api/v1/integrations", h.listIntegrations)
+	// The deferred half of the list: the numbers, a batch of ids at a
+	// time, so a cell with many integrations renders at once and fills.
+	mux.HandleFunc("GET /api/v1/integrations/stats", h.integrationStats)
 	mux.HandleFunc("GET /api/v1/integrations/{id}", h.getIntegration)
 	mux.HandleFunc("GET /api/v1/integrations/{id}/span-names", h.integrationSpanNames)
 	mux.HandleFunc("GET /api/v1/integrations/{id}/attribute-keys", h.integrationAttributeKeys)

@@ -887,6 +887,20 @@ export interface TagWithUsage extends Tag {
 
 export type RuleMatch = "any" | "all";
 
+/** The deferred half of an integration row: everything that needs a
+ *  telemetry read. Merged onto the row it names. */
+export interface IntegrationStats {
+  id: string;
+  status?: ServiceStatus;
+  service_count?: number;
+  services?: string[];
+  unhealthy_count?: number;
+  trace_count?: number;
+  error_trace_count?: number;
+  delayed_trace_count?: number;
+  traffic_series?: number[];
+}
+
 export interface CreateIntegrationRequest {
   slug: string;
   name: string;
