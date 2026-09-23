@@ -166,6 +166,7 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 - GET /api/v1/integrations/{id}/flow — List integrations
 - GET /api/v1/integrations/{id}/error-breakdown — List integrations
 - POST /api/v1/integrations — Create integration
+- POST /api/v1/integrations/preview — Create integration
 - POST /api/v1/integrations/{id}/clone — Create integration
 - PUT /api/v1/integrations/{id} — Update integration
 - DELETE /api/v1/integrations/{id} — Delete integration
@@ -173,6 +174,7 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 - DELETE /api/v1/integrations/{id}/matchers/{matcherId} — Delete integration
 - DELETE /api/v1/integrations/{id}/services/{name} — Delete integration
 - POST /api/v1/integrations — Create integration
+- POST /api/v1/integrations/preview — Create integration
 - POST /api/v1/integrations/{id}/clone — Create integration
 - PUT /api/v1/integrations/{id} — Update integration
 - DELETE /api/v1/integrations/{id} — Delete integration

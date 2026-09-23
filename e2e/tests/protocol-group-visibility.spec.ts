@@ -42,10 +42,11 @@ test("protocol: group-granted visibility of one integration", async ({ page }) =
   // 2. Create an integration called ABC, matching that service.
   await page.goto("/integrations/new");
   await page.getByLabel(/^Name/).first().fill(INTEG);
-  await page.getByRole("combobox", { name: "Service match operator" }).first().selectOption("equals");
-  await page.getByRole("button", { name: /Pick a service/i }).first().click();
-  await page.getByRole("listbox").getByRole("searchbox").fill(svc!);
-  await page.getByRole("option", { name: svc! }).first().click();
+  // The rule editor is pills now: the service pill opens a list in
+  // place, so there is no separate operator control to set first.
+  await page.getByRole("button", { name: "Service" }).first().click();
+  await page.getByRole("searchbox").last().fill(svc!);
+  await page.getByRole("button", { name: svc!, exact: true }).first().click();
   await page.getByRole("button", { name: /Create integration/ }).click();
   await expect(page).toHaveURL(/\/integrations\/[0-9a-f-]{36}/, { timeout: 15_000 });
 

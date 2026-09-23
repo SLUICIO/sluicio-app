@@ -5,16 +5,18 @@
 //   - the popover stays inside the viewport; near the bottom of a short
 //     window it flips upward and clamps its list, so the last options
 //     remain reachable
-// Exercised on /integrations/new via the rule service picker.
+// Exercised on /systems via the create form's type picker. It used to
+// run against the integration rule editor, which now builds its own list
+// inside a pill popover - a popover inside a popover fights over the
+// click that closes it - so the component under test is no longer there.
 import { test, expect } from "@playwright/test";
 import { logIn } from "./fixtures";
 
 test("typeahead focuses its filter input on open", async ({ page }) => {
   await logIn(page);
-  await page.goto("/integrations/new");
-  // The typeahead appears once the rule operator is "is" (equals).
-  await page.getByRole("combobox", { name: "Service match operator" }).first().selectOption("equals");
-  await page.getByRole("button", { name: /Pick a service/i }).first().click();
+  await page.goto("/systems");
+  await page.getByRole("button", { name: /New system/i }).first().click();
+  await page.getByRole("button", { name: /No type/i }).first().click();
   const filter = page.getByRole("listbox").getByRole("searchbox");
   await expect(filter).toBeVisible();
   await expect(filter).toBeFocused();
@@ -26,9 +28,9 @@ test("typeahead focuses its filter input on open", async ({ page }) => {
 test("typeahead popover stays inside a short viewport", async ({ page }) => {
   await page.setViewportSize({ width: 1100, height: 500 });
   await logIn(page);
-  await page.goto("/integrations/new");
-  await page.getByRole("combobox", { name: "Service match operator" }).first().selectOption("equals");
-  const trigger = page.getByRole("button", { name: /Pick a service/i }).first();
+  await page.goto("/systems");
+  await page.getByRole("button", { name: /New system/i }).first().click();
+  const trigger = page.getByRole("button", { name: /No type/i }).first();
   await trigger.scrollIntoViewIfNeeded();
   await trigger.click();
   const pop = page.getByRole("listbox");

@@ -1085,6 +1085,10 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	// dashboards + alerts). Viewers are read-only.
 	if h.AuthMW != nil {
 		mux.HandleFunc("POST /api/v1/integrations", h.writeAnywhere(h.createIntegration))
+		// What a draft rule would match, for the editor's live line.
+		// Same write gate as creating one: it is a step in that flow,
+		// and it reads telemetry within the caller's own reach.
+		mux.HandleFunc("POST /api/v1/integrations/preview", h.writeAnywhere(h.previewIntegrationRules))
 		// Cloning is a create whose content comes from an existing row, so
 		// it needs BOTH gates: the right to create, and full manage rights
 		// over the source (canSee passes on one visible member).
@@ -1097,6 +1101,7 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 		mux.HandleFunc("DELETE /api/v1/integrations/{id}/services/{name}", h.writeAnywhere(h.requireManageIntegration(h.removeServiceFromIntegration)))
 	} else {
 		mux.HandleFunc("POST /api/v1/integrations", h.createIntegration)
+		mux.HandleFunc("POST /api/v1/integrations/preview", h.previewIntegrationRules)
 		mux.HandleFunc("POST /api/v1/integrations/{id}/clone", h.cloneIntegration)
 		mux.HandleFunc("PUT /api/v1/integrations/{id}", h.updateIntegration)
 		mux.HandleFunc("DELETE /api/v1/integrations/{id}", h.deleteIntegration)

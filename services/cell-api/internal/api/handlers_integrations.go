@@ -1931,3 +1931,116 @@ func (h *Handlers) integrationStats(w http.ResponseWriter, r *http.Request) {
 		"window": tr.Window(),
 	})
 }
+
+// maxPreviewServices bounds what a draft rule can pull in. A rule that
+// matches every service in the cell is a rule somebody is still typing,
+// and the count it produces is not worth the read.
+const maxPreviewServices = 200
+
+// previewIntegrationRules: POST /api/v1/integrations/preview
+//
+// What a draft rule would match, right now. The editor asks as the rule
+// is typed, so somebody building an integration finds out that their
+// attribute is spelled wrong while they are looking at it, rather than
+// after saving and finding an empty page.
+//
+// It answers with the same predicate the saved integration will use:
+// the matchers compile through AttrGroupsFromMatchers exactly as they
+// would from the database. A preview that rehearsed a different query
+// would be worse than none, because it would look like a rehearsal.
+func (h *Handlers) previewIntegrationRules(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Matchers  []matcherInput         `json:"matchers"`
+		RuleMatch integrations.RuleMatch `json:"rule_match"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if !req.RuleMatch.Valid() {
+		httpserver.WriteError(w, http.StatusBadRequest, `rule_match must be "any" or "all"`)
+		return
+	}
+	matchers := make([]integrations.Matcher, 0, len(req.Matchers))
+	for _, m := range req.Matchers {
+		attr := m.Attribute
+		if attr == "" {
+			attr = "service.name"
+		}
+		candidate := integrations.Matcher{
+			Attribute:          attr,
+			Operator:           m.Operator,
+			Value:              m.Value,
+			MatchGroup:         m.MatchGroup,
+			IncludeDescendants: m.IncludeDescendants,
+		}
+		// An incomplete rule is the normal state of a rule being typed,
+		// so it answers "nothing yet" rather than 400. The editor asks
+		// on every keystroke; refusing half a rule would paint an error
+		// under somebody who is simply not finished.
+		if err := candidate.Validate(); err != nil {
+			httpserver.WriteJSON(w, http.StatusOK, map[string]any{
+				"incomplete": true,
+				"services":   []string{},
+			})
+			return
+		}
+		matchers = append(matchers, candidate)
+	}
+	if len(matchers) == 0 {
+		httpserver.WriteJSON(w, http.StatusOK, map[string]any{
+			"incomplete": true,
+			"services":   []string{},
+		})
+		return
+	}
+
+	tr := ParseRange(r, time.Hour)
+	services, err := h.Store.ListServices(r.Context(), tr.From, tr.To)
+	if err != nil {
+		h.Logger.Warn("rule preview: list services failed", "err", err)
+		httpserver.WriteError(w, http.StatusInternalServerError, "query failed")
+		return
+	}
+	// The caller's own reach, so a preview cannot report traffic from a
+	// service they are not allowed to see.
+	allowed, restricted := h.visibleServiceFilter(r)
+	visible := map[string]struct{}{}
+	for _, n := range allowed {
+		visible[n] = struct{}{}
+	}
+
+	names := make([]string, 0, 8)
+	for _, s := range services {
+		if !anyMatcherMatches(matchers, s.ServiceName) {
+			continue
+		}
+		if restricted {
+			if _, ok := visible[s.ServiceName]; !ok {
+				continue
+			}
+		}
+		names = append(names, s.ServiceName)
+		if len(names) >= maxPreviewServices {
+			break
+		}
+	}
+	sort.Strings(names)
+
+	resp := map[string]any{
+		"services":      names,
+		"service_count": len(names),
+		"window":        tr.Window(),
+	}
+	if len(names) > 0 {
+		groups := AttrGroupsFromMatchers(matchers, req.RuleMatch)
+		total, errored, cErr := h.Store.DistinctTraceCounts(r.Context(), names, tr.From, tr.To, groups)
+		if cErr != nil {
+			h.Logger.Warn("rule preview: trace counts failed", "err", cErr)
+		} else {
+			resp["trace_count"] = total
+			resp["error_trace_count"] = errored
+		}
+	}
+	httpserver.WriteJSON(w, http.StatusOK, resp)
+}

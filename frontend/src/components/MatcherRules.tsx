@@ -20,7 +20,8 @@
 //   matchersToRules  — bucket matcher rows back into rules by their service
 //   rulesPreview     — render the full boolean expression for the live preview
 
-import SearchableSelect from "./SearchableSelect";
+import { useEffect, useState } from "react";
+import Pill from "./search/Pill";
 import type { MatcherOperator, RuleMatch } from "../api/types";
 
 export const RULE_OPERATORS: { value: MatcherOperator; label: string; sym: string }[] = [
@@ -99,8 +100,6 @@ export const blankRule = (seed?: Partial<Rule>): Rule => ({
 });
 
 const sym = (o: MatcherOperator) => ATTR_OPERATORS.find((x) => x.value === o)?.sym ?? o;
-
-const CUSTOM_FIELD = "__custom__";
 
 // fieldHelp renders a plain-language description of a condition that updates
 // as the user picks a field and operator — the "better help based on what's
@@ -266,6 +265,16 @@ export function rulesPreview(rules: Rule[], combine: RuleMatch = "any"): string 
   return parts.join("  OR  ");
 }
 
+/** What a draft rule matches right now, as the preview endpoint
+ *  answers it. */
+export interface RulePreview {
+  incomplete?: boolean;
+  service_count?: number;
+  services?: string[];
+  trace_count?: number;
+  error_trace_count?: number;
+}
+
 export default function MatcherRules({
   rules,
   onChange,
@@ -273,6 +282,7 @@ export default function MatcherRules({
   attrKeys,
   combine = "any",
   onCombineChange,
+  onPreviewRule,
 }: {
   rules: Rule[];
   onChange: (rules: Rule[]) => void;
@@ -280,6 +290,9 @@ export default function MatcherRules({
   attrKeys: string[];
   combine?: RuleMatch;
   onCombineChange?: (mode: RuleMatch) => void;
+  /** Asks the server what one rule would match. Omitted on surfaces
+   *  that cannot ask (a read-only view). */
+  onPreviewRule?: (rule: Rule) => Promise<RulePreview>;
 }) {
   const update = (i: number, patch: Partial<Rule>) =>
     onChange(rules.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
@@ -292,187 +305,269 @@ export default function MatcherRules({
   const removeAttr = (ri: number, ai: number) =>
     update(ri, { attrs: rules[ri].attrs.filter((_, idx) => idx !== ai) });
 
-  const preview = rulesPreview(rules, combine);
-  // The field picker lists every persisted attribute key plus the "custom"
-  // escape hatch, shared by reference across the rows in one render.
-  const fieldOptions = [...attrKeys, CUSTOM_FIELD];
 
   return (
     <div>
       {onCombineChange && (
-        <div className="matcher-form" style={{ alignItems: "center", marginBottom: 10 }}>
-          <span style={{ fontSize: 13 }}>Traffic belongs here when it matches</span>
-          <select
-            className="toolbar__select"
-            value={combine}
-            onChange={(e) => onCombineChange(e.target.value as RuleMatch)}
-            aria-label="How the rules combine"
-          >
-            <option value="any">any rule</option>
-            <option value="all">every rule</option>
-          </select>
-          <span className="muted" style={{ fontSize: 11 }}>
-            {combine === "all"
-              ? "Every rule has to be satisfied by some step of the same trace. A trace that satisfies only one of them does not belong."
-              : "A step belongs if it satisfies any one rule. The rules do not have to hold together."}
-          </span>
+        <div
+          className="rounded-lg border"
+          style={{ borderColor: "var(--border)", padding: "10px 12px", marginBottom: 12 }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 13 }}>Traffic belongs here when it matches</span>
+            <Pill
+              kind="op"
+              label={combine === "all" ? "every rule" : "any rule"}
+              accent
+              ariaLabel="How the rules combine"
+              editor={({ close }) => (
+                <div style={{ display: "grid", gap: 2, minWidth: 260 }}>
+                  {(
+                    [
+                      ["any", "any rule", "A step belongs if it satisfies one rule. The rules do not have to hold together."],
+                      ["all", "every rule", "Every rule must be satisfied by some step of the same trace."],
+                    ] as const
+                  ).map(([value, label, hint]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      className="btn btn--ghost"
+                      style={{ display: "block", width: "100%", textAlign: "left", padding: "6px 8px" }}
+                      onClick={() => {
+                        onCombineChange(value as RuleMatch);
+                        close();
+                      }}
+                    >
+                      <span>
+                        <span style={{ fontWeight: combine === value ? 600 : 400 }}>{label}</span>
+                        <span className="muted" style={{ display: "block", fontSize: 11 }}>{hint}</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            />
+          </div>
         </div>
       )}
-      {preview && (
-        <p className="muted form__hint" style={{ fontSize: 12, marginBottom: 10 }}>
-          Matches: <span className="mono">{preview}</span>
-        </p>
-      )}
 
-      {rules.map((rule, ri) => (
-        <div
-          key={ri}
-          className="rounded-lg border bg-surface-2"
-          style={{ borderColor: "var(--border)", padding: 12, marginBottom: 10 }}
-        >
-          <div className="matcher-form" style={{ alignItems: "center" }}>
-            <span className="muted" style={{ minWidth: 52, fontSize: 13 }}>Service</span>
-            <select
-              className="toolbar__select"
-              value={rule.serviceOp}
-              onChange={(e) => update(ri, { serviceOp: e.target.value as MatcherOperator })}
-              aria-label="Service match operator"
-            >
-              {RULE_OPERATORS.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
-            {rule.serviceOp === "equals" ? (
-              <SearchableSelect
-                value={rule.service}
-                onChange={(v) => update(ri, { service: v })}
-                options={knownServices}
-                placeholder="Filter services…"
-                allLabel="Pick a service…"
+      {rules.map((rule, ri) => {
+        const attrs = rule.attrs;
+        return (
+          <div
+            key={ri}
+            className="rounded-lg border bg-surface-2"
+            style={{ borderColor: "var(--border)", padding: 12, marginBottom: 10 }}
+          >
+            {/* The rule as a sentence, in the same pills the Messages
+                filters use. Three dropdowns in a row say the same thing
+                and read as a form; this reads as a claim about traffic. */}
+            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+              <span className="muted" style={{ fontSize: 13 }}>Traffic from service</span>
+              <Pill
+                kind="op"
+                ariaLabel="Service match operator"
+              label={RULE_OPERATORS.find((o) => o.value === rule.serviceOp)?.label ?? rule.serviceOp}
+                editor={({ close }) => (
+                  <OperatorList
+                    options={RULE_OPERATORS}
+                    current={rule.serviceOp}
+                    onPick={(op) => {
+                      update(ri, { serviceOp: op });
+                      close();
+                    }}
+                  />
+                )}
               />
-            ) : (
-              <input
-                className="search__input matcher-form__value"
-                placeholder="e.g. order-"
-                value={rule.service}
-                onChange={(e) => update(ri, { service: e.target.value })}
-                autoComplete="off"
+              <Pill
+                kind="value"
+                accent
+                ariaLabel="Service"
+                label={rule.service.trim() || "pick a service"}
+                editor={({ close }) =>
+                  rule.serviceOp === "equals" ? (
+                    // Inline rather than a SearchableSelect: a popover
+                    // inside a popover fights over the click that closes
+                    // it, and this one is a list either way.
+                    <NamePicker
+                      current={rule.service}
+                      options={knownServices}
+                      placeholder="Search services…"
+                      empty="No service here matches that."
+                      onPick={(v) => {
+                        update(ri, { service: v });
+                        close();
+                      }}
+                    />
+                  ) : (
+                    <TextValueEditor
+                      value={rule.service}
+                      placeholder="e.g. order-"
+                      hint="Matched against the service name."
+                      onCommit={(v) => {
+                        update(ri, { service: v });
+                        close();
+                      }}
+                    />
+                  )
+                }
               />
-            )}
-            {rules.length > 1 && (
-              <button type="button" className="btn btn--link" onClick={() => removeRule(ri)}>
-                Remove rule
-              </button>
-            )}
-          </div>
-
-          {rule.attrs.length > 0 && (
-            <div style={{ marginTop: 8, paddingLeft: 12, borderLeft: "2px solid var(--border)" }}>
-              <div className="matcher-form" style={{ alignItems: "center" }}>
-                <span className="muted" style={{ fontSize: 13 }}>where it matches</span>
-                <select
-                  className="toolbar__select"
-                  value={rule.combine}
-                  onChange={(e) => update(ri, { combine: e.target.value as "any" | "all" })}
-                  title="How the conditions below combine for this service."
+              {rules.length > 1 && (
+                <button
+                  type="button"
+                  className="btn btn--link"
+                  style={{ marginLeft: "auto" }}
+                  onClick={() => removeRule(ri)}
                 >
-                  <option value="any">any (OR)</option>
-                  <option value="all">all (AND)</option>
-                </select>
-                <span className="muted" style={{ fontSize: 13 }}>of:</span>
-              </div>
-              {rule.attrs.map((a, ai) => {
-                // A field is "custom" when explicitly flagged, or when its key
-                // isn't in the persisted catalog (e.g. a saved matcher whose
-                // key isn't in the current window's sample) — so it stays
-                // editable as free text instead of vanishing from the select.
-                const isCustom = !!a.custom || (!!a.attribute && !attrKeys.includes(a.attribute));
-                return (
-                  <div key={ai}>
-                    <div className="matcher-form">
-                      <SearchableSelect
-                        value={isCustom ? CUSTOM_FIELD : a.attribute}
-                        onChange={(v) => {
-                          if (v === CUSTOM_FIELD) updateAttr(ri, ai, { custom: true });
-                          else updateAttr(ri, ai, { custom: false, attribute: v });
-                        }}
-                        options={fieldOptions}
-                        labelFor={(v) => (v === CUSTOM_FIELD ? "Custom field…" : v)}
-                        placeholder="Search fields…"
-                        allLabel="Choose a field…"
+                  ✕ remove rule
+                </button>
+              )}
+            </div>
+
+            {attrs.length > 0 && (
+              <div style={{ marginTop: 10, display: "grid", gap: 6 }}>
+                {attrs.map((a, ai) => {
+                  const isCustom = !!a.custom || (!!a.attribute && !attrKeys.includes(a.attribute));
+                  const valueless = VALUELESS_MATCHER_OPS.includes(a.operator);
+                  return (
+                    <div
+                      key={ai}
+                      style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}
+                    >
+                      {ai === 0 ? (
+                        <span className="muted" style={{ fontSize: 13, width: 62 }}>
+                          where
+                        </span>
+                      ) : (
+                        // The joiner is the control. A separate "the
+                        // conditions combine with" row said the same
+                        // thing twice and put the answer away from the
+                        // word that shows it.
+                        <span style={{ width: 62 }}>
+                          <Pill
+                            kind="op"
+                            ariaLabel="How the conditions combine"
+                            label={rule.combine === "all" ? "and" : "or"}
+                            editor={({ close }) => (
+                              <div style={{ display: "grid", gap: 2, minWidth: 220 }}>
+                                {(
+                                  [
+                                    ["any", "or", "Any one condition is enough."],
+                                    ["all", "and", "Every condition has to hold."],
+                                  ] as const
+                                ).map(([value, label, hint]) => (
+                                  <button
+                                    key={value}
+                                    type="button"
+                                    className="btn btn--ghost"
+                                    style={{ display: "block", width: "100%", textAlign: "left", padding: "6px 8px" }}
+                                    onClick={() => {
+                                      update(ri, { combine: value as "any" | "all" });
+                                      close();
+                                    }}
+                                  >
+                                    <span>
+                                      <span style={{ fontWeight: rule.combine === value ? 600 : 400 }}>{label}</span>
+                                      <span className="muted" style={{ display: "block", fontSize: 11 }}>{hint}</span>
+                                    </span>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          />
+                        </span>
+                      )}
+                      <Pill
+                        kind="field"
+                        ariaLabel="Attribute"
+                        label={a.attribute.trim() || "attribute"}
+                        editor={({ close }) => (
+                          <AttributeFieldPicker
+                            current={a.attribute}
+                            isCustom={isCustom}
+                            options={attrKeys}
+                            onPick={(key, custom) => {
+                              updateAttr(ri, ai, { attribute: key, custom });
+                              if (!custom) close();
+                            }}
+                          />
+                        )}
                       />
-                      {isCustom && (
-                        <input
-                          className="search__input matcher-form__attr"
-                          list="integration-attr-keys"
-                          value={a.attribute}
-                          onChange={(e) => updateAttr(ri, ai, { attribute: e.target.value, custom: true })}
-                          placeholder="attribute key"
-                          autoComplete="off"
-                          style={{ maxWidth: 180 }}
+                      <Pill
+                        kind="op"
+                        ariaLabel="Attribute match operator"
+                        label={ATTR_OPERATORS.find((o) => o.value === a.operator)?.label ?? a.operator}
+                        editor={({ close }) => (
+                          <OperatorList
+                            options={ATTR_OPERATORS}
+                            current={a.operator}
+                            onPick={(op) => {
+                              updateAttr(ri, ai, { operator: op });
+                              close();
+                            }}
+                          />
+                        )}
+                      />
+                      {!valueless && (
+                        <Pill
+                          kind="value"
+                          accent
+                          ariaLabel="Attribute value"
+                          label={a.value.trim() || "value"}
+                          editor={({ close }) => (
+                            <TextValueEditor
+                              value={a.value}
+                              placeholder="value"
+                              hint={fieldHelp(a)}
+                              onCommit={(v) => {
+                                updateAttr(ri, ai, { value: v });
+                                close();
+                              }}
+                            />
+                          )}
                         />
                       )}
-                      <select
-                        className="toolbar__select"
-                        value={a.operator}
-                        onChange={(e) => updateAttr(ri, ai, { operator: e.target.value as MatcherOperator })}
-                        aria-label="Attribute match operator"
+                      <button
+                        type="button"
+                        className="btn btn--link"
+                        style={{ marginLeft: "auto" }}
+                        onClick={() => removeAttr(ri, ai)}
                       >
-                        {ATTR_OPERATORS.map((o) => (
-                          <option key={o.value} value={o.value}>{o.label}</option>
-                        ))}
-                      </select>
-                      {!VALUELESS_MATCHER_OPS.includes(a.operator) && (
-                        <input
-                          className="search__input matcher-form__value"
-                          placeholder="value"
-                          value={a.value}
-                          onChange={(e) => updateAttr(ri, ai, { value: e.target.value })}
-                          autoComplete="off"
-                        />
-                      )}
-                      <button type="button" className="btn btn--link" onClick={() => removeAttr(ri, ai)}>
-                        Remove
+                        ✕
                       </button>
                     </div>
-                    <div className="muted" style={{ fontSize: 11, paddingLeft: 2, marginBottom: 4 }}>
-                      {fieldHelp(a)}
-                    </div>
-                  </div>
-                );
-              })}
-              <button type="button" className="btn" onClick={() => addAttr(ri)} style={{ marginTop: 4 }}>
+                  );
+                })}
+              </div>
+            )}
+
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
+              <button type="button" className="btn btn--sm" onClick={() => addAttr(ri)}>
                 + condition
               </button>
-              <label
-                className="muted"
-                style={{ display: "flex", gap: 6, alignItems: "flex-start", fontSize: 13, marginTop: 10 }}
-              >
-                <input
-                  type="checkbox"
-                  checked={!!rule.descendants}
-                  onChange={(e) => update(ri, { descendants: e.target.checked })}
-                  style={{ marginTop: 3 }}
-                />
-                <span>
-                  Include child spans
-                  <span style={{ display: "block", fontSize: 11 }}>
-                    Also take every span below a matching span in its trace, even when the child spans do not
-                    match the conditions themselves.
-                  </span>
-                </span>
-              </label>
+              {attrs.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => update(ri, { descendants: !rule.descendants })}
+                  aria-pressed={!!rule.descendants}
+                  title="Also take every span below a matching span in its trace, even when the child spans do not carry the attribute."
+                  className="rounded-full border px-2 py-0.5 text-xs"
+                  style={{
+                    borderColor: rule.descendants
+                      ? "color-mix(in oklab, var(--primary) 35%, transparent)"
+                      : "var(--border)",
+                    background: rule.descendants ? "var(--primary-soft)" : "transparent",
+                    color: rule.descendants ? "var(--primary-ink)" : "var(--muted)",
+                  }}
+                >
+                  {rule.descendants ? "✓ with child spans" : "+ child spans"}
+                </button>
+              )}
+              {onPreviewRule && <RuleMatchLine rule={rule} preview={onPreviewRule} />}
             </div>
-          )}
-          {rule.attrs.length === 0 && (
-            <div style={{ marginTop: 8 }}>
-              <button type="button" className="btn" onClick={() => addAttr(ri)}>
-                + attribute condition
-              </button>
-            </div>
-          )}
-        </div>
-      ))}
+          </div>
+        );
+      })}
 
       <datalist id="integration-attr-keys">
         <option value={SERVICE_NAME_ATTR} />
@@ -487,5 +582,255 @@ export default function MatcherRules({
         </button>
       </div>
     </div>
+  );
+}
+
+// OperatorList is the popover body behind an operator pill: the choices,
+// as a list you read, rather than a select you open and scan.
+function OperatorList({
+  options,
+  current,
+  onPick,
+}: {
+  options: { value: MatcherOperator; label: string }[];
+  current: MatcherOperator;
+  onPick: (op: MatcherOperator) => void;
+}) {
+  return (
+    <div style={{ display: "grid", gap: 2, minWidth: 200 }}>
+      {options.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          className="btn btn--ghost"
+          style={{
+            display: "block",
+            width: "100%",
+            textAlign: "left",
+            padding: "5px 8px",
+            fontWeight: o.value === current ? 600 : 400,
+          }}
+          onClick={() => onPick(o.value)}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// TextValueEditor is the popover body behind a value pill. Enter commits,
+// because a value pill is one field and reaching for a button to confirm
+// one field is a step nobody wants.
+function TextValueEditor({
+  value,
+  placeholder,
+  hint,
+  onCommit,
+}: {
+  value: string;
+  placeholder: string;
+  hint?: string;
+  onCommit: (v: string) => void;
+}) {
+  const [draft, setDraft] = useState(value);
+  return (
+    <div style={{ minWidth: 260 }}>
+      <input
+        className="search__input"
+        autoFocus
+        value={draft}
+        placeholder={placeholder}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            onCommit(draft.trim());
+          }
+        }}
+        style={{ width: "100%" }}
+      />
+      {hint && (
+        <div className="muted" style={{ fontSize: 11, marginTop: 6, lineHeight: 1.45 }}>
+          {hint}
+        </div>
+      )}
+      <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+        <button type="button" className="btn btn--sm btn--primary" onClick={() => onCommit(draft.trim())}>
+          Apply
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// NamePicker is the popover body behind a pill whose value comes from a
+// list the cell has seen: a search box and the matches, no dropdown of
+// its own. A popover inside a popover fights over the click that closes
+// it, which is why this is not a SearchableSelect.
+function NamePicker({
+  current,
+  options,
+  placeholder,
+  empty,
+  onPick,
+  footer,
+}: {
+  current: string;
+  options: string[];
+  placeholder: string;
+  empty: string;
+  onPick: (value: string) => void;
+  footer?: React.ReactNode;
+}) {
+  const [q, setQ] = useState("");
+  const shown = options.filter((k) => k.toLowerCase().includes(q.trim().toLowerCase())).slice(0, 40);
+  return (
+    <div style={{ minWidth: 280 }}>
+      <input
+        className="search__input"
+        autoFocus
+        role="searchbox"
+        placeholder={placeholder}
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        style={{ width: "100%", marginBottom: 6 }}
+      />
+      <div style={{ maxHeight: 220, overflowY: "auto", display: "grid", gap: 2 }}>
+        {shown.map((k) => (
+          <button
+            key={k}
+            type="button"
+            className="btn btn--ghost mono"
+            style={{
+              display: "block",
+              width: "100%",
+              textAlign: "left",
+              padding: "5px 8px",
+              fontSize: 12.5,
+              fontWeight: k === current ? 600 : 400,
+            }}
+            onClick={() => onPick(k)}
+          >
+            {k}
+          </button>
+        ))}
+        {shown.length === 0 && (
+          <div className="muted" style={{ fontSize: 12, padding: "6px 8px" }}>
+            {empty}
+          </div>
+        )}
+      </div>
+      {footer}
+    </div>
+  );
+}
+
+// AttributeFieldPicker is NamePicker plus the escape hatch: an attribute
+// that exists in the code but has not been emitted yet is a real case,
+// and a picker that only offers what it has seen cannot express it.
+function AttributeFieldPicker({
+  current,
+  isCustom,
+  options,
+  onPick,
+}: {
+  current: string;
+  isCustom: boolean;
+  options: string[];
+  onPick: (key: string, custom: boolean) => void;
+}) {
+  return (
+    <NamePicker
+      current={current}
+      options={options}
+      placeholder="Search attributes…"
+      empty="No attribute here matches that."
+      onPick={(k) => onPick(k, false)}
+      footer={
+        <div style={{ borderTop: "1px solid var(--border)", marginTop: 8, paddingTop: 8 }}>
+          <input
+            className="search__input mono"
+            placeholder="or type a key this cell has not seen yet"
+            value={isCustom ? current : ""}
+            onChange={(e) => onPick(e.target.value, true)}
+            style={{ width: "100%", fontSize: 12.5 }}
+          />
+        </div>
+      }
+    />
+  );
+}
+
+// RuleMatchLine says what this rule matches right now.
+//
+// The editor could always be saved and then read back, and that is what
+// it used to take: save, open the integration, find it empty, come back
+// and work out which of four conditions was wrong. A misspelled
+// attribute is a five-second mistake that used to cost a round trip.
+function RuleMatchLine({
+  rule,
+  preview,
+}: {
+  rule: Rule;
+  preview: (rule: Rule) => Promise<RulePreview>;
+}) {
+  const [state, setState] = useState<RulePreview | null>(null);
+  const [busy, setBusy] = useState(false);
+  // Keyed on the rule's content, so a redraw that changes nothing does
+  // not ask again, and a change that matters always does.
+  const key = JSON.stringify([
+    rule.serviceOp,
+    rule.service,
+    rule.combine,
+    rule.descendants,
+    rule.attrs.map((a) => [a.attribute, a.operator, a.value]),
+  ]);
+  useEffect(() => {
+    let cancelled = false;
+    if (!rule.service.trim()) {
+      setState(null);
+      return;
+    }
+    // Typing is not a question. The pause is what asks.
+    const t = window.setTimeout(() => {
+      setBusy(true);
+      preview(rule)
+        .then((r) => !cancelled && setState(r))
+        .catch(() => !cancelled && setState(null))
+        .finally(() => !cancelled && setBusy(false));
+    }, 450);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(t);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+
+  if (!rule.service.trim()) {
+    return <span className="muted" style={{ fontSize: 12 }}>Pick a service to see what this matches.</span>;
+  }
+  if (busy && !state) {
+    return <span className="muted" style={{ fontSize: 12 }}>Checking…</span>;
+  }
+  if (!state) return null;
+  if (state.incomplete) {
+    return <span className="muted" style={{ fontSize: 12 }}>Finish the condition to see what it matches.</span>;
+  }
+  const services = state.service_count ?? 0;
+  if (services === 0) {
+    return (
+      <span style={{ fontSize: 12, color: "var(--warn-ink, var(--ink-2))" }}>
+        No service matches this rule in the selected range.
+      </span>
+    );
+  }
+  const traces = state.trace_count;
+  return (
+    <span className="muted" style={{ fontSize: 12 }}>
+      Matches {services} {services === 1 ? "service" : "services"}
+      {typeof traces === "number" ? `, ${traces.toLocaleString()} ${traces === 1 ? "message" : "messages"} in range` : ""}
+      {typeof traces === "number" && traces === 0 ? " — nothing came through yet" : ""}
+    </span>
   );
 }

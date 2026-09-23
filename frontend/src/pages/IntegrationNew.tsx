@@ -8,6 +8,16 @@ import { FieldInput } from "../components/MetadataPanel";
 import ServiceDependencySuggestions from "../components/ServiceDependencySuggestions";
 import MatcherRules, { Rule, blankRule, rulesToMatchers } from "../components/MatcherRules";
 import type { RuleMatch } from "../api/types";
+
+// One rule, asked of the server on its own. rulesToMatchers is the same
+// translation the save path uses, so the rehearsal runs the predicate
+// that would be stored rather than one written to look like it.
+async function previewRule(rule: Rule, combine: RuleMatch, windowVal: string) {
+  const matchers = rulesToMatchers([rule]);
+  if (matchers.length === 0) return { incomplete: true };
+  return api.previewIntegrationRules({ matchers, rule_match: combine }, windowVal);
+}
+
 import TagPicker from "../components/tags/TagPicker";
 import { useCurrentUser } from "../lib/useCurrentUser";
 import { usePageTitle } from "../lib/usePageTitle";
@@ -331,6 +341,7 @@ export default function IntegrationNew() {
             attrKeys={attrKeys}
             combine={combine}
             onCombineChange={setCombine}
+            onPreviewRule={(rule) => previewRule(rule, combine, "24h")}
           />
         </div>
 

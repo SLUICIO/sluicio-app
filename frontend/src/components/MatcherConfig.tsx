@@ -21,6 +21,16 @@ import MatcherRules, {
 } from "./MatcherRules";
 import type { IntegrationDetail, RuleMatch } from "../api/types";
 
+// One rule, asked of the server on its own. rulesToMatchers is the same
+// translation the save path uses, so the rehearsal runs the predicate
+// that would be stored rather than one written to look like it.
+async function previewRule(rule: Rule, combine: RuleMatch, windowVal: string) {
+  const matchers = rulesToMatchers([rule]);
+  if (matchers.length === 0) return { incomplete: true };
+  return api.previewIntegrationRules({ matchers, rule_match: combine }, windowVal);
+}
+
+
 const SERVICE_NAME_ATTR = "service.name";
 
 export default function MatcherConfig({
@@ -199,6 +209,7 @@ export default function MatcherConfig({
               attrKeys={attrKeys}
               combine={combine}
               onCombineChange={onCombineChange}
+              onPreviewRule={(rule) => previewRule(rule, combine, windowVal)}
             />
             <div style={{ display: "flex", gap: 8, marginTop: 12, alignItems: "center" }}>
               <button

@@ -5,6 +5,7 @@
 
 import type {
   IntegrationStats,
+  RuleMatch,
   AdvisorLedger,
   Branding,
   CollectorTarget,
@@ -457,6 +458,24 @@ export const api = {
         window,
       )}${opts.series ? "&series=1" : ""}`
     ),
+
+  // What a draft rule would match right now, for the matcher editor's
+  // live line. Same shape the create call takes, so the rehearsal and
+  // the real thing cannot drift.
+  previewIntegrationRules: (
+    body: {
+      matchers: { attribute?: string; operator: string; value: string; match_group?: number; include_descendants?: boolean }[];
+      rule_match?: RuleMatch;
+    },
+    window: string = "1h",
+  ) =>
+    post<{
+      incomplete?: boolean;
+      services?: string[];
+      service_count?: number;
+      trace_count?: number;
+      error_trace_count?: number;
+    }>(`/integrations/preview?range=${encodeURIComponent(window)}`, body),
 
   getIntegration: (id: string, window: string = "1h") =>
     get<IntegrationDetail>(
