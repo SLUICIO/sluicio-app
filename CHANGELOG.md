@@ -3,8 +3,14 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.153 — 2026-09-23
+
+- perf(integrations): the list renders before its numbers are in (40ed4ef)
+- perf(integrations): stop asking a question whose answer was discarded (259dd4a)
+
 ## v0.11.152 — 2026-09-22
 
+- release v0.11.152 — refresh internal changelog (38603f2)
 - chore(dev): pass the state-export settings through the dev compose (57616e6)
 - fix(export): take the environment from the cell, not from a second setting (305514b)
 - feat(export): notice when the export points at this cell's own ingest (8677581)
