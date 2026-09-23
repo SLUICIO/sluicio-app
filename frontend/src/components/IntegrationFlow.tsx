@@ -61,8 +61,22 @@ interface Props {
 }
 
 const NODE_W = 180;
-const NODE_H = 76; // base height (no schema chips)
+const NODE_H = 76; // base height (no schema chips), one line of name
 const NODE_H_SCHEMA = 122; // taller so a row of in/out chips fits
+// A second line of service name, when one is needed. 14px semibold at
+// this width; the line box is 18px and the node grows by exactly that
+// rather than by a guess with air in it.
+const NAME_LINE_H = 18;
+// How many lines a name may take before it is cut. Two covers every
+// real name we have seen; a third would push the counts out of a node
+// that has to stay small enough to see the flow through.
+const MAX_NAME_LINES = 2;
+// Characters that fit on one line of the name at 14px semibold in a
+// 180px node, measured against the real font rather than guessed: a
+// 24-character name fills the width. Used only to decide how tall a
+// node has to be - the browser does the actual wrapping, and it wraps
+// at the hyphens these names are full of.
+const NAME_CHARS_PER_LINE = 24;
 const COL_GAP = 80;
 const ROW_GAP = 28;
 
@@ -184,13 +198,26 @@ function ServiceNode({ data, selected }: NodeProps<ServiceNodeData>) {
         service
       </div>
       <div
+        // Wrapped, not cut. Services in one flow share long prefixes -
+        // product-consolidation-aggregator-service beside
+        // product-consolidation-extractor-service - so a name cut at
+        // the box edge renders both as "product-consolidati…" and the
+        // graph stops distinguishing the things it exists to
+        // distinguish. Normal wrapping breaks at the hyphens these
+        // names are made of; anywhere is the fallback for a name with
+        // none. Past two lines it is clamped, and the title carries the
+        // whole thing.
+        title={data.label}
         style={{
           fontSize: 14,
           fontWeight: 600,
           marginTop: 2,
-          whiteSpace: "nowrap",
+          lineHeight: `${NAME_LINE_H}px`,
+          overflowWrap: "anywhere",
+          display: "-webkit-box",
+          WebkitBoxOrient: "vertical",
+          WebkitLineClamp: MAX_NAME_LINES,
           overflow: "hidden",
-          textOverflow: "ellipsis",
         }}
       >
         {data.label}
@@ -346,7 +373,12 @@ function Inner({
     () => Object.values(serviceSchemas ?? {}).some((arr) => arr.length > 0),
     [serviceSchemas],
   );
-  const nodeH = hasSchemas ? NODE_H_SCHEMA : NODE_H;
+  // The tallest name in the flow decides the height of every node: a
+  // row of boxes at different heights reads as a hierarchy that is not
+  // there. One long name costs every node 18px, which is cheaper than
+  // the reader not being able to tell two services apart.
+  const nameLines = useMemo(() => maxNameLines(rawNodes.map((n) => n.service_name)), [rawNodes]);
+  const nodeH = (hasSchemas ? NODE_H_SCHEMA : NODE_H) + (nameLines - 1) * NAME_LINE_H;
 
   const positions = useMemo(
     () => layout(rawNodes, rawEdges, nodeH),
@@ -519,4 +551,20 @@ export default function IntegrationFlow(props: Props) {
       </ReactFlowProvider>
     </div>
   );
+}
+
+/**
+ * How many lines the longest of these service names needs.
+ *
+ * An estimate on purpose: the browser does the wrapping, and it breaks
+ * at hyphens, so counting characters over-states for a name that breaks
+ * early and under-states for none. Over-stating adds a line of air;
+ * under-stating clips the name, which is the thing being fixed. So it
+ * rounds up, and it is capped at MAX_NAME_LINES because past that the
+ * node stops being a node.
+ */
+export function maxNameLines(names: string[]): number {
+  const longest = names.reduce((m, n) => Math.max(m, n.length), 0);
+  const lines = Math.ceil(longest / NAME_CHARS_PER_LINE);
+  return Math.min(MAX_NAME_LINES, Math.max(1, lines));
 }
