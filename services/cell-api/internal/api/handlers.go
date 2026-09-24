@@ -1863,6 +1863,26 @@ func (h *Handlers) enrichServiceListExtras(r *http.Request, tr TimeRange, out []
 		h.Logger.Warn("service list: service edges failed", "err", err)
 		return
 	}
+	// Hand-off edges count too (issue #25). This was the fourth reader of
+	// ServiceEdges and the one the rest of that work missed, so a service
+	// reached only by a span link went on reporting zero dependencies in
+	// both directions while carrying traces that each point at its
+	// upstream - a zero that is arithmetically correct and factually
+	// wrong, which is the sentence the issue opens with.
+	//
+	// Unlike trace counts, degrees can be added across the two kinds
+	// without inventing a quantity. A trace count of calls and a trace
+	// count of hand-offs measure different events, so summing them gives
+	// a figure that is neither; a degree counts DISTINCT NEIGHBOURS, and
+	// a neighbour reached by a queue is a neighbour. The sets below
+	// dedupe, so a pair connected both ways still counts once.
+	if linkRows, e := h.Store.ServiceLinkEdges(r.Context(), names, tr.From, tr.To); e != nil {
+		// Degraded, not fatal, as on the topology: call edges are worth
+		// counting on their own.
+		h.Logger.Warn("service list: service link edges failed", "err", e)
+	} else {
+		edges = append(edges, linkRows...)
+	}
 	upstream := make(map[string]map[string]struct{})   // target → distinct sources
 	downstream := make(map[string]map[string]struct{}) // source → distinct targets
 	add := func(m map[string]map[string]struct{}, k, v string) {
