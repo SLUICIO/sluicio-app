@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.157 — 2026-09-24
+
+- feat(alerts): a delivery that fails is survivable, and audible (268bc77)
+
 ## v0.11.156 — 2026-09-24
 
+- release v0.11.156 — refresh internal changelog (5ce3add)
 - feat(deps): React Router 7, with the state that broke it moved (450b136)
 
 ## v0.11.155 — 2026-09-24
