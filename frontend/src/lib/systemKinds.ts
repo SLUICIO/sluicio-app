@@ -65,6 +65,10 @@ export function hasSystemTemplate(kind: string | undefined): boolean {
 export const SERVICE_TEMPLATE_KINDS: { value: string; label: string }[] = [
   { value: "otel-collector", label: "OpenTelemetry Collector" },
   { value: "dotnet-service", label: ".NET service" },
+  // A Camel application is a workload you run, not a system you scrape,
+  // so it belongs here rather than in SYSTEM_KINDS - even though the
+  // JVM usually hosts several integrations at once.
+  { value: "camel", label: "Apache Camel" },
 ];
 
 export function templateKindLabel(kind: string | undefined): string {

@@ -339,6 +339,55 @@ var monitoringTemplates = []monitoringTemplate{
 		},
 	},
 	{
+		// Grounded in camel-micrometer's meter and tag names, taken from
+		// MicrometerConstants in the Camel source rather than recalled.
+		//
+		// # Why every check splits by routeId
+		//
+		// A Camel application is the archetypal shared runtime: one JVM
+		// hosting many routes, which are many integrations as far as
+		// anyone watching is concerned. A check that says "this service
+		// is failing" names the JVM and hides which of its twenty routes
+		// broke, so each check below splits on routeId and the firing
+		// enumerates the routes that breached.
+		//
+		// # Metric names depend on how the metrics leave Camel
+		//
+		// Micrometer keeps the dotted names below when it exports over
+		// OTLP, and converts them for Prometheus: dots become
+		// underscores and counters gain a _total suffix, so
+		// camel.exchanges.failed arrives as camel_exchanges_failed_total.
+		// Sluicio stores metric names verbatim and matches them exactly,
+		// so one set of checks cannot serve both.
+		//
+		// These are written for the dotted form, which is what the OTLP
+		// path this product asks for produces. Detection covers the
+		// underscored prefix too, deliberately: a Prometheus-scraped
+		// Camel is still Camel and should be recognised as such, and
+		// somebody who has to retune metric names is better off than
+		// somebody whose runtime went unrecognised. The docs page says
+		// which names to substitute. Same trade as the NATS type.
+		//
+		// # Traces beside metrics
+		//
+		// camel-opentelemetry emits a span per exchange, so the trace
+		// checks name the failing exchange and its endpoint, which no
+		// counter can. The metric checks stay because they survive when
+		// the tracing pipeline is the thing that broke - the same
+		// reasoning as the Paperless-ngx type.
+		Kind: "camel", Label: "Apache Camel", System: false,
+		DetectPrefixes: []string{"camel.", "camel_"},
+		Checks: []systemCheck{
+			{Name: "Route failing", Description: "Exchanges failed on a route without being handled by an error handler. The split names which route, not just which JVM.", Metric: "camel.exchanges.failed", Agg: alerting.AggIncrease, Op: alerting.OpGT, Threshold: 0, SplitBy: "routeId", Severity: alerting.SeverityWarning, Unit: "exchanges", Display: true},
+			{Name: "Route dead-lettering", Description: "Failures are being caught and handled - a dead-letter channel doing its job, which is a silent failure if nobody reads that queue. Raise or disable this if dead-lettering is your designed path.", Metric: "camel.exchanges.failures.handled", Agg: alerting.AggIncrease, Op: alerting.OpGT, Threshold: 10, SplitBy: "routeId", Severity: alerting.SeverityWarning, Unit: "exchanges"},
+			{Name: "Route backlog", Description: "Exchanges are piling up in flight on a route - it is wedged, or intake is outrunning it. Tune to the concurrency the route is built for.", Metric: "camel.exchanges.inflight", Agg: alerting.AggMax, Op: alerting.OpGT, Threshold: 100, SplitBy: "routeId", Severity: alerting.SeverityWarning, Unit: "exchanges", Display: true},
+			{Name: "Routes stopped", Description: "Running routes dropped to zero. Raise the threshold to your route count so losing ONE route fires, rather than only the context going down entirely.", Metric: "camel.routes.running", Agg: alerting.AggMin, Op: alerting.OpLT, Threshold: 1, Severity: alerting.SeverityCritical, Unit: "routes", Display: true},
+			{Name: "Broker redelivering to a route", Description: "An external broker is redelivering messages to this route - the consumer keeps rejecting them, which ends in a dead-letter queue rather than a visible error.", Metric: "camel.exchanges.external.redeliveries", Agg: alerting.AggIncrease, Op: alerting.OpGT, Threshold: 0, SplitBy: "routeId", Severity: alerting.SeverityWarning, Unit: "redeliveries"},
+			{Name: "Exchange failed", Description: "A failed exchange, from the trace rather than the counter: it names the endpoint and the step, which the metric cannot. Needs camel-opentelemetry.", Signal: "trace_error", TraceThreshold: 1, WindowSeconds: 900, Severity: alerting.SeverityWarning},
+			{Name: "Slow exchanges", Description: "p95 exchange duration is high. Tune to the route's own shape - a file poll and an HTTP call do not belong to the same threshold.", Signal: "trace_latency", ThresholdMs: 30000, WindowSeconds: 900, Severity: alerting.SeverityWarning, Unit: "ms"},
+		},
+	},
+	{
 		// Grounded in the .NET OTel metrics this stack emits. Thread-pool /
 		// Kestrel queues are UpDownCounters (max = peak); exceptions is a
 		// monotonic counter (increase = thrown in the window).

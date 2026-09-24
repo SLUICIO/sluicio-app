@@ -45,6 +45,7 @@ var systemTypeDocsPages = map[string]bool{
 	"dotnet-service":   true,
 	"paperless-ngx":    true,
 	"kubernetes":       true,
+	"camel":            true,
 }
 
 // docsURLForSystemType returns the reference page for a type key, or ""
