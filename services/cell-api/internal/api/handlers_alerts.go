@@ -1148,7 +1148,34 @@ func (h *Handlers) listChannels(w http.ResponseWriter, r *http.Request) {
 	if channels == nil {
 		channels = []alerting.NotificationChannel{}
 	}
-	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"channels": maskChannelSecrets(channels)})
+	// Deliveries this channel gave up on lately, so the row that offers
+	// "Send test" also says whether the real ones are arriving. A
+	// channel whose token expired keeps looking fine otherwise: nothing
+	// about it changes, it simply stops working.
+	failures := map[uuid.UUID]alerting.ChannelFailure{}
+	if recent, ferr := h.Alerts.RecentDeliveryFailures(
+		r.Context(), middleware.OrgID(r), time.Now().Add(-deliveryFailureWindow)); ferr == nil {
+		for _, f := range recent {
+			failures[f.ChannelID] = f
+		}
+	} else {
+		h.Logger.Warn("list channels: delivery failures failed", "err", ferr)
+	}
+	out := make([]map[string]any, 0, len(channels))
+	for _, c := range maskChannelSecrets(channels) {
+		row := map[string]any{
+			"id": c.ID, "organization_id": c.OrganizationID, "name": c.Name,
+			"kind": c.Kind, "config": c.Config,
+			"created_at": c.CreatedAt, "updated_at": c.UpdatedAt,
+		}
+		if f, ok := failures[c.ID]; ok {
+			row["recent_failures"] = f.Count
+			row["last_failure_error"] = f.LastError
+			row["last_failure_at"] = f.LastAt
+		}
+		out = append(out, row)
+	}
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"channels": out})
 }
 
 // createChannel: POST /api/v1/notification-channels
@@ -1311,4 +1338,30 @@ func (h *Handlers) requireManageAlertTarget(w http.ResponseWriter, r *http.Reque
 		return false
 	}
 	return true
+}
+
+// retryAlertDelivery: POST /api/v1/alert-deliveries/{id}/retry
+//
+// Somebody who has just fixed a receiver should be able to say "try that
+// again now" rather than wait for a policy that has already given up.
+// The window moves with the retry: without that, a delivery whose six
+// hours ran out yesterday would be abandoned again on the first attempt.
+func (h *Handlers) retryAlertDelivery(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid delivery id")
+		return
+	}
+	if err := h.Alerts.RetryJob(r.Context(), middleware.OrgID(r), id, 0); err != nil {
+		if errors.Is(err, alerting.ErrNotFound) {
+			httpserver.WriteError(w, http.StatusNotFound,
+				"no given-up delivery with that id (a delivery that succeeded or is still being retried cannot be re-queued)")
+			return
+		}
+		h.Logger.Error("retry delivery failed", "err", err, "job", id)
+		httpserver.WriteError(w, http.StatusInternalServerError, "retry failed")
+		return
+	}
+	h.recordAudit(r, "alert.delivery_retried", "notification_job", id.String(), nil)
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"status": "queued"})
 }

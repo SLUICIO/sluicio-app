@@ -966,6 +966,11 @@ export const api = {
   // Delivery history — what notifications have been sent, to which
   // channel, and whether they succeeded. Server-side filtered by the time
   // range plus optional service / integration / system / health-check name.
+  // Queue a given-up delivery again, now. The window moves with it, so
+  // a notification whose six hours ran out yesterday gets a fresh one.
+  retryAlertDelivery: (id: string) =>
+    post<{ status: string }>(`/alert-deliveries/${encodeURIComponent(id)}/retry`, {}),
+
   listAlertDeliveries: (
     opts: { range?: string; service?: string; integration?: string; system?: string; name?: string; limit?: number } = {},
   ) => {

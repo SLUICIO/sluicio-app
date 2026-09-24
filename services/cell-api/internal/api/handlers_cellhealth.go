@@ -38,13 +38,16 @@ package api
 import (
 	"context"
 	"crypto/subtle"
+	"fmt"
 	"net/http"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/sluicio/sluicio-app/pkg/httpserver"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/alerting"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/cellhealth"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/integrations"
 )
 
 // dependencyProbe is one backing service's reachability.
@@ -192,6 +195,20 @@ func (h *Handlers) cellHealth(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Deliveries the cell gave up on. Every other failure in the product
+	// is visible somewhere: a check that cannot evaluate shows on the
+	// dashboard, an ingest problem shows here. A notification that never
+	// arrived is the one failure whose whole symptom is the absence of
+	// something, so it has to be stated rather than waited for.
+	//
+	// Counted per channel and per hour: one line per failed delivery
+	// would itself be the flood a broken receiver produces.
+	for _, f := range h.recentDeliveryFailures(ctx) {
+		problems = append(problems, fmt.Sprintf(
+			"%d alert notification%s to %s (%s) could not be delivered in the last hour: %s",
+			f.Count, plural(f.Count), f.ChannelName, f.Kind, f.LastError))
+	}
+
 	status := "ok"
 	if len(problems) > 0 {
 		status = "degraded"
@@ -204,4 +221,32 @@ func (h *Handlers) cellHealth(w http.ResponseWriter, r *http.Request) {
 		Loops:        loops,
 		Problems:     problems,
 	})
+}
+
+// deliveryFailureWindow is how far back the health line looks. An hour
+// is long enough to catch an outage that started while nobody was
+// looking, and short enough that a receiver fixed this morning stops
+// being reported by lunch.
+const deliveryFailureWindow = time.Hour
+
+// recentDeliveryFailures reads the per-channel failure counts, and says
+// nothing at all when it cannot: a health report that turns red because
+// its own query failed teaches operators to ignore it.
+func (h *Handlers) recentDeliveryFailures(ctx context.Context) []alerting.ChannelFailure {
+	if h.Alerts == nil {
+		return nil
+	}
+	out, err := h.Alerts.RecentDeliveryFailures(ctx, integrations.DefaultOrgID, time.Now().Add(-deliveryFailureWindow))
+	if err != nil {
+		h.Logger.Warn("cell health: delivery failures failed", "err", err)
+		return nil
+	}
+	return out
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
 }

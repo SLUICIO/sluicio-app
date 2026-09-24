@@ -1,0 +1,12 @@
+-- A delivery that is no longer worth making: a firing notification whose
+-- alert resolved while the receiver was unreachable. Waking somebody at
+-- three for something that ended at one is worse than the silence, and
+-- the resolved notification has usually gone out already.
+--
+-- Its own state rather than 'failed', because nothing failed: the
+-- delivery history should not report an outage that did not happen, and
+-- the health line below counts failures.
+--
+-- ADD VALUE is not transactional in older Postgres and cannot be undone,
+-- which is why the down migration leaves the enum alone.
+ALTER TYPE notification_job_state ADD VALUE IF NOT EXISTS 'dropped';

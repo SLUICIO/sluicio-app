@@ -242,10 +242,19 @@ func (s *Store) ResolveInstance(ctx context.Context, id uuid.UUID, summary strin
 }
 
 // EnqueueJobs adds one pending delivery job per channel for an instance.
-func (s *Store) EnqueueJobs(ctx context.Context, instanceID uuid.UUID, channelIDs []uuid.UUID) error {
+//
+// The transition is recorded on the job (for_state) rather than read
+// from the instance at delivery time, so a notification says what it was
+// queued to say however long it waits for a receiver to come back.
+func (s *Store) EnqueueJobs(ctx context.Context, instanceID uuid.UUID, channelIDs []uuid.UUID, window time.Duration) error {
+	if window <= 0 {
+		window = 6 * time.Hour
+	}
 	for _, ch := range dedupe(channelIDs) {
 		if _, err := s.pool.Exec(ctx,
-			`INSERT INTO notification_jobs (alert_instance_id, channel_id) VALUES ($1, $2)`, instanceID, ch); err != nil {
+			`INSERT INTO notification_jobs (alert_instance_id, channel_id, for_state, expires_at)
+			 SELECT $1, $2, i.state, now() + $3 FROM alert_instances i WHERE i.id = $1`,
+			instanceID, ch, window); err != nil {
 			return fmt.Errorf("enqueue job: %w", err)
 		}
 	}
@@ -427,7 +436,19 @@ type DeliveryJob struct {
 	AlertInstanceID uuid.UUID // for building a deep link to the alert
 	Attempts        int
 	Channel         NotificationChannel
-	State           string // instance state: "firing" | "resolved"
+	// State is the transition this delivery is FOR, recorded when it was
+	// queued. Not the instance's state now: a firing notification held
+	// up by an unreachable receiver used to be rendered from whatever
+	// the instance had become, so it arrived describing a resolution
+	// nobody had been told was coming.
+	State string // "firing" | "resolved"
+	// InstanceState is what the alert is doing NOW, for deciding whether
+	// a delayed delivery is still worth making.
+	InstanceState string
+	// ExpiresAt is when this delivery stops being retried. A time rather
+	// than a number of attempts, because "we try for six hours" is a
+	// sentence an operator can act on.
+	ExpiresAt time.Time
 	Summary         string
 	Labels          map[string]string
 	// TitleTemplate + BodyTemplate are the owning rule's optional Go
@@ -469,9 +490,9 @@ func (s *Store) ClaimDueJobs(ctx context.Context, limit int) ([]DeliveryJob, err
 	defer tx.Rollback(ctx)
 
 	rows, err := tx.Query(ctx, `
-		SELECT j.id, j.alert_instance_id, j.attempts,
+		SELECT j.id, j.alert_instance_id, j.attempts, j.expires_at,
 		       c.id, c.organization_id, c.name, c.kind, c.config, c.created_at, c.updated_at,
-		       i.state, COALESCE(i.summary, ''), i.labels,
+		       COALESCE(j.for_state::text, i.state::text), i.state, COALESCE(i.summary, ''), i.labels,
 		       COALESCE(r.title_template, ''), COALESCE(r.body_template, ''),
 		       COALESCE(r.signal::text, ''), COALESCE(r.rule_spec->>'kind', ''), r.integration_id,
 		       r.group_id, COALESCE(r.notification_config, '{}'::jsonb), COALESCE(r.runbook, '')
@@ -497,9 +518,9 @@ func (s *Store) ClaimDueJobs(ctx context.Context, limit int) ([]DeliveryJob, err
 			nc  []byte
 		)
 		if err := rows.Scan(
-			&j.JobID, &j.AlertInstanceID, &j.Attempts,
+			&j.JobID, &j.AlertInstanceID, &j.Attempts, &j.ExpiresAt,
 			&j.Channel.ID, &j.Channel.OrganizationID, &j.Channel.Name, &j.Channel.Kind, &cfg, &j.Channel.CreatedAt, &j.Channel.UpdatedAt,
-			&j.State, &j.Summary, &lbl,
+			&j.State, &j.InstanceState, &j.Summary, &lbl,
 			&j.TitleTemplate, &j.BodyTemplate,
 			&j.RuleSignal, &j.RuleKind, &j.IntegrationID, &j.RuleGroupID, &nc, &j.RuleRunbook,
 		); err != nil {
@@ -584,10 +605,10 @@ func (s *Store) MarkJobSucceeded(ctx context.Context, jobID uuid.UUID, subject, 
 }
 
 // MarkJobFailed records a failed attempt: re-queue with a backoff, or
-// give up as 'failed' once attempts reach maxAttempts.
-func (s *Store) MarkJobFailed(ctx context.Context, jobID uuid.UUID, attempts, maxAttempts int, errMsg string, backoff time.Duration) error {
+// give up as 'failed' when the caller says the window has run out.
+func (s *Store) MarkJobFailed(ctx context.Context, jobID uuid.UUID, attempts int, giveUp bool, errMsg string, backoff time.Duration) error {
 	next := attempts + 1
-	if next >= maxAttempts {
+	if giveUp {
 		_, err := s.pool.Exec(ctx,
 			`UPDATE notification_jobs SET state = 'failed', attempts = $2, last_error = $3, updated_at = now() WHERE id = $1`,
 			jobID, next, errMsg)
@@ -862,4 +883,85 @@ func (s *Store) ListDeliveries(ctx context.Context, orgID uuid.UUID, f DeliveryF
 		out = append(out, d)
 	}
 	return out, rows.Err()
+}
+
+// MarkJobDropped records a delivery that is no longer worth making.
+//
+// Its own state, not 'failed': nothing failed, and the delivery history
+// and the failure count both read as an outage if this lands in them.
+func (s *Store) MarkJobDropped(ctx context.Context, jobID uuid.UUID, reason string) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE notification_jobs SET state = 'dropped', last_error = $2, updated_at = now() WHERE id = $1`,
+		jobID, reason)
+	return err
+}
+
+// ChannelFailure is one channel's recent giving-up, for the health line
+// and for the count beside the channel.
+type ChannelFailure struct {
+	ChannelID   uuid.UUID
+	ChannelName string
+	Kind        string
+	Count       int
+	LastError   string
+	LastAt      time.Time
+}
+
+// RecentDeliveryFailures counts the deliveries given up on per channel
+// since a point in time.
+//
+// Aggregated per channel on purpose. One report per failed delivery is
+// its own outage when a receiver goes down with fifty alerts queued, and
+// the thing an operator needs to know is "Slack has stopped taking our
+// notifications", which is one sentence however many rows it covers.
+func (s *Store) RecentDeliveryFailures(ctx context.Context, orgID uuid.UUID, since time.Time) ([]ChannelFailure, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT c.id, c.name, c.kind::text, count(*),
+		       COALESCE((array_agg(j.last_error ORDER BY j.updated_at DESC))[1], ''),
+		       max(j.updated_at)
+		FROM notification_jobs j
+		JOIN notification_channels c ON c.id = j.channel_id
+		WHERE j.state = 'failed' AND j.updated_at >= $2 AND c.organization_id = $1
+		GROUP BY c.id, c.name, c.kind
+		ORDER BY count(*) DESC, c.name`, orgID, since)
+	if err != nil {
+		return nil, fmt.Errorf("recent delivery failures: %w", err)
+	}
+	defer rows.Close()
+	out := []ChannelFailure{}
+	for rows.Next() {
+		var f ChannelFailure
+		if err := rows.Scan(&f.ChannelID, &f.ChannelName, &f.Kind, &f.Count, &f.LastError, &f.LastAt); err != nil {
+			return nil, err
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
+// RetryJob puts a given-up delivery back in the queue, now, with a fresh
+// window.
+//
+// Somebody who has just fixed a receiver should not have to wait for a
+// policy, and the window has to move with the retry: without that, a job
+// whose six hours ran out yesterday would be given up on again at the
+// first attempt.
+func (s *Store) RetryJob(ctx context.Context, orgID, jobID uuid.UUID, window time.Duration) error {
+	if window <= 0 {
+		window = 6 * time.Hour
+	}
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE notification_jobs j
+		   SET state = 'pending', attempts = 0, next_attempt_at = now(),
+		       expires_at = now() + $3, updated_at = now()
+		  FROM notification_channels c
+		 WHERE c.id = j.channel_id AND j.id = $2 AND c.organization_id = $1
+		   AND j.state IN ('failed', 'dropped')`, orgID, jobID, window)
+	if err != nil {
+		return fmt.Errorf("retry job: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
 }

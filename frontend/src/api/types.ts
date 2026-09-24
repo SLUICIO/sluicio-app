@@ -1996,6 +1996,12 @@ export interface NotificationChannel {
   config: Record<string, string>;
   created_at: string;
   updated_at: string;
+  /** Deliveries to this channel the cell gave up on in the last hour.
+   *  Absent when there are none. A channel whose token expired looks
+   *  exactly like a working one until this says otherwise. */
+  recent_failures?: number;
+  last_failure_error?: string;
+  last_failure_at?: string;
 }
 
 export interface ChannelInput {

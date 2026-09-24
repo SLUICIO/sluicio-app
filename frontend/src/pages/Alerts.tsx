@@ -321,6 +321,14 @@ export default function Alerts() {
             integrationName={integrationName}
             systemOptions={systemOptions}
             systemName={systemName}
+            canWrite={canWrite}
+            onRetried={() => {
+              // Both halves change: the row's state, and the count on
+              // the channel that had stopped delivering.
+              reloadDeliveries();
+              load();
+            }}
+            onError={setError}
           />
         )}
       </div>
@@ -464,8 +472,39 @@ function HealthChecksColumn({
 // ── Column 3 ───────────────────────────────────────────────────────────
 
 function jobStateBadge(s: string) {
-  const cls = s === "succeeded" ? "sev-info" : s === "failed" ? "sev-critical" : "sev-warning";
-  return <span className={`m-rule-badge ${cls}`}>{s === "succeeded" ? "sent" : s}</span>;
+  // "dropped" is not a failure: the alert resolved while the delivery
+  // was waiting, so the notification was overtaken rather than lost.
+  // Colouring it like an error would report an outage that did not
+  // happen.
+  const cls =
+    s === "succeeded" ? "sev-info" : s === "failed" ? "sev-critical" : s === "dropped" ? "sev-info" : "sev-warning";
+  const label = s === "succeeded" ? "sent" : s === "dropped" ? "not needed" : s;
+  return <span className={`m-rule-badge ${cls}`}>{label}</span>;
+}
+
+// RetryDeliveryButton re-queues one the cell gave up on. Somebody who
+// has just fixed a receiver should not have to wait for a policy that
+// has already stopped trying.
+function RetryDeliveryButton({ id, onDone, onError }: { id: string; onDone: () => void; onError: (m: string) => void }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <button
+      className="btn btn--sm"
+      type="button"
+      disabled={busy}
+      title="Queue this notification again, now"
+      onClick={() => {
+        setBusy(true);
+        api
+          .retryAlertDelivery(id)
+          .then(onDone)
+          .catch((e) => onError(String(e.message ?? e)))
+          .finally(() => setBusy(false));
+      }}
+    >
+      {busy ? "Queuing…" : "Retry"}
+    </button>
+  );
 }
 
 function SentNotificationsColumn({
@@ -477,6 +516,9 @@ function SentNotificationsColumn({
   integrationName,
   systemOptions,
   systemName,
+  canWrite,
+  onRetried,
+  onError,
 }: {
   deliveries: AlertDelivery[];
   filter: { service: string; integration: string; system: string; name: string };
@@ -486,6 +528,9 @@ function SentNotificationsColumn({
   integrationName: (id: string) => string;
   systemOptions: string[];
   systemName: (id: string) => string;
+  canWrite: boolean;
+  onRetried: () => void;
+  onError: (message: string) => void;
 }) {
   return (
     <section className="card" style={{ minWidth: 0 }}>
@@ -520,11 +565,11 @@ function SentNotificationsColumn({
         hasMore={false}
         loadingMore={false}
         loadMore={() => {}}
-        gridTemplate="minmax(0,1fr) auto auto"
+        gridTemplate="minmax(0,1fr) auto auto auto"
         height={440}
         rowHeight={40}
         itemKey={(d) => d.job_id}
-        header={<><span>Notification</span><span></span><span style={{ textAlign: "right" }}>when</span></>}
+        header={<><span>Notification</span><span></span><span></span><span style={{ textAlign: "right" }}>when</span></>}
         empty={<div className="placeholder" style={{ padding: 12 }}>Nothing sent in this window. When a check fires and routes to a channel, deliveries show here.</div>}
         renderRow={(d) => (
           <>
@@ -536,6 +581,11 @@ function SentNotificationsColumn({
               {d.rule_name} <span className="muted" style={{ fontSize: 11 }}>→ {d.channel_name}</span>
             </span>
             {jobStateBadge(d.job_state)}
+            <span>
+              {d.job_state === "failed" && canWrite ? (
+                <RetryDeliveryButton id={d.job_id} onDone={onRetried} onError={onError} />
+              ) : null}
+            </span>
             <span className="muted" style={{ fontSize: 11, whiteSpace: "nowrap", textAlign: "right" }} title={new Date(d.updated_at).toLocaleString()}>
               {formatRelative(d.updated_at)}
             </span>
@@ -756,7 +806,23 @@ function ChannelsCard({
             <tbody>
               {channels.map((c) => (
                 <tr key={c.id}>
-                  <td>{c.name}</td>
+                  <td>
+                    {c.name}
+                    {c.recent_failures ? (
+                      // Beside the name, not in a log: this row is where
+                      // somebody comes to ask whether the channel works,
+                      // and "Send test" answers a different question -
+                      // whether it works NOW, for a message nobody was
+                      // waiting for.
+                      <span
+                        className="pill pill--errors"
+                        style={{ marginLeft: 8, fontSize: 11 }}
+                        title={c.last_failure_error || "See Sent notifications for the details"}
+                      >
+                        {c.recent_failures} undelivered
+                      </span>
+                    ) : null}
+                  </td>
                   <td className="mono" style={{ fontSize: 12 }}>{c.kind}</td>
                   <td className="mono muted" style={{ fontSize: 12, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {channelDestination(c)}

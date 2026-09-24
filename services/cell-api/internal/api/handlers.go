@@ -1147,6 +1147,9 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/alert-rules/{id}", h.getAlertRule)
 	mux.HandleFunc("GET /api/v1/alert-instances", h.listAlertInstances)
 	mux.HandleFunc("GET /api/v1/alert-deliveries", h.listAlertDeliveries)
+	// Re-queue one the cell gave up on. A write, so it goes through the
+	// same gate as changing a channel.
+	mux.HandleFunc("POST /api/v1/alert-deliveries/{id}/retry", h.writeAnywhere(h.retryAlertDelivery))
 	mux.HandleFunc("GET /api/v1/notification-channels", h.listChannels)
 	// Alert template preview (renders a sample notification) + org-default
 	// email template — preview is read-only; the default-template GET too.

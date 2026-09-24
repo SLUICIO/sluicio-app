@@ -155,14 +155,18 @@ type Engine struct {
 
 	evalInterval time.Duration
 	deliveryPoll time.Duration
-	maxAttempts  int
+	// deliveryWindow is how long a notification keeps being retried, and
+	// maxBackoff stops the wait between attempts growing past the point
+	// where a receiver that came back sits unnoticed for an hour.
+	deliveryWindow time.Duration
+	maxBackoff     time.Duration
 	// A claimed job still 'running' after stuckAfter is assumed to belong
 	// to a worker that is gone. Comfortably above any single delivery
 	// (the HTTP client times out at 10s, SMTP well inside a minute), so
 	// the sweep cannot race a delivery that is merely slow.
 	stuckAfter      time.Duration
 	reclaimInterval time.Duration
-	client       *http.Client
+	client          *http.Client
 
 	// Short-TTL cache of the org's active maintenance windows, consulted
 	// on every notification decision (windows number in the units; the
@@ -283,7 +287,7 @@ func (e *Engine) channelsFor(ctx context.Context, rule AlertRule) []uuid.UUID {
 // per channel for the instance. Used for resolve notifications, which are
 // always per-instance.
 func (e *Engine) enqueue(ctx context.Context, instanceID uuid.UUID, rule AlertRule) error {
-	if err := e.store.EnqueueJobs(ctx, instanceID, e.channelsFor(ctx, rule)); err != nil {
+	if err := e.store.EnqueueJobs(ctx, instanceID, e.channelsFor(ctx, rule), e.deliveryWindow); err != nil {
 		return err
 	}
 	emitDomainEvent(ctx, e.org, alertDomainEvent("com.sluicio.alert.resolved", instanceID, rule))
@@ -364,7 +368,7 @@ func (e *Engine) enqueueFiring(ctx context.Context, instanceID uuid.UUID, rule A
 	if grouping, _ := e.behavior(ctx, rule); grouping == groupingPerIntegration && rule.IntegrationID != nil {
 		return nil
 	}
-	if err := e.store.EnqueueJobs(ctx, instanceID, e.channelsFor(ctx, rule)); err != nil {
+	if err := e.store.EnqueueJobs(ctx, instanceID, e.channelsFor(ctx, rule), e.deliveryWindow); err != nil {
 		return err
 	}
 	// The firing became a real notification (not suppressed, not folded)
@@ -385,11 +389,16 @@ func NewEngine(store *Store, eval MetricEvaluator, logEval LogCounter, traceEval
 		org:          org,
 		evalInterval: 30 * time.Second,
 		deliveryPoll: 5 * time.Second,
-		maxAttempts:  5,
+		// Six hours: long enough to cross an evening or a maintenance
+		// window on the receiving side, short enough that nothing is
+		// delivered so late that it describes a world that has moved on.
+		// Five attempts with a doubling backoff was sixteen minutes.
+		deliveryWindow: 6 * time.Hour,
+		maxBackoff:     15 * time.Minute,
 
 		stuckAfter:      5 * time.Minute,
 		reclaimInterval: time.Minute,
-		client:       &http.Client{Timeout: 10 * time.Second},
+		client:          &http.Client{Timeout: 10 * time.Second},
 	}
 	if d := envDuration("ALERT_EVAL_INTERVAL"); d > 0 {
 		e.evalInterval = d
@@ -1015,7 +1024,7 @@ func (e *Engine) renotifyOnce(ctx context.Context) {
 // renotifyInstance re-enqueues a firing instance's delivery jobs and
 // re-stamps its notify watermark.
 func (e *Engine) renotifyInstance(ctx context.Context, instanceID uuid.UUID, rule AlertRule, reason string) {
-	if err := e.store.EnqueueJobs(ctx, instanceID, e.channelsFor(ctx, rule)); err != nil {
+	if err := e.store.EnqueueJobs(ctx, instanceID, e.channelsFor(ctx, rule), e.deliveryWindow); err != nil {
 		e.log.Error("renotify: enqueue failed", "instance", instanceID, "err", err)
 		return
 	}
@@ -1048,11 +1057,31 @@ func (e *Engine) deliverOnce(ctx context.Context) {
 		return
 	}
 	for _, job := range jobs {
+		// A firing notification whose alert has since resolved is not
+		// worth delivering: waking somebody at three for something that
+		// ended at one is worse than the silence, and the resolved
+		// notification has its own job. Said out loud in the history
+		// rather than quietly dropped, and not counted as a failure,
+		// because nothing failed.
+		if staleFiring(job) {
+			if derr := e.store.MarkJobDropped(ctx, job.JobID,
+				"the alert resolved while this notification was waiting to be delivered"); derr != nil {
+				e.log.Error("alert delivery: mark dropped errored", "job", job.JobID, "err", derr)
+			}
+			e.log.Info("alert delivery dropped: the alert resolved first",
+				"job", job.JobID, "channel", job.Channel.Name)
+			continue
+		}
 		msg, err := deliver(ctx, e.client, job)
 		if err != nil {
-			backoff := time.Duration(1<<job.Attempts) * 30 * time.Second
-			if ferr := e.store.MarkJobFailed(ctx, job.JobID, job.Attempts, e.maxAttempts, err.Error(), backoff); ferr != nil {
+			backoff, giveUp := retryPlan(job.Attempts, job.ExpiresAt, time.Now(), e.maxBackoff)
+			if ferr := e.store.MarkJobFailed(ctx, job.JobID, job.Attempts, giveUp, err.Error(), backoff); ferr != nil {
 				e.log.Error("alert delivery: mark failed errored", "job", job.JobID, "err", ferr)
+			}
+			if giveUp {
+				e.log.Error("alert delivery given up",
+					"job", job.JobID, "channel", job.Channel.Name, "kind", job.Channel.Kind,
+					"attempts", job.Attempts+1, "window", e.deliveryWindow, "err", err)
 			}
 			e.log.Warn("alert delivery failed", "job", job.JobID, "channel", job.Channel.Name, "kind", job.Channel.Kind, "err", err)
 			continue
@@ -1590,4 +1619,37 @@ func traceVolumeRuleSummary(rule AlertRule, total uint64, state string) string {
 	}
 	return fmt.Sprintf("%s — only %d traces in %s (floor <%d)",
 		rule.Name, total, win, threshold)
+}
+
+// retryPlan says how long to wait before the next delivery attempt, and
+// whether there is any point.
+//
+// The wait doubles from 30s and then stops growing: a receiver that came
+// back should not sit unnoticed for an hour because the queue is still
+// counting powers of two. Giving up is decided on the clock rather than
+// on a number of attempts, and decided BEFORE the wait: a job whose next
+// attempt would land after its window closed is finished now, and
+// leaving it pending would only postpone the same answer.
+//
+// A job with no window (one queued before the column existed) is never
+// given up on here; the sweep that reads the window will catch it.
+func retryPlan(attempts int, expiresAt, now time.Time, maxBackoff time.Duration) (time.Duration, bool) {
+	backoff := time.Duration(1<<attempts) * 30 * time.Second
+	if backoff > maxBackoff || backoff <= 0 {
+		backoff = maxBackoff
+	}
+	if expiresAt.IsZero() {
+		return backoff, false
+	}
+	return backoff, now.Add(backoff).After(expiresAt)
+}
+
+// staleFiring reports whether this delivery has been overtaken: it was
+// queued to say something started, and the thing has since stopped.
+//
+// The resolved notification is queued as its own job, so the reader is
+// still told; what they are spared is being told about the start of
+// something that is already over.
+func staleFiring(job DeliveryJob) bool {
+	return job.State == "firing" && job.InstanceState == "resolved"
 }

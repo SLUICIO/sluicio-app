@@ -1255,7 +1255,8 @@ func (a traceCompletionAlertAdapter) TouchInstance(ctx context.Context, id uuid.
 }
 
 func (a traceCompletionAlertAdapter) EnqueueJobs(ctx context.Context, instanceID uuid.UUID, channelIDs []uuid.UUID) error {
-	return a.s.EnqueueJobs(ctx, instanceID, channelIDs)
+	// The store's own default window; this adapter has no engine to ask.
+	return a.s.EnqueueJobs(ctx, instanceID, channelIDs, 0)
 }
 
 func (a traceCompletionAlertAdapter) ActiveInstanceByFingerprint(ctx context.Context, ruleID uuid.UUID, fingerprint string) (*tracecompletion.AlertInstance, error) {

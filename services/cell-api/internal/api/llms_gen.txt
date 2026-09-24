@@ -29,6 +29,7 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 
 ## alert-deliveries
 - GET /api/v1/alert-deliveries — List alert-deliveries
+- POST /api/v1/alert-deliveries/{id}/retry — Create alert-deliverie
 
 ## alert-instances
 - GET /api/v1/alert-instances — List alert-instances
