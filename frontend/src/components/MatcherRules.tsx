@@ -398,6 +398,34 @@ export default function MatcherRules({
                         update(ri, { service: v });
                         close();
                       }}
+                      footer={
+                        // The list holds what this cell has SEEN in the
+                        // window. A nightly job that ran at three in the
+                        // morning is not in it, and a rule you cannot
+                        // write for a quiet service is a rule you cannot
+                        // write for the ones that matter most.
+                        <div style={{ borderTop: "1px solid var(--border)", marginTop: 8, paddingTop: 8 }}>
+                          <input
+                            className="search__input mono"
+                            aria-label="Service name"
+                            placeholder="or type a service that has been quiet"
+                            defaultValue={knownServices.includes(rule.service) ? "" : rule.service}
+                            onKeyDown={(e) => {
+                              if (e.key !== "Enter") return;
+                              e.preventDefault();
+                              const v = (e.target as HTMLInputElement).value.trim();
+                              if (!v) return;
+                              update(ri, { service: v });
+                              close();
+                            }}
+                            onBlur={(e) => {
+                              const v = e.target.value.trim();
+                              if (v) update(ri, { service: v });
+                            }}
+                            style={{ width: "100%", fontSize: 12.5 }}
+                          />
+                        </div>
+                      }
                     />
                   ) : (
                     <TextValueEditor

@@ -42,11 +42,20 @@ test("protocol: group-granted visibility of one integration", async ({ page }) =
   // 2. Create an integration called ABC, matching that service.
   await page.goto("/integrations/new");
   await page.getByLabel(/^Name/).first().fill(INTEG);
-  // The rule editor is pills now: the service pill opens a list in
-  // place, so there is no separate operator control to set first.
-  await page.getByRole("button", { name: "Service" }).first().click();
-  await page.getByRole("searchbox").last().fill(svc!);
-  await page.getByRole("button", { name: svc!, exact: true }).first().click();
+  // The rule editor is pills. Pin the operator to "is" rather than
+  // relying on what a fresh rule defaults to, then name the service.
+  // The name is typed rather than picked off the list on purpose: the
+  // list holds what the cell has seen in the editor's own window, and
+  // this service may have last emitted days ago.
+  await page.getByRole("button", { name: "Service match operator" }).first().click();
+  await page.getByRole("button", { name: "is", exact: true }).first().click();
+  // exact: the operator pill is named "Service match operator", which a
+  // substring match on "Service" reaches first.
+  await page.getByRole("button", { name: "Service", exact: true }).first().click();
+  const nameBox = page.getByRole("textbox", { name: "Service name" });
+  await nameBox.fill(svc!);
+  await nameBox.press("Enter");
+  await expect(page.getByRole("button", { name: "Service", exact: true }).first()).toContainText(svc!);
   await page.getByRole("button", { name: /Create integration/ }).click();
   await expect(page).toHaveURL(/\/integrations\/[0-9a-f-]{36}/, { timeout: 15_000 });
 
