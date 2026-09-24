@@ -10,7 +10,12 @@ import IntegrationFilterBar, {
   serializeFilters,
   type FieldSpec,
 } from "../components/integrations/IntegrationFilterBar";
-import type { MetadataField, ServiceSummary, ServicesResponse, Tag } from "../api/types";
+import type {
+  MetadataField,
+  ServiceSummary,
+  ServicesResponse,
+  Tag,
+} from "../api/types";
 import { formatNumber } from "../lib/format";
 import { usePageTitle } from "../lib/usePageTitle";
 import { useTimeWindow } from "../lib/useTimeWindow";
@@ -21,7 +26,12 @@ import { otlpEndpoint, useIngestBaseUrl } from "../lib/useIngestBaseUrl";
 const SERVICE_STATIC_FIELDS: FieldSpec[] = [
   { field: "name", label: "Name", kind: "text" },
   { field: "namespace", label: "Namespace", kind: "text" },
-  { field: "status", label: "Status", kind: "status", options: ["ok", "errors", "unhealthy", "quiet"] },
+  {
+    field: "status",
+    label: "Status",
+    kind: "status",
+    options: ["ok", "errors", "unhealthy", "quiet"],
+  },
   // System kind — filter to a specific system type (equals), all systems
   // (is set), or non-systems (is empty).
   { field: "system_kind", label: "System", kind: "text" },
@@ -51,7 +61,8 @@ const DEP_OPTIONS: { value: DepFilter; label: string }[] = [
 // Group-by dimension for the list. Static dimensions below + one per service
 // metadata field (built in the component). Extensible: add a case to
 // groupKeysFor and an entry here (or it comes from metadata automatically).
-type GroupBy = "" | "integration" | "namespace" | "status" | "tag" | `meta:${string}`;
+type GroupBy =
+  "" | "integration" | "namespace" | "status" | "tag" | `meta:${string}`;
 const STATIC_GROUPS: { value: GroupBy; label: string }[] = [
   { value: "", label: "No grouping" },
   { value: "integration", label: "Integration" },
@@ -67,10 +78,14 @@ const UNGROUPED = "— none —";
 // under each. Empty → the UNGROUPED bucket.
 function groupKeysFor(s: ServiceSummary, by: GroupBy): string[] {
   switch (by) {
-    case "integration": return (s.integrations ?? []).map((i) => i.name);
-    case "namespace": return s.service_namespace ? [s.service_namespace] : [];
-    case "status": return [s.status];
-    case "tag": return (s.tags ?? []).map((t) => t.name);
+    case "integration":
+      return (s.integrations ?? []).map((i) => i.name);
+    case "namespace":
+      return s.service_namespace ? [s.service_namespace] : [];
+    case "status":
+      return [s.status];
+    case "tag":
+      return (s.tags ?? []).map((t) => t.name);
     default:
       if (by.startsWith("meta:")) {
         const v = s.metadata_values?.[by.slice(5)];
@@ -106,16 +121,27 @@ export default function Services() {
   const activeSlugs = useMemo<string[]>(() => {
     const raw = searchParams.get("tags") ?? searchParams.get("tag");
     if (!raw) return [];
-    return raw.split(",").map((s) => s.trim()).filter(Boolean);
+    return raw
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
   }, [searchParams]);
-  const filters = useMemo(() => parseFilters(searchParams.get("filter")), [searchParams]);
+  const filters = useMemo(
+    () => parseFilters(searchParams.get("filter")),
+    [searchParams],
+  );
   const dep = (searchParams.get("dep") ?? "") as DepFilter;
 
   // Each setter preserves the other params.
   const patchParams = (mut: (p: URLSearchParams) => void) => {
-    const params = new URLSearchParams(searchParams);
-    mut(params);
-    setSearchParams(params, { replace: true });
+    setSearchParams(
+      (prev) => {
+        const params = new URLSearchParams(prev);
+        mut(params);
+        return params;
+      },
+      { replace: true },
+    );
   };
   const setActiveSlugs = (next: string[]) =>
     patchParams((p) => {
@@ -127,9 +153,11 @@ export default function Services() {
       const enc = serializeFilters(next);
       enc ? p.set("filter", enc) : p.delete("filter");
     });
-  const setDep = (next: DepFilter) => patchParams((p) => (next ? p.set("dep", next) : p.delete("dep")));
+  const setDep = (next: DepFilter) =>
+    patchParams((p) => (next ? p.set("dep", next) : p.delete("dep")));
   const groupBy = (searchParams.get("group") ?? "") as GroupBy;
-  const setGroupBy = (next: GroupBy) => patchParams((p) => (next ? p.set("group", next) : p.delete("group")));
+  const setGroupBy = (next: GroupBy) =>
+    patchParams((p) => (next ? p.set("group", next) : p.delete("group")));
 
   // Collapsed group sections (by label). Empty = all expanded.
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -168,7 +196,9 @@ export default function Services() {
       .catch(() => setAllTags([]));
     api
       .listMetadataFields()
-      .then((r) => setMetadataFields((r.fields ?? []).filter((f) => f.applies_to_service)))
+      .then((r) =>
+        setMetadataFields((r.fields ?? []).filter((f) => f.applies_to_service)),
+      )
       .catch(() => setMetadataFields([]));
   };
 
@@ -180,29 +210,44 @@ export default function Services() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [windowVal, dep !== ""]);
 
-  const services: ServiceSummary[] = useMemo(() => data?.services ?? [], [data]);
+  const services: ServiceSummary[] = useMemo(
+    () => data?.services ?? [],
+    [data],
+  );
   const okCount = services.filter((s) => s.status === "ok").length;
-  const errorCount = services.filter((s) => s.status === "errors" || s.status === "unhealthy").length;
+  const errorCount = services.filter(
+    (s) => s.status === "errors" || s.status === "unhealthy",
+  ).length;
   const totalTraces = services.reduce((acc, s) => acc + s.trace_count, 0);
   // Services not matched by any integration — org-level (whole catalog, not the
   // filtered view), so it's a stable "you have N orphans" report.
-  const noIntegrationCount = services.filter((s) => (s.integrations?.length ?? 0) === 0).length;
+  const noIntegrationCount = services.filter(
+    (s) => (s.integrations?.length ?? 0) === 0,
+  ).length;
 
   const activeTags = useMemo(
     () => allTags.filter((t) => activeSlugs.includes(t.slug)),
     [allTags, activeSlugs],
   );
-  const activeTagIds = useMemo(() => new Set(activeTags.map((t) => t.id)), [activeTags]);
+  const activeTagIds = useMemo(
+    () => new Set(activeTags.map((t) => t.id)),
+    [activeTags],
+  );
 
   // Pull the comparable cell value out of a service for a filter field.
   const cellValueFor = (s: ServiceSummary, field: string): string => {
     switch (field) {
-      case "name": return s.service_name;
-      case "namespace": return s.service_namespace ?? "";
-      case "status": return s.status ?? "";
-      case "system_kind": return s.system_kind ?? "";
+      case "name":
+        return s.service_name;
+      case "namespace":
+        return s.service_namespace ?? "";
+      case "status":
+        return s.status ?? "";
+      case "system_kind":
+        return s.system_kind ?? "";
       default:
-        if (field.startsWith("meta:")) return s.metadata_values?.[field.slice(5)] ?? "";
+        if (field.startsWith("meta:"))
+          return s.metadata_values?.[field.slice(5)] ?? "";
         return "";
     }
   };
@@ -221,10 +266,12 @@ export default function Services() {
     for (const s of services) {
       push("name", s.service_name);
       if (s.service_namespace) push("namespace", s.service_namespace);
-      for (const [k, v] of Object.entries(s.metadata_values ?? {})) push(`meta:${k}`, v);
+      for (const [k, v] of Object.entries(s.metadata_values ?? {}))
+        push(`meta:${k}`, v);
     }
     const out: Record<string, string[]> = {};
-    for (const [field, set] of sets) out[field] = [...set].sort((a, b) => a.localeCompare(b));
+    for (const [field, set] of sets)
+      out[field] = [...set].sort((a, b) => a.localeCompare(b));
     return out;
   }, [services]);
 
@@ -239,13 +286,20 @@ export default function Services() {
     const up = s.upstream_count ?? 0;
     const down = s.downstream_count ?? 0;
     switch (dep) {
-      case "has-upstream": return up > 0;
-      case "has-downstream": return down > 0;
-      case "has-any": return up > 0 || down > 0;
-      case "no-upstream": return up === 0;
-      case "no-downstream": return down === 0;
-      case "isolated": return up === 0 && down === 0;
-      default: return true;
+      case "has-upstream":
+        return up > 0;
+      case "has-downstream":
+        return down > 0;
+      case "has-any":
+        return up > 0 || down > 0;
+      case "no-upstream":
+        return up === 0;
+      case "no-downstream":
+        return down === 0;
+      case "isolated":
+        return up === 0 && down === 0;
+      default:
+        return true;
     }
   };
 
@@ -264,13 +318,17 @@ export default function Services() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [services, activeTagIds, filters, dep]);
 
-  const filterActive = activeTagIds.size > 0 || filters.length > 0 || dep !== "";
+  const filterActive =
+    activeTagIds.size > 0 || filters.length > 0 || dep !== "";
 
   // Group-by options: static dimensions + one per service metadata field.
   const groupOptions = useMemo(
     () => [
       ...STATIC_GROUPS,
-      ...metadataFields.map((f) => ({ value: `meta:${f.key}` as GroupBy, label: f.label })),
+      ...metadataFields.map((f) => ({
+        value: `meta:${f.key}` as GroupBy,
+        label: f.label,
+      })),
     ],
     [metadataFields],
   );
@@ -289,7 +347,11 @@ export default function Services() {
       }
     }
     return [...m.entries()].sort((a, b) =>
-      a[0] === UNGROUPED ? 1 : b[0] === UNGROUPED ? -1 : a[0].localeCompare(b[0]),
+      a[0] === UNGROUPED
+        ? 1
+        : b[0] === UNGROUPED
+          ? -1
+          : a[0].localeCompare(b[0]),
     );
   }, [groupBy, visibleServices]);
 
@@ -310,9 +372,21 @@ export default function Services() {
       </div>
 
       <div className="tiles">
-        <Tile label="Services receiving data" value={formatNumber(okCount)} tone="ok" />
-        <Tile label="Services with errors" value={formatNumber(errorCount)} tone="errors" />
-        <Tile label="Traces in window" value={formatNumber(totalTraces)} tone="neutral" />
+        <Tile
+          label="Services receiving data"
+          value={formatNumber(okCount)}
+          tone="ok"
+        />
+        <Tile
+          label="Services with errors"
+          value={formatNumber(errorCount)}
+          tone="errors"
+        />
+        <Tile
+          label="Traces in window"
+          value={formatNumber(totalTraces)}
+          tone="neutral"
+        />
         <Tile
           label="Not in an integration"
           value={formatNumber(noIntegrationCount)}
@@ -323,7 +397,14 @@ export default function Services() {
       </div>
 
       {/* Metadata filter bar (field / op / value) + dependency facet. */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 8, margin: "8px 0 16px" }}>
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 8,
+          margin: "8px 0 16px",
+        }}
+      >
         <IntegrationFilterBar
           filters={filters}
           onChange={setFilters}
@@ -342,7 +423,14 @@ export default function Services() {
             background: "var(--surface-2)",
           }}
         >
-          <span className="muted" style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: 0.5 }}>
+          <span
+            className="muted"
+            style={{
+              fontSize: 12,
+              textTransform: "uppercase",
+              letterSpacing: 0.5,
+            }}
+          >
             dependencies
           </span>
           <select
@@ -352,7 +440,9 @@ export default function Services() {
             aria-label="Filter by service dependency"
           >
             {DEP_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
             ))}
           </select>
           <span className="muted" style={{ fontSize: 12 }}>
@@ -361,7 +451,12 @@ export default function Services() {
 
           <span
             className="muted"
-            style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: 0.5, marginLeft: "auto" }}
+            style={{
+              fontSize: 12,
+              textTransform: "uppercase",
+              letterSpacing: 0.5,
+              marginLeft: "auto",
+            }}
           >
             group by
           </span>
@@ -372,7 +467,9 @@ export default function Services() {
             aria-label="Group services by"
           >
             {groupOptions.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
             ))}
           </select>
         </div>
@@ -394,7 +491,11 @@ export default function Services() {
         >
           <span
             className="muted"
-            style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: 0.5 }}
+            style={{
+              fontSize: 12,
+              textTransform: "uppercase",
+              letterSpacing: 0.5,
+            }}
           >
             filter by tag
           </span>
@@ -407,7 +508,11 @@ export default function Services() {
                   type="button"
                   onClick={() => toggleSlug(t.slug)}
                   aria-pressed={active}
-                  title={active ? `Remove ${t.name} from filter` : `Add ${t.name} to filter`}
+                  title={
+                    active
+                      ? `Remove ${t.name} from filter`
+                      : `Add ${t.name} to filter`
+                  }
                   style={{
                     background: "transparent",
                     border: 0,
@@ -435,9 +540,17 @@ export default function Services() {
       )}
 
       {filterActive && services.length > 0 && (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "0 0 12px" }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            margin: "0 0 12px",
+          }}
+        >
           <span className="muted" style={{ fontSize: 12 }}>
-            {visibleServices.length} of {services.length} services match the active filters
+            {visibleServices.length} of {services.length} services match the
+            active filters
           </span>
           <button
             type="button"
@@ -456,7 +569,11 @@ export default function Services() {
         </div>
       )}
 
-      {error && <div className="alert alert--error">Failed to load services: {error}</div>}
+      {error && (
+        <div className="alert alert--error">
+          Failed to load services: {error}
+        </div>
+      )}
 
       {!error && services.length === 0 && !loading && (
         <div className="placeholder">
@@ -486,15 +603,19 @@ export default function Services() {
         </div>
       )}
 
-      {visibleServices.length > 0 && (
-        groupBy && grouped ? (
+      {visibleServices.length > 0 &&
+        (groupBy && grouped ? (
           // Grouped view: one collapsible card per group. When grouping by
           // integration, hide the Integrations column (the group is it).
           <div>
             {grouped.map(([label, svcs]) => {
               const isCollapsed = collapsed.has(label);
               return (
-                <div className="card" key={label} style={{ marginBottom: 12, overflow: "hidden" }}>
+                <div
+                  className="card"
+                  key={label}
+                  style={{ marginBottom: 12, overflow: "hidden" }}
+                >
                   <button
                     type="button"
                     onClick={() => toggleCollapse(label)}
@@ -507,17 +628,24 @@ export default function Services() {
                       padding: "10px 14px",
                       background: "var(--surface-2)",
                       border: 0,
-                      borderBottom: isCollapsed ? "none" : "1px solid var(--border)",
+                      borderBottom: isCollapsed
+                        ? "none"
+                        : "1px solid var(--border)",
                       cursor: "pointer",
                       font: "inherit",
                       textAlign: "left",
                     }}
                   >
-                    <span aria-hidden style={{ color: "var(--muted)", width: 12 }}>
+                    <span
+                      aria-hidden
+                      style={{ color: "var(--muted)", width: 12 }}
+                    >
                       {isCollapsed ? "▸" : "▾"}
                     </span>
                     <span style={{ fontWeight: 600 }}>{label}</span>
-                    <span className="muted" style={{ fontSize: 12 }}>· {svcs.length}</span>
+                    <span className="muted" style={{ fontSize: 12 }}>
+                      · {svcs.length}
+                    </span>
                   </button>
                   {!isCollapsed && (
                     <ServicesTable
@@ -539,8 +667,7 @@ export default function Services() {
               activeTagIds={activeTagIds}
             />
           </div>
-        )
-      )}
+        ))}
     </div>
   );
 }

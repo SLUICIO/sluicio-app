@@ -14,7 +14,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useCanOpenServices } from "../lib/useNavigationReach";
 import { slugify } from "../lib/slugify";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import {
+  Link,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router-dom";
 import { api } from "../api/client";
 import ErrorBreakdown from "../components/ErrorBreakdown";
 import IntegrationFlow from "../components/IntegrationFlow";
@@ -57,7 +62,8 @@ export default function IntegrationDetailPage() {
   // manageable by the caller (org editors always; group-editors only when
   // every member service is in their managed scope).
   const canWrite = data?.can_manage ?? can("integration.write");
-  const canDelete = canWrite && (can("integration.delete") || (data?.can_manage ?? false));
+  const canDelete =
+    canWrite && (can("integration.delete") || (data?.can_manage ?? false));
   const [flow, setFlow] = useState<FlowResponse | null>(null);
   // Set by the "show historical shape" button. Kept in state rather than
   // fetched inline so a refresh keeps showing what the reader asked for,
@@ -86,7 +92,8 @@ export default function IntegrationDetailPage() {
   const [selectedService, setSelectedService] = useState<string | null>(null);
   // Whether a service page is reachable for this reader at all.
   const canOpenServices = useCanOpenServices();
-  const [serviceDetail, setServiceDetail] = useState<ServiceDetailResponse | null>(null);
+  const [serviceDetail, setServiceDetail] =
+    useState<ServiceDetailResponse | null>(null);
   const [serviceWidgets, setServiceWidgets] = useState<WidgetResult[]>([]);
   const [serviceLoading, setServiceLoading] = useState(false);
   const [serviceError, setServiceError] = useState<string | null>(null);
@@ -149,7 +156,9 @@ export default function IntegrationDetailPage() {
 
   const createTag = async (req: CreateTagRequest): Promise<Tag> => {
     const created = await api.createTag(req);
-    setAllTags((curr) => [...curr, created].sort((a, b) => a.name.localeCompare(b.name)));
+    setAllTags((curr) =>
+      [...curr, created].sort((a, b) => a.name.localeCompare(b.name)),
+    );
     return created;
   };
 
@@ -230,9 +239,7 @@ export default function IntegrationDetailPage() {
         // Integration drawer flattens widgets from every facet into a
         // single list — the drawer is a quick peek, not the full
         // per-facet dashboard you get on /services/{name}.
-        .then((r: ServiceWidgetsResponse) =>
-          r.facets.flatMap((f) => f.widgets)
-        )
+        .then((r: ServiceWidgetsResponse) => r.facets.flatMap((f) => f.widgets))
         .catch(() => []),
     ])
       .then(([detail, widgets]) => {
@@ -273,8 +280,10 @@ export default function IntegrationDetailPage() {
   // so label the tab + breadcrumb "Not found" rather than the generic
   // "Integration". On valid pages this mirrors the header's own leaf value.
   const notFoundTitle = !data && !!error && /^404\b/.test(error);
-  usePageTitle(notFoundTitle ? "Not found" : integrationName ?? "Integration");
-  useBreadcrumbLeaf(notFoundTitle ? "Not found" : integrationName ?? null);
+  usePageTitle(
+    notFoundTitle ? "Not found" : (integrationName ?? "Integration"),
+  );
+  useBreadcrumbLeaf(notFoundTitle ? "Not found" : (integrationName ?? null));
 
   const stats = useMemo(() => deriveStats(data), [data]);
 
@@ -283,19 +292,29 @@ export default function IntegrationDetailPage() {
   // flowed through it. Show the onboarding guide instead of an empty
   // graph + inspector.
   const showOnboarding =
-    !!data && stats.serviceCount === 0 && flow !== null && flow.nodes.length === 0;
+    !!data &&
+    stats.serviceCount === 0 &&
+    flow !== null &&
+    flow.nodes.length === 0;
 
   // A 404 means the integration doesn't exist OR the caller can't see it —
   // render a plain not-found state rather than the page header (which would
   // otherwise leak the integration's name/title).
   if (notFoundTitle) {
     return (
-      <div className="placeholder" style={{ marginTop: 64, textAlign: "center" }}>
+      <div
+        className="placeholder"
+        style={{ marginTop: 64, textAlign: "center" }}
+      >
         <h2 style={{ margin: 0 }}>Integration not found</h2>
         <p className="muted" style={{ marginTop: 8 }}>
           It doesn't exist, or you don't have access to it.
         </p>
-        <Link to="/integrations" className="btn" style={{ marginTop: 16, display: "inline-block" }}>
+        <Link
+          to="/integrations"
+          className="btn"
+          style={{ marginTop: 16, display: "inline-block" }}
+        >
           ← All integrations
         </Link>
       </div>
@@ -316,7 +335,11 @@ export default function IntegrationDetailPage() {
                   you leave Overview. Clone and Delete stay Overview-only
                   — Delete especially has no business on every tab. */}
               {canWrite && (
-                <button type="button" className="btn" onClick={() => setCloneOpen(true)}>
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => setCloneOpen(true)}
+                >
                   Clone
                 </button>
               )}
@@ -333,7 +356,11 @@ export default function IntegrationDetailPage() {
             <div className="mt-2 flex items-center gap-2 flex-wrap">
               <span
                 className="muted"
-                style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: 0.5 }}
+                style={{
+                  fontSize: 12,
+                  textTransform: "uppercase",
+                  letterSpacing: 0.5,
+                }}
               >
                 tags
               </span>
@@ -343,10 +370,14 @@ export default function IntegrationDetailPage() {
                   selectedIds={(data.tags ?? []).map((t) => t.id)}
                   onChange={applyTagSelection}
                   onCreate={createTag}
-                  placeholder={(data.tags ?? []).length === 0 ? "Add a tag…" : "+ tag"}
+                  placeholder={
+                    (data.tags ?? []).length === 0 ? "Add a tag…" : "+ tag"
+                  }
                 />
               ) : (data.tags ?? []).length === 0 ? (
-                <span className="muted" style={{ fontSize: 13 }}>none</span>
+                <span className="muted" style={{ fontSize: 13 }}>
+                  none
+                </span>
               ) : (
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                   {(data.tags ?? []).map((t) => (
@@ -354,7 +385,11 @@ export default function IntegrationDetailPage() {
                   ))}
                 </div>
               )}
-              {tagsLoading && <span className="muted" style={{ fontSize: 12 }}>saving…</span>}
+              {tagsLoading && (
+                <span className="muted" style={{ fontSize: 12 }}>
+                  saving…
+                </span>
+              )}
             </div>
           )
         }
@@ -364,7 +399,11 @@ export default function IntegrationDetailPage() {
           Messages tab routes to /integrations/:id/messages. The count
           suffix on Messages reflects total in-window traffic across
           this integration's services. */}
-      <IntegrationTabs integrationId={id} messagesCount={stats.traces} errorsCount={integrationProblemCount(data)} />
+      <IntegrationTabs
+        integrationId={id}
+        messagesCount={stats.traces}
+        errorsCount={integrationProblemCount(data)}
+      />
 
       {error && <div className="alert alert--error">{error}</div>}
       {loading && !data && <div className="placeholder">Loading…</div>}
@@ -373,18 +412,35 @@ export default function IntegrationDetailPage() {
         <>
           {/* Metric strip */}
           <div className="grid grid-cols-2 gap-3 md:grid-cols-6">
-            <MetricTile label="traffic (window)" value={formatNumber(stats.traces)} />
+            <MetricTile
+              label="traffic (window)"
+              value={formatNumber(stats.traces)}
+            />
             <MetricTile
               label="success"
               value={`${stats.successPct.toFixed(1)}%`}
-              tone={stats.successPct >= 99 ? "ok" : stats.successPct >= 95 ? "warn" : "err"}
+              tone={
+                stats.successPct >= 99
+                  ? "ok"
+                  : stats.successPct >= 95
+                    ? "warn"
+                    : "err"
+              }
             />
             <MetricTile
               label="failed messages"
               value={formatNumber(stats.errors)}
               tone={stats.errors > 0 ? "err" : "default"}
-              to={stats.errors > 0 ? `/integrations/${encodeURIComponent(id)}/errors` : undefined}
-              title={stats.errors > 0 ? "See the failed messages on the Errors tab" : undefined}
+              to={
+                stats.errors > 0
+                  ? `/integrations/${encodeURIComponent(id)}/errors`
+                  : undefined
+              }
+              title={
+                stats.errors > 0
+                  ? "See the failed messages on the Errors tab"
+                  : undefined
+              }
             />
             <MetricTile
               label="delayed (open)"
@@ -404,8 +460,16 @@ export default function IntegrationDetailPage() {
               label="unhealthy"
               value={formatNumber(stats.unhealthy)}
               tone={stats.unhealthy > 0 ? "err" : "default"}
-              to={stats.unhealthy > 0 ? `/integrations/${encodeURIComponent(id)}/errors` : undefined}
-              title={stats.unhealthy > 0 ? "See the failing health checks on the Errors tab" : undefined}
+              to={
+                stats.unhealthy > 0
+                  ? `/integrations/${encodeURIComponent(id)}/errors`
+                  : undefined
+              }
+              title={
+                stats.unhealthy > 0
+                  ? "See the failing health checks on the Errors tab"
+                  : undefined
+              }
             />
           </div>
 
@@ -449,189 +513,226 @@ export default function IntegrationDetailPage() {
               on the right. Hidden in the first-run onboarding state, where the
               guide above replaces the (empty) graph. */}
           {!showOnboarding && (
-          <div className={`grid grid-cols-1 gap-4 ${canOpenServices ? "lg:grid-cols-[1fr_360px]" : ""}`}>
-            <div className="flex flex-col gap-4">
-              {/* Service flow is dropped for a reader who cannot open a
+            <div
+              className={`grid grid-cols-1 gap-4 ${canOpenServices ? "lg:grid-cols-[1fr_360px]" : ""}`}
+            >
+              <div className="flex flex-col gap-4">
+                {/* Service flow is dropped for a reader who cannot open a
                   service (issue #32). The graph is a map of services,
                   and every node on it leads somewhere they are refused,
                   so it can only ever raise a question it will not
                   answer. Their integration's own story — its messages,
                   its errors — is on the tabs beside this one. */}
-              {canOpenServices && (
-              <section
-                className="overflow-hidden rounded-lg border bg-surface-2"
-                style={{ borderColor: "var(--border)" }}
-              >
-                <div className="flex items-baseline justify-between border-b border-border px-4 py-3">
-                  <div>
-                    <h2 className="text-base font-semibold flex items-center gap-2">
-                      Service flow
-                      {flow?.historical_available && !flow?.historical && (
-                        <button
-                          type="button"
-                          className="btn btn--link"
-                          style={{ padding: 0, fontSize: 11 }}
-                          title="Nothing flowed between these services in the selected range. Look back over 90 days to draw the shape they usually take — this reads a lot of history, so it is not done automatically."
-                          onClick={() => setShowHistorical(true)}
-                        >
-                          show historical shape
-                        </button>
-                      )}
-                      {flow?.historical && (
-                        <span
-                          className="rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide"
-                          style={{
-                            background: "var(--surface-3)",
-                            color: "var(--ink-2)",
-                            borderColor: "var(--border)",
-                          }}
-                          title="No traces in the selected range — showing services and hops discovered historically."
-                        >
-                          historical
-                        </span>
-                      )}
-                    </h2>
-                    <p className="text-xs text-muted">
-                      {flow?.trace
-                        ? "Showing where one message got to. Node colour is that message's path, not service health."
-                        : flow?.historical
-                          ? "No traces in the selected range — showing services and hops discovered historically."
-                          : "Click a service to inspect. Red borders mean a service is unhealthy (a failing health check)."}
-                    </p>
-                  </div>
-                  <div className="text-xs text-muted">
-                    {flow ? `${flow.nodes.length} services · ${flow.edges.length} hops` : ""}
-                  </div>
-                </div>
-                {flow?.trace && (
-                  // The answer, in a sentence, above the picture. The
-                  // graph shows it too, but an operator mid-incident
-                  // should not have to read a diagram to get it.
-                  <div
-                    className="alert"
-                    role="status"
-                    style={{ margin: "12px 16px 0", display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}
+                {canOpenServices && (
+                  <section
+                    className="overflow-hidden rounded-lg border bg-surface-2"
+                    style={{ borderColor: "var(--border)" }}
                   >
-                    <span style={{ flex: 1, minWidth: 240 }}>
-                      {traceSummaryLine(flow.trace.last_reached, flow.trace.nodes)}
-                    </span>
-                    <Link className="btn btn--sm" to={`/traces/${encodeURIComponent(flow.trace.trace_id)}`}>
-                      Open trace
-                    </Link>
-                    <button
-                      type="button"
-                      className="btn btn--sm"
-                      onClick={() => {
-                        const next = new URLSearchParams(searchParams);
-                        next.delete("trace");
-                        setSearchParams(next, { replace: true });
-                      }}
-                    >
-                      Clear
-                    </button>
-                  </div>
-                )}
-                {flow?.trace_outside_window && (
-                  // Said rather than silently corrected: widening the
-                  // range would change every count on the page under a
-                  // reader who only asked about one message.
-                  <div className="alert" style={{ margin: "12px 16px 0" }}>
-                    This message ran outside the selected time range. Its path is correct, but the
-                    per-service counts describe a period it was not part of.
-                  </div>
-                )}
-                {flow?.trace && flow.trace.spans_outside_integration > 0 && (
-                  <div className="muted" style={{ margin: "8px 16px 0", fontSize: 12 }}>
-                    {flow.trace.spans_outside_integration} of this message's spans belong to services
-                    outside this integration and are not drawn here.
-                  </div>
-                )}
-                <div style={{ height: 360 }}>
-                  {flow ? (
-                    <IntegrationFlow
-                      nodes={flow.nodes}
-                      edges={flow.edges}
-                      selected={selectedService}
-                      onSelect={(n) => setSelectedService(n || null)}
-                      serviceSchemas={flow.service_schemas}
-                      maps={flow.maps}
-                      statusByService={statusByService}
-                      traceStates={traceStates}
-                    />
-                  ) : (
-                    <div className="p-6 text-sm text-muted">Loading flow…</div>
-                  )}
-                </div>
-                {flow?.maps && flow.maps.length > 0 && (
-                  <div
-                    className="border-t border-border px-4 py-3"
-                    style={{ background: "var(--surface)" }}
-                  >
-                    <div className="text-[10px] uppercase tracking-wide text-muted">
-                      Data shapes · maps
-                    </div>
-                    <div className="mt-1.5 flex flex-wrap gap-1.5">
-                      {flow.maps.map((m) => (
-                        <Link
-                          key={m.id}
-                          to="/maps"
-                          className="rounded border px-2 py-0.5 text-xs hover:bg-surface-elevated"
-                          style={{ borderColor: "var(--border)", color: "var(--ink-2)" }}
-                          title={`Map "${m.name}"${
-                            m.from_schema || m.to_schema
-                              ? `: ${m.from_schema ?? "?"} → ${m.to_schema ?? "?"}`
-                              : ""
-                          }`}
-                        >
-                          <span className="font-medium">{m.name}</span>
-                          {(m.from_schema || m.to_schema) && (
-                            <span className="text-muted">
-                              {" "}
-                              · {m.from_schema ?? "?"} → {m.to_schema ?? "?"}
+                    <div className="flex items-baseline justify-between border-b border-border px-4 py-3">
+                      <div>
+                        <h2 className="text-base font-semibold flex items-center gap-2">
+                          Service flow
+                          {flow?.historical_available && !flow?.historical && (
+                            <button
+                              type="button"
+                              className="btn btn--link"
+                              style={{ padding: 0, fontSize: 11 }}
+                              title="Nothing flowed between these services in the selected range. Look back over 90 days to draw the shape they usually take — this reads a lot of history, so it is not done automatically."
+                              onClick={() => setShowHistorical(true)}
+                            >
+                              show historical shape
+                            </button>
+                          )}
+                          {flow?.historical && (
+                            <span
+                              className="rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide"
+                              style={{
+                                background: "var(--surface-3)",
+                                color: "var(--ink-2)",
+                                borderColor: "var(--border)",
+                              }}
+                              title="No traces in the selected range — showing services and hops discovered historically."
+                            >
+                              historical
                             </span>
                           )}
-                        </Link>
-                      ))}
+                        </h2>
+                        <p className="text-xs text-muted">
+                          {flow?.trace
+                            ? "Showing where one message got to. Node colour is that message's path, not service health."
+                            : flow?.historical
+                              ? "No traces in the selected range — showing services and hops discovered historically."
+                              : "Click a service to inspect. Red borders mean a service is unhealthy (a failing health check)."}
+                        </p>
+                      </div>
+                      <div className="text-xs text-muted">
+                        {flow
+                          ? `${flow.nodes.length} services · ${flow.edges.length} hops`
+                          : ""}
+                      </div>
                     </div>
-                  </div>
+                    {flow?.trace && (
+                      // The answer, in a sentence, above the picture. The
+                      // graph shows it too, but an operator mid-incident
+                      // should not have to read a diagram to get it.
+                      <div
+                        className="alert"
+                        role="status"
+                        style={{
+                          margin: "12px 16px 0",
+                          display: "flex",
+                          alignItems: "baseline",
+                          gap: 10,
+                          flexWrap: "wrap",
+                        }}
+                      >
+                        <span style={{ flex: 1, minWidth: 240 }}>
+                          {traceSummaryLine(
+                            flow.trace.last_reached,
+                            flow.trace.nodes,
+                          )}
+                        </span>
+                        <Link
+                          className="btn btn--sm"
+                          to={`/traces/${encodeURIComponent(flow.trace.trace_id)}`}
+                        >
+                          Open trace
+                        </Link>
+                        <button
+                          type="button"
+                          className="btn btn--sm"
+                          onClick={() => {
+                            setSearchParams(
+                              (prev) => {
+                                const next = new URLSearchParams(prev);
+                                next.delete("trace");
+                                return next;
+                              },
+                              { replace: true },
+                            );
+                          }}
+                        >
+                          Clear
+                        </button>
+                      </div>
+                    )}
+                    {flow?.trace_outside_window && (
+                      // Said rather than silently corrected: widening the
+                      // range would change every count on the page under a
+                      // reader who only asked about one message.
+                      <div className="alert" style={{ margin: "12px 16px 0" }}>
+                        This message ran outside the selected time range. Its
+                        path is correct, but the per-service counts describe a
+                        period it was not part of.
+                      </div>
+                    )}
+                    {flow?.trace &&
+                      flow.trace.spans_outside_integration > 0 && (
+                        <div
+                          className="muted"
+                          style={{ margin: "8px 16px 0", fontSize: 12 }}
+                        >
+                          {flow.trace.spans_outside_integration} of this
+                          message's spans belong to services outside this
+                          integration and are not drawn here.
+                        </div>
+                      )}
+                    <div style={{ height: 360 }}>
+                      {flow ? (
+                        <IntegrationFlow
+                          nodes={flow.nodes}
+                          edges={flow.edges}
+                          selected={selectedService}
+                          onSelect={(n) => setSelectedService(n || null)}
+                          serviceSchemas={flow.service_schemas}
+                          maps={flow.maps}
+                          statusByService={statusByService}
+                          traceStates={traceStates}
+                        />
+                      ) : (
+                        <div className="p-6 text-sm text-muted">
+                          Loading flow…
+                        </div>
+                      )}
+                    </div>
+                    {flow?.maps && flow.maps.length > 0 && (
+                      <div
+                        className="border-t border-border px-4 py-3"
+                        style={{ background: "var(--surface)" }}
+                      >
+                        <div className="text-[10px] uppercase tracking-wide text-muted">
+                          Data shapes · maps
+                        </div>
+                        <div className="mt-1.5 flex flex-wrap gap-1.5">
+                          {flow.maps.map((m) => (
+                            <Link
+                              key={m.id}
+                              to="/maps"
+                              className="rounded border px-2 py-0.5 text-xs hover:bg-surface-elevated"
+                              style={{
+                                borderColor: "var(--border)",
+                                color: "var(--ink-2)",
+                              }}
+                              title={`Map "${m.name}"${
+                                m.from_schema || m.to_schema
+                                  ? `: ${m.from_schema ?? "?"} → ${m.to_schema ?? "?"}`
+                                  : ""
+                              }`}
+                            >
+                              <span className="font-medium">{m.name}</span>
+                              {(m.from_schema || m.to_schema) && (
+                                <span className="text-muted">
+                                  {" "}
+                                  · {m.from_schema ?? "?"} →{" "}
+                                  {m.to_schema ?? "?"}
+                                </span>
+                              )}
+                            </Link>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </section>
                 )}
-              </section>
-              )}
-            </div>
+              </div>
 
-            {/* The inspector is a window onto the SERVICE, so it is
+              {/* The inspector is a window onto the SERVICE, so it is
                 dropped for a reader who cannot open one (issue #32).
                 Rendering it would show a 404 where a panel should be,
                 which reads as a broken page rather than as a boundary.
                 The graph beside it stays: it describes the integration,
                 which is the thing they were granted. */}
-            {canOpenServices && (
-            <aside className="lg:sticky lg:top-20" style={{ alignSelf: "start", minHeight: 360 }}>
-              <ServiceInspector
-                serviceName={selectedService}
-                detail={serviceDetail}
-                widgets={serviceWidgets}
-                loading={serviceLoading}
-                error={serviceError}
-                // The member row is already scoped to this integration's
-                // slice by the API, so the inspector can contrast it with
-                // the service-wide figures it fetches itself.
-                scope={(() => {
-                  const m = (data?.services ?? []).find(
-                    (s) => s.service_name === selectedService,
-                  );
-                  return m
-                    ? {
-                        traceCount: m.trace_count,
-                        errorTraceCount: m.error_trace_count,
-                        label: data?.integration?.name ?? "this integration",
-                      }
-                    : undefined;
-                })()}
-              />
-            </aside>
-            )}
-          </div>
+              {canOpenServices && (
+                <aside
+                  className="lg:sticky lg:top-20"
+                  style={{ alignSelf: "start", minHeight: 360 }}
+                >
+                  <ServiceInspector
+                    serviceName={selectedService}
+                    detail={serviceDetail}
+                    widgets={serviceWidgets}
+                    loading={serviceLoading}
+                    error={serviceError}
+                    // The member row is already scoped to this integration's
+                    // slice by the API, so the inspector can contrast it with
+                    // the service-wide figures it fetches itself.
+                    scope={(() => {
+                      const m = (data?.services ?? []).find(
+                        (s) => s.service_name === selectedService,
+                      );
+                      return m
+                        ? {
+                            traceCount: m.trace_count,
+                            errorTraceCount: m.error_trace_count,
+                            label:
+                              data?.integration?.name ?? "this integration",
+                          }
+                        : undefined;
+                    })()}
+                  />
+                </aside>
+              )}
+            </div>
           )}
 
           {/* The services list lives on the Services tab and matcher
@@ -691,7 +792,10 @@ function CloneIntegrationDialog({
     setSaving(true);
     setErr(null);
     try {
-      const res = await api.cloneIntegration(sourceId, { name: name.trim(), slug: slug.trim() });
+      const res = await api.cloneIntegration(sourceId, {
+        name: name.trim(),
+        slug: slug.trim(),
+      });
       onCloned(res.integration.id);
     } catch (e) {
       setErr(String((e as Error).message ?? e));
@@ -708,9 +812,14 @@ function CloneIntegrationDialog({
         if (e.key === "Escape") onCancel();
       }}
       style={{
-        position: "fixed", inset: 0, zIndex: 2100,
+        position: "fixed",
+        inset: 0,
+        zIndex: 2100,
         background: "rgba(15,23,42,0.45)",
-        display: "flex", alignItems: "center", justifyContent: "center", padding: 16,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 16,
       }}
     >
       <div
@@ -719,10 +828,18 @@ function CloneIntegrationDialog({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="card__header">Clone “{sourceName}”</div>
-        <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+        <div
+          style={{
+            padding: 16,
+            display: "flex",
+            flexDirection: "column",
+            gap: 12,
+          }}
+        >
           <p className="muted" style={{ fontSize: 12.5, margin: 0 }}>
-            Copies the matchers, tags, metadata and health checks. The new integration starts with its
-            public status badge off, and team access is copied only if you are an admin.
+            Copies the matchers, tags, metadata and health checks. The new
+            integration starts with its public status badge off, and team access
+            is copied only if you are an admin.
           </p>
           <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             <span className="m-field-label">Name</span>
@@ -744,9 +861,18 @@ function CloneIntegrationDialog({
               }}
             />
           </label>
-          {err && <div className="alert alert--error" style={{ margin: 0 }}>{err}</div>}
+          {err && (
+            <div className="alert alert--error" style={{ margin: 0 }}>
+              {err}
+            </div>
+          )}
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-            <button type="button" className="btn" onClick={onCancel} disabled={saving}>
+            <button
+              type="button"
+              className="btn"
+              onClick={onCancel}
+              disabled={saving}
+            >
               Cancel
             </button>
             <button
@@ -774,7 +900,13 @@ interface MetricTileProps {
   title?: string;
 }
 
-function MetricTile({ label, value, tone = "default", to, title }: MetricTileProps) {
+function MetricTile({
+  label,
+  value,
+  tone = "default",
+  to,
+  title,
+}: MetricTileProps) {
   const color = {
     default: "var(--ink)",
     ok: "var(--ok)",
@@ -783,8 +915,13 @@ function MetricTile({ label, value, tone = "default", to, title }: MetricTilePro
   }[tone];
   const inner = (
     <>
-      <div className="text-[10px] uppercase tracking-wide text-muted">{label}</div>
-      <div className="mt-1 text-xl font-semibold tabular-nums" style={{ color }}>
+      <div className="text-[10px] uppercase tracking-wide text-muted">
+        {label}
+      </div>
+      <div
+        className="mt-1 text-xl font-semibold tabular-nums"
+        style={{ color }}
+      >
         {value}
       </div>
     </>
@@ -821,12 +958,21 @@ interface DerivedStats {
 }
 
 function deriveStats(data: IntegrationDetail | null): DerivedStats {
-  if (!data) return { traces: 0, errors: 0, delayed: 0, successPct: 100, serviceCount: 0, unhealthy: 0 };
+  if (!data)
+    return {
+      traces: 0,
+      errors: 0,
+      delayed: 0,
+      successPct: 100,
+      serviceCount: 0,
+      unhealthy: 0,
+    };
   // Prefer the backend's integration-level distinct counts (a trace that
   // spans two of the integration's services is counted once). Fall back
   // to summing per-service counts only if the field is absent (older API).
   const traces =
-    data.message_count ?? (data.services ?? []).reduce((acc, s) => acc + s.trace_count, 0);
+    data.message_count ??
+    (data.services ?? []).reduce((acc, s) => acc + s.trace_count, 0);
   const errors =
     data.error_message_count ??
     (data.services ?? []).reduce((acc, s) => acc + s.error_trace_count, 0);
@@ -835,7 +981,8 @@ function deriveStats(data: IntegrationDetail | null): DerivedStats {
   // unlike the sticky "delayed (open)" firings tile, which is the
   // evaluator's lookback window.
   const delayed = data.delayed_message_count ?? 0;
-  const successPct = traces > 0 ? (Math.max(0, traces - errors - delayed) / traces) * 100 : 100;
+  const successPct =
+    traces > 0 ? (Math.max(0, traces - errors - delayed) / traces) * 100 : 100;
   const unhealthy = (data.services ?? []).filter(
     (s) => s.status === "errors" || s.status === "unhealthy",
   ).length;

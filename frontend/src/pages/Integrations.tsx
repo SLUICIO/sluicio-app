@@ -6,7 +6,9 @@ import { api } from "../api/client";
 import SearchableSelect from "../components/SearchableSelect";
 import type { Integration, MetadataField, Tag } from "../api/types";
 import { SortableTh } from "../components/primitives";
-import ColumnPicker, { type ColumnDef } from "../components/integrations/ColumnPicker";
+import ColumnPicker, {
+  type ColumnDef,
+} from "../components/integrations/ColumnPicker";
 import IntegrationFilterBar, {
   matchesFilter,
   parseFilters,
@@ -15,6 +17,7 @@ import IntegrationFilterBar, {
 } from "../components/integrations/IntegrationFilterBar";
 import TagChip from "../components/tags/TagChip";
 import { formatNumber, formatRelative, statusLabel } from "../lib/format";
+import { resolveColumnOrder, resolveHiddenColumns } from "../lib/columnLayout";
 import { useCurrentUser } from "../lib/useCurrentUser";
 import { useUserPreference } from "../lib/useUserPreference";
 import { useAccess } from "../lib/useAccess";
@@ -108,16 +111,21 @@ export default function Integrations() {
   }, [searchParams]);
 
   const setActiveSlugs = (next: string[]) => {
-    const params = new URLSearchParams(searchParams);
-    // Writes always use the canonical plural, so drop any alias we came in
-    // with rather than leaving two params to disagree.
-    params.delete("tag");
-    if (next.length === 0) {
-      params.delete("tags");
-    } else {
-      params.set("tags", next.join(","));
-    }
-    setSearchParams(params, { replace: true });
+    setSearchParams(
+      (prev) => {
+        const params = new URLSearchParams(prev);
+        // Writes always use the canonical plural, so drop any alias we came in
+        // with rather than leaving two params to disagree.
+        params.delete("tag");
+        if (next.length === 0) {
+          params.delete("tags");
+        } else {
+          params.set("tags", next.join(","));
+        }
+        return params;
+      },
+      { replace: true },
+    );
   };
 
   const toggleSlug = (slug: string) => {
@@ -150,7 +158,10 @@ export default function Integrations() {
           return;
         }
         setPendingStats(new Set(rows.map((r) => r.id)));
-        void fillStats(rows.map((r) => r.id), run);
+        void fillStats(
+          rows.map((r) => r.id),
+          run,
+        );
       })
       .catch((e) => {
         setError(String(e.message ?? e));
@@ -221,32 +232,45 @@ export default function Integrations() {
     [searchParams],
   );
   const setFilters = (next: IntegrationFilter[]) => {
-    const params = new URLSearchParams(searchParams);
-    const enc = serializeFilters(next);
-    if (enc) params.set("filter", enc);
-    else params.delete("filter");
-    setSearchParams(params, { replace: true });
+    setSearchParams(
+      (prev) => {
+        const params = new URLSearchParams(prev);
+        const enc = serializeFilters(next);
+        if (enc) params.set("filter", enc);
+        else params.delete("filter");
+        return params;
+      },
+      { replace: true },
+    );
   };
 
   // Column layout (order + hidden set), persisted per user on the
   // server so it follows the account across browsers. Precedence:
   // ?cols= (an ORDERED visible list — shared links pin a view) > the
   // server preference > the legacy localStorage visible-set > defaults.
-  const {
-    value: layoutPref,
-    save: saveLayoutPref,
-  } = useUserPreference<{ order: string[]; hidden: string[] }>("integrations.columns");
+  const { value: layoutPref, save: saveLayoutPref } = useUserPreference<{
+    order: string[];
+    hidden: string[];
+  }>("integrations.columns");
   const colsParam = searchParams.get("cols");
 
   // Pull the comparable cell value out of an integration for filtering.
-  const cellValueFor = (i: Integration, field: string): string | number | null => {
+  const cellValueFor = (
+    i: Integration,
+    field: string,
+  ): string | number | null => {
     switch (field) {
-      case "name": return i.name;
-      case "description": return i.description ?? "";
-      case "slug": return i.slug;
-      case "status": return i.status ?? "";
+      case "name":
+        return i.name;
+      case "description":
+        return i.description ?? "";
+      case "slug":
+        return i.slug;
+      case "status":
+        return i.status ?? "";
       default:
-        if (field.startsWith("meta:")) return i.metadata_values?.[field.slice(5)] ?? "";
+        if (field.startsWith("meta:"))
+          return i.metadata_values?.[field.slice(5)] ?? "";
         return "";
     }
   };
@@ -256,16 +280,24 @@ export default function Integrations() {
   // answers "where is the most traffic" per country / business unit / …
   const groupKeys = useMemo(() => {
     const raw = (searchParams.get("group") ?? "").split(",").filter(Boolean);
-    return raw.filter((k) => metadataFields.some((f) => f.key === k)).slice(0, 2);
+    return raw
+      .filter((k) => metadataFields.some((f) => f.key === k))
+      .slice(0, 2);
   }, [searchParams, metadataFields]);
   const setGroupKeys = (keys: string[]) => {
-    const params = new URLSearchParams(searchParams);
-    const clean = keys.filter(Boolean);
-    if (clean.length > 0) params.set("group", clean.join(","));
-    else params.delete("group");
-    setSearchParams(params, { replace: true });
+    setSearchParams(
+      (prev) => {
+        const params = new URLSearchParams(prev);
+        const clean = keys.filter(Boolean);
+        if (clean.length > 0) params.set("group", clean.join(","));
+        else params.delete("group");
+        return params;
+      },
+      { replace: true },
+    );
   };
-  const fieldLabelFor = (key: string) => metadataFields.find((f) => f.key === key)?.label ?? key;
+  const fieldLabelFor = (key: string) =>
+    metadataFields.find((f) => f.key === key)?.label ?? key;
 
   // Health-status filter from the URL (?status=unhealthy), set by the
   // dashboard KPI drill-in. "unhealthy" spans both problem states —
@@ -276,15 +308,25 @@ export default function Integrations() {
   // integration does a kind of work if any part of it does.
   const facetFilter = searchParams.get("facet") ?? "";
   const setFacetFilter = (slug: string) => {
-    const p = new URLSearchParams(searchParams);
-    if (slug) p.set("facet", slug);
-    else p.delete("facet");
-    setSearchParams(p, { replace: true });
+    setSearchParams(
+      (prev) => {
+        const p = new URLSearchParams(prev);
+        if (slug) p.set("facet", slug);
+        else p.delete("facet");
+        return p;
+      },
+      { replace: true },
+    );
   };
   const clearStatus = () => {
-    const p = new URLSearchParams(searchParams);
-    p.delete("status");
-    setSearchParams(p, { replace: true });
+    setSearchParams(
+      (prev) => {
+        const p = new URLSearchParams(prev);
+        p.delete("status");
+        return p;
+      },
+      { replace: true },
+    );
   };
 
   // AND filter: every active tag must be present on the integration,
@@ -295,11 +337,17 @@ export default function Integrations() {
       // Health-status filter (from the dashboard KPI).
       if (statusFilter) {
         const s = i.status ?? "";
-        const hit = statusFilter === "unhealthy" ? s === "unhealthy" || s === "errors" : s === statusFilter;
+        const hit =
+          statusFilter === "unhealthy"
+            ? s === "unhealthy" || s === "errors"
+            : s === statusFilter;
         if (!hit) return false;
       }
       // Service-facet filter.
-      if (facetFilter && !(i.service_facets ?? []).some((f) => f.slug === facetFilter)) {
+      if (
+        facetFilter &&
+        !(i.service_facets ?? []).some((f) => f.slug === facetFilter)
+      ) {
         return false;
       }
       // Tag filter (existing chip-strip semantics).
@@ -372,7 +420,9 @@ export default function Integrations() {
       // merely from the row: a column somebody can tick and never see
       // fill in is worse than one that is not on the list.
       ...(canOpenServices
-        ? ([{ id: "service_count", label: "Services", group: "Operational" }] as ColumnDef[])
+        ? ([
+            { id: "service_count", label: "Services", group: "Operational" },
+          ] as ColumnDef[])
         : []),
       { id: "trace_count", label: "Traces", group: "Operational" },
       { id: "error_trace_count", label: "Errors", group: "Operational" },
@@ -390,29 +440,32 @@ export default function Integrations() {
   // doesn't mention appended in default order, so new metadata fields
   // show up instead of vanishing for users with a saved layout.
   const defaultOrder = useMemo(() => columnDefs.map((c) => c.id), [columnDefs]);
-  const columnOrder = useMemo<string[]>(() => {
-    const known = new Set(defaultOrder);
-    const base = (
-      colsParam != null ? colsParam.split(",").filter(Boolean) : layoutPref?.order ?? []
-    ).filter((id) => known.has(id));
-    const seen = new Set(base);
-    return [...base, ...defaultOrder.filter((id) => !seen.has(id))];
-  }, [colsParam, layoutPref, defaultOrder]);
-
-  const hiddenCols = useMemo<Set<string>>(() => {
-    // ?cols= and the legacy localStorage value are visible-lists;
-    // the server preference stores the hidden set directly (so columns
-    // added later default to visible).
-    const fromVisibleList = (raw: string) => {
-      const vis = new Set(raw.split(",").filter(Boolean));
-      return new Set(defaultOrder.filter((id) => !vis.has(id)));
-    };
-    if (colsParam != null) return fromVisibleList(colsParam);
-    if (layoutPref) return new Set(layoutPref.hidden.filter((id) => defaultOrder.includes(id)));
-    const legacy = readStoredCols();
-    if (legacy != null) return fromVisibleList(legacy);
-    return new Set();
-  }, [colsParam, layoutPref, defaultOrder]);
+  // What the reader is looking at right now. The URL, the saved
+  // preference and the legacy localStorage value all FEED this, and the
+  // moment somebody moves or hides a column the answer is here instead.
+  //
+  // It used to be read back out of the URL. That was fine while a
+  // navigation applied synchronously; it is not a safe place to keep the
+  // state of a control, because the control then waits on a round trip
+  // and flickers back under the hand that moved it. Null means nobody
+  // has touched it this visit, so the sources below still speak.
+  const [layout, setLayout] = useState<{
+    order: string[];
+    hidden: string[];
+  } | null>(null);
+  // One question, one answer: see lib/columnLayout.
+  const layoutSources = useMemo(
+    () => ({
+      session: layout,
+      colsParam,
+      saved: layoutPref ?? null,
+      legacy: readStoredCols(),
+      defaultOrder,
+    }),
+    [layout, colsParam, layoutPref, defaultOrder],
+  );
+  const columnOrder = useMemo(() => resolveColumnOrder(layoutSources), [layoutSources]);
+  const hiddenCols = useMemo(() => resolveHiddenColumns(layoutSources), [layoutSources]);
 
   // All defs in effective order (for the picker) and the visible subset
   // (what the table renders).
@@ -429,6 +482,9 @@ export default function Integrations() {
   );
 
   const applyColumnLayout = (order: string[], hidden: Set<string>) => {
+    // The picker's own answer, applied before anything is written
+    // anywhere. Everything below is a copy for the next visit.
+    setLayout({ order, hidden: [...hidden] });
     saveLayoutPref({ order, hidden: [...hidden] });
     // Mirror the visible columns (in order) into the URL so the current
     // view stays shareable, and into localStorage as an offline fallback.
@@ -438,24 +494,38 @@ export default function Integrations() {
     } catch {
       /* private mode — the URL still carries it for this session */
     }
-    const params = new URLSearchParams(searchParams);
-    params.set("cols", raw);
-    setSearchParams(params, { replace: true });
+    setSearchParams(
+      (prev) => {
+        const params = new URLSearchParams(prev);
+        params.set("cols", raw);
+        return params;
+      },
+      { replace: true },
+    );
   };
 
   const resetColumnLayout = () => {
+    setLayout(null);
     saveLayoutPref(null);
     try {
       window.localStorage.removeItem(COLS_STORAGE_KEY);
     } catch {
       /* ignore */
     }
-    const params = new URLSearchParams(searchParams);
-    params.delete("cols");
-    setSearchParams(params, { replace: true });
+    setSearchParams(
+      (prev) => {
+        const params = new URLSearchParams(prev);
+        params.delete("cols");
+        return params;
+      },
+      { replace: true },
+    );
   };
 
-  const NUM_COLS = useMemo(() => new Set(["service_count", "trace_count", "error_trace_count"]), []);
+  const NUM_COLS = useMemo(
+    () => new Set(["service_count", "trace_count", "error_trace_count"]),
+    [],
+  );
 
   // Sort runs after the tag filter so users can sort within the
   // current selection. Counts may be undefined on rows where the
@@ -471,12 +541,12 @@ export default function Integrations() {
       slug: (i) => i.slug,
       description: (i) => i.description ?? "",
       tags: (i) =>
-        (i.tags?.length ?? 0) * 1000 +
-        (i.tags?.[0]?.name?.charCodeAt(0) ?? 0),
+        (i.tags?.length ?? 0) * 1000 + (i.tags?.[0]?.name?.charCodeAt(0) ?? 0),
       service_count: (i) => i.service_count ?? null,
       trace_count: (i) => i.trace_count ?? null,
       error_trace_count: (i) => i.error_trace_count ?? null,
-      status: (i) => (i.status ? INTEGRATION_STATUS_RANK[i.status] ?? 0 : null),
+      status: (i) =>
+        i.status ? (INTEGRATION_STATUS_RANK[i.status] ?? 0) : null,
       updated_at: (i) => i.updated_at,
     };
     for (const f of metadataFields) {
@@ -485,9 +555,15 @@ export default function Integrations() {
     return lookup;
   }, [metadataFields]);
 
-  const { sortedRows, sort, toggleSort } = useTableSort<Integration, IntegrationSortKey>(
+  const { sortedRows, sort, toggleSort } = useTableSort<
+    Integration,
+    IntegrationSortKey
+  >(
     visibleItems,
-    sortLookup as Record<IntegrationSortKey, (i: Integration) => string | number | null>,
+    sortLookup as Record<
+      IntegrationSortKey,
+      (i: Integration) => string | number | null
+    >,
   );
 
   interface IntegrationGroup {
@@ -498,13 +574,19 @@ export default function Integrations() {
     children: IntegrationGroup[] | null;
   }
   type RenderEntry =
-    | { kind: "header"; level: number; fieldKey: string; group: IntegrationGroup }
+    | {
+        kind: "header";
+        level: number;
+        fieldKey: string;
+        group: IntegrationGroup;
+      }
     | { kind: "row"; i: Integration };
 
   // Group rows by the selected metadata keys, biggest traffic first at
   // every level — the in-group row order keeps the table's sort.
   const renderEntries = useMemo<RenderEntry[]>(() => {
-    if (groupKeys.length === 0) return sortedRows.map((i) => ({ kind: "row", i }));
+    if (groupKeys.length === 0)
+      return sortedRows.map((i) => ({ kind: "row", i }));
     const build = (rows: Integration[], keys: string[]): IntegrationGroup[] => {
       const buckets = new Map<string, Integration[]>();
       for (const r of rows) {
@@ -534,7 +616,12 @@ export default function Integrations() {
       out.push({ kind: "header", level: 0, fieldKey: groupKeys[0], group: g });
       if (g.children) {
         for (const c of g.children) {
-          out.push({ kind: "header", level: 1, fieldKey: groupKeys[1], group: c });
+          out.push({
+            kind: "header",
+            level: 1,
+            fieldKey: groupKeys[1],
+            group: c,
+          });
           for (const i of c.rows) out.push({ kind: "row", i });
         }
       } else {
@@ -544,27 +631,50 @@ export default function Integrations() {
     return out;
   }, [sortedRows, groupKeys]);
 
-  const renderGroupHeader = (entry: Extract<RenderEntry, { kind: "header" }>) => {
+  const renderGroupHeader = (
+    entry: Extract<RenderEntry, { kind: "header" }>,
+  ) => {
     const { level, fieldKey, group } = entry;
     return (
       <tr
         key={`g${level}-${fieldKey}-${group.value}`}
         className="integration-group-row"
-        style={{ background: level === 0 ? "var(--surface-3)" : "var(--surface)", borderTop: "1px solid var(--border)" }}
+        style={{
+          background: level === 0 ? "var(--surface-3)" : "var(--surface)",
+          borderTop: "1px solid var(--border)",
+        }}
       >
-        <td colSpan={99} style={{ paddingLeft: level === 0 ? 12 : 28, padding: "7px 12px", paddingInlineStart: level === 0 ? 12 : 28 }}>
-          <span className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5 }}>
+        <td
+          colSpan={99}
+          style={{
+            paddingLeft: level === 0 ? 12 : 28,
+            padding: "7px 12px",
+            paddingInlineStart: level === 0 ? 12 : 28,
+          }}
+        >
+          <span
+            className="muted"
+            style={{
+              fontSize: 11,
+              textTransform: "uppercase",
+              letterSpacing: 0.5,
+            }}
+          >
             {fieldLabelFor(fieldKey)}:{" "}
           </span>
           <span style={{ fontWeight: 600, fontSize: 13 }}>
             {group.value || <span className="muted">not set</span>}
           </span>
           <span className="muted" style={{ fontSize: 12, marginLeft: 10 }}>
-            {group.rows.length} integration{group.rows.length === 1 ? "" : "s"} ·{" "}
-            {formatNumber(group.traces)} traces
+            {group.rows.length} integration{group.rows.length === 1 ? "" : "s"}{" "}
+            · {formatNumber(group.traces)} traces
             {group.errors > 0 && (
               <>
-                {" "}· <span style={{ color: "var(--err)" }}>{formatNumber(group.errors)} errors</span>
+                {" "}
+                ·{" "}
+                <span style={{ color: "var(--err)" }}>
+                  {formatNumber(group.errors)} errors
+                </span>
               </>
             )}
           </span>
@@ -585,9 +695,17 @@ export default function Integrations() {
           </td>
         );
       case "description":
-        return <td key={id}>{i.description ? i.description : <span className="muted">—</span>}</td>;
+        return (
+          <td key={id}>
+            {i.description ? i.description : <span className="muted">—</span>}
+          </td>
+        );
       case "slug":
-        return <td key={id} className="muted mono">{i.slug}</td>;
+        return (
+          <td key={id} className="muted mono">
+            {i.slug}
+          </td>
+        );
       case "facets": {
         const fs = i.service_facets ?? [];
         return (
@@ -664,7 +782,10 @@ export default function Integrations() {
               <>
                 {formatNumber(i.service_count)}
                 {i.unhealthy_count ? (
-                  <span className="muted"> · {i.unhealthy_count} unhealthy</span>
+                  <span className="muted">
+                    {" "}
+                    · {i.unhealthy_count} unhealthy
+                  </span>
                 ) : null}
               </>
             ) : (
@@ -687,7 +808,9 @@ export default function Integrations() {
           <td key={id} className="num">
             {typeof i.error_trace_count === "number" ? (
               i.error_trace_count > 0 ? (
-                <span className="pill pill--errors">{formatNumber(i.error_trace_count)}</span>
+                <span className="pill pill--errors">
+                  {formatNumber(i.error_trace_count)}
+                </span>
               ) : (
                 <span className="muted">—</span>
               )
@@ -700,17 +823,25 @@ export default function Integrations() {
         return (
           <td key={id}>
             {i.status ? (
-              <span className={`pill pill--${i.status}`}>{statusLabel(i.status)}</span>
+              <span className={`pill pill--${i.status}`}>
+                {statusLabel(i.status)}
+              </span>
             ) : (
               <PendingOrDash id={i.id} pending={pendingStats} />
             )}
           </td>
         );
       case "updated_at":
-        return <td key={id} className="muted">{formatRelative(i.updated_at)}</td>;
+        return (
+          <td key={id} className="muted">
+            {formatRelative(i.updated_at)}
+          </td>
+        );
       default: {
         const f = metadataFields.find((mf) => `meta:${mf.key}` === id);
-        return f ? <td key={id}>{renderMetadataCell(f, i.metadata_values?.[f.key])}</td> : null;
+        return f ? (
+          <td key={id}>{renderMetadataCell(f, i.metadata_values?.[f.key])}</td>
+        ) : null;
       }
     }
   };
@@ -721,8 +852,9 @@ export default function Integrations() {
         <div>
           <h1 className="page__title">Integrations</h1>
           <p className="page__subtitle">
-            Group your services into the integrations they belong to. Anything matching
-            the rules below shows up under that integration on the Services view.
+            Group your services into the integrations they belong to. Anything
+            matching the rules below shows up under that integration on the
+            Services view.
           </p>
         </div>
         <div className="toolbar">
@@ -765,7 +897,11 @@ export default function Integrations() {
         >
           <span
             className="muted"
-            style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: 0.5 }}
+            style={{
+              fontSize: 12,
+              textTransform: "uppercase",
+              letterSpacing: 0.5,
+            }}
           >
             filter by tag
           </span>
@@ -778,7 +914,11 @@ export default function Integrations() {
                   type="button"
                   onClick={() => toggleSlug(t.slug)}
                   aria-pressed={active}
-                  title={active ? `Remove ${t.name} from filter` : `Add ${t.name} to filter`}
+                  title={
+                    active
+                      ? `Remove ${t.name} from filter`
+                      : `Add ${t.name} to filter`
+                  }
                   style={{
                     background: "transparent",
                     border: 0,
@@ -843,8 +983,23 @@ export default function Integrations() {
       </div>
 
       {metadataFields.length > 0 && (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "0 0 16px", flexWrap: "wrap" }}>
-          <span className="muted" style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: 0.5 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            margin: "0 0 16px",
+            flexWrap: "wrap",
+          }}
+        >
+          <span
+            className="muted"
+            style={{
+              fontSize: 12,
+              textTransform: "uppercase",
+              letterSpacing: 0.5,
+            }}
+          >
             group by
           </span>
           <SearchableSelect
@@ -852,17 +1007,34 @@ export default function Integrations() {
             allLabel="No grouping"
             options={metadataFields.map((f) => f.key)}
             labelFor={fieldLabelFor}
-            onChange={(k) => setGroupKeys(k ? [k, ...(groupKeys[1] && groupKeys[1] !== k ? [groupKeys[1]] : [])] : [])}
+            onChange={(k) =>
+              setGroupKeys(
+                k
+                  ? [
+                      k,
+                      ...(groupKeys[1] && groupKeys[1] !== k
+                        ? [groupKeys[1]]
+                        : []),
+                    ]
+                  : [],
+              )
+            }
           />
           {groupKeys[0] && (
             <>
-              <span className="muted" style={{ fontSize: 12 }}>then by</span>
+              <span className="muted" style={{ fontSize: 12 }}>
+                then by
+              </span>
               <SearchableSelect
                 value={groupKeys[1] ?? ""}
                 allLabel="—"
-                options={metadataFields.map((f) => f.key).filter((k) => k !== groupKeys[0])}
+                options={metadataFields
+                  .map((f) => f.key)
+                  .filter((k) => k !== groupKeys[0])}
                 labelFor={fieldLabelFor}
-                onChange={(k) => setGroupKeys(k ? [groupKeys[0], k] : [groupKeys[0]])}
+                onChange={(k) =>
+                  setGroupKeys(k ? [groupKeys[0], k] : [groupKeys[0]])
+                }
               />
             </>
           )}
@@ -870,9 +1042,21 @@ export default function Integrations() {
       )}
 
       {statusFilter && (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "0 0 12px" }}>
-          <span className="chip">Showing {statusFilter === "unhealthy" ? "unhealthy" : statusFilter} integrations</span>
-          <button type="button" className="btn btn--link" onClick={clearStatus}>Clear filter</button>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            margin: "0 0 12px",
+          }}
+        >
+          <span className="chip">
+            Showing {statusFilter === "unhealthy" ? "unhealthy" : statusFilter}{" "}
+            integrations
+          </span>
+          <button type="button" className="btn btn--link" onClick={clearStatus}>
+            Clear filter
+          </button>
         </div>
       )}
 
@@ -880,7 +1064,14 @@ export default function Integrations() {
           integrations list that is quietly narrowed reads as an
           integrations list that is short. */}
       {facetFilter && (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "0 0 12px" }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            margin: "0 0 12px",
+          }}
+        >
           <span className="chip">
             Integrations with{" "}
             <strong>
@@ -890,40 +1081,66 @@ export default function Integrations() {
             </strong>{" "}
             on at least one service
           </span>
-          <button type="button" className="btn btn--link" onClick={() => setFacetFilter("")}>
+          <button
+            type="button"
+            className="btn btn--link"
+            onClick={() => setFacetFilter("")}
+          >
             Clear filter
           </button>
         </div>
       )}
 
-      {error && <div className="alert alert--error">Failed to load: {error}</div>}
+      {error && (
+        <div className="alert alert--error">Failed to load: {error}</div>
+      )}
 
       {!error && items && items.length === 0 && !loading && (
         <div className="placeholder">
-          No integrations yet. Click <strong>New integration</strong> to define one —
-          for example, group everything with a name starting with <code>order-</code>
+          No integrations yet. Click <strong>New integration</strong> to define
+          one — for example, group everything with a name starting with{" "}
+          <code>order-</code>
           into "Order Sync".
         </div>
       )}
 
-      {items && items.length > 0 && visibleItems.length === 0 && statusFilter && (
-        <div className="placeholder">
-          No integrations are currently {statusFilter === "unhealthy" ? "unhealthy" : statusFilter}.{" "}
-          <button type="button" className="btn btn--link" onClick={clearStatus}>Show all</button>
-        </div>
-      )}
+      {items &&
+        items.length > 0 &&
+        visibleItems.length === 0 &&
+        statusFilter && (
+          <div className="placeholder">
+            No integrations are currently{" "}
+            {statusFilter === "unhealthy" ? "unhealthy" : statusFilter}.{" "}
+            <button
+              type="button"
+              className="btn btn--link"
+              onClick={clearStatus}
+            >
+              Show all
+            </button>
+          </div>
+        )}
 
-      {items && items.length > 0 && visibleItems.length === 0 && !statusFilter && (
-        <div className="placeholder">
-          No integrations carry{" "}
-          {activeTags.length === 1 ? (
-            <>the tag <strong>{activeTags[0].name}</strong></>
-          ) : (
-            <>all of <strong>{activeTags.map((t) => t.name).join(", ")}</strong></>
-          )}
-          . Loosen the filter, or attach a tag from an integration's detail page.
-        </div>
-      )}
+      {items &&
+        items.length > 0 &&
+        visibleItems.length === 0 &&
+        !statusFilter && (
+          <div className="placeholder">
+            No integrations carry{" "}
+            {activeTags.length === 1 ? (
+              <>
+                the tag <strong>{activeTags[0].name}</strong>
+              </>
+            ) : (
+              <>
+                all of{" "}
+                <strong>{activeTags.map((t) => t.name).join(", ")}</strong>
+              </>
+            )}
+            . Loosen the filter, or attach a tag from an integration's detail
+            page.
+          </div>
+        )}
 
       {items && visibleItems.length > 0 && (
         <div className="card">
@@ -942,7 +1159,13 @@ export default function Integrations() {
                       onSort={toggleSort}
                       className={NUM_COLS.has(def.id) ? "num" : undefined}
                     >
-                      {mf ? <span title={mf.description || undefined}>{mf.label}</span> : def.label}
+                      {mf ? (
+                        <span title={mf.description || undefined}>
+                          {mf.label}
+                        </span>
+                      ) : (
+                        def.label
+                      )}
                     </SortableTh>
                   );
                 })}
@@ -953,9 +1176,9 @@ export default function Integrations() {
                 if (entry.kind === "header") return renderGroupHeader(entry);
                 const i = entry.i;
                 return (
-                <tr key={i.id}>
-                  {orderedVisibleDefs.map((def) => renderCell(def.id, i))}
-                </tr>
+                  <tr key={i.id}>
+                    {orderedVisibleDefs.map((def) => renderCell(def.id, i))}
+                  </tr>
                 );
               })}
             </tbody>

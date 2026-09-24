@@ -66,7 +66,12 @@ function MetricTable({
       </div>
       <div className="mtbl-body">
         {rows.map((m) => (
-          <MetricRow key={m.name} entry={m} selected={selectedName === m.name} onClick={() => onSelect(m)} />
+          <MetricRow
+            key={m.name}
+            entry={m}
+            selected={selectedName === m.name}
+            onClick={() => onSelect(m)}
+          />
         ))}
       </div>
     </div>
@@ -92,23 +97,36 @@ export default function MetricsExplorer({
   // mounted inside a service or an integration is already scoped by where
   // it is, and a URL param must not be able to widen it.
   const urlScope = {
-    service: serviceProp || integrationProp ? "" : (searchParams.get("service") ?? ""),
-    integration: serviceProp || integrationProp ? "" : (searchParams.get("integration") ?? ""),
+    service:
+      serviceProp || integrationProp ? "" : (searchParams.get("service") ?? ""),
+    integration:
+      serviceProp || integrationProp
+        ? ""
+        : (searchParams.get("integration") ?? ""),
   };
   const service = serviceProp || urlScope.service || undefined;
   const integration = integrationProp || urlScope.integration || undefined;
   const scopedByUrl = Boolean(urlScope.service || urlScope.integration);
   const clearUrlScope = () => {
-    const p = new URLSearchParams(searchParams);
-    p.delete("service");
-    p.delete("integration");
-    setSearchParams(p, { replace: true });
+    setSearchParams(
+      (prev) => {
+        const p = new URLSearchParams(prev);
+        p.delete("service");
+        p.delete("integration");
+        return p;
+      },
+      { replace: true },
+    );
   };
 
   const [resp, setResp] = useState<MetricCatalogRichResponse | null>(null);
   const [fields, setFields] = useState<LogFieldEntry[]>([]);
-  const [query, setQuery] = useState(() => new URLSearchParams(window.location.search).get("metric") ?? "");
-  const [debouncedQuery, setDebouncedQuery] = useState(() => new URLSearchParams(window.location.search).get("metric") ?? "");
+  const [query, setQuery] = useState(
+    () => new URLSearchParams(window.location.search).get("metric") ?? "",
+  );
+  const [debouncedQuery, setDebouncedQuery] = useState(
+    () => new URLSearchParams(window.location.search).get("metric") ?? "",
+  );
   const [mtype, setMtype] = useState("all");
   const [chips, setChips] = useState<LogAttrFilter[]>(() => {
     try {
@@ -118,12 +136,18 @@ export default function MetricsExplorer({
       if (!Array.isArray(parsed)) return [];
       return parsed
         .filter((a) => a && a.key && a.value)
-        .map((a) => ({ key: String(a.key), op: (a.op || "eq") as LogAttrFilter["op"], value: String(a.value) }));
+        .map((a) => ({
+          key: String(a.key),
+          op: (a.op || "eq") as LogAttrFilter["op"],
+          value: String(a.value),
+        }));
     } catch {
       return [];
     }
   });
-  const [selectedEntry, setSelectedEntry] = useState<MetricCatalogEntry | null>(null);
+  const [selectedEntry, setSelectedEntry] = useState<MetricCatalogEntry | null>(
+    null,
+  );
   const [loading, setLoading] = useState(true);
   const [reloadKey, setReloadKey] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -136,7 +160,10 @@ export default function MetricsExplorer({
   // Group-by + trim are org-wide affordances; hide them when scoped at all
   // (the catalog endpoint scopes, but the group endpoint doesn't).
   const allowGroups = !service && !integration;
-  const grouped = allowGroups && group.by !== "none" && (group.by !== "attribute" || group.key !== "");
+  const grouped =
+    allowGroups &&
+    group.by !== "none" &&
+    (group.by !== "attribute" || group.key !== "");
 
   const focusedMetric = useMemo(() => {
     if (selectedEntry) return selectedEntry.name;
@@ -155,11 +182,26 @@ export default function MetricsExplorer({
     setLoading(true);
     setError(null);
     api
-      .metricCatalog(windowVal, { q: debouncedQuery, type: mtype, attrs: chips, service, integration, limit: 100 })
+      .metricCatalog(windowVal, {
+        q: debouncedQuery,
+        type: mtype,
+        attrs: chips,
+        service,
+        integration,
+        limit: 100,
+      })
       .then(setResp)
       .catch((e) => setError(String(e.message ?? e)))
       .finally(() => setLoading(false));
-  }, [windowVal, debouncedQuery, mtype, chips, service, integration, reloadKey]);
+  }, [
+    windowVal,
+    debouncedQuery,
+    mtype,
+    chips,
+    service,
+    integration,
+    reloadKey,
+  ]);
 
   useEffect(() => {
     api
@@ -175,7 +217,12 @@ export default function MetricsExplorer({
     }
     setGroupsLoading(true);
     api
-      .metricGroups(windowVal, group.by, { key: group.key, q: query || undefined, type: mtype, attrs: chips })
+      .metricGroups(windowVal, group.by, {
+        key: group.key,
+        q: query || undefined,
+        type: mtype,
+        attrs: chips,
+      })
       .then((r) => setGroups(r.groups ?? []))
       .catch(() => setGroups([]))
       .finally(() => setGroupsLoading(false));
@@ -183,20 +230,40 @@ export default function MetricsExplorer({
 
   const metrics = useMemo(() => resp?.metrics ?? [], [resp]);
   const visible = useMemo(
-    () => (query ? metrics.filter((m) => m.name.toLowerCase().includes(query.toLowerCase())) : metrics),
+    () =>
+      query
+        ? metrics.filter((m) =>
+            m.name.toLowerCase().includes(query.toLowerCase()),
+          )
+        : metrics,
     [metrics, query],
   );
   const recent = useMemo(() => fields.slice(0, 4).map((f) => f.key), [fields]);
   const attrKeys = useMemo(() => fields.map((f) => f.key), [fields]);
 
   const reload = () =>
-    api.metricCatalog(windowVal, { q: debouncedQuery, type: mtype, attrs: chips, service, integration, limit: 100 }).then(setResp).catch(() => {});
+    api
+      .metricCatalog(windowVal, {
+        q: debouncedQuery,
+        type: mtype,
+        attrs: chips,
+        service,
+        integration,
+        limit: 100,
+      })
+      .then(setResp)
+      .catch(() => {});
 
   const addFilter = (f: LogAttrFilter) => {
-    setChips((cur) => (cur.some((c) => c.key === f.key && c.op === f.op && c.value === f.value) ? cur : [...cur, f]));
+    setChips((cur) =>
+      cur.some((c) => c.key === f.key && c.op === f.op && c.value === f.value)
+        ? cur
+        : [...cur, f],
+    );
     setAttrOpen(false);
   };
-  const removeFilter = (i: number) => setChips((cur) => cur.filter((_, j) => j !== i));
+  const removeFilter = (i: number) =>
+    setChips((cur) => cur.filter((_, j) => j !== i));
 
   // Toggle an `key = value` eq filter — used by the drawer's attribute list
   // to drill the selected metric down to one value (one queue, one pod…).
@@ -204,8 +271,12 @@ export default function MetricsExplorer({
     chips.some((c) => c.key === key && c.op === "eq" && c.value === value);
   const toggleEqFilter = (key: string, value: string) =>
     setChips((cur) => {
-      const i = cur.findIndex((c) => c.key === key && c.op === "eq" && c.value === value);
-      return i >= 0 ? cur.filter((_, j) => j !== i) : [...cur, { key, op: "eq", value }];
+      const i = cur.findIndex(
+        (c) => c.key === key && c.op === "eq" && c.value === value,
+      );
+      return i >= 0
+        ? cur.filter((_, j) => j !== i)
+        : [...cur, { key, op: "eq", value }];
     });
 
   // Keep the drawer's stats/chart in step with the active filters: when a
@@ -220,7 +291,13 @@ export default function MetricsExplorer({
   }, [resp]);
 
   const loadGroupMetrics = (g: MetricGroup): Promise<MetricCatalogEntry[]> => {
-    const opts: { q?: string; type?: string; attrs?: LogAttrFilter[]; service?: string; integration?: string } = {
+    const opts: {
+      q?: string;
+      type?: string;
+      attrs?: LogAttrFilter[];
+      service?: string;
+      integration?: string;
+    } = {
       q: query || undefined,
       type: mtype,
       attrs: chips,
@@ -229,38 +306,59 @@ export default function MetricsExplorer({
     if (group.by === "service") opts.service = g.key;
     else if (group.by === "integration") opts.integration = g.key;
     else if (group.by === "type") opts.type = g.key;
-    else if (group.by === "attribute") opts.attrs = [...chips, { key: group.key, op: "eq", value: g.key }];
+    else if (group.by === "attribute")
+      opts.attrs = [...chips, { key: group.key, op: "eq", value: g.key }];
     return api.metricCatalog(windowVal, opts).then((r) => r.metrics ?? []);
   };
 
   return (
     <div>
       {!embedded && (
-        <div className="page__header" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+        <div
+          className="page__header"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 16,
+            flexWrap: "wrap",
+          }}
+        >
           <div>
             <h1 className="page__title">Metrics</h1>
             <p className="page__subtitle">
-              Explore time-series metrics and wire alerts to channels. Review them regularly and keep only
-              the metrics you actually act on — every series you ingest and store has a cost. Backed by the
+              Explore time-series metrics and wire alerts to channels. Review
+              them regularly and keep only the metrics you actually act on —
+              every series you ingest and store has a cost. Backed by the
               OpenTelemetry metrics signal.
             </p>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
             <div className="m-head-stats">
               <div className="m-headstat">
-                <span className="m-headstat-v">{formatNumber(metrics.length)}</span>
+                <span className="m-headstat-v">
+                  {formatNumber(metrics.length)}
+                </span>
                 <span className="m-headstat-k">indexed metrics</span>
               </div>
               <div className="m-headstat">
-                <span className="m-headstat-v">{formatNumber(resp?.total_series ?? 0)}</span>
+                <span className="m-headstat-v">
+                  {formatNumber(resp?.total_series ?? 0)}
+                </span>
                 <span className="m-headstat-k">active series</span>
               </div>
               <div className="m-headstat">
-                <span className="m-headstat-v">{formatNumber(resp?.rule_count ?? 0)}</span>
+                <span className="m-headstat-v">
+                  {formatNumber(resp?.rule_count ?? 0)}
+                </span>
                 <span className="m-headstat-k">alert rules</span>
               </div>
             </div>
-            <button className="btn" onClick={() => setReloadKey((k) => k + 1)} disabled={loading}>
+            <button
+              className="btn"
+              onClick={() => setReloadKey((k) => k + 1)}
+              disabled={loading}
+            >
               {loading ? "Loading…" : "Refresh"}
             </button>
           </div>
@@ -268,10 +366,33 @@ export default function MetricsExplorer({
       )}
 
       {/* Filter bar */}
-      <div className="card" style={{ padding: "10px 12px", overflow: "visible" }}>
-        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-          <div style={{ position: "relative", flex: 1, minWidth: 280, display: "flex", alignItems: "center" }}>
-            <span aria-hidden style={{ position: "absolute", left: 10, color: "var(--muted)" }}>⌕</span>
+      <div
+        className="card"
+        style={{ padding: "10px 12px", overflow: "visible" }}
+      >
+        <div
+          style={{
+            display: "flex",
+            gap: 10,
+            alignItems: "center",
+            flexWrap: "wrap",
+          }}
+        >
+          <div
+            style={{
+              position: "relative",
+              flex: 1,
+              minWidth: 280,
+              display: "flex",
+              alignItems: "center",
+            }}
+          >
+            <span
+              aria-hidden
+              style={{ position: "absolute", left: 10, color: "var(--muted)" }}
+            >
+              ⌕
+            </span>
             <input
               className="search__input mono"
               style={{ paddingLeft: 30, fontSize: 13 }}
@@ -300,10 +421,25 @@ export default function MetricsExplorer({
             ))}
           </div>
 
-          {allowGroups && <GroupByControl value={group} onChange={setGroup} dims={GROUP_DIMS} attrKeys={attrKeys} />}
+          {allowGroups && (
+            <GroupByControl
+              value={group}
+              onChange={setGroup}
+              dims={GROUP_DIMS}
+              attrKeys={attrKeys}
+            />
+          )}
         </div>
 
-        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", marginTop: 8 }}>
+        <div
+          style={{
+            display: "flex",
+            gap: 6,
+            alignItems: "center",
+            flexWrap: "wrap",
+            marginTop: 8,
+          }}
+        >
           {/* A scope that arrived in the URL has to be visible and
               removable. Silently listing fewer metrics than the page
               normally shows is indistinguishable from missing telemetry. */}
@@ -317,10 +453,22 @@ export default function MetricsExplorer({
             />
           )}
           {chips.map((c, i) => (
-            <FilterChip key={`${c.key}-${c.op}-${i}`} k={c.key} op={c.op} value={c.value} accent={i === 0} onRemove={() => removeFilter(i)} />
+            <FilterChip
+              key={`${c.key}-${c.op}-${i}`}
+              k={c.key}
+              op={c.op}
+              value={c.value}
+              accent={i === 0}
+              onRemove={() => removeFilter(i)}
+            />
           ))}
           <div style={{ position: "relative" }}>
-            <button type="button" className="addfilter" aria-expanded={attrOpen} onClick={() => setAttrOpen((o) => !o)}>
+            <button
+              type="button"
+              className="addfilter"
+              aria-expanded={attrOpen}
+              onClick={() => setAttrOpen((o) => !o)}
+            >
               + Add attribute filter
             </button>
             {attrOpen && (
@@ -330,9 +478,20 @@ export default function MetricsExplorer({
                 window={windowVal}
                 onPick={addFilter}
                 onClose={() => setAttrOpen(false)}
-                fetchValues={(key, win) => api.metricAttributeValues(key, win, 50, focusedMetric || undefined)}
+                fetchValues={(key, win) =>
+                  api.metricAttributeValues(
+                    key,
+                    win,
+                    50,
+                    focusedMetric || undefined,
+                  )
+                }
                 keyPlaceholder="Filter attributes by name…"
-                footHint={focusedMetric ? `attributes on ${focusedMetric}` : "attributes are series labels, not points"}
+                footHint={
+                  focusedMetric
+                    ? `attributes on ${focusedMetric}`
+                    : "attributes are series labels, not points"
+                }
               />
             )}
           </div>
@@ -353,41 +512,77 @@ export default function MetricsExplorer({
         </div>
       </div>
 
-      {error && <div className="alert alert--error" style={{ marginTop: 12 }}>Failed to load metrics: {error}</div>}
+      {error && (
+        <div className="alert alert--error" style={{ marginTop: 12 }}>
+          Failed to load metrics: {error}
+        </div>
+      )}
 
-      <div className={`logs-split metrics-split ${selectedEntry ? "has-detail" : ""}`} style={{ marginTop: 12 }}>
+      <div
+        className={`logs-split metrics-split ${selectedEntry ? "has-detail" : ""}`}
+        style={{ marginTop: 12 }}
+      >
         <div style={{ minWidth: 0 }}>
           {grouped ? (
             <GroupRollup<MetricGroup, MetricCatalogEntry>
               groups={groups}
               loading={groupsLoading}
               emptyLabel="No groups in this window."
-              cacheKey={JSON.stringify({ query, mtype, chips, groupBy: group.by, groupKey: group.key, windowVal })}
+              cacheKey={JSON.stringify({
+                query,
+                mtype,
+                chips,
+                groupBy: group.by,
+                groupKey: group.key,
+                windowVal,
+              })}
               groupKey={(g) => g.key}
               renderLabel={(g) => g.key}
               renderStats={(g) => (
                 <>
-                  <span><span className="n">{formatNumber(g.metric_count)}</span> metrics</span>
-                  <span><span className="n">{formatNumber(g.series_count)}</span> series</span>
+                  <span>
+                    <span className="n">{formatNumber(g.metric_count)}</span>{" "}
+                    metrics
+                  </span>
+                  <span>
+                    <span className="n">{formatNumber(g.series_count)}</span>{" "}
+                    series
+                  </span>
                 </>
               )}
               loadItems={loadGroupMetrics}
               renderItems={(items) =>
                 items.length === 0 ? (
-                  <div className="placeholder" style={{ margin: 10 }}>No metrics.</div>
+                  <div className="placeholder" style={{ margin: 10 }}>
+                    No metrics.
+                  </div>
                 ) : (
-                  <MetricTable rows={items} selectedName={selectedEntry?.name} onSelect={setSelectedEntry} />
+                  <MetricTable
+                    rows={items}
+                    selectedName={selectedEntry?.name}
+                    onSelect={setSelectedEntry}
+                  />
                 )
               }
             />
           ) : allowGroups && group.by === "attribute" && !group.key ? (
-            <div className="mtbl"><div className="placeholder" style={{ margin: 12 }}>Choose an attribute to group by.</div></div>
+            <div className="mtbl">
+              <div className="placeholder" style={{ margin: 12 }}>
+                Choose an attribute to group by.
+              </div>
+            </div>
           ) : loading && metrics.length === 0 ? (
-            <div className="mtbl"><div className="placeholder" style={{ margin: 12 }}>Loading…</div></div>
+            <div className="mtbl">
+              <div className="placeholder" style={{ margin: 12 }}>
+                Loading…
+              </div>
+            </div>
           ) : visible.length === 0 ? (
             <div className="mtbl">
               <div className="placeholder" style={{ margin: 12 }}>
-                {metrics.length === 0 ? "No metrics in this window." : "No metrics match the filters."}
+                {metrics.length === 0
+                  ? "No metrics in this window."
+                  : "No metrics match the filters."}
               </div>
             </div>
           ) : (
@@ -395,11 +590,17 @@ export default function MetricsExplorer({
               <MetricTable
                 rows={visible}
                 selectedName={selectedEntry?.name}
-                onSelect={(m) => setSelectedEntry((cur) => (cur?.name === m.name ? null : m))}
+                onSelect={(m) =>
+                  setSelectedEntry((cur) => (cur?.name === m.name ? null : m))
+                }
               />
               {metrics.length >= 100 && (
-                <div className="placeholder" style={{ margin: 10, fontSize: 12 }}>
-                  Showing the first 100 metrics — refine your search to narrow the list.
+                <div
+                  className="placeholder"
+                  style={{ margin: 10, fontSize: 12 }}
+                >
+                  Showing the first 100 metrics — refine your search to narrow
+                  the list.
                 </div>
               )}
             </>
@@ -412,7 +613,10 @@ export default function MetricsExplorer({
             chips={chips}
             window={resp.window}
             range={windowVal}
-            breached={selectedEntry.threshold != null && selectedEntry.value > selectedEntry.threshold}
+            breached={
+              selectedEntry.threshold != null &&
+              selectedEntry.value > selectedEntry.threshold
+            }
             threshold={selectedEntry.threshold}
             onClose={() => setSelectedEntry(null)}
             onToggleFilter={toggleEqFilter}
@@ -430,7 +634,12 @@ export default function MetricsExplorer({
         )}
       </div>
 
-      {trimOpen && <TrimIngestionPanel window={windowVal} onClose={() => setTrimOpen(false)} />}
+      {trimOpen && (
+        <TrimIngestionPanel
+          window={windowVal}
+          onClose={() => setTrimOpen(false)}
+        />
+      )}
     </div>
   );
 }

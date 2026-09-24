@@ -35,9 +35,14 @@ export default function Systems() {
   const [searchParams, setSearchParams] = useSearchParams();
   const statusFilter = searchParams.get("status") ?? "";
   const clearStatus = () => {
-    const p = new URLSearchParams(searchParams);
-    p.delete("status");
-    setSearchParams(p, { replace: true });
+    setSearchParams(
+      (prev) => {
+        const p = new URLSearchParams(prev);
+        p.delete("status");
+        return p;
+      },
+      { replace: true },
+    );
   };
 
   const refresh = useCallback(() => {
@@ -51,7 +56,10 @@ export default function Systems() {
   }, []);
   useEffect(() => {
     refresh();
-    api.listSystemTypes().then((r) => setTypes(r.system_types ?? [])).catch(() => {});
+    api
+      .listSystemTypes()
+      .then((r) => setTypes(r.system_types ?? []))
+      .catch(() => {});
   }, [refresh]);
 
   const typeLabel = useMemo(() => {
@@ -68,7 +76,9 @@ export default function Systems() {
     if (!statusFilter) return systems;
     return systems.filter((s) => {
       const st = s.status ?? "";
-      return statusFilter === "unhealthy" ? st === "unhealthy" || st === "errors" : st === statusFilter;
+      return statusFilter === "unhealthy"
+        ? st === "unhealthy" || st === "errors"
+        : st === statusFilter;
     });
   }, [systems, statusFilter]);
 
@@ -111,13 +121,17 @@ export default function Systems() {
         <div>
           <h1 className="page__title">Systems</h1>
           <p className="page__subtitle">
-            Infrastructure you monitor through {productName} — a system (RabbitMQ, SQL Server, a Kafka estate, …) spans
-            the services that make it up. Open one to manage its members; its health rolls up from theirs.
+            Infrastructure you monitor through {productName} — a system
+            (RabbitMQ, SQL Server, a Kafka estate, …) spans the services that
+            make it up. Open one to manage its members; its health rolls up from
+            theirs.
           </p>
         </div>
         <div className="toolbar">
           {canWrite && (
-            <button className="btn primary" onClick={create} disabled={busy}>New system</button>
+            <button className="btn primary" onClick={create} disabled={busy}>
+              New system
+            </button>
           )}
           <button className="btn" onClick={refresh} disabled={loading}>
             {loading ? "Loading…" : "Refresh"}
@@ -126,37 +140,68 @@ export default function Systems() {
       </div>
 
       <div className="tiles">
-        <Tile label="Systems" value={formatNumber(systems.length)} tone="neutral" />
-        <Tile label="Member services" value={formatNumber(totalMembers)} tone="neutral" />
+        <Tile
+          label="Systems"
+          value={formatNumber(systems.length)}
+          tone="neutral"
+        />
+        <Tile
+          label="Member services"
+          value={formatNumber(totalMembers)}
+          tone="neutral"
+        />
       </div>
 
       {statusFilter && (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "0 0 12px" }}>
-          <span className="chip">Showing {statusFilter === "unhealthy" ? "unhealthy" : statusFilter} systems</span>
-          <button type="button" className="btn btn--link" onClick={clearStatus}>Clear filter</button>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            margin: "0 0 12px",
+          }}
+        >
+          <span className="chip">
+            Showing {statusFilter === "unhealthy" ? "unhealthy" : statusFilter}{" "}
+            systems
+          </span>
+          <button type="button" className="btn btn--link" onClick={clearStatus}>
+            Clear filter
+          </button>
         </div>
       )}
 
-      {error && <div className="alert alert--error">Failed to load systems: {error}</div>}
+      {error && (
+        <div className="alert alert--error">
+          Failed to load systems: {error}
+        </div>
+      )}
 
       {!error && systems.length === 0 && !loading && (
         <div className="placeholder">
-          No systems yet. Create one above, or open a service (e.g. your RabbitMQ or SQL Server exporter) and use{" "}
+          No systems yet. Create one above, or open a service (e.g. your
+          RabbitMQ or SQL Server exporter) and use{" "}
           <strong>Mark as system</strong> on its page.
         </div>
       )}
 
       {systems.length > 0 && visibleSystems.length === 0 && statusFilter && (
         <div className="placeholder">
-          No systems are currently {statusFilter === "unhealthy" ? "unhealthy" : statusFilter}.{" "}
-          <button type="button" className="btn btn--link" onClick={clearStatus}>Show all</button>
+          No systems are currently{" "}
+          {statusFilter === "unhealthy" ? "unhealthy" : statusFilter}.{" "}
+          <button type="button" className="btn btn--link" onClick={clearStatus}>
+            Show all
+          </button>
         </div>
       )}
 
       {visibleSystems.length > 0 && (
         <div className="card">
           <div className="mtbl">
-            <div className="mtbl-head" style={{ gridTemplateColumns: "2fr 1fr 140px 100px" }}>
+            <div
+              className="mtbl-head"
+              style={{ gridTemplateColumns: "2fr 1fr 140px 100px" }}
+            >
               <div>Name</div>
               <div>Type</div>
               <div>Health</div>
@@ -168,11 +213,24 @@ export default function Systems() {
                   key={s.id}
                   to={`/systems/${s.id}`}
                   className="mtbl-row"
-                  style={{ display: "grid", gridTemplateColumns: "2fr 1fr 140px 100px", alignItems: "center", textDecoration: "none", color: "inherit" }}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "2fr 1fr 140px 100px",
+                    alignItems: "center",
+                    textDecoration: "none",
+                    color: "inherit",
+                  }}
                 >
                   <div style={{ fontWeight: 600 }}>{s.name}</div>
-                  <div><span className="badge-brand">{typeLabel(s.type_key)}</span></div>
-                  <div><StatusPip kind={pipForStatus(s.status)} label={s.status || "—"} /></div>
+                  <div>
+                    <span className="badge-brand">{typeLabel(s.type_key)}</span>
+                  </div>
+                  <div>
+                    <StatusPip
+                      kind={pipForStatus(s.status)}
+                      label={s.status || "—"}
+                    />
+                  </div>
                   <div className="th-right">{formatNumber(s.member_count)}</div>
                 </Link>
               ))}
@@ -184,7 +242,14 @@ export default function Systems() {
       {creating && (
         <EditDrawer title="New system" onClose={() => setCreating(false)}>
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 13 }}>
+            <label
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 4,
+                fontSize: 13,
+              }}
+            >
               Name
               <input
                 className="svc-input"
@@ -197,17 +262,36 @@ export default function Systems() {
                 }}
               />
             </label>
-            <SystemTypePicker label="Type" value={newTypeKey} onChange={setNewTypeKey} />
+            <SystemTypePicker
+              label="Type"
+              value={newTypeKey}
+              onChange={setNewTypeKey}
+            />
             <span className="muted" style={{ fontSize: 11.5 }}>
-              The type decides which starter checks and monitoring template this system can apply. It can be
-              changed later, and left unset if you are not sure yet.
+              The type decides which starter checks and monitoring template this
+              system can apply. It can be changed later, and left unset if you
+              are not sure yet.
             </span>
-            {createError && <div className="alert alert--error" style={{ margin: 0 }}>{createError}</div>}
+            {createError && (
+              <div className="alert alert--error" style={{ margin: 0 }}>
+                {createError}
+              </div>
+            )}
             <div style={{ display: "flex", gap: 8 }}>
-              <button className="btn primary" type="button" onClick={submitCreate} disabled={busy}>
+              <button
+                className="btn primary"
+                type="button"
+                onClick={submitCreate}
+                disabled={busy}
+              >
                 {busy ? "Creating…" : "Create system"}
               </button>
-              <button className="btn" type="button" onClick={() => setCreating(false)} disabled={busy}>
+              <button
+                className="btn"
+                type="button"
+                onClick={() => setCreating(false)}
+                disabled={busy}
+              >
                 Cancel
               </button>
             </div>
@@ -218,7 +302,15 @@ export default function Systems() {
   );
 }
 
-function Tile({ label, value, tone }: { label: string; value: string; tone: "ok" | "errors" | "neutral" }) {
+function Tile({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone: "ok" | "errors" | "neutral";
+}) {
   return (
     <div className={`tile tile--${tone}`}>
       <div className="tile__value">{value}</div>
