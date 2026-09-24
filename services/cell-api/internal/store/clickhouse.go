@@ -1036,13 +1036,19 @@ func failedFilterClause(onlyFailed bool) string {
 }
 
 // MessageCursor is a keyset position for paging messages: the
-// (latest_match, TraceId) of the last row of a page. LatestMatchNano is
-// the latest matching span's timestamp in unix nanoseconds (integer
-// comparison avoids a DateTime64 precision round-trip); TraceId is the
-// unique tiebreaker. The next page is everything ordered strictly after.
+// (first_match, TraceId) of the last row of a page. FirstMatchNano is
+// when the message STARTED within the searched slice, in unix
+// nanoseconds (integer comparison avoids a DateTime64 precision
+// round-trip); TraceId is the unique tiebreaker. The next page is
+// everything ordered strictly after.
+//
+// It follows the sort key, which is the first matching span. It used to
+// be the LAST one while the column the reader sees showed the first: a
+// list ordered by a number it does not display reads as a broken sort,
+// and was one.
 type MessageCursor struct {
-	LatestMatchNano int64
-	TraceID         string
+	FirstMatchNano int64
+	TraceID        string
 }
 
 // MessagesSearchParams is the parameter bag for SearchMessages — the
@@ -1219,8 +1225,8 @@ func buildMessagesSearchSQL(p MessagesSearchParams) (string, []any) {
 		havingConds = append(havingConds, "has_error = 0")
 	}
 	if p.Before != nil {
-		havingConds = append(havingConds, "(toUnixTimestamp64Nano(latest_match) < ? OR (toUnixTimestamp64Nano(latest_match) = ? AND TraceId < ?))")
-		cursorArgs = append(cursorArgs, p.Before.LatestMatchNano, p.Before.LatestMatchNano, p.Before.TraceID)
+		havingConds = append(havingConds, "(toUnixTimestamp64Nano(first_match) < ? OR (toUnixTimestamp64Nano(first_match) = ? AND TraceId < ?))")
+		cursorArgs = append(cursorArgs, p.Before.FirstMatchNano, p.Before.FirstMatchNano, p.Before.TraceID)
 	}
 	having := ""
 	if len(havingConds) > 0 {
@@ -1242,14 +1248,20 @@ func buildMessagesSearchSQL(p MessagesSearchParams) (string, []any) {
 
 	sql := fmt.Sprintf(`
 		WITH candidates AS (
+		    -- first_match is when this message started in the slice being
+		    -- searched: the earliest span that satisfied the query, inside
+		    -- the window and the services the reader may see. It is both
+		    -- the sort key and the time the row shows, because a list
+		    -- ordered by one number while displaying another reads as a
+		    -- broken sort, and was one.
 		    SELECT TraceId,
-		           max(Timestamp)                    AS latest_match,
+		           min(Timestamp)                    AS first_match,
 		           countIf(StatusCode = 'Error') > 0 AS has_error
 		    FROM traces
 		    WHERE %s
 		    GROUP BY TraceId
 		    %s
-		    ORDER BY latest_match DESC, TraceId DESC
+		    ORDER BY first_match DESC, TraceId DESC
 		    LIMIT ?
 		),
 		matching AS (
@@ -1265,7 +1277,7 @@ func buildMessagesSearchSQL(p MessagesSearchParams) (string, []any) {
 		),
 		summary AS (
 		    SELECT TraceId,
-		           min(Timestamp)                                                                                     AS trace_start,
+		           min(Timestamp)                                                                                     AS span_start,
 		           (max(toUnixTimestamp64Nano(Timestamp) + DurationNs) - min(toUnixTimestamp64Nano(Timestamp))) / 1000000 AS duration_ms,
 		           toUInt64(count())                                                                                  AS total_spans,
 		           toUInt64(length(arrayDistinct(groupArray(ServiceName))))                                           AS service_count%s
@@ -1275,7 +1287,7 @@ func buildMessagesSearchSQL(p MessagesSearchParams) (string, []any) {
 		)
 		SELECT
 		    s.TraceId,
-		    s.trace_start,
+		    c.first_match AS trace_start,
 		    s.duration_ms,
 		    c.has_error,
 		    s.total_spans,
@@ -1285,11 +1297,11 @@ func buildMessagesSearchSQL(p MessagesSearchParams) (string, []any) {
 		    m.matched_resource_attrs,
 		    m.matched_span_attrs,
 		    m.matched_span_ids,
-		    c.latest_match%s
+		    c.first_match%s
 		FROM summary AS s
 		INNER JOIN matching AS m ON s.TraceId = m.TraceId
 		INNER JOIN candidates AS c ON s.TraceId = c.TraceId
-		ORDER BY c.latest_match DESC, c.TraceId DESC
+		ORDER BY c.first_match DESC, c.TraceId DESC
 	`, candidateWhere, having, matchedSpanIDsExpr(len(p.Clauses) > 0), where, promotedSelects, promotedOuter)
 
 	return sql, args
@@ -1317,7 +1329,7 @@ func (s *Store) SearchMessages(ctx context.Context, p MessagesSearchParams) ([]S
 			&r.MatchedService, &r.MatchedSpanName,
 			&r.MatchedResourceAttrs, &r.MatchedSpanAttrs,
 			&r.MatchedSpanIDs,
-			&r.LatestMatch,
+			&r.FirstMatch,
 		}
 		for i := range promoted {
 			dest = append(dest, &promoted[i])
@@ -1606,10 +1618,13 @@ type SearchTraceRow struct {
 	// Capped (see matchedSpanIDsExpr): a caller that wants every span in
 	// a trace should fetch the trace.
 	MatchedSpanIDs []string
-	// LatestMatch is the timestamp of the most recent matching span,
-	// used as the keyset cursor key by SearchMessages. Unset (zero) by
-	// SearchTraces, which doesn't paginate.
-	LatestMatch time.Time
+	// FirstMatch is when the message started within the slice that was
+	// searched: the earliest span satisfying the query, in the window
+	// and in the services the reader may see. It is the keyset cursor
+	// key AND the time SearchMessages returns as TraceStart, so the
+	// order and the column agree. Unset (zero) by SearchTraces, which
+	// does not paginate.
+	FirstMatch time.Time
 	// Promoted holds the values of MessagesSearchParams.PromotedKeys, in
 	// the same order, one entry per requested key. An entry is the empty
 	// string when no span in the trace carried that key — a blank cell,

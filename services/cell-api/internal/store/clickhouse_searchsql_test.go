@@ -37,7 +37,9 @@ func TestCandidatePassCarriesNoAttributeMaps(t *testing.T) {
 			t.Errorf("the candidate pass aggregates %s; that state is held for every trace in the window", forbidden)
 		}
 	}
-	for _, want := range []string{"max(Timestamp)", "countIf(StatusCode = 'Error')", "LIMIT ?"} {
+	// min, not max: the message's time is when it started in this slice
+	// (see TestMessagesAreOrderedByTheTimeTheyShow).
+	for _, want := range []string{"min(Timestamp)", "countIf(StatusCode = 'Error')", "LIMIT ?"} {
 		if !strings.Contains(cand, want) {
 			t.Errorf("candidate pass is missing %q:\n%s", want, cand)
 		}
@@ -93,14 +95,14 @@ func TestPredicatesApplyToBothPasses(t *testing.T) {
 func TestCursorAndStatusFilterTheCandidatePass(t *testing.T) {
 	p := baseParams()
 	p.OnlyFailed = true
-	p.Before = &MessageCursor{LatestMatchNano: 42, TraceID: "abc"}
+	p.Before = &MessageCursor{FirstMatchNano: 42, TraceID: "abc"}
 	sql, args := buildMessagesSearchSQL(p)
 
 	cand := between(t, sql, "WITH candidates AS (", "matching AS (")
 	if !strings.Contains(cand, "HAVING has_error = 1") {
 		t.Errorf("status filter is not in the candidate HAVING:\n%s", cand)
 	}
-	if !strings.Contains(cand, "toUnixTimestamp64Nano(latest_match) < ?") {
+	if !strings.Contains(cand, "toUnixTimestamp64Nano(first_match) < ?") {
 		t.Errorf("cursor is not in the candidate HAVING:\n%s", cand)
 	}
 	// from, to | cursor x3 | limit | from, to
@@ -156,7 +158,7 @@ func TestPromotedBindsComeLast(t *testing.T) {
 // them, so the row's pill cannot disagree with the filter that selected it.
 func TestOuterSelectReadsStatusFromTheCandidatePass(t *testing.T) {
 	sql, _ := buildMessagesSearchSQL(baseParams())
-	for _, want := range []string{"c.has_error", "c.latest_match", "ORDER BY c.latest_match DESC, c.TraceId DESC"} {
+	for _, want := range []string{"c.has_error", "c.first_match", "ORDER BY c.first_match DESC, c.TraceId DESC"} {
 		if !strings.Contains(sql, want) {
 			t.Errorf("outer select is missing %q", want)
 		}
@@ -174,4 +176,37 @@ func between(t *testing.T, s, from, to string) string {
 		t.Fatalf("marker %q not found after %q", to, from)
 	}
 	return s[i : i+j]
+}
+
+// Reported: the messages list looked out of order. It was sorted by the
+// LAST matching span while the column showed the FIRST span of the
+// trace, so a message that started earlier and ran longer sat above one
+// that started later - the list was ordered by a number it did not
+// display.
+func TestMessagesAreOrderedByTheTimeTheyShow(t *testing.T) {
+	sql, _ := buildMessagesSearchSQL(baseParams())
+
+	if strings.Contains(sql, "latest_match") {
+		t.Errorf("the last matching span is still in the query:\n%s", sql)
+	}
+	cand := between(t, sql, "WITH candidates AS (", "matching AS (")
+	if !strings.Contains(cand, "min(Timestamp)") || !strings.Contains(cand, "AS first_match") {
+		t.Errorf("the candidate pass does not compute the first matching span:\n%s", cand)
+	}
+	// The column and the order are one value, selected once.
+	if !strings.Contains(sql, "c.first_match AS trace_start") {
+		t.Errorf("the row's time is not the sort key:\n%s", sql)
+	}
+	if !strings.Contains(sql, "ORDER BY first_match DESC, TraceId DESC") {
+		t.Errorf("the candidate pass orders by something else:\n%s", cand)
+	}
+	if !strings.Contains(sql, "ORDER BY c.first_match DESC, c.TraceId DESC") {
+		t.Errorf("the outer query orders by something else:\n%s", sql)
+	}
+	// The whole-trace minimum is still needed for the duration, and must
+	// not be mistaken for the message's time again.
+	sum := between(t, sql, "summary AS (", "SELECT\n")
+	if !strings.Contains(sum, "AS span_start") {
+		t.Errorf("the summary's own minimum lost its name:\n%s", sum)
+	}
 }

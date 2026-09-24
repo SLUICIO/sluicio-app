@@ -798,7 +798,7 @@ func parseMessageCursor(c *messageviews.SearchCursor) *store.MessageCursor {
 	if err != nil {
 		return nil
 	}
-	return &store.MessageCursor{LatestMatchNano: n, TraceID: id}
+	return &store.MessageCursor{FirstMatchNano: n, TraceID: id}
 }
 
 // nextMessageCursor builds the cursor for the following page from the
@@ -809,7 +809,7 @@ func nextMessageCursor(rows []store.SearchTraceRow, limit int) *MessageCursorJSO
 	}
 	last := rows[len(rows)-1]
 	return &MessageCursorJSON{
-		TS: strconv.FormatInt(last.LatestMatch.UnixNano(), 10),
+		TS: strconv.FormatInt(last.FirstMatch.UnixNano(), 10),
 		ID: last.TraceID,
 	}
 }
