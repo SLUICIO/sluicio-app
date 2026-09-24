@@ -270,6 +270,57 @@ var monitoringTemplates = []monitoringTemplate{
 		},
 	},
 	{
+		// Grounded in the OTel Collector's k8s_cluster receiver (cluster
+		// objects, from the Kubernetes API) and kubelet_stats receiver (node
+		// and volume resource usage, from the kubelet). Metric names and
+		// their enabled-by-default state verified against both receivers'
+		// documentation.
+		//
+		// # One type for every distribution
+		//
+		// k0s, k3s, RKE2, MicroK8s, vanilla kubeadm, EKS, AKS, GKE and
+		// OpenShift are all conformant Kubernetes, and every check below
+		// reads the Kubernetes API or the kubelet - interfaces the
+		// conformance tests guarantee. So they need no separate types, and
+		// adding one per distribution would be a dozen identical templates
+		// to keep in step.
+		//
+		// What DOES differ between them is the control plane, which is
+		// exactly why nothing here touches it. etcd, apiserver and scheduler
+		// metrics are absent on a managed cluster (the provider runs the
+		// control plane and does not expose them) and absent again on k3s
+		// backed by kine, which replaces etcd with SQLite or a SQL database.
+		// A check on etcd_* would be permanently silent on most clusters
+		// while looking armed, which is the worst way for a check to be
+		// wrong.
+		//
+		// # Detection
+		//
+		// Only the dotted k8s.* namespace, which is what the two receivers
+		// above emit. kube-state-metrics scraped through the prometheus
+		// receiver arrives as kube_* with entirely different metric names,
+		// so detecting it here would name the kind correctly and then apply
+		// a set of checks that can never fire. An org on that path is better
+		// served by a custom type carrying its own names.
+		//
+		// Note k8s.node.condition is disabled by default, but the receiver
+		// still emits k8s.node.condition_ready: node_conditions_to_report
+		// defaults to ["Ready"] and each reported condition becomes its own
+		// metric. Values are 1 true, 0 false, -1 unknown, so "< 1" catches a
+		// node that is NotReady and one the control plane has lost track of.
+		Kind: "kubernetes", Label: "Kubernetes", System: true,
+		DetectPrefixes: []string{"k8s."},
+		Checks: []systemCheck{
+			{Name: "Node not ready", Description: "A node is NotReady or unreachable - its pods are being evicted or are already gone. Needs the k8s_cluster receiver.", Metric: "k8s.node.condition_ready", Agg: alerting.AggMin, Op: alerting.OpLT, Threshold: 1, SplitBy: "k8s.node.name", Severity: alerting.SeverityCritical},
+			{Name: "Deployment has no available replicas", Description: "Every replica of a deployment is unavailable - that workload is down, not degraded. Raise the threshold to your replica count to catch partial loss too.", Metric: "k8s.deployment.available", Agg: alerting.AggMin, Op: alerting.OpLT, Threshold: 1, SplitBy: "k8s.deployment.name", Severity: alerting.SeverityCritical, Unit: "replicas"},
+			{Name: "Container restart loop", Description: "Containers restarted repeatedly in the window - CrashLoopBackOff, an OOM kill, or a failing probe. Counts restarts that happened, not the lifetime total.", Metric: "k8s.container.restarts", Agg: alerting.AggIncrease, Op: alerting.OpGT, Threshold: 3, SplitBy: "k8s.container.name", Severity: alerting.SeverityWarning, Unit: "restarts", Display: true},
+			{Name: "Pod failed", Description: "A pod is in Failed or Unknown phase. Phase is an enum (1 Pending, 2 Running, 3 Succeeded, 4 Failed, 5 Unknown), so the threshold is the enum value, not a count.", Metric: "k8s.pod.phase", Agg: alerting.AggMax, Op: alerting.OpGTE, Threshold: 4, SplitBy: "k8s.pod.name", Severity: alerting.SeverityWarning},
+			{Name: "Job failing", Description: "A Job has failed pods. Worth watching on a cluster that runs scheduled integration work - a nightly export that dies leaves nothing else behind to notice it.", Metric: "k8s.job.failed_pods", Agg: alerting.AggMax, Op: alerting.OpGT, Threshold: 0, SplitBy: "k8s.job.name", Severity: alerting.SeverityWarning, Unit: "pods", Display: true},
+			{Name: "DaemonSet not running anywhere", Description: "A DaemonSet is ready on no node at all. Often the log or metric agent itself, which is how a cluster goes quiet without anything reporting that it did.", Metric: "k8s.daemonset.ready_nodes", Agg: alerting.AggMin, Op: alerting.OpLT, Threshold: 1, SplitBy: "k8s.daemonset.name", Severity: alerting.SeverityWarning, Unit: "nodes"},
+			{Name: "Node disk nearly full", Description: "Less than 2 GiB free on a node filesystem - the kubelet starts evicting pods under disk pressure. Tune to your node size. Needs the kubelet_stats receiver.", Metric: "k8s.node.filesystem.available", Agg: alerting.AggMin, Op: alerting.OpLT, Threshold: 2147483648, SplitBy: "k8s.node.name", Severity: alerting.SeverityWarning, Unit: "bytes", Display: true},
+		},
+	},
+	{
 		// Best-effort — nothing was emitting otelcol_* yet. Tune thresholds
 		// after applying. Gauges use max (peak); dropped/failed spans use the
 		// counter delta (increase).

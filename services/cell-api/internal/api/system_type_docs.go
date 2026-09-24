@@ -44,6 +44,7 @@ var systemTypeDocsPages = map[string]bool{
 	"otel-collector":   true,
 	"dotnet-service":   true,
 	"paperless-ngx":    true,
+	"kubernetes":       true,
 }
 
 // docsURLForSystemType returns the reference page for a type key, or ""

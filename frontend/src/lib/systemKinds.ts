@@ -23,6 +23,10 @@ export const SYSTEM_KINDS: { value: string; label: string }[] = [
   { value: "mongodb", label: "MongoDB" },
   { value: "elasticsearch", label: "Elasticsearch" },
   { value: "paperless-ngx", label: "Paperless-ngx" },
+  // One kind for every conformant distribution - k0s, k3s, RKE2, MicroK8s,
+  // kubeadm, EKS, AKS, GKE, OpenShift. The checks read the Kubernetes API
+  // and the kubelet, which all of them expose identically.
+  { value: "kubernetes", label: "Kubernetes" },
   { value: "other", label: "Other" },
 ];
 
@@ -47,6 +51,7 @@ export const TEMPLATE_KINDS = new Set([
   "debezium",
   "wso2-apim",
   "paperless-ngx",
+  "kubernetes",
 ]);
 
 export function hasSystemTemplate(kind: string | undefined): boolean {
