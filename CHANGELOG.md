@@ -3,8 +3,16 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.154 — 2026-09-24
+
+- fix(messages): sort the list by the time it shows (5322412)
+- fix(traces): order the waterfall by the tree, and indent it (f70171d)
+- feat(integrations): rebuild the rule editor, and say what a rule matches (3266417)
+- fix(flow): wrap a service name instead of cutting it (0ad3ec7)
+
 ## v0.11.153 — 2026-09-23
 
+- release v0.11.153 — refresh internal changelog (85f2b6f)
 - perf(integrations): the list renders before its numbers are in (40ed4ef)
 - perf(integrations): stop asking a question whose answer was discarded (259dd4a)
 
