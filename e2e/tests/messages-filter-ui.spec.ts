@@ -274,3 +274,28 @@ test("error-type list + integration↔service cross-narrowing on /search", async
     await admin.delete(`/api/v1/integrations/${b}`);
   }
 });
+
+// Reported: "filters reset when you refresh the page". Add a filter with
+// an operator other than equals, reload - or duplicate the tab, or open
+// the link you copied - and every operator is equals again. The URL is
+// this page's state, and it carried a third of it.
+//
+// Driven through a real reload rather than only round-tripping the
+// encoder in a unit test, because the thing that broke is the handover
+// between two halves of the page: what the editor writes and what the
+// page reads back on load.
+test("a filter survives a reload with its operator", async ({ page }) => {
+  await logIn(page);
+  await page.goto("/search?q=order.id~contains:ORD");
+
+  const opPill = page.getByRole("button", { name: /contains/ }).first();
+  await expect(opPill, "the link did not restore the operator").toBeVisible({ timeout: 15_000 });
+
+  // And again from the page's own writing: reload what the editor put in
+  // the URL, not only what this test typed into it.
+  await page.reload();
+  await expect(page.getByRole("button", { name: /contains/ }).first()).toBeVisible({
+    timeout: 15_000,
+  });
+  await expect(page.getByText("ORD", { exact: false }).first()).toBeVisible();
+});
