@@ -14,6 +14,68 @@ interface Hop {
   span: SpanSummary;
   startMs: number;
   durationMs: number;
+  // How deep this span sits under its parent, for the indent on the
+  // label. The bar is not indented: it belongs to the time ruler, and
+  // moving it would say something false about when the work happened.
+  depth: number;
+}
+
+// How far one level of nesting shifts the label, and how many levels are
+// drawn before the indent stops growing. Past six the label has nowhere
+// left to go, and a trace that deep is better read in the Steps view.
+const INDENT_PX = 14;
+const MAX_INDENT_DEPTH = 6;
+
+/**
+ * The spans in tree order: a parent, then everything under it, siblings
+ * by start time.
+ *
+ * Sorting purely by start time is what a waterfall usually does, and it
+ * falls apart exactly where somebody needs it most: twenty spans that
+ * begin in the same millisecond come back in an order the database
+ * chose, so children of different parents interleave and the shape of
+ * the trace is gone. Depth-first keeps each subtree together, and the
+ * indent then means something.
+ *
+ * A span whose parent is not in this trace is a root here. That is the
+ * normal case for a trace fetched in part, and for the first span of a
+ * message that continues another one.
+ */
+export function orderSpans(spans: SpanSummary[]): { span: SpanSummary; depth: number }[] {
+  const byStart = (a: SpanSummary, b: SpanSummary) =>
+    new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime();
+  const present = new Set(spans.map((s) => s.span_id));
+  const children = new Map<string, SpanSummary[]>();
+  const roots: SpanSummary[] = [];
+  for (const s of spans) {
+    const parent = s.parent_span_id;
+    if (parent && present.has(parent) && parent !== s.span_id) {
+      const arr = children.get(parent) ?? [];
+      arr.push(s);
+      children.set(parent, arr);
+    } else {
+      roots.push(s);
+    }
+  }
+  const out: { span: SpanSummary; depth: number }[] = [];
+  // A parent link that loops would otherwise recurse forever. Malformed
+  // telemetry is somebody else's bug and must not be ours to crash on.
+  const seen = new Set<string>();
+  const walk = (s: SpanSummary, depth: number) => {
+    if (seen.has(s.span_id)) return;
+    seen.add(s.span_id);
+    out.push({ span: s, depth });
+    for (const child of (children.get(s.span_id) ?? []).sort(byStart)) {
+      walk(child, depth + 1);
+    }
+  };
+  for (const r of roots.sort(byStart)) walk(r, 0);
+  // Anything a cycle kept out still has to be drawn: a span missing from
+  // the list is worse than one at the wrong depth.
+  for (const s of spans) {
+    if (!seen.has(s.span_id)) out.push({ span: s, depth: 0 });
+  }
+  return out;
 }
 
 interface Props {
@@ -45,14 +107,12 @@ function hops(spans: SpanSummary[]): { hops: Hop[]; total: number; t0: number } 
     if (t + s.duration_ms > tn) tn = t + s.duration_ms;
   }
   if (!isFinite(t0) || !isFinite(tn) || tn <= t0) return { hops: [], total: 1, t0: 0 };
-  const list: Hop[] = spans
-    .slice()
-    .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
-    .map((s) => ({
-      span: s,
-      startMs: new Date(s.timestamp).getTime() - t0,
-      durationMs: s.duration_ms,
-    }));
+  const list: Hop[] = orderSpans(spans).map(({ span, depth }) => ({
+    span,
+    startMs: new Date(span.timestamp).getTime() - t0,
+    durationMs: span.duration_ms,
+    depth,
+  }));
   return { hops: list, total: tn - t0, t0 };
 }
 
@@ -171,7 +231,23 @@ export default function TraceWaterfall({
               boxShadow: isMatch ? "inset 3px 0 0 0 var(--primary)" : undefined,
             }}
           >
-            <div className="flex min-w-0 items-center gap-2">
+            <div
+              className="flex min-w-0 items-center gap-2"
+              style={{ paddingLeft: Math.min(h.depth, MAX_INDENT_DEPTH) * INDENT_PX }}
+            >
+              {h.depth > 0 && (
+                // A quiet mark of descent, so the eye can find the
+                // parent without counting pixels. Not a tree with
+                // elbows: twenty of those in a column is a diagram
+                // competing with the bars, which are the point.
+                <span
+                  aria-hidden="true"
+                  className="text-muted"
+                  style={{ flex: "none", fontSize: 11, marginLeft: -10, opacity: 0.7 }}
+                >
+                  └
+                </span>
+              )}
               <StatusPip kind={isError ? "err" : "ok"} />
               <div className="min-w-0">
                 <div className="flex min-w-0 items-center gap-1.5">
