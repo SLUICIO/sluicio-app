@@ -96,14 +96,25 @@ export default function ResourceSharesCard({
     }
   };
 
-  const noun = kind === "integrations" ? "integration" : "system";
   return (
     <div className="card" style={{ marginBottom: 16, padding: "12px 16px" }}>
       <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Sharing</div>
       <p className="muted" style={{ fontSize: 12, margin: "0 0 10px", lineHeight: 1.5 }}>
-        Share this {noun} with a member or group — view only. They'll see it
-        and its services' health, traces, logs and metrics; they can't change
-        anything. Recipients are notified.
+        {kind === "integrations" ? (
+          <>
+            Share this integration with a member or group - view only. They'll
+            see this integration and its messages, and nothing else on the
+            services it runs on: not the services themselves, not their logs or
+            metrics, and not the other integrations sharing them. They can't
+            change anything. Recipients are notified.
+          </>
+        ) : (
+          <>
+            Share this system with a member or group - view only. They'll see it
+            and its services' health, traces, logs and metrics; they can't change
+            anything. Recipients are notified.
+          </>
+        )}
       </p>
       {error && <div className="alert alert--error" style={{ marginBottom: 8 }}>{error}</div>}
 
@@ -118,6 +129,18 @@ export default function ResourceSharesCard({
                   <span style={{ flex: 1 }}>
                     {sh.grantee_name}
                     <span className="muted" style={{ fontSize: 11, marginLeft: 6 }}>{sh.grantee_kind}</span>
+                    {/* A share made before the grant narrowed still carries the
+                        member services. Saying so is the only way to tell it
+                        apart from a new one, which looks identical. */}
+                    {sh.grant_services && kind === "integrations" && (
+                      <span
+                        className="muted"
+                        style={{ fontSize: 11, marginLeft: 6 }}
+                        title="Made before shares narrowed to the integration alone. Revoke and share again to grant only this integration."
+                      >
+                        · also grants the services
+                      </span>
+                    )}
                   </span>
                   <button type="button" className="btn btn--sm" onClick={() => revoke(sh.id)} title="Revoke">
                     Revoke

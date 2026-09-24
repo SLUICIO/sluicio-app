@@ -181,13 +181,13 @@ CREATE TABLE resource_shares (
     grantee_id    UUID NOT NULL,
     created_by    UUID,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    grant_services BOOLEAN NOT NULL DEFAULT FALSE,   -- #28, migration 0096
     UNIQUE (org_id, resource_kind, resource_id, grantee_kind, grantee_id)
 );
 ```
 
-- **Viewer-only by design** — shares expand (integration → matched
-  services; system → member services) into **Visible**, never Managed.
-  No role column, so it can't creep.
+- **Viewer-only by design** — shares contribute to **Visible**, never Managed. No role column, so it can't creep.
+- **An integration share grants the integration, not its services** (#28, migration 0096). Shares originally expanded an integration to its matched service names, which is the defect #28 exists for: a service name cannot express "this flow and not its siblings", so sharing one flow on a shared runtime handed over every other flow on it. A shared integration is now recorded as an identity, exactly like a policy-granted one, and everything downstream (the object gate, the message-search predicate, the trace scope) covers shares without knowing they exist. A system share still expands to member services: a system is not narrowed by matchers, so its members ARE the resource. Rows that predate the column carry `grant_services = true` and keep their old, wider meaning; the share list marks them.
 - **Who may share/revoke:** org admin, or anyone whose Managed set covers
   the resource (you can share what you can manage). Grantee user must be
   an org member.

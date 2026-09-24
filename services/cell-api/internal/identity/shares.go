@@ -36,6 +36,11 @@ type Share struct {
 	ResourceID   uuid.UUID         `json:"resource_id"`
 	GranteeKind  string            `json:"grantee_kind"` // user | group
 	GranteeID    uuid.UUID         `json:"grantee_id"`
+	// GrantServices is true only on integration shares that predate
+	// migration 0096, which also grant the member services. Surfaced so
+	// the share list can say which grants are wider than they look
+	// rather than leaving them indistinguishable from new ones.
+	GrantServices bool `json:"grant_services"`
 	// GranteeName is the user's name/email or the group's name.
 	GranteeName string    `json:"grantee_name"`
 	CreatedBy   string    `json:"created_by,omitempty"` // sharer display name
@@ -48,6 +53,14 @@ type SharedResource struct {
 	ResourceID   uuid.UUID         `json:"resource_id"`
 	SharedBy     string            `json:"shared_by,omitempty"`
 	CreatedAt    time.Time         `json:"created_at"`
+	// GrantServices carries the same meaning as the flag on an
+	// integration policy (#28): the share also grants the integration's
+	// member services as objects in their own right. False for every
+	// share made from here on; true only on rows that predate the
+	// column, because that was their meaning when somebody made them.
+	// Meaningless for a system share, where the services ARE the
+	// resource.
+	GrantServices bool `json:"grant_services"`
 }
 
 // CreateShare inserts one grant. The grantee must already be validated as
@@ -102,7 +115,8 @@ func (s *Store) ListSharesForResource(ctx context.Context, orgID uuid.UUID, kind
 	const q = `
 		SELECT sh.id, sh.resource_kind, sh.resource_id, sh.grantee_kind, sh.grantee_id, sh.created_at,
 		       COALESCE(u.name, u.email, g.name, ''),
-		       COALESCE(cb.name, cb.email, '')
+		       COALESCE(cb.name, cb.email, ''),
+		       sh.grant_services
 		FROM resource_shares sh
 		LEFT JOIN users  u  ON sh.grantee_kind = 'user'  AND u.id = sh.grantee_id
 		LEFT JOIN groups g  ON sh.grantee_kind = 'group' AND g.id = sh.grantee_id
@@ -118,7 +132,7 @@ func (s *Store) ListSharesForResource(ctx context.Context, orgID uuid.UUID, kind
 	for rows.Next() {
 		var sh Share
 		if err := rows.Scan(&sh.ID, &sh.ResourceKind, &sh.ResourceID, &sh.GranteeKind, &sh.GranteeID,
-			&sh.CreatedAt, &sh.GranteeName, &sh.CreatedBy); err != nil {
+			&sh.CreatedAt, &sh.GranteeName, &sh.CreatedBy, &sh.GrantServices); err != nil {
 			return nil, err
 		}
 		out = append(out, sh)
@@ -140,10 +154,16 @@ const sharesGranteeCond = `
 // SharedResourcesForUser returns every resource shared with the user
 // (directly or via their groups) in the org — the resolution input.
 func (s *Store) SharedResourcesForUser(ctx context.Context, userID, orgID uuid.UUID) ([]SharedResource, error) {
+	// bool_or over the group-by: the same resource can reach one user
+	// through several shares (direct plus a group), and the widest of
+	// them is what they hold. Taking one row arbitrarily, which the old
+	// DISTINCT did, would have made the answer depend on row order once
+	// the rows stopped being identical.
 	q := `
-		SELECT DISTINCT sh.resource_kind, sh.resource_id
+		SELECT sh.resource_kind, sh.resource_id, bool_or(sh.grant_services)
 		FROM resource_shares sh
-		WHERE ` + sharesGranteeCond
+		WHERE ` + sharesGranteeCond + `
+		GROUP BY sh.resource_kind, sh.resource_id`
 	rows, err := s.pool.Query(ctx, q, userID, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("identity: shared resources: %w", err)
@@ -152,7 +172,7 @@ func (s *Store) SharedResourcesForUser(ctx context.Context, userID, orgID uuid.U
 	out := make([]SharedResource, 0)
 	for rows.Next() {
 		var sr SharedResource
-		if err := rows.Scan(&sr.ResourceKind, &sr.ResourceID); err != nil {
+		if err := rows.Scan(&sr.ResourceKind, &sr.ResourceID, &sr.GrantServices); err != nil {
 			return nil, err
 		}
 		out = append(out, sr)

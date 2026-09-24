@@ -475,8 +475,16 @@ test.describe("RBAC — scoped manage (EE)", () => {
 
 // ── Resource sharing (RBAC v2 phase 3, EE) ─────────────────────────────
 //
-// Viewer-only shares: the grantee sees the resource + services, can't
-// mutate anything, gets a digest entry, and revocation removes access.
+// Viewer-only shares: the grantee sees the resource, can't mutate
+// anything, gets a digest entry, and revocation removes access.
+//
+// "The resource" and not "the resource + services", which is what this
+// said while shares expanded an integration to its member service names
+// (#28, migration 0096). That expansion is the defect the whole issue is
+// about: a service name cannot express "this flow and not its siblings",
+// so sharing one flow on a shared runtime handed over every other flow
+// on it. A share was the easier of the two paths into it, because any
+// editor can make one without touching policies.
 
 test.describe("RBAC — resource sharing (EE)", () => {
   test.describe.configure({ mode: "serial" });
@@ -539,6 +547,52 @@ test.describe("RBAC — resource sharing (EE)", () => {
     }
     const seenAfter = (await (await viewer.request.get("/api/v1/integrations?range=30d")).json()).integrations ?? [];
     expect(seenAfter.map((i: { id: string }) => i.id)).not.toContain(target.id);
+  });
+
+  test("sharing one integration does not share its siblings on the same service", async ({ page, browser }) => {
+    const admin = page.request;
+    // Two integrations built from the SAME service, which is the shape
+    // that broke: on a Node-RED or Camel runtime every flow is carried
+    // by one service, so a grant keyed on service names cannot separate
+    // them however it is written.
+    const shared = await makeIntegrationWithMember(admin, "share-a");
+    test.skip(!shared.id, "cell has no services to build an integration from");
+    const sibling = await makeIntegrationWithMember(admin, "share-b");
+    shareCleanup = async () => {
+      await shared.cleanup();
+      await sibling.cleanup();
+    };
+
+    const mk = await admin.post(`/api/v1/integrations/${shared.id}/shares`, {
+      data: { grantee_kind: "user", grantee_email: SHARE_EMAIL },
+    });
+    expect(mk.status()).toBe(201);
+
+    const viewer = await (await browser.newContext()).newPage();
+    await logIn(viewer, SHARE_EMAIL, SHARE_PASSWORD);
+    const seen = ((await (await viewer.request.get("/api/v1/integrations?range=30d")).json()).integrations ?? [])
+      .map((i: { id: string }) => i.id);
+    expect(seen).toContain(shared.id);
+    expect(seen).not.toContain(sibling.id);
+
+    // Reading the sibling directly is the assertion that matters: a list
+    // can be filtered for display while the detail endpoint stays open.
+    expect((await viewer.request.get(`/api/v1/integrations/${sibling.id}`)).status()).toBe(404);
+
+    // And the service underneath is not granted by sharing a flow on it.
+    const svcs = (await (await viewer.request.get("/api/v1/services?range=30d")).json()).services ?? [];
+    expect(svcs.length).toBe(0);
+
+    // The navigation is a hint derived from the GATE, not from the raw
+    // policy composition - shares never appear in the latter, so reading
+    // it directly hid every entry from a reader whose only access is a
+    // share, including the one thing they can actually open.
+    const nav = await (await viewer.request.get("/api/v1/me/navigation")).json();
+    expect(nav.integrations).toBe(true);
+    expect(nav.messages).toBe(true);
+    expect(nav.services).toBe(false);
+    expect(nav.unrestricted).toBe(false);
+    await viewer.context().close();
   });
 
   test("system share parity + duplicate rejected", async ({ page }) => {

@@ -219,7 +219,13 @@ func TestResourceShares(t *testing.T) {
 		return []string{"orders-api", "rabbit-1", "other"}, nil
 	}
 
-	t.Run("direct user share grants Visible not Managed", func(t *testing.T) {
+	t.Run("direct user share grants the integration, not its service", func(t *testing.T) {
+		// This assertion used to read `..., false, "orders-api"`: a
+		// shared integration was lowered to its member service names,
+		// which is the #28 defect on the share path. The issue called
+		// shares out as needing the same treatment as policies and they
+		// did not get it, so the hole stayed open on the easier route in
+		// - any editor can share a flow, no policy screen, no admin.
 		u := f.user("share-direct@acme", identity.RoleViewer)
 		if _, err := f.store.CreateShare(f.ctx, f.org, identity.ShareIntegration, integ, "user", u, nil); err != nil {
 			t.Fatalf("create share: %v", err)
@@ -228,8 +234,68 @@ func TestResourceShares(t *testing.T) {
 		if err != nil {
 			t.Fatalf("resolve: %v", err)
 		}
-		assertVisible(t, sets.Visible, sets.VisibleAll, false, "orders-api")
+		assertVisible(t, sets.Visible, sets.VisibleAll, false)
 		assertVisible(t, sets.Managed, sets.ManagedAll, false)
+
+		// The share is not lost, it is recorded as what it is.
+		integs, wildcard, err := f.store.ResolveVisibleIntegrationsMember(f.ctx, identity.UserRef(u), f.org, expand, expandSys)
+		if err != nil || wildcard {
+			t.Fatalf("resolve integrations = %v, wildcard %v, err %v", integs, wildcard, err)
+		}
+		if _, ok := integs[integ]; !ok {
+			t.Error("a shared integration is not in the granted set, so nothing downstream can honour it")
+		}
+		if len(integs) != 1 {
+			t.Errorf("expected exactly the shared integration, got %d", len(integs))
+		}
+	})
+
+	t.Run("a sibling integration on the same service stays out of reach", func(t *testing.T) {
+		// The reproduction from #28, through a share rather than a
+		// policy. Both integrations are carried by orders-api, so a
+		// model keyed on service names cannot tell them apart.
+		sibling := f.integration("shared-orders-sibling")
+		u := f.user("share-sibling@acme", identity.RoleViewer)
+		if _, err := f.store.CreateShare(f.ctx, f.org, identity.ShareIntegration, integ, "user", u, nil); err != nil {
+			t.Fatalf("create share: %v", err)
+		}
+		integs, wildcard, err := f.store.ResolveVisibleIntegrationsMember(f.ctx, identity.UserRef(u), f.org, expand, expandSys)
+		if err != nil || wildcard {
+			t.Fatalf("resolve integrations: %v (wildcard %v)", err, wildcard)
+		}
+		if _, ok := integs[sibling]; ok {
+			t.Error("sharing one integration granted a sibling on the same service")
+		}
+	})
+
+	t.Run("a share made before the column keeps granting its services", func(t *testing.T) {
+		// Migration 0096 adds grant_services with DEFAULT TRUE for
+		// exactly this row, then flips the default to FALSE. Narrowing
+		// shares that already existed would silently remove access
+		// somebody is relying on, which is the same call #28 made for
+		// policies.
+		u := f.user("share-legacy@acme", identity.RoleViewer)
+		if _, err := f.store.CreateShare(f.ctx, f.org, identity.ShareIntegration, integ, "user", u, nil); err != nil {
+			t.Fatalf("create share: %v", err)
+		}
+		if _, err := f.pool.Exec(f.ctx,
+			`UPDATE resource_shares SET grant_services = TRUE
+			 WHERE org_id = $1 AND grantee_kind = 'user' AND grantee_id = $2`, f.org, u); err != nil {
+			t.Fatalf("age the share: %v", err)
+		}
+		sets, err := f.store.ResolveAccessSets(f.ctx, u, f.org, expand, expandSys, universe)
+		if err != nil {
+			t.Fatalf("resolve: %v", err)
+		}
+		assertVisible(t, sets.Visible, sets.VisibleAll, false, "orders-api")
+
+		integs, _, err := f.store.ResolveVisibleIntegrationsMember(f.ctx, identity.UserRef(u), f.org, expand, expandSys)
+		if err != nil {
+			t.Fatalf("resolve integrations: %v", err)
+		}
+		if _, ok := integs[integ]; !ok {
+			t.Error("grant_services=true lost the integration itself")
+		}
 	})
 
 	t.Run("group share reaches members; system parity", func(t *testing.T) {

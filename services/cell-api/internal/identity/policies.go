@@ -1089,12 +1089,15 @@ func (s *Store) ResolveVisibleServiceSetMember(ctx context.Context, ref MemberRe
 	if ref.UserID == nil {
 		return set, false, nil
 	}
-	// Shares supplement Visible (never Managed) — see §6.
+	// Shares supplement Visible (never Managed) — see §6. Only their
+	// SERVICE half lands here: a shared integration grants the
+	// integration, which is a different question, answered by
+	// ResolveVisibleIntegrationsMember.
 	shared, err := s.expandShares(ctx, *ref.UserID, orgID, expand, expandSystem)
 	if err != nil {
 		return nil, false, err
 	}
-	for n := range shared {
+	for n := range shared.Services {
 		set[n] = struct{}{}
 	}
 	return set, false, nil
@@ -1115,7 +1118,25 @@ func (s *Store) ResolveVisibleIntegrationsMember(ctx context.Context, ref Member
 	if access.AllOrg {
 		return nil, true, nil
 	}
-	return access.Integrations, false, nil
+	if ref.UserID == nil {
+		return access.Integrations, false, nil
+	}
+	// A shared integration is granted exactly like a policy-granted one
+	// from here on, so everything downstream - the object gate, the
+	// message search predicate, the trace scope - covers shares without
+	// knowing they exist.
+	shared, err := s.expandShares(ctx, *ref.UserID, orgID, expand, expandSystem)
+	if err != nil {
+		return nil, false, err
+	}
+	if len(shared.Integrations) == 0 {
+		return access.Integrations, false, nil
+	}
+	// Copy: access.Integrations may alias a memoized map.
+	out := make(map[uuid.UUID]struct{}, len(access.Integrations)+len(shared.Integrations))
+	maps.Copy(out, access.Integrations)
+	maps.Copy(out, shared.Integrations)
+	return out, false, nil
 }
 
 // ResolveAccessSets is the two-tier resolution (RBAC v2 §2): Visible from
@@ -1222,18 +1243,20 @@ func (s *Store) ResolveAccessSetsMember(ctx context.Context, ref MemberRef, orgI
 				out.VisibleBySignal[sig] = cp
 			}
 		}
-		shared := map[string]struct{}{}
+		shared := sharedReach{}
 		if ref.UserID != nil {
 			if shared, err = s.expandShares(ctx, *ref.UserID, orgID, expand, expandSystem); err != nil {
 				return AccessSets{}, err
 			}
 		}
+		// Only the service half: these sets are keyed by service name and
+		// a shared integration no longer claims to be one.
 		// Visible may alias the memoized map too — copy before adding shares.
-		vis := make(map[string]struct{}, len(out.Visible)+len(shared))
+		vis := make(map[string]struct{}, len(out.Visible)+len(shared.Services))
 		for n := range out.Visible {
 			vis[n] = struct{}{}
 		}
-		for n := range shared {
+		for n := range shared.Services {
 			vis[n] = struct{}{}
 		}
 		out.Visible = vis
@@ -1241,7 +1264,7 @@ func (s *Store) ResolveAccessSetsMember(ctx context.Context, ref MemberRef, orgI
 			if out.SignalAll[sig] {
 				continue
 			}
-			for n := range shared {
+			for n := range shared.Services {
 				out.VisibleBySignal[sig][n] = struct{}{}
 			}
 		}
@@ -1249,36 +1272,63 @@ func (s *Store) ResolveAccessSetsMember(ctx context.Context, ref MemberRef, orgI
 	return out, nil
 }
 
-// expandShares resolves the user's shared resources into service names —
-// the Visible-only supplement (RBAC v2 §6). Shares never touch Managed.
-func (s *Store) expandShares(ctx context.Context, userID, orgID uuid.UUID, expand integrationExpander, expandSystem systemExpander) (map[string]struct{}, error) {
+// expandShares resolves the user's shared resources into reach — the
+// Visible-only supplement (RBAC v2 §6). Shares never touch Managed.
+func (s *Store) expandShares(ctx context.Context, userID, orgID uuid.UUID, expand integrationExpander, expandSystem systemExpander) (sharedReach, error) {
 	shares, err := s.SharedResourcesForUser(ctx, userID, orgID)
 	if err != nil {
-		return nil, err
+		return sharedReach{}, err
 	}
-	out := map[string]struct{}{}
+	out := sharedReach{
+		Services:     map[string]struct{}{},
+		Integrations: map[uuid.UUID]struct{}{},
+	}
 	for _, sr := range shares {
 		var names []string
 		switch sr.ResourceKind {
 		case ShareIntegration:
+			// The integration itself, as itself. Lowering it to member
+			// service names is the #28 defect, and a share was the
+			// easier of the two paths to walk into it: any editor can
+			// share a flow, without the policy screen or an admin.
+			out.Integrations[sr.ResourceID] = struct{}{}
+			if !sr.GrantServices {
+				continue
+			}
 			if expand != nil {
 				if names, err = expand(ctx, orgID, sr.ResourceID); err != nil {
-					return nil, fmt.Errorf("expand shared integration: %w", err)
+					return sharedReach{}, fmt.Errorf("expand shared integration: %w", err)
 				}
 			}
 		case ShareSystem:
+			// A system is not narrowed by matchers: its members ARE the
+			// resource, so expanding it to service names loses nothing
+			// and there is no slice to mistake for the whole.
 			if expandSystem != nil {
 				id := sr.ResourceID
 				if names, err = expandSystem(ctx, orgID, "", &id); err != nil {
-					return nil, fmt.Errorf("expand shared system: %w", err)
+					return sharedReach{}, fmt.Errorf("expand shared system: %w", err)
 				}
 			}
 		}
 		for _, n := range names {
-			out[n] = struct{}{}
+			out.Services[n] = struct{}{}
 		}
 	}
 	return out, nil
+}
+
+// sharedReach is what resource shares contribute to a user's access:
+// service names for shared systems, and integration IDENTITIES for
+// shared integrations.
+//
+// Kept apart for the reason the whole of #28 exists. A service name
+// cannot express "this flow and not its siblings", so an integration
+// that arrives as a list of service names has already granted every
+// other integration on the same runtime by the time anyone asks.
+type sharedReach struct {
+	Services     map[string]struct{}
+	Integrations map[uuid.UUID]struct{}
 }
 
 // materializeAccess turns a composed EffectiveAccess into a concrete

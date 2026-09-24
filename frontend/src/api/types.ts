@@ -2804,6 +2804,10 @@ export interface ResourceShare {
   grantee_name: string;
   created_by?: string;
   created_at: string;
+  // True only on integration shares made before the grant became
+  // integration-only: those also grant the member services. New shares
+  // are always false.
+  grant_services?: boolean;
 }
 
 export type PolicyKind =

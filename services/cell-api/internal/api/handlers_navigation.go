@@ -32,7 +32,6 @@ import (
 	"time"
 
 	"github.com/sluicio/sluicio-app/pkg/httpserver"
-	"github.com/sluicio/sluicio-app/services/cell-api/internal/api/middleware"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/identity"
 )
 
@@ -55,8 +54,7 @@ type NavigationResponse struct {
 
 // getNavigation: GET /api/v1/me/navigation
 func (h *Handlers) getNavigation(w http.ResponseWriter, r *http.Request) {
-	ref, restricted := h.visibilityMember(r)
-	if !restricted {
+	if _, restricted := h.visibilityMember(r); !restricted {
 		httpserver.WriteJSON(w, http.StatusOK, NavigationResponse{
 			Integrations: true, Services: true, Systems: true, Topology: true,
 			Messages: true, Metrics: true, Logs: true, Errors: true,
@@ -65,13 +63,22 @@ func (h *Handlers) getNavigation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	access, err := h.Identity.ResolveEffectiveAccessMember(
-		r.Context(), ref, middleware.Principal(r).OrgID, h.integrationExpander, h.systemExpander)
-	if err != nil {
-		// Fail open, like every other visibility helper: a database blip
-		// must not empty somebody's navigation. The gates still hold, so
-		// the worst case is an entry that leads to an empty page.
-		h.Logger.Warn("navigation resolve failed; offering everything", "err", err)
+	// Resolved through the same helpers the GATES use, not through
+	// ResolveEffectiveAccessMember directly. Those two are not the same
+	// answer: resource shares are a supplement applied during resolution
+	// and never appear in the raw policy composition, so reading it
+	// directly showed an empty navigation to a user whose only access is
+	// a shared integration - every entry hidden, on a cell where they
+	// could open the thing that was shared with them.
+	//
+	// This is the drift the file header warns about, and it is why the
+	// hint must be derived from the gate rather than from the same
+	// inputs.
+	allowed, restricted := h.visibleServiceFilter(r)
+	if !restricted {
+		// Wildcard, or a resolver error that failed open. A database
+		// blip must not empty somebody's navigation; the gates still
+		// hold, so the worst case is an entry leading to an empty page.
 		httpserver.WriteJSON(w, http.StatusOK, NavigationResponse{
 			Integrations: true, Services: true, Systems: true, Topology: true,
 			Messages: true, Metrics: true, Logs: true, Errors: true,
@@ -79,7 +86,8 @@ func (h *Handlers) getNavigation(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	if access.AllOrg {
+	granted, integRestricted := h.grantedIntegrations(r)
+	if !integRestricted {
 		httpserver.WriteJSON(w, http.StatusOK, NavigationResponse{
 			Integrations: true, Services: true, Systems: true, Topology: true,
 			Messages: true, Metrics: true, Logs: true, Errors: true,
@@ -92,11 +100,11 @@ func (h *Handlers) getNavigation(w http.ResponseWriter, r *http.Request) {
 	// things, so they stand or fall on the service set. An
 	// integration-only grant contributes nothing here, which is the
 	// whole point of #28: the services stay invisible as objects.
-	hasServices := len(access.Services) > 0
+	hasServices := len(allowed) > 0
 
 	// Integrations needs either route in. A plain service grant implies
 	// its integrations, and an integration grant is now first-class.
-	hasIntegrations := hasServices || len(access.Integrations) > 0
+	hasIntegrations := hasServices || len(granted) > 0
 
 	signalReaches := func(sig identity.Signal) bool {
 		names, filtered := h.signalServiceFilter(r, sig)
