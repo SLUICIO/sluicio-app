@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.155 — 2026-09-24
+
+- fix(messages): a filter link comes back as the filter you sent (22bd5f1)
+
 ## v0.11.154 — 2026-09-24
 
+- release v0.11.154 — refresh internal changelog (c51abca)
 - fix(integrations): a rule can name a service that has been quiet (446b4ea)
 - release v0.11.154 — refresh internal changelog (bb4a697)
 - fix(messages): sort the list by the time it shows (5322412)
