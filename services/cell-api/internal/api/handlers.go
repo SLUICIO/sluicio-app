@@ -2241,17 +2241,132 @@ func aggregateStatus(statuses []string) string {
 	return "ok"
 }
 
+// integrationHealth is everything integrationRollupStatus folds. Callers
+// fill it from the reads they already make; the fold decides.
+type integrationHealth struct {
+	// Slice: the matchers select a slice of the members' traffic rather
+	// than all of it (integrations.SelectsSlice).
+	Slice bool
+	// Active: the integration carried traffic in the window - its slice
+	// did, for a slice, and some member did otherwise.
+	Active bool
+	// OpenSliceErrors: unacknowledged error traces in the slice over the
+	// window (store.SliceStat.OpenErrorTraces). Read only for a slice.
+	OpenSliceErrors uint64
+	// MemberFiring: the firing checks bound to the member services,
+	// folded over the members (memberFiring).
+	MemberFiring alerting.ServiceFiring
+	// IntegrationFiring: a check bound to the integration itself fires.
+	IntegrationFiring bool
+	// Delayed: open SLA breaches among the window's traces.
+	Delayed uint64
+}
+
 // integrationRollupStatus is the one place an integration's state is
-// decided: the health of the members that emitted in the window, pulled
-// to "errors" by an open SLA breach and to "unhealthy" by a firing check
-// bound to the integration or to one of its members.
+// decided.
 //
 // It exists because the same fold is needed by the list, by the detail
 // page and by the OTLP state export (issue #36), and three copies of an
 // expression like this drift. An estate tool reading a state that
 // disagrees with the page is worse than no export at all.
-func integrationRollupStatus(serviceStatuses []string, delayed uint64, firingCheck bool) string {
-	return statusWithIntegrationCheck(statusWithDelays(aggregateStatus(serviceStatuses), delayed), firingCheck)
+//
+// What decides it, strongest first:
+//
+//   - "unhealthy": a check bound to the integration fires; or a check
+//     bound to a member service fires and speaks for this integration.
+//   - "errors": an open SLA breach among the window's traces; or, for a
+//     slice, an unacknowledged error trace in the slice.
+//   - "ok" when the integration carried traffic in the window, else
+//     "quiet".
+//
+// Which member-service signals speak for an integration depends on
+// whether it owns its members or a slice of them.
+//
+// A service-only integration IS its members' traffic, so everything the
+// member says is about it, and a firing check of any kind bound to a
+// member makes it unhealthy. That is the rule as it always was. Trace
+// errors do not colour it: health is check-driven (computeServiceStatus),
+// and the member's failed-trace check is what speaks for them.
+//
+// A slice shares its members with other slices: one Airflow scheduler
+// runs every DAG, one Node-RED runtime every flow. There, a member's
+// signals split in two.
+//
+//   - Service-level, and still read off the member: a check that
+//     describes the process - heartbeat, pool, saturation, an unsplit
+//     and unfiltered metric (alerting.DescribesWholeService). A dead
+//     scheduler breaks every DAG, so each of them is unhealthy.
+//   - Span-level, and no longer read off the member: failed-trace,
+//     latency, volume, attribute and log checks, and metric checks split
+//     or filtered by attribute. They count rows that carry a flow's
+//     attributes, and fire because ONE flow failed. Propagated, the DAG
+//     that failed took every sibling down with it.
+//
+// What replaces the span-level half is the slice's own traffic: the
+// traces its matchers select - the Messages tab's selection, honouring
+// rule_match and include_descendants - read in one batched query for
+// every integration on the page (Store.SliceTraceStats). Those can only
+// say "errors", not "unhealthy": no check has judged the slice, so there
+// is no verdict to borrow, only failures to count. An operator who wants
+// the stronger state binds the check to the integration, where it is
+// evaluated over the slice and lands in IntegrationFiring.
+//
+// So the two kinds of integration read trace errors differently, and on
+// purpose: a service-only integration has a check on its own traffic to
+// read, and a slice has none unless one is bound to it.
+func integrationRollupStatus(in integrationHealth) string {
+	base := "quiet"
+	if in.Active {
+		base = "ok"
+	}
+	if in.Slice && in.OpenSliceErrors > 0 {
+		base = "errors"
+	}
+	memberSpeaks := in.MemberFiring.Any
+	if in.Slice {
+		memberSpeaks = in.MemberFiring.Process
+	}
+	return statusWithIntegrationCheck(statusWithDelays(base, in.Delayed), in.IntegrationFiring || memberSpeaks)
+}
+
+// memberFiring folds the firing checks of an integration's members into
+// the one reading integrationRollupStatus takes. A member counts whether
+// or not it emitted in the window: a firing check is current state.
+func memberFiring(members []string, scopes map[string]alerting.ServiceFiring) alerting.ServiceFiring {
+	var out alerting.ServiceFiring
+	for _, m := range members {
+		f := scopes[m]
+		out.Any = out.Any || f.Any
+		out.Process = out.Process || f.Process
+	}
+	return out
+}
+
+// integrationSlice builds the store's view of one integration's
+// selection. Groups come from the same AttrGroupsFromMatchers every
+// other integration-scoped query uses.
+func integrationSlice(id uuid.UUID, members []string, matchers []integrations.Matcher, mode integrations.RuleMatch) store.IntegrationSlice {
+	return store.IntegrationSlice{Key: id.String(), Services: members, Groups: AttrGroupsFromMatchers(matchers, mode)}
+}
+
+// sliceStats reads many integrations' slices in one batched query,
+// applying each service's clear-errors watermark. nil on failure, which
+// callers read as "no slice data": a ClickHouse blip then leaves a slice
+// reading ok/quiet from its members rather than failing the page.
+func (h *Handlers) sliceStats(ctx context.Context, slices []store.IntegrationSlice, from, to time.Time, acks map[string]erroracks.Ack, errorsOnly bool) map[string]store.SliceStat {
+	if len(slices) == 0 {
+		return map[string]store.SliceStat{}
+	}
+	acked := make(map[string]time.Time, len(acks))
+	for name, a := range acks {
+		acked[name] = a.AcknowledgedUntil
+	}
+	stats, err := h.Store.SliceTraceStats(ctx, slices, store.SliceQuery{From: from, To: to, AckedUntil: acked, ErrorsOnly: errorsOnly})
+	if err != nil {
+		h.Logger.Warn("integration slice stats failed; slice status reads from members", "err", err, "slices", len(slices))
+		return nil
+	}
+	return stats
 }
 
 // statusWithDelays folds trace-completion delays into an integration's

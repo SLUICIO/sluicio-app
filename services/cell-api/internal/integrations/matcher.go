@@ -23,6 +23,28 @@ func (m Matcher) IsServiceMatcher() bool {
 	return m.Attribute == "" || m.Attribute == ServiceNameAttribute
 }
 
+// SelectsSlice reports whether an integration's matchers select a SLICE
+// of its member services' traffic rather than all of it: some matcher
+// is an attribute condition, or the rules must all hold in one trace
+// (rule_match all), which with two or more groups keeps only the traces
+// that pass through every one of them.
+//
+// It is what decides whether an integration's health can be read off its
+// member services. A service-only integration IS its members' traffic,
+// so a member's failure is its failure. A slice shares its members with
+// other slices - every DAG in one Airflow scheduler, every flow in one
+// Node-RED runtime - and a member's failure is one of theirs.
+func SelectsSlice(matchers []Matcher, mode RuleMatch) bool {
+	groups := map[int]struct{}{}
+	for _, m := range matchers {
+		if !m.IsServiceMatcher() {
+			return true
+		}
+		groups[m.MatchGroup] = struct{}{}
+	}
+	return mode.RequiresAll() && len(groups) > 1
+}
+
 // Match returns true if the supplied service name satisfies the matcher.
 // Regex compilation errors fail closed (no match). Only meaningful for
 // service matchers (see IsServiceMatcher); attribute matchers are applied

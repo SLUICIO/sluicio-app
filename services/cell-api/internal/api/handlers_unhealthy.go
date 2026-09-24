@@ -7,10 +7,13 @@ import (
 	"sort"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/sluicio/sluicio-app/pkg/httpserver"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/alerting"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/api/middleware"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/catalog"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/integrations"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/store"
 )
 
 // The Unhealthy ("why") feed: the entities that are wrong, each with the reason.
@@ -26,6 +29,13 @@ import (
 // unacknowledged error traces but nothing firing. Firing checks are current
 // state; the window scopes only the error/traffic portion. Every listed entity
 // carries its "why" — that's the whole point.
+//
+// An integration that selects a SLICE of a shared service (an Airflow DAG in
+// the scheduler, a Node-RED flow in its runtime) is filed the way
+// integrationRollupStatus reads it: its member's errors are not its errors
+// unless they are in its slice, and its member's checks are not its checks
+// unless they describe the whole process. Filed service-wide, one failing
+// DAG listed every DAG on the scheduler as broken.
 
 // UnhealthyCheck is one firing health check attributed to an entity — the
 // "why" behind an unhealthy status.
@@ -96,13 +106,19 @@ func buildUnhealthyView(
 	summaries []ServiceSummary,
 	openErrors []OpenServiceError,
 	systems []catalog.System,
+	slices map[string]*UnhealthyErrorService,
 ) unhealthyResponse {
 	svcInts := make(map[string][]IntegrationRef, len(summaries))
+	refByID := map[string]IntegrationRef{}
 	for _, s := range summaries {
 		if len(s.Integrations) > 0 {
 			svcInts[s.ServiceName] = s.Integrations
 		}
+		for _, ref := range s.Integrations {
+			refByID[ref.ID] = ref
+		}
 	}
+	isSlice := func(id string) bool { _, ok := slices[id]; return ok }
 	type sysRef struct{ id, name, typeKey string }
 	svcSystems := map[string][]sysRef{}
 	for _, sy := range systems {
@@ -163,19 +179,25 @@ func buildUnhealthyView(
 				a.hasCheck = true
 			}
 		case "service":
-			ints := svcInts[c.ServiceName]
-			syss := svcSystems[c.ServiceName]
-			for _, ref := range ints {
+			filed := false
+			for _, ref := range svcInts[c.ServiceName] {
+				// A span-level check on a shared service fired for one
+				// slice, and which one it cannot say.
+				if isSlice(ref.ID) && !c.wholeService {
+					continue
+				}
 				a := getInt(ref)
 				a.checks = append(a.checks, uc)
 				a.hasCheck = true
+				filed = true
 			}
-			for _, ref := range syss {
+			for _, ref := range svcSystems[c.ServiceName] {
 				a := getSys(ref)
 				a.checks = append(a.checks, uc)
 				a.hasCheck = true
+				filed = true
 			}
-			if len(ints) == 0 && len(syss) == 0 {
+			if !filed {
 				otherChecks = append(otherChecks, uc)
 			}
 		default: // global
@@ -186,19 +208,35 @@ func buildUnhealthyView(
 	// Attribute open errors (the "why" for errors).
 	for _, oe := range openErrors {
 		ue := UnhealthyErrorService{ServiceName: oe.ServiceName, ErrorTraces: oe.ErrorTraces, LastErrorAt: oe.LastErrorAt, SampleTrace: oe.SampleTrace}
-		ints := svcInts[oe.ServiceName]
-		syss := svcSystems[oe.ServiceName]
-		for _, ref := range ints {
+		filed := false
+		for _, ref := range svcInts[oe.ServiceName] {
+			if isSlice(ref.ID) {
+				// Filed below from the slice's own errors, or not at all.
+				filed = filed || slices[ref.ID] != nil
+				continue
+			}
 			a := getInt(ref)
 			a.errors = append(a.errors, ue)
+			filed = true
 		}
-		for _, ref := range syss {
+		for _, ref := range svcSystems[oe.ServiceName] {
 			a := getSys(ref)
 			a.errors = append(a.errors, ue)
+			filed = true
 		}
-		if len(ints) == 0 && len(syss) == 0 {
+		// An error on a shared service in a flow no integration selects
+		// belongs to nobody listed, so it is shown here rather than lost.
+		if !filed {
 			otherErrors = append(otherErrors, ue)
 		}
+	}
+	for id, ue := range slices {
+		ref, ok := refByID[id]
+		if ue == nil || !ok {
+			continue
+		}
+		a := getInt(ref)
+		a.errors = append(a.errors, *ue)
 	}
 
 	resp := unhealthyResponse{Window: window}
@@ -305,5 +343,82 @@ func (h *Handlers) unhealthyFeed(w http.ResponseWriter, r *http.Request) {
 		systems = nil
 	}
 
-	httpserver.WriteJSON(w, http.StatusOK, buildUnhealthyView(tr.Window(), checks, summaries, openErrors, systems))
+	httpserver.WriteJSON(w, http.StatusOK, buildUnhealthyView(tr.Window(), checks, summaries, openErrors, systems, h.sliceOpenErrors(r, tr, summaries)))
+}
+
+// sliceOpenErrors reads the open errors of every slice integration the
+// caller can reach through a visible service, in one batched query.
+// Keyed by integration id; a nil value is a slice with nothing open.
+// Members the caller cannot see are left out of the count, as they are
+// everywhere on this feed.
+//
+// Over the feed's window, not openServiceErrors' month-long lookback.
+// That is the window integrationRollupStatus reads a slice over, so the
+// feed and the list agree about the same slice; and a slice with
+// include_descendants walks every trace holding an anchor, which over a
+// month is every run of every DAG.
+//
+// Any failure returns an empty map, which files every integration the
+// way it was filed before slices were told apart: wider, never silent.
+func (h *Handlers) sliceOpenErrors(r *http.Request, tr TimeRange, visible []ServiceSummary) map[string]*UnhealthyErrorService {
+	ctx, orgID := r.Context(), middleware.OrgID(r)
+	reachable := map[string]bool{}
+	visibleSvc := make(map[string]bool, len(visible))
+	for _, s := range visible {
+		visibleSvc[s.ServiceName] = true
+		for _, ref := range s.Integrations {
+			reachable[ref.ID] = true
+		}
+	}
+	if len(reachable) == 0 {
+		return map[string]*UnhealthyErrorService{}
+	}
+	all, err := h.Integrations.AllMatchersWithIntegration(ctx, orgID)
+	if err != nil {
+		h.Logger.Warn("unhealthy feed: matchers failed; slices filed service-wide", "err", err)
+		return map[string]*UnhealthyErrorService{}
+	}
+	members, err := h.Catalog.IntegrationServicesBulk(ctx, orgID)
+	if err != nil {
+		h.Logger.Warn("unhealthy feed: members failed; slices filed service-wide", "err", err)
+		return map[string]*UnhealthyErrorService{}
+	}
+	matchers := map[uuid.UUID][]integrations.Matcher{}
+	modes := map[uuid.UUID]integrations.RuleMatch{}
+	for _, mi := range all {
+		matchers[mi.Integration.ID] = append(matchers[mi.Integration.ID], mi.Matcher)
+		modes[mi.Integration.ID] = mi.Integration.RuleMatch
+	}
+	slices := make([]store.IntegrationSlice, 0)
+	for id, ms := range matchers {
+		if !reachable[id.String()] || !integrations.SelectsSlice(ms, modes[id]) {
+			continue
+		}
+		names := make([]string, 0)
+		for _, n := range members[id] {
+			if visibleSvc[n] {
+				names = append(names, n)
+			}
+		}
+		slices = append(slices, integrationSlice(id, names, ms, modes[id]))
+	}
+	stats := h.sliceStats(ctx, slices, tr.From, tr.To, h.errorAcks(ctx, orgID), true)
+	if stats == nil {
+		return map[string]*UnhealthyErrorService{}
+	}
+	out := make(map[string]*UnhealthyErrorService, len(slices))
+	for _, sl := range slices {
+		st := stats[sl.Key]
+		if st.OpenErrorTraces == 0 {
+			out[sl.Key] = nil
+			continue
+		}
+		out[sl.Key] = &UnhealthyErrorService{
+			ServiceName: st.LastErrorService,
+			ErrorTraces: st.OpenErrorTraces,
+			LastErrorAt: st.LastErrorAt,
+			SampleTrace: st.SampleTraceID,
+		}
+	}
+	return out
 }

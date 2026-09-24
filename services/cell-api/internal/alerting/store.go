@@ -676,6 +676,85 @@ func (s *Store) FiringHealthServices(ctx context.Context, orgID uuid.UUID) (map[
 	return out, rows.Err()
 }
 
+// ServiceFiring is what the firing checks bound to one service say about
+// the integrations that service carries.
+type ServiceFiring struct {
+	// Any: some check bound to the service is firing. What the service's
+	// own status reads, and all a service-only integration needs.
+	Any bool
+	// Process: one of them describes the service as a PROCESS - it is
+	// down, starved, saturated - rather than counting rows that carry
+	// some flow's attributes. Only these speak for every integration
+	// that owns a slice of the service. See DescribesWholeService.
+	Process bool
+}
+
+// DescribesWholeService reports whether a service-bound check is about
+// the service as a process, and so about every flow it runs, or about
+// rows that belong to individual flows.
+//
+// A trace or log check counts spans or log lines, and on a shared
+// runtime those carry the flow they belong to (airflow.dag_id, a
+// Node-RED flow id): it fires because one flow failed. So does a metric
+// check split by, or filtered on, an attribute - the Airflow template's
+// "Task failures" is split by dag_id. What is left is the unsplit,
+// unfiltered metric: a heartbeat, a pool, an executor's free slots.
+// Those break every flow at once.
+func DescribesWholeService(signal string, spec MetricRuleSpec) bool {
+	return signal == SignalMetric && spec.SplitBy == "" && len(spec.Attrs) == 0
+}
+
+// FiringHealthServiceScopes is FiringHealthServices with each service's
+// firing checks classified by DescribesWholeService. One round trip,
+// like the set it refines.
+func (s *Store) FiringHealthServiceScopes(ctx context.Context, orgID uuid.UUID) (map[string]ServiceFiring, error) {
+	const q = `
+		SELECT r.service_name, r.signal::text, r.rule_spec
+		FROM alert_instances i
+		JOIN alert_rules r ON r.id = i.alert_rule_id
+		WHERE r.organization_id = $1 AND i.state = 'firing'
+		  AND r.service_name IS NOT NULL AND r.service_name <> ''`
+	rows, err := s.pool.Query(ctx, q, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("firing health service scopes: %w", err)
+	}
+	defer rows.Close()
+	out := map[string]ServiceFiring{}
+	for rows.Next() {
+		var (
+			name, signal string
+			specRaw      []byte
+		)
+		if err := rows.Scan(&name, &signal, &specRaw); err != nil {
+			return nil, err
+		}
+		var spec MetricRuleSpec
+		if signal == SignalMetric && len(specRaw) > 0 {
+			// A spec that will not parse is read as unsplit: the check
+			// then reaches every integration on the service, which is
+			// what it did before this distinction existed.
+			_ = json.Unmarshal(specRaw, &spec)
+		}
+		f := out[name]
+		f.Any = true
+		f.Process = f.Process || DescribesWholeService(signal, spec)
+		out[name] = f
+	}
+	return out, rows.Err()
+}
+
+// AnyFiring flattens scopes to the plain set FiringHealthServices
+// returns, for the service-status paths that need no more than that.
+func AnyFiring(scopes map[string]ServiceFiring) map[string]bool {
+	out := make(map[string]bool, len(scopes))
+	for name, f := range scopes {
+		if f.Any {
+			out[name] = true
+		}
+	}
+	return out
+}
+
 // FiringHealthIntegrations returns the set of integration IDs that
 // currently have a firing health check bound directly to the integration
 // (a metric/pushed/log/failed-trace rule with integration_id set). This is
