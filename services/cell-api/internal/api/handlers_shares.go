@@ -136,10 +136,19 @@ func (h *Handlers) notifyShare(sharer, resourceKind, resourceName string, grante
 			return
 		}
 		subject := fmt.Sprintf("%s shared a Sluicio %s with you: %s", sharer, resourceKind, resourceName)
+		// What a share grants differs by kind since #28: an integration
+		// share is the integration and its messages, and nothing else on
+		// the services it runs on. Promising the services here would be
+		// the only message the grantee actually receives, and it would
+		// be wrong.
+		reach := "its services' health, traces, logs and metrics"
+		if resourceKind == string(identity.ShareIntegration) {
+			reach = "its messages"
+		}
 		body := fmt.Sprintf(
 			"%s shared the %s %q with you on Sluicio.\n\n"+
-				"You can now view it — and its services' health, traces, logs and metrics — from your dashboard.",
-			sharer, resourceKind, resourceName)
+				"You can now view it, and %s, from your dashboard.",
+			sharer, resourceKind, resourceName, reach)
 		if err := h.Mail.Send(ctx, to, subject, body); err != nil {
 			h.Logger.Warn("share notification email failed", "err", err)
 		}

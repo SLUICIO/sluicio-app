@@ -29,6 +29,7 @@ package middleware
 
 import (
 	"context"
+	"sync"
 	"errors"
 	"net/http"
 	"strings"
@@ -75,6 +76,7 @@ type ctxKey int
 
 const (
 	keyPrincipal ctxKey = iota
+	keyRequestCache
 )
 
 // WithPrincipal returns a derived context carrying p. Handlers should
@@ -85,10 +87,25 @@ const (
 // Phase-2 isolation boundary. A zero org (no membership) → no filter.
 func WithPrincipal(ctx context.Context, p identity.Principal) context.Context {
 	ctx = context.WithValue(ctx, keyPrincipal, p)
+	ctx = context.WithValue(ctx, keyRequestCache, &sync.Map{})
 	if p.OrgID != uuid.Nil {
 		ctx = imclickhouse.WithOrgFilter(ctx, p.OrgID.String())
 	}
 	return ctx
+}
+
+// RequestCache returns the per-request scratch map installed by
+// WithPrincipal, or nil when there is none (a context that never went
+// through the middleware, such as an internal background pass).
+//
+// It exists for answers that are expensive, identical for the whole
+// request, and asked for once per ROW: access resolution is read by
+// every list loop that gates its rows, and each read is several
+// Postgres round trips. Callers own their key namespace and must only
+// store values that cannot change within a request.
+func RequestCache(ctx context.Context) *sync.Map {
+	c, _ := ctx.Value(keyRequestCache).(*sync.Map)
+	return c
 }
 
 // PrincipalFromContext returns the Principal attached to ctx by an

@@ -423,7 +423,9 @@ func (h *Handlers) signalServiceFilter(r *http.Request, sig identity.Signal) ([]
 	if !restricted {
 		return nil, false
 	}
-	sets, err := h.Identity.ResolveAccessSetsMember(r.Context(), ref, middleware.Principal(r).OrgID, h.integrationExpander, h.systemExpander, h.serviceUniverse)
+	sets, err := resolveOnce(r, memoAccessSets, func() (identity.AccessSets, error) {
+		return h.Identity.ResolveAccessSetsMember(r.Context(), ref, middleware.Principal(r).OrgID, h.integrationExpander, h.systemExpander, h.serviceUniverse)
+	})
 	if err != nil {
 		h.Logger.Warn("signal filter resolve failed; allowing", "err", err, "signal", sig)
 		return nil, false
@@ -498,6 +500,78 @@ func applyAllowlist(service string, serviceIn []string, allowed []string, hasFil
 	return res
 }
 
+// resolveOnce runs fn at most once per GET request for a given key.
+//
+// Access resolution is a handful of Postgres round trips and every list
+// loop asks for it once per ROW: the alert-rule list gates each rule,
+// the error feed each service, the digest each entry. The answer cannot
+// change inside a read, so asking again per row is pure repetition, and
+// it grows with the list.
+//
+// GET only, deliberately. A write that changes a policy or a share and
+// then resolves visibility in the same request must see what it just
+// wrote, and no cache can know that it did. Reads are where the
+// amplification lives, so that is where the memo applies.
+func resolveOnce[T any](r *http.Request, key string, fn func() (T, error)) (T, error) {
+	cache := middleware.RequestCache(r.Context())
+	if cache == nil || r.Method != http.MethodGet {
+		return fn()
+	}
+	if v, ok := cache.Load(key); ok {
+		e := v.(memoEntry[T])
+		return e.val, e.err
+	}
+	val, err := fn()
+	// A concurrent caller may have computed the same thing; either
+	// answer is correct, so the last writer wins rather than paying for
+	// a lock. Errors are cached too: a failing resolve fails open, and
+	// re-asking per row would multiply the failure as well.
+	cache.Store(key, memoEntry[T]{val: val, err: err})
+	return val, err
+}
+
+type memoEntry[T any] struct {
+	val T
+	err error
+}
+
+// Keys for resolveOnce. One per resolver, not per caller.
+const (
+	memoServiceSet   = "identity.visibleServiceSet"
+	memoIntegrations = "identity.visibleIntegrations"
+	memoAccessSets   = "identity.accessSets"
+)
+
+// visibleServiceSet and visibleIntegrationSet are the two access
+// resolvers every gate here goes through, memoized per request.
+// Handlers must call these rather than the store directly, so a list
+// loop cannot reintroduce the per-row resolve by accident.
+func (h *Handlers) visibleServiceSet(r *http.Request, ref identity.MemberRef) (map[string]struct{}, bool, error) {
+	type res struct {
+		set      map[string]struct{}
+		wildcard bool
+	}
+	out, err := resolveOnce(r, memoServiceSet, func() (res, error) {
+		set, wild, rerr := h.Identity.ResolveVisibleServiceSetMember(
+			r.Context(), ref, middleware.Principal(r).OrgID, h.integrationExpander, h.systemExpander, h.serviceUniverse)
+		return res{set: set, wildcard: wild}, rerr
+	})
+	return out.set, out.wildcard, err
+}
+
+func (h *Handlers) visibleIntegrationSet(r *http.Request, ref identity.MemberRef) (map[uuid.UUID]struct{}, bool, error) {
+	type res struct {
+		set      map[uuid.UUID]struct{}
+		wildcard bool
+	}
+	out, err := resolveOnce(r, memoIntegrations, func() (res, error) {
+		set, wild, rerr := h.Identity.ResolveVisibleIntegrationsMember(
+			r.Context(), ref, middleware.Principal(r).OrgID, h.integrationExpander, h.systemExpander)
+		return res{set: set, wildcard: wild}, rerr
+	})
+	return out.set, out.wildcard, err
+}
+
 // visibleServiceFilter returns the allow-list of service names the
 // caller can see, or nil to mean "no restriction" (org admin or
 // wildcard policy). Used by handlers that aggregate across services
@@ -511,7 +585,7 @@ func (h *Handlers) visibleServiceFilter(r *http.Request) ([]string, bool) {
 	if !restricted {
 		return nil, false
 	}
-	allowed, wildcard, err := h.Identity.ResolveVisibleServiceSetMember(r.Context(), ref, middleware.Principal(r).OrgID, h.integrationExpander, h.systemExpander, h.serviceUniverse)
+	allowed, wildcard, err := h.visibleServiceSet(r, ref)
 	if err != nil {
 		h.Logger.Warn("visible service filter resolve failed; allowing", "err", err)
 		return nil, false
@@ -588,7 +662,7 @@ func (h *Handlers) canSeeService(r *http.Request, serviceName string) bool {
 	if !restricted {
 		return true
 	}
-	allowed, wildcard, err := h.Identity.ResolveVisibleServiceSetMember(r.Context(), ref, middleware.Principal(r).OrgID, h.integrationExpander, h.systemExpander, h.serviceUniverse)
+	allowed, wildcard, err := h.visibleServiceSet(r, ref)
 	if err != nil {
 		h.Logger.Warn("service visibility check failed; allowing", "err", err, "service", serviceName)
 		return true
@@ -610,7 +684,7 @@ func (h *Handlers) applyServiceVisibility(r *http.Request, catalogRows []catalog
 	if !restricted {
 		return nil, false
 	}
-	allowed, wildcard, err := h.Identity.ResolveVisibleServiceSetMember(r.Context(), ref, middleware.Principal(r).OrgID, h.integrationExpander, h.systemExpander, h.serviceUniverse)
+	allowed, wildcard, err := h.visibleServiceSet(r, ref)
 	if err != nil {
 		h.Logger.Warn("service visibility lookup failed; falling back to no filter", "err", err)
 		return nil, false
@@ -706,8 +780,7 @@ func (h *Handlers) grantedIntegrations(r *http.Request) (map[uuid.UUID]struct{},
 	if !restricted {
 		return nil, false
 	}
-	set, wildcard, err := h.Identity.ResolveVisibleIntegrationsMember(
-		r.Context(), ref, middleware.Principal(r).OrgID, h.integrationExpander, h.systemExpander)
+	set, wildcard, err := h.visibleIntegrationSet(r, ref)
 	if err != nil {
 		h.Logger.Warn("granted integrations resolve failed; allowing", "err", err)
 		return nil, false
