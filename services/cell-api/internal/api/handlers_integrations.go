@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/sluicio/sluicio-app/pkg/httpserver"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/alerting"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/api/middleware"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/demand"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/erroracks"
@@ -238,13 +239,15 @@ func (h *Handlers) buildIntegrationSummaries(
 		svcByName[s.ServiceName] = s
 	}
 	errAcks := h.errorAcks(r.Context(), middleware.OrgID(r)) // "clear errors" watermarks, applied per service below
-	// An integration's health is derived from its services: a service made
-	// unhealthy by a firing health check pulls its integrations down too.
-	firingServices, err := h.Alerts.FiringHealthServices(r.Context(), middleware.OrgID(r))
+	// Firing checks bound to services, classified by what they describe
+	// (see integrationRollupStatus): a service-only integration reads every
+	// one of its members' checks, a slice only the process-level ones.
+	firingScopes, err := h.Alerts.FiringHealthServiceScopes(r.Context(), middleware.OrgID(r))
 	if err != nil {
 		h.Logger.Warn("firing health services failed", "err", err)
-		firingServices = map[string]bool{}
+		firingScopes = map[string]alerting.ServiceFiring{}
 	}
+	firingServices := alerting.AnyFiring(firingScopes)
 	// Integration-scoped firing health checks (e.g. a log/metric/failed-trace
 	// rule bound to the integration itself). These make the integration
 	// unhealthy on their own — a member service isn't necessarily involved.
@@ -318,23 +321,34 @@ func (h *Handlers) buildIntegrationSummaries(
 	}
 
 	summaries := make([]IntegrationSummary, 0, len(rows))
+	// Status is settled after the loop, once every row's slice has been
+	// read in one batched query (see integrationRollupStatus). Each entry
+	// is a row waiting for it.
+	type pendingRow struct {
+		index  int
+		health integrationHealth
+		// ownCounts: the row's card numbers come from its slice read
+		// too. False for a start-span gated row, which counts its own.
+		ownCounts bool
+	}
+	pending := make([]pendingRow, 0, len(rows))
+	slices := make([]store.IntegrationSlice, 0, len(rows))
 	for _, integ := range rows {
 		matchers := matchersByIntegration[integ.ID]
-		statuses := make([]string, 0)
 		matchedNames := make([]string, 0)
 		unhealthy := 0
+		memberActive := false
 		var traces, errors uint64
-		// statuses (health rollup) + window traffic come from services that
-		// actually emitted in the window. An integration with no window traffic
-		// rolls up to "quiet" (statuses stays empty).
+		// Window traffic from the member services that emitted in the
+		// window. For a service-only integration this is its activity and
+		// its counts; a slice replaces both with its own below.
 		for _, svc := range services {
 			if !anyMatcherMatches(matchers, svc.ServiceName) {
 				continue
 			}
+			memberActive = true
 			effErr := h.effectiveErrorCount(r.Context(), svc.ServiceName, svc.ErrorTraceCount, tr.From, tr.To, errAcks)
-			st := computeServiceStatus(effErr, firingServices[svc.ServiceName])
-			statuses = append(statuses, st)
-			if st == "unhealthy" {
+			if computeServiceStatus(effErr, firingServices[svc.ServiceName]) == "unhealthy" {
 				unhealthy++
 			}
 			traces += svc.TraceCount
@@ -407,19 +421,17 @@ func (h *Handlers) buildIntegrationSummaries(
 			})
 			continue
 		}
+		// Otherwise the distinct-trace counts come from the batched slice
+		// read after the loop, which is the same query DistinctTraceCounts
+		// runs, asked for every row at once rather than once a row.
+		gated := false
 		if startSpans := startSpansOf(intRules); len(startSpans) > 0 {
+			gated = true
 			gt, ge, gErr := h.Store.DistinctTraceCountsGated(r.Context(), matchedNames, startSpans, tr.From, tr.To, integAttrs)
 			if gErr != nil {
 				h.Logger.Warn("gated distinct trace counts failed", "integration", integ.ID, "err", gErr)
 			} else {
 				traces, errors = gt, ge
-			}
-		} else if len(integAttrs) > 0 {
-			t2, e2, cErr := h.Store.DistinctTraceCounts(r.Context(), matchedNames, tr.From, tr.To, integAttrs)
-			if cErr != nil {
-				h.Logger.Warn("attribute distinct trace counts failed", "integration", integ.ID, "err", cErr)
-			} else {
-				traces, errors = t2, e2
 			}
 		}
 		// Delayed-in-window: how many of this integration's window traces
@@ -447,22 +459,30 @@ func (h *Handlers) buildIntegrationSummaries(
 		}
 		integTags := integTagsFor(tagsByIntegration, integ.ID)
 		valuesByKey := metadataValuesFor(bulkValues, keyByFieldID, integ.ID)
-		// Likewise, a matched member with a firing service-bound health check
-		// makes the integration unhealthy even when that service had no
-		// traffic this window (so it never entered `statuses`). Mirrors
-		// integHasOpenErr; without it the list could read healthy/quiet while
-		// the detail view — which folds each member's status directly — reads
-		// unhealthy, and the dashboard pip (driven off the list) wouldn't flip.
-		integHasFiringCheck := false
-		for svcName := range firingServices {
+		// A member's firing check counts whether or not it emitted this
+		// window, and whether or not the caller can see it: the persisted
+		// members plus anything the matchers select among the firing
+		// services, so a freshly discovered member is not missed.
+		firingMembers := append([]string(nil), membersByIntegration[integ.ID]...)
+		for svcName := range firingScopes {
 			if anyMatcherMatches(matchers, svcName) {
-				integHasFiringCheck = true
-				break
+				firingMembers = append(firingMembers, svcName)
 			}
+		}
+		health := integrationHealth{
+			Slice:             integrations.SelectsSlice(matchers, modeByIntegration[integ.ID]),
+			Active:            memberActive,
+			MemberFiring:      memberFiring(firingMembers, firingScopes),
+			IntegrationFiring: firingIntegrations[integ.ID],
+			Delayed:           delayed,
+		}
+		if len(matchedNames) > 0 {
+			slices = append(slices, integrationSlice(integ.ID, matchedNames, matchers, modeByIntegration[integ.ID]))
+			pending = append(pending, pendingRow{index: len(summaries), health: health, ownCounts: !gated})
 		}
 		summaries = append(summaries, IntegrationSummary{
 			Integration:       integ,
-			Status:            integrationRollupStatus(statuses, delayed, firingIntegrations[integ.ID] || integHasFiringCheck),
+			Status:            integrationRollupStatus(health),
 			ServiceCount:      len(matchedNames),
 			Services:          matchedNames,
 			UnhealthyCount:    unhealthy,
@@ -473,6 +493,22 @@ func (h *Handlers) buildIntegrationSummaries(
 			Tags:              integTags,
 			MetadataValues:    valuesByKey,
 		})
+	}
+
+	// Every row's slice in one read, then the statuses it was waiting for.
+	if stats := h.sliceStats(r.Context(), slices, tr.From, tr.To, errAcks, false); stats != nil {
+		for _, p := range pending {
+			sum := &summaries[p.index]
+			st := stats[sum.Integration.ID.String()]
+			if p.ownCounts {
+				sum.TraceCount, sum.ErrorTraceCount = st.Traces, st.ErrorTraces
+			}
+			if p.health.Slice {
+				p.health.Active = st.Traces > 0
+				p.health.OpenSliceErrors = st.OpenErrorTraces
+				sum.Status = integrationRollupStatus(p.health)
+			}
+		}
 	}
 
 	// Facets per integration, from the integration's OWN slice of its
@@ -1005,11 +1041,12 @@ func (h *Handlers) getIntegration(w http.ResponseWriter, r *http.Request) {
 		httpserver.WriteError(w, http.StatusInternalServerError, "query failed")
 		return
 	}
-	firingServices, err := h.Alerts.FiringHealthServices(r.Context(), middleware.OrgID(r))
+	firingScopes, err := h.Alerts.FiringHealthServiceScopes(r.Context(), middleware.OrgID(r))
 	if err != nil {
 		h.Logger.Warn("firing health services failed", "err", err)
-		firingServices = map[string]bool{}
+		firingScopes = map[string]alerting.ServiceFiring{}
 	}
+	firingServices := alerting.AnyFiring(firingScopes)
 	firingIntegrations, err := h.Alerts.FiringHealthIntegrations(r.Context(), middleware.OrgID(r))
 	if err != nil {
 		h.Logger.Warn("firing health integrations failed", "err", err)
@@ -1043,7 +1080,8 @@ func (h *Handlers) getIntegration(w http.ResponseWriter, r *http.Request) {
 	// with any one flow's error, which both overstated the count and
 	// told a reader about a failure in a flow they cannot open.
 	openErrors := h.openErrorsInScope(r.Context(), middleware.OrgID(r), memberNames, detailAttrs)
-	matched := h.servicesFromMembers(r.Context(), memberNames, allServices, firingServices, h.errorAcks(r.Context(), middleware.OrgID(r)), tr, detailAttrs)
+	errAcks := h.errorAcks(r.Context(), middleware.OrgID(r))
+	matched := h.servicesFromMembers(r.Context(), memberNames, allServices, firingServices, errAcks, tr, detailAttrs)
 
 	// Trace-completion rules gate the message scope and drive the
 	// delayed-trace failure count. With a start-span gate, a "message"
@@ -1084,14 +1122,28 @@ func (h *Handlers) getIntegration(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// The integration's aggregate health is the worst of its services'
-	// (which already reflect any firing service health checks), with any
-	// open SLA delay pulling it down to at least "errors".
-	statuses := make([]string, 0, len(matched))
-	for _, s := range matched {
-		statuses = append(statuses, s.Status)
+	// The integration's state, by the fold the list and the export use.
+	// The member rows above keep their own statuses: a row is a statement
+	// about the service, and a check firing on it is true of it even when
+	// it does not speak for this integration.
+	health := integrationHealth{
+		Slice:             integrations.SelectsSlice(full.Matchers, full.Integration.RuleMatch),
+		MemberFiring:      memberFiring(memberNames, firingScopes),
+		IntegrationFiring: firingIntegrations[id],
+		Delayed:           delayedMessageCount,
 	}
-	status := integrationRollupStatus(statuses, uint64(delayedMessageCount), firingIntegrations[id])
+	for _, s := range matched {
+		health.Active = health.Active || s.TraceCount > 0
+	}
+	if health.Slice {
+		slice := integrationSlice(id, memberNames, full.Matchers, full.Integration.RuleMatch)
+		if stats := h.sliceStats(r.Context(), []store.IntegrationSlice{slice}, tr.From, tr.To, errAcks, false); stats != nil {
+			st := stats[id.String()]
+			health.Active = st.Traces > 0
+			health.OpenSliceErrors = st.OpenErrorTraces
+		}
+	}
+	status := integrationRollupStatus(health)
 
 	integTags, err := h.Tags.ListForIntegration(r.Context(), middleware.OrgID(r), id)
 	if err != nil {

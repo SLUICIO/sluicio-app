@@ -21,7 +21,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/alerting"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/integrations"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/store"
 )
 
 // EntityState is one integration or system, as the export sees it.
@@ -74,11 +76,11 @@ func (h *Handlers) IntegrationStates(ctx context.Context, orgID uuid.UUID, healt
 	}
 
 	// Health inputs. Each is one round trip for the whole org, so the
-	// per-integration loop below only does its own counting.
-	firingServices, err := h.Alerts.FiringHealthServices(ctx, orgID)
+	// per-integration loop below only folds.
+	firingScopes, err := h.Alerts.FiringHealthServiceScopes(ctx, orgID)
 	if err != nil {
 		h.Logger.Warn("state export: firing health services failed", "err", err)
-		firingServices = map[string]bool{}
+		firingScopes = map[string]alerting.ServiceFiring{}
 	}
 	firingIntegrations, err := h.Alerts.FiringHealthIntegrations(ctx, orgID)
 	if err != nil {
@@ -94,29 +96,24 @@ func (h *Handlers) IntegrationStates(ctx context.Context, orgID uuid.UUID, healt
 		}
 	}
 
+	// Every integration's slice, read twice in all rather than twice per
+	// integration: over the health window for its state, and over the
+	// count window for its messages. A service-only integration's slice
+	// is its members' whole traffic, so the same read serves both kinds.
+	slices := make([]store.IntegrationSlice, 0, len(rows))
+	for _, integ := range rows {
+		if names := members[integ.ID]; len(names) > 0 {
+			slices = append(slices, integrationSlice(integ.ID, names, matchersByIntegration[integ.ID], integ.RuleMatch))
+		}
+	}
+	health := h.sliceStats(ctx, slices, healthFrom, healthTo, h.errorAcks(ctx, orgID), false)
+	counts := h.sliceStats(ctx, slices, countFrom, countTo, nil, false)
+
 	out := make([]EntityState, 0, len(rows))
 	for _, integ := range rows {
 		names := members[integ.ID]
 		groups := AttrGroupsFromMatchers(matchersByIntegration[integ.ID], integ.RuleMatch)
-
-		// Per-member health, for the members that emitted in the health
-		// window. A member that was quiet contributes nothing, so an
-		// integration with no traffic rolls up to "quiet" - the same
-		// reading the list gives.
-		statuses := make([]string, 0, len(names))
-		if len(names) > 0 {
-			counts, cErr := h.Store.ServiceTraceCountsFiltered(ctx, names, healthFrom, healthTo, groups)
-			if cErr != nil {
-				h.Logger.Warn("state export: service counts failed", "integration", integ.ID, "err", cErr)
-			}
-			for _, name := range names {
-				c, seen := counts[name]
-				if !seen || c[0] == 0 {
-					continue
-				}
-				statuses = append(statuses, computeServiceStatus(c[1], firingServices[name]))
-			}
-		}
+		st := health[integ.ID.String()]
 
 		// An open SLA breach counts only if the trace it belongs to is in
 		// the window, so a breach from last week does not hold an
@@ -130,32 +127,23 @@ func (h *Handlers) IntegrationStates(ctx context.Context, orgID uuid.UUID, healt
 			}
 		}
 
-		// A firing check bound to a member makes the integration
-		// unhealthy even if that member was quiet this window, which is
-		// the rule the list applies too.
-		firingMember := false
-		for _, name := range names {
-			if firingServices[name] {
-				firingMember = true
-				break
-			}
-		}
-
-		var messages uint64
-		if len(names) > 0 {
-			if n, _, mErr := h.Store.DistinctTraceCounts(ctx, names, countFrom, countTo, groups); mErr == nil {
-				messages = n
-			} else {
-				h.Logger.Warn("state export: message count failed", "integration", integ.ID, "err", mErr)
-			}
-		}
-
 		out = append(out, EntityState{
-			ID:       integ.ID,
-			Name:     integ.Name,
-			Slug:     integ.Slug,
-			Status:   integrationRollupStatus(statuses, delayed, firingIntegrations[integ.ID] || firingMember),
-			Messages: messages,
+			ID:   integ.ID,
+			Name: integ.Name,
+			Slug: integ.Slug,
+			// A member that was quiet contributes nothing, so an
+			// integration with no traffic rolls up to "quiet" - the same
+			// reading the list gives. A member's firing check counts
+			// whether or not it emitted, which is the list's rule too.
+			Status: integrationRollupStatus(integrationHealth{
+				Slice:             integrations.SelectsSlice(matchersByIntegration[integ.ID], integ.RuleMatch),
+				Active:            st.Traces > 0,
+				OpenSliceErrors:   st.OpenErrorTraces,
+				MemberFiring:      memberFiring(names, firingScopes),
+				IntegrationFiring: firingIntegrations[integ.ID],
+				Delayed:           delayed,
+			}),
+			Messages: counts[integ.ID.String()].Traces,
 		})
 	}
 	return out, nil

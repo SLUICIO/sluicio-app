@@ -122,7 +122,7 @@ func TestStateExportLive(t *testing.T) {
 	defer srv.Close()
 
 	exp := stateexport.New(
-		stateexport.Config{Endpoint: srv.URL, CellName: "probe", Environment: "dev", HealthWindow: time.Hour},
+		stateexport.Config{Endpoint: srv.URL, CellName: "probe", Environment: func(context.Context) string { return "dev" }, HealthWindow: time.Hour},
 		liveSource{h: h},
 		integrations.DefaultOrgID,
 		h.Logger,

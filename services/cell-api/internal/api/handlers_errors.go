@@ -53,6 +53,11 @@ type FailingCheck struct {
 	// already renders it from the rule via alertCondition(), and adding a
 	// second renderer here, in another language, is how the two drift.
 	Attrs []ruleAttrWire `json:"attrs,omitempty"`
+	// wholeService: a service-bound check that describes the service as a
+	// process (alerting.DescribesWholeService), and so speaks for every
+	// integration on it, slices included. Not on the wire: it only steers
+	// which integrations the unhealthy feed files the check under.
+	wholeService bool
 }
 
 // ruleAttrWire is one attribute predicate on a failing check.
@@ -164,7 +169,11 @@ func (h *Handlers) failingChecks(r *http.Request) ([]FailingCheck, error) {
 		default:
 			fc.TargetKind = "global"
 		}
+		// A rule we could not load reads as whole-service, which is how
+		// every check was filed before slices were told apart.
+		fc.wholeService = true
 		if ru, ok := rulesByID[fi.RuleID]; ok {
+			fc.wholeService = alerting.DescribesWholeService(ru.Signal, ru.Spec)
 			for _, a := range ru.Spec.Attrs {
 				fc.Attrs = append(fc.Attrs, ruleAttrWire{Key: a.Key, Op: a.Op, Value: a.Value})
 			}

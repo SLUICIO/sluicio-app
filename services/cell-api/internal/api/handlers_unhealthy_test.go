@@ -42,7 +42,7 @@ func TestBuildUnhealthyView(t *testing.T) {
 		{ServiceName: "lonely-api", ErrorTraces: 1, LastErrorAt: now}, // no integration/system
 	}
 
-	got := buildUnhealthyView(WindowSummary{}, checks, summaries, openErrors, systems)
+	got := buildUnhealthyView(WindowSummary{}, checks, summaries, openErrors, systems, nil)
 
 	byID := map[string]UnhealthyEntity{}
 	for _, e := range got.Integrations {
@@ -117,7 +117,7 @@ func TestBuildUnhealthyView_SharedService(t *testing.T) {
 	systems := []catalog.System{{ID: sysID, Name: "API GW", TypeKey: "gateway", Members: []string{"gateway"}}}
 	checks := []FailingCheck{{RuleName: "5xx", Severity: alerting.SeverityCritical, StartedAt: now, TargetKind: "service", ServiceName: "gateway"}}
 
-	got := buildUnhealthyView(WindowSummary{}, checks, summaries, nil, systems)
+	got := buildUnhealthyView(WindowSummary{}, checks, summaries, nil, systems, nil)
 	if len(got.Integrations) != 1 || len(got.Systems) != 1 {
 		t.Fatalf("expected the check under both entity kinds: %d ints, %d systems", len(got.Integrations), len(got.Systems))
 	}
@@ -126,5 +126,64 @@ func TestBuildUnhealthyView_SharedService(t *testing.T) {
 	}
 	if len(got.Other.FailingChecks) != 0 {
 		t.Fatalf("attributed check should not fall through to other: %+v", got.Other.FailingChecks)
+	}
+}
+
+// Two DAGs of one Airflow scheduler, each an integration selecting its own
+// dag_id, and one integration that is the scheduler itself. gl_posting
+// failed: the scheduler has open errors and its "DAG run failed" check
+// fires. The feed files both under gl_posting and under the scheduler's
+// own integration - not under orders_export, which only shares a process
+// with the failure.
+func TestBuildUnhealthyView_SlicesOfASharedService(t *testing.T) {
+	now := time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)
+	gl := IntegrationRef{ID: "int-gl", Name: "gl_posting"}
+	orders := IntegrationRef{ID: "int-orders", Name: "orders_export"}
+	whole := IntegrationRef{ID: "int-scheduler", Name: "Airflow scheduler"}
+	summaries := []ServiceSummary{
+		{ServiceName: "airflow-scheduler", Status: "unhealthy", Integrations: []IntegrationRef{gl, orders, whole}},
+	}
+	checks := []FailingCheck{
+		{RuleName: "DAG run failed", StartedAt: now, TargetKind: "service", ServiceName: "airflow-scheduler", wholeService: false},
+	}
+	openErrors := []OpenServiceError{{ServiceName: "airflow-scheduler", ErrorTraces: 3, LastErrorAt: now}}
+	slices := map[string]*UnhealthyErrorService{
+		gl.ID:     {ServiceName: "airflow-scheduler", ErrorTraces: 3, LastErrorAt: now, SampleTrace: "t1"},
+		orders.ID: nil,
+	}
+
+	got := buildUnhealthyView(WindowSummary{}, checks, summaries, openErrors, nil, slices)
+	byID := map[string]UnhealthyEntity{}
+	for _, e := range got.Integrations {
+		byID[e.ID] = e
+	}
+	if _, ok := byID[orders.ID]; ok {
+		t.Fatalf("orders_export did not fail and must not be listed: %+v", byID[orders.ID])
+	}
+	g, ok := byID[gl.ID]
+	if !ok || g.Status != "errors" || len(g.FailingChecks) != 0 || len(g.ErrorServices) != 1 || g.ErrorServices[0].SampleTrace != "t1" {
+		t.Fatalf("gl_posting should read errors from its own slice: %+v", g)
+	}
+	w, ok := byID[whole.ID]
+	if !ok || w.Status != "unhealthy" || len(w.FailingChecks) != 1 || len(w.ErrorServices) != 1 {
+		t.Fatalf("the scheduler's own integration reads its member as before: %+v", w)
+	}
+	if len(got.Other.FailingChecks) != 0 || len(got.Other.ErrorServices) != 0 {
+		t.Fatalf("everything was attributable: %+v", got.Other)
+	}
+
+	// A heartbeat check describes the process: every DAG is unhealthy.
+	checks[0] = FailingCheck{RuleName: "Scheduler not heartbeating", StartedAt: now, TargetKind: "service", ServiceName: "airflow-scheduler", wholeService: true}
+	got = buildUnhealthyView(WindowSummary{}, checks, summaries, nil, nil, map[string]*UnhealthyErrorService{gl.ID: nil, orders.ID: nil})
+	if got.Counts["integrations_unhealthy"] != 3 {
+		t.Fatalf("a dead scheduler breaks every DAG: %+v", got.Integrations)
+	}
+
+	// A span-level check whose only integrations are slices is still shown.
+	summaries[0].Integrations = []IntegrationRef{gl, orders}
+	checks[0].wholeService = false
+	got = buildUnhealthyView(WindowSummary{}, checks, summaries, nil, nil, map[string]*UnhealthyErrorService{gl.ID: nil, orders.ID: nil})
+	if len(got.Integrations) != 0 || len(got.Other.FailingChecks) != 1 {
+		t.Fatalf("an unattributable check belongs in other, not nowhere: %+v / %+v", got.Integrations, got.Other)
 	}
 }
