@@ -175,7 +175,8 @@ func exportMaps(ctx context.Context, tx pgx.Tx, org string, b *Bundle, schemaKey
 
 func exportSystemTypes(ctx context.Context, tx pgx.Tx, org string, b *Bundle) error {
 	rows, err := tx.Query(ctx, `
-		SELECT key, label, is_system, COALESCE(detect_prefixes,'null'::jsonb)::text, COALESCE(checks,'null'::jsonb)::text
+		SELECT key, label, is_system, COALESCE(detect_prefixes,'null'::jsonb)::text,
+		       COALESCE(detect_span_attrs,'null'::jsonb)::text, COALESCE(checks,'null'::jsonb)::text
 		FROM system_types WHERE org_id=$1 ORDER BY key`, org)
 	if err != nil {
 		return err
@@ -183,12 +184,15 @@ func exportSystemTypes(ctx context.Context, tx pgx.Tx, org string, b *Bundle) er
 	defer rows.Close()
 	for rows.Next() {
 		var t SystemType
-		var prefixes, checks string
-		if err := rows.Scan(&t.Key, &t.Label, &t.IsSystem, &prefixes, &checks); err != nil {
+		var prefixes, spanAttrs, checks string
+		if err := rows.Scan(&t.Key, &t.Label, &t.IsSystem, &prefixes, &spanAttrs, &checks); err != nil {
 			return err
 		}
 		if prefixes != "null" {
 			t.DetectPrefixes = json.RawMessage(prefixes)
+		}
+		if spanAttrs != "null" && spanAttrs != "[]" {
+			t.DetectSpanAttrs = json.RawMessage(spanAttrs)
 		}
 		if checks != "null" {
 			t.Checks = json.RawMessage(checks)

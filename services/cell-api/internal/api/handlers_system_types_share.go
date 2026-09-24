@@ -34,12 +34,16 @@ const SystemTypeDocFormat = "sluicio/system-type/v1"
 // with BOTH json and yaml tags so either serialization reads naturally
 // (yaml.v3 alone would lowercase Go names instead of snake_case).
 type systemTypeDoc struct {
-	Format         string     `json:"format" yaml:"format"`
-	Key            string     `json:"key" yaml:"key"`
-	Label          string     `json:"label" yaml:"label"`
-	IsSystem       bool       `json:"is_system" yaml:"is_system"`
-	DetectPrefixes []string   `json:"detect_prefixes" yaml:"detect_prefixes"`
-	Checks         []docCheck `json:"checks" yaml:"checks"`
+	Format         string   `json:"format" yaml:"format"`
+	Key            string   `json:"key" yaml:"key"`
+	Label          string   `json:"label" yaml:"label"`
+	IsSystem       bool     `json:"is_system" yaml:"is_system"`
+	DetectPrefixes []string `json:"detect_prefixes" yaml:"detect_prefixes"`
+	// DetectSpanAttrs recognises the type from span attribute keys
+	// rather than metric names. Omitted when empty, so every type that
+	// predates it exports byte-identically to before.
+	DetectSpanAttrs []string   `json:"detect_span_attrs,omitempty" yaml:"detect_span_attrs,omitempty"`
+	Checks          []docCheck `json:"checks" yaml:"checks"`
 	// Runbook travels with a shared type: the guidance is the part worth
 	// sharing most, and a type imported without it silently loses the
 	// knowledge the export was made to carry.
@@ -134,6 +138,14 @@ func validateSystemTypeDoc(d *systemTypeDoc) error {
 	if len(d.DetectPrefixes) > 20 {
 		return fmt.Errorf("too many detect_prefixes (max 20)")
 	}
+	if len(d.DetectSpanAttrs) > 20 {
+		return fmt.Errorf("too many detect_span_attrs (max 20)")
+	}
+	for _, p := range d.DetectSpanAttrs {
+		if strings.TrimSpace(p) == "" || len(p) > 200 {
+			return fmt.Errorf("invalid detect span attribute %q", p)
+		}
+	}
 	for _, p := range d.DetectPrefixes {
 		if strings.TrimSpace(p) == "" || len(p) > 200 {
 			return fmt.Errorf("invalid detect prefix %q", p)
@@ -194,13 +206,14 @@ func (h *Handlers) exportSystemType(w http.ResponseWriter, r *http.Request) {
 		checks = append(checks, checkToDoc(systemCheckToCustom(c)))
 	}
 	doc := systemTypeDoc{
-		Format:         SystemTypeDocFormat,
-		Key:            found.Template.Kind,
-		Label:          found.Template.Label,
-		IsSystem:       found.Template.System,
-		DetectPrefixes: found.Template.DetectPrefixes,
-		Checks:         checks,
-		Runbook:        found.Template.Runbook,
+		Format:          SystemTypeDocFormat,
+		Key:             found.Template.Kind,
+		Label:           found.Template.Label,
+		IsSystem:        found.Template.System,
+		DetectPrefixes:  found.Template.DetectPrefixes,
+		DetectSpanAttrs: found.Template.DetectSpanAttrs,
+		Checks:          checks,
+		Runbook:         found.Template.Runbook,
 	}
 
 	if strings.EqualFold(r.URL.Query().Get("format"), "json") {
@@ -275,7 +288,7 @@ func (h *Handlers) importSystemType(w http.ResponseWriter, r *http.Request) {
 				httpserver.WriteError(w, http.StatusConflict, fmt.Sprintf("system type %q already exists — re-import with replace=true to overwrite", doc.Key))
 				return
 			}
-			updated, ok, uerr := h.SystemTypes.Update(r.Context(), orgID, st.ID, doc.Label, doc.IsSystem, prefixes, checks, doc.Runbook)
+			updated, ok, uerr := h.SystemTypes.Update(r.Context(), orgID, st.ID, doc.Label, doc.IsSystem, prefixes, cleanPrefixes(doc.DetectSpanAttrs), checks, doc.Runbook)
 			if uerr != nil || !ok {
 				h.Logger.Error("import system type: replace failed", "err", uerr)
 				httpserver.WriteError(w, http.StatusInternalServerError, "import failed")
@@ -287,7 +300,7 @@ func (h *Handlers) importSystemType(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	st, err := h.SystemTypes.Create(r.Context(), orgID, doc.Key, doc.Label, doc.IsSystem, prefixes, checks, doc.Runbook)
+	st, err := h.SystemTypes.Create(r.Context(), orgID, doc.Key, doc.Label, doc.IsSystem, prefixes, cleanPrefixes(doc.DetectSpanAttrs), checks, doc.Runbook)
 	if err != nil {
 		if isUniqueViolation(err) {
 			httpserver.WriteError(w, http.StatusConflict, fmt.Sprintf("system type %q already exists — re-import with replace=true to overwrite", doc.Key))

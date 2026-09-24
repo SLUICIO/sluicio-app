@@ -42,12 +42,13 @@ func systemTypeToTemplate(st systemtypes.SystemType) monitoringTemplate {
 		prefixes = []string{}
 	}
 	return monitoringTemplate{
-		Kind:           st.Key,
-		Label:          st.Label,
-		System:         st.IsSystem,
-		DetectPrefixes: prefixes,
-		Checks:         checks,
-		Runbook:        st.Runbook,
+		Kind:            st.Key,
+		Label:           st.Label,
+		System:          st.IsSystem,
+		DetectPrefixes:  prefixes,
+		DetectSpanAttrs: st.DetectSpanAttrs,
+		Checks:          checks,
+		Runbook:         st.Runbook,
 	}
 }
 
@@ -118,13 +119,16 @@ func (h *Handlers) templateByKind(ctx context.Context, orgID uuid.UUID, kind str
 // ── DTO ──────────────────────────────────────────────────────────────
 
 type systemTypeDTO struct {
-	ID             string                      `json:"id,omitempty"` // "" = pure built-in (read-only)
-	Key            string                      `json:"key"`
-	Label          string                      `json:"label"`
-	IsSystem       bool                        `json:"is_system"`
-	DetectPrefixes []string                    `json:"detect_prefixes"`
-	Checks         []monitoringtemplates.Check `json:"checks"`
-	Runbook        string                      `json:"runbook,omitempty"`
+	ID             string   `json:"id,omitempty"` // "" = pure built-in (read-only)
+	Key            string   `json:"key"`
+	Label          string   `json:"label"`
+	IsSystem       bool     `json:"is_system"`
+	DetectPrefixes []string `json:"detect_prefixes"`
+	// DetectSpanAttrs recognises the type from span attribute keys, for
+	// a runtime with no metrics of its own (Node-RED).
+	DetectSpanAttrs []string                    `json:"detect_span_attrs,omitempty"`
+	Checks          []monitoringtemplates.Check `json:"checks"`
+	Runbook         string                      `json:"runbook,omitempty"`
 	// DocsURL is the public reference page for this type, when one
 	// exists. Custom types have none and omit the field rather than
 	// carry a link that 404s.
@@ -146,15 +150,16 @@ func effectiveToDTO(e effectiveType) systemTypeDTO {
 		id = e.ID.String()
 	}
 	return systemTypeDTO{
-		ID:             id,
-		Key:            e.Template.Kind,
-		Label:          e.Template.Label,
-		IsSystem:       e.Template.System,
-		DetectPrefixes: prefixes,
-		Checks:         checks,
-		Runbook:        e.Template.Runbook,
-		DocsURL:        docsURLForSystemType(e.Template.Kind),
-		BuiltIn:        e.BuiltIn,
+		ID:              id,
+		Key:             e.Template.Kind,
+		Label:           e.Template.Label,
+		IsSystem:        e.Template.System,
+		DetectPrefixes:  prefixes,
+		DetectSpanAttrs: e.Template.DetectSpanAttrs,
+		Checks:          checks,
+		Runbook:         e.Template.Runbook,
+		DocsURL:         docsURLForSystemType(e.Template.Kind),
+		BuiltIn:         e.BuiltIn,
 	}
 }
 
@@ -177,11 +182,12 @@ func (h *Handlers) listSystemTypes(w http.ResponseWriter, r *http.Request) {
 }
 
 type systemTypeInput struct {
-	Key            string                      `json:"key"`
-	Label          string                      `json:"label"`
-	IsSystem       bool                        `json:"is_system"`
-	DetectPrefixes []string                    `json:"detect_prefixes"`
-	Checks         []monitoringtemplates.Check `json:"checks"`
+	Key             string                      `json:"key"`
+	Label           string                      `json:"label"`
+	IsSystem        bool                        `json:"is_system"`
+	DetectPrefixes  []string                    `json:"detect_prefixes"`
+	DetectSpanAttrs []string                    `json:"detect_span_attrs"`
+	Checks          []monitoringtemplates.Check `json:"checks"`
 	// Runbook: type-level guidance inherited as context by everything
 	// this type describes.
 	Runbook string `json:"runbook"`
@@ -210,7 +216,7 @@ func (h *Handlers) createSystemType(w http.ResponseWriter, r *http.Request) {
 		httpserver.WriteError(w, http.StatusBadRequest, "key and label are required")
 		return
 	}
-	st, err := h.SystemTypes.Create(r.Context(), middleware.OrgID(r), key, label, in.IsSystem, cleanPrefixes(in.DetectPrefixes), in.Checks, strings.TrimSpace(in.Runbook))
+	st, err := h.SystemTypes.Create(r.Context(), middleware.OrgID(r), key, label, in.IsSystem, cleanPrefixes(in.DetectPrefixes), cleanPrefixes(in.DetectSpanAttrs), in.Checks, strings.TrimSpace(in.Runbook))
 	if err != nil {
 		if isUniqueViolation(err) {
 			httpserver.WriteError(w, http.StatusConflict, "a system type with that key already exists")
@@ -241,7 +247,7 @@ func (h *Handlers) updateSystemType(w http.ResponseWriter, r *http.Request) {
 		httpserver.WriteError(w, http.StatusBadRequest, "label is required")
 		return
 	}
-	st, ok, err := h.SystemTypes.Update(r.Context(), middleware.OrgID(r), id, label, in.IsSystem, cleanPrefixes(in.DetectPrefixes), in.Checks, strings.TrimSpace(in.Runbook))
+	st, ok, err := h.SystemTypes.Update(r.Context(), middleware.OrgID(r), id, label, in.IsSystem, cleanPrefixes(in.DetectPrefixes), cleanPrefixes(in.DetectSpanAttrs), in.Checks, strings.TrimSpace(in.Runbook))
 	if err != nil {
 		h.Logger.Error("update system type failed", "err", err)
 		httpserver.WriteError(w, http.StatusInternalServerError, "update failed")

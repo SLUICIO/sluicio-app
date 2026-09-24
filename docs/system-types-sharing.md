@@ -43,6 +43,9 @@ label: Eclipse Mosquitto
 is_system: true             # appears in the Systems view
 detect_prefixes:            # metric-name prefixes that auto-identify the type
   - mosquitto.
+detect_span_attrs:          # optional: SPAN ATTRIBUTE key prefixes, for a
+  - mosquitto.              # runtime with no metrics of its own (Node-RED).
+                            # Either or both; a hit on either recognises it.
 checks:
   # metric check (signal omitted or "metric")
   - name: Dropped messages

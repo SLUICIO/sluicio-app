@@ -69,6 +69,7 @@ export const SERVICE_TEMPLATE_KINDS: { value: string; label: string }[] = [
   // so it belongs here rather than in SYSTEM_KINDS - even though the
   // JVM usually hosts several integrations at once.
   { value: "camel", label: "Apache Camel" },
+  { value: "node-red", label: "Node-RED" },
 ];
 
 export function templateKindLabel(kind: string | undefined): string {

@@ -46,6 +46,7 @@ var systemTypeDocsPages = map[string]bool{
 	"paperless-ngx":    true,
 	"kubernetes":       true,
 	"camel":            true,
+	"node-red":         true,
 }
 
 // docsURLForSystemType returns the reference page for a type key, or ""

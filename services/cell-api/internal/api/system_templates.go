@@ -76,7 +76,21 @@ type monitoringTemplate struct {
 	Label          string
 	System         bool
 	DetectPrefixes []string
-	Checks         []systemCheck
+	// DetectSpanAttrs identifies a kind from the SPAN ATTRIBUTE keys a
+	// service emits, for runtimes that have no metrics of their own to
+	// be recognised by.
+	//
+	// Node-RED is the case that forced it: its OpenTelemetry integration
+	// is a tracing integration, and the only metrics it exports are HTTP
+	// request metrics from http in nodes, under generic semantic-
+	// convention names that every HTTP service emits. There is no
+	// Node-RED metric name to match, and there never will be - but every
+	// span it emits carries node_red.* attributes.
+	//
+	// Matched the same way as DetectPrefixes: prefix, one hit is enough.
+	// A template may declare either or both; both are ORed.
+	DetectSpanAttrs []string
+	Checks          []systemCheck
 	// Runbook is the type-level "what to do about this kind of thing".
 	// Empty on the built-ins for now — they're code-defined, and writing
 	// generic advice that reads as authoritative would be worse than
@@ -336,6 +350,50 @@ var monitoringTemplates = []monitoringTemplate{
 			// Log check — catches export/config/permission failures the collector
 			// logs but that don't move a watched counter.
 			{Name: "Collector errors logged", Description: "The collector logged error-level messages (config, auth, permanent-error failures).", Signal: alerting.SignalLog, MinSeverity: 17, LogThreshold: 1, Severity: alerting.SeverityWarning},
+		},
+	},
+	{
+		// Node-RED, and the reason DetectSpanAttrs exists.
+		//
+		// # It has no metrics to be recognised by
+		//
+		// node-red-contrib-opentelemetry is a TRACING integration. The
+		// only metrics it exports are HTTP request metrics from http in
+		// nodes, under generic semantic-convention names that every HTTP
+		// service in the estate emits - useless as an identity. So this
+		// type is detected from the node_red.* span attributes instead,
+		// which every span it produces carries.
+		//
+		// # Why the checks are runtime-level, unlike Camel's
+		//
+		// A Node-RED runtime hosts many flows, exactly as a Camel JVM
+		// hosts many routes, and the flow is what somebody wants alerted
+		// on. Trace-signal rules take attribute FILTERS but no split, so
+		// a per-flow trace check is not expressible here.
+		//
+		// That is the right outcome rather than a gap, because Sluicio
+		// already has a better answer: make each flow an INTEGRATION,
+		// matched on node_red.flow.id, and its checks are per flow by
+		// construction. The candidate machinery proposes exactly that
+		// grouping. What belongs at the service level is what is true of
+		// the RUNTIME and cannot be attributed to one flow, which is
+		// what these four are.
+		//
+		// # The incomplete-span check earns its place
+		//
+		// msg.error() alone never marks a trace as failed: it routes to
+		// a catch node without firing onComplete, so the failed-trace
+		// check under-reports by design. A span left incomplete is the
+		// evidence that survives that, and node_red.span.incomplete is
+		// set for exactly this case. Confirmed against the Node-RED
+		// source while working on the instrumentation upstream.
+		Kind: "node-red", Label: "Node-RED", System: false,
+		DetectSpanAttrs: []string{"node_red."},
+		Checks: []systemCheck{
+			{Name: "Flow failed", Description: "A flow execution failed. Alert per flow by making each flow an integration matched on node_red.flow.id - this one covers the runtime as a whole.", Signal: "trace_error", TraceThreshold: 1, WindowSeconds: 900, Severity: alerting.SeverityWarning},
+			{Name: "Flow execution did not complete", Description: "A span was left open: the run neither finished nor raised. Calling msg.error() routes to a catch node WITHOUT marking the trace failed, so the failed-flow check above cannot see it and this is the only evidence there is.", Signal: "trace_attribute", TraceThreshold: 1, WindowSeconds: 900, Attrs: []alerting.AttrFilter{{Key: "node_red.span.incomplete", Op: "eq", Value: "true"}}, Severity: alerting.SeverityWarning},
+			{Name: "Slow flows", Description: "p95 flow duration is high across the runtime. Tune per flow by scoping it to an integration - a file poll and an HTTP call do not share a threshold.", Signal: "trace_latency", ThresholdMs: 30000, WindowSeconds: 900, Severity: alerting.SeverityWarning, Unit: "ms"},
+			{Name: "Runtime went quiet", Description: "The runtime produced fewer than one flow execution in an hour. Node-RED fails silently well - the editor stays green while nothing runs. Disable this on a runtime that only runs on a schedule, where quiet is the normal state.", Signal: "trace_volume", TraceThreshold: 1, WindowSeconds: 3600, Severity: alerting.SeverityWarning},
 		},
 	},
 	{
@@ -717,12 +775,40 @@ func (h *Handlers) detectTemplates(ctx context.Context, orgID uuid.UUID, service
 	if err != nil {
 		return nil, err
 	}
+	// Span attribute keys, fetched only when some template actually asks
+	// for them. A cell whose types all detect on metric names pays
+	// nothing, which keeps this endpoint at the one query it was.
+	var attrKeys []string
+	wantAttrs := false
+	for _, t := range tmpls {
+		if len(t.DetectSpanAttrs) > 0 && len(t.Checks) > 0 {
+			wantAttrs = true
+			break
+		}
+	}
+	if wantAttrs {
+		rows, aerr := h.Store.DistinctAttributeKeysScoped(ctx, []string{serviceName}, from, to, 0, nil)
+		if aerr != nil {
+			// Degraded, not fatal: metric-detected kinds are still worth
+			// suggesting, and a failure here must not empty the list.
+			h.Logger.Warn("template suggestions: span attribute keys failed", "err", aerr, "service", serviceName)
+		} else {
+			attrKeys = make([]string, 0, len(rows))
+			for _, r := range rows {
+				attrKeys = append(attrKeys, r.Key)
+			}
+		}
+	}
 	var out []monitoringTemplate
 	for _, t := range tmpls {
-		if len(t.DetectPrefixes) == 0 || len(t.Checks) == 0 {
+		if len(t.Checks) == 0 {
 			continue
 		}
-		if metricsMatchPrefixes(names, t.DetectPrefixes) {
+		if len(t.DetectPrefixes) == 0 && len(t.DetectSpanAttrs) == 0 {
+			continue
+		}
+		if metricsMatchPrefixes(names, t.DetectPrefixes) ||
+			metricsMatchPrefixes(attrKeys, t.DetectSpanAttrs) {
 			out = append(out, t)
 		}
 	}

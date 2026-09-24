@@ -38,7 +38,11 @@ type SystemType struct {
 	Label          string    `json:"label"`
 	IsSystem       bool      `json:"is_system"`
 	DetectPrefixes []string  `json:"detect_prefixes"`
-	Checks         []Check   `json:"checks"`
+	// DetectSpanAttrs recognises the type from SPAN ATTRIBUTE keys
+	// instead of metric names, for a runtime that has no metrics of its
+	// own to be recognised by (see migration 0097).
+	DetectSpanAttrs []string `json:"detect_span_attrs"`
+	Checks          []Check  `json:"checks"`
 	// Runbook is the type-level default guidance — "Kafka consumer lag:
 	// check consumer group health first". Rides along wherever the type
 	// is reported so a responder gets it without a second lookup.
@@ -51,12 +55,12 @@ type Store struct{ pool *pgxpool.Pool }
 
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
-const cols = `id, org_id, key, label, is_system, detect_prefixes, checks, COALESCE(runbook, ''), created_at, updated_at`
+const cols = `id, org_id, key, label, is_system, detect_prefixes, COALESCE(detect_span_attrs, '[]'::jsonb), checks, COALESCE(runbook, ''), created_at, updated_at`
 
 func scan(row pgx.Row) (SystemType, error) {
 	var t SystemType
-	var prefixesJSON, checksJSON []byte
-	if err := row.Scan(&t.ID, &t.OrganizationID, &t.Key, &t.Label, &t.IsSystem, &prefixesJSON, &checksJSON, &t.Runbook, &t.CreatedAt, &t.UpdatedAt); err != nil {
+	var prefixesJSON, spanAttrsJSON, checksJSON []byte
+	if err := row.Scan(&t.ID, &t.OrganizationID, &t.Key, &t.Label, &t.IsSystem, &prefixesJSON, &spanAttrsJSON, &checksJSON, &t.Runbook, &t.CreatedAt, &t.UpdatedAt); err != nil {
 		return SystemType{}, err
 	}
 	if len(prefixesJSON) > 0 {
@@ -64,6 +68,12 @@ func scan(row pgx.Row) (SystemType, error) {
 	}
 	if t.DetectPrefixes == nil {
 		t.DetectPrefixes = []string{}
+	}
+	if len(spanAttrsJSON) > 0 {
+		_ = json.Unmarshal(spanAttrsJSON, &t.DetectSpanAttrs)
+	}
+	if t.DetectSpanAttrs == nil {
+		t.DetectSpanAttrs = []string{}
 	}
 	if len(checksJSON) > 0 {
 		_ = json.Unmarshal(checksJSON, &t.Checks)
@@ -105,6 +115,19 @@ func (s *Store) Get(ctx context.Context, orgID, id uuid.UUID) (SystemType, bool,
 	return t, true, nil
 }
 
+// marshalStrings renders a string slice as a JSON array, with nil
+// becoming [] rather than null so the NOT NULL column is satisfied.
+func marshalStrings(v []string) (string, error) {
+	if v == nil {
+		v = []string{}
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return "", fmt.Errorf("systemtypes: marshal strings: %w", err)
+	}
+	return string(b), nil
+}
+
 func marshalJSONArrays(prefixes []string, checks []Check) (string, string, error) {
 	if prefixes == nil {
 		prefixes = []string{}
@@ -123,28 +146,37 @@ func marshalJSONArrays(prefixes []string, checks []Check) (string, string, error
 	return string(p), string(c), nil
 }
 
-func (s *Store) Create(ctx context.Context, orgID uuid.UUID, key, label string, isSystem bool, prefixes []string, checks []Check, runbook string) (SystemType, error) {
+func (s *Store) Create(ctx context.Context, orgID uuid.UUID, key, label string, isSystem bool, prefixes, spanAttrs []string, checks []Check, runbook string) (SystemType, error) {
 	p, c, err := marshalJSONArrays(prefixes, checks)
 	if err != nil {
 		return SystemType{}, err
 	}
+	a, err := marshalStrings(spanAttrs)
+	if err != nil {
+		return SystemType{}, err
+	}
 	row := s.pool.QueryRow(ctx, `
-		INSERT INTO system_types (org_id, key, label, is_system, detect_prefixes, checks, runbook)
-		VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7)
-		RETURNING `+cols, orgID, key, label, isSystem, p, c, runbook)
+		INSERT INTO system_types (org_id, key, label, is_system, detect_prefixes, detect_span_attrs, checks, runbook)
+		VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8)
+		RETURNING `+cols, orgID, key, label, isSystem, p, a, c, runbook)
 	return scan(row)
 }
 
-func (s *Store) Update(ctx context.Context, orgID, id uuid.UUID, label string, isSystem bool, prefixes []string, checks []Check, runbook string) (SystemType, bool, error) {
+func (s *Store) Update(ctx context.Context, orgID, id uuid.UUID, label string, isSystem bool, prefixes, spanAttrs []string, checks []Check, runbook string) (SystemType, bool, error) {
 	p, c, err := marshalJSONArrays(prefixes, checks)
+	if err != nil {
+		return SystemType{}, false, err
+	}
+	a, err := marshalStrings(spanAttrs)
 	if err != nil {
 		return SystemType{}, false, err
 	}
 	row := s.pool.QueryRow(ctx, `
 		UPDATE system_types
-		SET label = $3, is_system = $4, detect_prefixes = $5::jsonb, checks = $6::jsonb, runbook = $7, updated_at = now()
+		SET label = $3, is_system = $4, detect_prefixes = $5::jsonb, detect_span_attrs = $6::jsonb,
+		    checks = $7::jsonb, runbook = $8, updated_at = now()
 		WHERE org_id = $1 AND id = $2
-		RETURNING `+cols, orgID, id, label, isSystem, p, c, runbook)
+		RETURNING `+cols, orgID, id, label, isSystem, p, a, c, runbook)
 	t, err := scan(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return SystemType{}, false, nil

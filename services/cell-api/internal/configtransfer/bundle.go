@@ -115,7 +115,11 @@ type SystemType struct {
 	Label          string          `json:"label"`
 	IsSystem       bool            `json:"is_system"`
 	DetectPrefixes json.RawMessage `json:"detect_prefixes,omitempty"`
-	Checks         json.RawMessage `json:"checks,omitempty"`
+	// DetectSpanAttrs: recognition from span attribute keys rather than
+	// metric names. Omitted when empty, so a bundle from a cell without
+	// such a type is byte-identical to one made before the field.
+	DetectSpanAttrs json.RawMessage `json:"detect_span_attrs,omitempty"`
+	Checks          json.RawMessage `json:"checks,omitempty"`
 }
 
 type System struct {
@@ -162,18 +166,18 @@ type GroupMember struct {
 }
 
 type Integration struct {
-	Slug        string            `json:"slug"`
-	Name        string            `json:"name"`
-	Description string            `json:"description,omitempty"`
-	BadgePublic bool              `json:"badge_public"`
+	Slug        string `json:"slug"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	BadgePublic bool   `json:"badge_public"`
 	// RuleMatch is "any" (the union) or "all" (every rule within one
 	// trace). omitempty keeps older bundles byte-identical, and a bundle
 	// without it imports as the union it was written under.
-	RuleMatch string `json:"rule_match,omitempty"`
-	Profile     *string           `json:"notification_profile,omitempty"` // profile name
-	Matchers    []Matcher         `json:"matchers,omitempty"`
-	Tags        []string          `json:"tags,omitempty"`     // tag slugs
-	Metadata    map[string]string `json:"metadata,omitempty"` // field key → value
+	RuleMatch string            `json:"rule_match,omitempty"`
+	Profile   *string           `json:"notification_profile,omitempty"` // profile name
+	Matchers  []Matcher         `json:"matchers,omitempty"`
+	Tags      []string          `json:"tags,omitempty"`     // tag slugs
+	Metadata  map[string]string `json:"metadata,omitempty"` // field key → value
 }
 
 type Matcher struct {

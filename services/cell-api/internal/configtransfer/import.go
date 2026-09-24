@@ -375,16 +375,17 @@ func (r *resolver) importSystemTypes(types []SystemType) func() error {
 				func() (string, error) {
 					var id string
 					err := r.tx.QueryRow(r.ctx, `
-						INSERT INTO system_types (org_id, key, label, is_system, detect_prefixes, checks)
-						VALUES ($1,$2,$3,$4,COALESCE($5::jsonb,'[]'::jsonb),COALESCE($6::jsonb,'[]'::jsonb)) RETURNING id`,
-						r.org, t.Key, t.Label, t.IsSystem, jsonArg(t.DetectPrefixes), jsonArg(t.Checks)).Scan(&id)
+						INSERT INTO system_types (org_id, key, label, is_system, detect_prefixes, detect_span_attrs, checks)
+						VALUES ($1,$2,$3,$4,COALESCE($5::jsonb,'[]'::jsonb),COALESCE($6::jsonb,'[]'::jsonb),COALESCE($7::jsonb,'[]'::jsonb)) RETURNING id`,
+						r.org, t.Key, t.Label, t.IsSystem, jsonArg(t.DetectPrefixes), jsonArg(t.DetectSpanAttrs), jsonArg(t.Checks)).Scan(&id)
 					return id, err
 				},
 				func(id string) error {
 					_, err := r.tx.Exec(r.ctx, `
 						UPDATE system_types SET label=$2, is_system=$3, detect_prefixes=COALESCE($4::jsonb,'[]'::jsonb),
-						  checks=COALESCE($5::jsonb,'[]'::jsonb), updated_at=now() WHERE id=$1`,
-						id, t.Label, t.IsSystem, jsonArg(t.DetectPrefixes), jsonArg(t.Checks))
+						  detect_span_attrs=COALESCE($5::jsonb,'[]'::jsonb),
+						  checks=COALESCE($6::jsonb,'[]'::jsonb), updated_at=now() WHERE id=$1`,
+						id, t.Label, t.IsSystem, jsonArg(t.DetectPrefixes), jsonArg(t.DetectSpanAttrs), jsonArg(t.Checks))
 					return err
 				})
 			if err != nil {
