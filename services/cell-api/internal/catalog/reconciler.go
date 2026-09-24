@@ -94,11 +94,28 @@ type Reconciler struct {
 	// because that is integration matcher logic the API layer already
 	// owns; catalog only supplies the window and stores the answer.
 	DetectIntegrationFacets func(ctx context.Context, orgID uuid.UUID, from, to time.Time) map[uuid.UUID][]string
-	// FacetEvidenceWindow is how far back a detection pass looks, and
-	// how long a facet survives without being seen again. Should track
-	// the telemetry retention: a facet lasts exactly as long as the
-	// spans that could re-detect it.
+	// FacetEvidenceWindow caps how far back a detection pass PROFILES.
+	// It is not the expiry rule, and the two must not be the same
+	// number (issue #26).
+	//
+	// A pass is a ClickHouse profile of every service, every
+	// FacetInterval, so its window has to stay bounded; the expiry has
+	// to stretch to the telemetry retention, which is a per-cell
+	// setting and goes up to five years. One constant serving both
+	// meant a facet was dropped after fourteen days however long the
+	// spans behind it were kept, so on a cell retaining thirty days a
+	// MONTHLY flow lost its classification for half of every month -
+	// the exact case this issue exists to fix.
 	FacetEvidenceWindow time.Duration
+	// FacetRetention answers "how long could evidence for a facet still
+	// exist", which is the telemetry retention. A facet is dropped only
+	// once the spans that would re-detect it are gone.
+	//
+	// A function rather than a value because retention is a setting an
+	// operator changes while the cell runs, and the answer is wanted at
+	// pass time. Nil or non-positive falls back to the profile window,
+	// which is the old behaviour.
+	FacetRetention func(ctx context.Context) time.Duration
 	// FacetInterval is how often detection runs. Much slower than the
 	// reconcile tick — profiling every service is real work and a
 	// classification does not change by the second.
@@ -351,6 +368,36 @@ func (r *Reconciler) RunOnce(ctx context.Context) error {
 	return nil
 }
 
+// facetWindows splits the one number this used to have into the two it
+// always meant (issue #26).
+//
+//   - profile: how far back a pass READS. Bounded, because it is a
+//     ClickHouse profile of every service on a 15-minute cadence.
+//   - expiry: how long a facet survives unseen. The telemetry
+//     retention, because a facet exists as long as evidence for it
+//     could exist.
+//
+// Collapsing them dropped a facet after the profile window however long
+// the spans behind it were kept: on a cell retaining thirty days, a
+// monthly flow went unclassified for half of every month, which is the
+// case the issue was raised for.
+//
+// Reading past the retention is waste - there is nothing there - so the
+// profile never exceeds it. A retention of zero means "not configured",
+// and then the old single-window behaviour is exactly right.
+func facetWindows(profile, retention time.Duration) (scan, expiry time.Duration) {
+	if profile <= 0 {
+		profile = 14 * 24 * time.Hour
+	}
+	if retention <= 0 {
+		return profile, profile
+	}
+	if profile > retention {
+		profile = retention
+	}
+	return profile, retention
+}
+
 // detectFacets refreshes the persisted classification for every service.
 //
 // Best-effort in the same sense as the attribute snapshot: a failure
@@ -370,10 +417,11 @@ func (r *Reconciler) detectFacets(ctx context.Context, serviceNames []string, no
 	if !r.lastFacetPass.IsZero() && now.Sub(r.lastFacetPass) < interval {
 		return
 	}
-	evidence := r.FacetEvidenceWindow
-	if evidence <= 0 {
-		evidence = 14 * 24 * time.Hour
+	var retention time.Duration
+	if r.FacetRetention != nil {
+		retention = r.FacetRetention(ctx)
 	}
+	evidence, retain := facetWindows(r.FacetEvidenceWindow, retention)
 
 	// The pass looks back over the whole evidence window, not over the
 	// reconcile window: a monthly flow has to be visible to the thing
@@ -405,13 +453,15 @@ func (r *Reconciler) detectFacets(ctx context.Context, serviceNames []string, no
 	}
 
 	// Expire on evidence, not on absence: a facet survives exactly as
-	// long as the spans that could re-detect it.
-	if removed, err := r.catalog.PruneDetectedFacets(ctx, r.orgID, now.Add(-evidence)); err != nil {
+	// long as the spans that could re-detect it. Note this is `retain`,
+	// not the profile window - absence from one bounded profile is not
+	// evidence against a facet, which is the whole point.
+	if removed, err := r.catalog.PruneDetectedFacets(ctx, r.orgID, now.Add(-retain)); err != nil {
 		r.logger.Warn("prune detected facets failed", "err", err)
 	} else if removed > 0 {
 		r.logger.Debug("expired detected facets", "removed", removed)
 	}
-	if removed, err := r.catalog.PruneDetectedIntegrationFacets(ctx, r.orgID, now.Add(-evidence)); err != nil {
+	if removed, err := r.catalog.PruneDetectedIntegrationFacets(ctx, r.orgID, now.Add(-retain)); err != nil {
 		r.logger.Warn("prune detected integration facets failed", "err", err)
 	} else if removed > 0 {
 		r.logger.Debug("expired detected integration facets", "removed", removed)

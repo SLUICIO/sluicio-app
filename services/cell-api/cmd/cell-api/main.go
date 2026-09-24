@@ -324,9 +324,25 @@ func main() {
 	// seconds and 94 MiB a pass, twice a minute, for ever.
 	catalogReconciler.AttrInterval = 15 * time.Minute
 	catalogReconciler.AttrWindow = 24 * time.Hour
-	// Evidence window tracks telemetry retention: a facet lasts exactly
-	// as long as the spans that could re-detect it.
+	// Constructed here rather than beside the retention enforcer below,
+	// because the facet pass needs to read the retention policy.
+	settingsStore := settings.NewStore(pg)
+
+	// Two windows, not one (issue #26). The pass PROFILES fourteen days,
+	// which bounds a ClickHouse read that runs every FacetInterval; a
+	// facet EXPIRES on the telemetry retention, so it lasts exactly as
+	// long as the spans that could re-detect it. Collapsing them into a
+	// single constant dropped a monthly flow's classification halfway
+	// through every month on any cell retaining more than a fortnight.
 	catalogReconciler.FacetEvidenceWindow = 14 * 24 * time.Hour
+	catalogReconciler.FacetRetention = func(ctx context.Context) time.Duration {
+		policy, err := settingsStore.GetRetention(ctx)
+		if err != nil {
+			logger.Warn("facet expiry: retention lookup failed; using the profile window", "err", err)
+			return 0
+		}
+		return time.Duration(policy.Traces.Days) * 24 * time.Hour
+	}
 	go catalogReconciler.Run(bgCtx)
 	logger.Info("catalog reconciler started")
 
@@ -427,7 +443,6 @@ func main() {
 	// synchronously on PATCH (the API handler calls ApplyOnce). 1h tick
 	// is the safety-net cadence — ALTER TABLE … MODIFY TTL is metadata-
 	// only so the steady-state cost is microseconds.
-	settingsStore := settings.NewStore(pg)
 	handlers.Settings = settingsStore
 
 	// Cell secret-encryption key. Encrypts MFA TOTP secrets and the replayable
