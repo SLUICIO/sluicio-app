@@ -5,6 +5,8 @@ _Internal: not shown anywhere in the Sluicio product._
 
 ## v0.11.154 — 2026-09-24
 
+- fix(integrations): a rule can name a service that has been quiet (446b4ea)
+- release v0.11.154 — refresh internal changelog (bb4a697)
 - fix(messages): sort the list by the time it shows (5322412)
 - fix(traces): order the waterfall by the tree, and indent it (f70171d)
 - feat(integrations): rebuild the rule editor, and say what a rule matches (3266417)
