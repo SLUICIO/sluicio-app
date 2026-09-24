@@ -3,8 +3,17 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.158 — 2026-09-24
+
+- fix(discovery): the service list counts hand-offs as dependencies too (#25) (14ec2a3)
+- feat(system-types): Kubernetes, one type for every distribution (314902e)
+- fix(facets): a facet expires on the retention, not on a fixed fortnight (#26) (3744a91)
+- perf(rbac): resolve a caller's access once per read, not once per row (#28) (ac639d1)
+- fix(rbac): a shared integration grants the integration, not its services (#28) (8341834)
+
 ## v0.11.157 — 2026-09-24
 
+- release v0.11.157 — refresh internal changelog (45ef8f0)
 - feat(alerts): a delivery that fails is survivable, and audible (268bc77)
 
 ## v0.11.156 — 2026-09-24
