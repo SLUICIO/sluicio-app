@@ -3,8 +3,14 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.159 — 2026-09-24
+
+- feat(system-types): Node-RED, recognised by span attributes rather than metrics (5b3dc4b)
+- feat(system-types): Apache Camel, with every check split by route (7c9ca8e)
+
 ## v0.11.158 — 2026-09-24
 
+- release v0.11.158 — refresh internal changelog (8985ea3)
 - fix(discovery): the service list counts hand-offs as dependencies too (#25) (14ec2a3)
 - feat(system-types): Kubernetes, one type for every distribution (314902e)
 - fix(facets): a facet expires on the retention, not on a fixed fortnight (#26) (3744a91)
