@@ -3,8 +3,14 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.161 — 2026-09-25
+
+- feat(facets): say since when a service has looked like this (f1cbaef)
+- fix(alerts): a check says what it is about, instead of being guessed at (ac73efc)
+
 ## v0.11.160 — 2026-09-25
 
+- release v0.11.160 — refresh internal changelog (3db6d4b)
 - feat(system-types): one Airflow type per process, not one for Airflow (35ac14c)
 - feat(system-types): Apache Airflow, and a heartbeat that fires on absence (6605cd7)
 - test(integrations): a live probe of what the list and health feed say about shared-service integrations (56d4d6c)
