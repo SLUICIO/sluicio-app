@@ -61,6 +61,7 @@ type docCheck struct {
 	Threshold      float64         `json:"threshold,omitempty" yaml:"threshold,omitempty"`
 	Attrs          []docAttrFilter `json:"attrs,omitempty" yaml:"attrs,omitempty"`
 	SplitBy        string          `json:"split_by,omitempty" yaml:"split_by,omitempty"`
+	FireOnNoData   bool            `json:"fire_on_no_data,omitempty" yaml:"fire_on_no_data,omitempty"`
 	MinSeverity    int32           `json:"min_severity,omitempty" yaml:"min_severity,omitempty"`
 	BodyContains   string          `json:"body_contains,omitempty" yaml:"body_contains,omitempty"`
 	LogThreshold   int             `json:"log_threshold,omitempty" yaml:"log_threshold,omitempty"`
@@ -86,7 +87,7 @@ func checkToDoc(c monitoringtemplates.Check) docCheck {
 	return docCheck{
 		Name: c.Name, Description: c.Description, Signal: c.Signal,
 		Metric: c.Metric, Agg: c.Agg, Op: c.Op, Threshold: c.Threshold,
-		Attrs: attrs, SplitBy: c.SplitBy,
+		Attrs: attrs, SplitBy: c.SplitBy, FireOnNoData: c.FireOnNoData,
 		MinSeverity: c.MinSeverity, BodyContains: c.BodyContains, LogThreshold: c.LogThreshold,
 		TraceThreshold: c.TraceThreshold, ThresholdMs: c.ThresholdMs, WindowSeconds: c.WindowSeconds,
 		Severity: c.Severity, Unit: c.Unit, Display: c.Display,
@@ -101,7 +102,7 @@ func docToCheck(d docCheck) monitoringtemplates.Check {
 	return monitoringtemplates.Check{
 		Name: d.Name, Description: d.Description, Signal: d.Signal,
 		Metric: d.Metric, Agg: d.Agg, Op: d.Op, Threshold: d.Threshold,
-		Attrs: attrs, SplitBy: d.SplitBy,
+		Attrs: attrs, SplitBy: d.SplitBy, FireOnNoData: d.FireOnNoData,
 		MinSeverity: d.MinSeverity, BodyContains: d.BodyContains, LogThreshold: d.LogThreshold,
 		TraceThreshold: d.TraceThreshold, ThresholdMs: d.ThresholdMs, WindowSeconds: d.WindowSeconds,
 		Severity: d.Severity, Unit: d.Unit, Display: d.Display,

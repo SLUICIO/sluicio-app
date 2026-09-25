@@ -44,6 +44,9 @@ type Check struct {
 	Threshold float64      `json:"threshold,omitempty"`
 	Attrs     []AttrFilter `json:"attrs,omitempty"`
 	SplitBy   string       `json:"split_by,omitempty"`
+	// FireOnNoData: the absence of the metric fires. How a heartbeat is
+	// written, since a dead process emits nothing left to threshold.
+	FireOnNoData bool `json:"fire_on_no_data,omitempty"`
 	// log
 	MinSeverity  int32  `json:"min_severity,omitempty"`
 	BodyContains string `json:"body_contains,omitempty"`

@@ -70,6 +70,7 @@ export const SERVICE_TEMPLATE_KINDS: { value: string; label: string }[] = [
   // JVM usually hosts several integrations at once.
   { value: "camel", label: "Apache Camel" },
   { value: "node-red", label: "Node-RED" },
+  { value: "airflow", label: "Apache Airflow" },
 ];
 
 export function templateKindLabel(kind: string | undefined): string {

@@ -47,6 +47,7 @@ var systemTypeDocsPages = map[string]bool{
 	"kubernetes":       true,
 	"camel":            true,
 	"node-red":         true,
+	"airflow":          true,
 }
 
 // docsURLForSystemType returns the reference page for a type key, or ""

@@ -51,6 +51,12 @@ type systemCheck struct {
 	// the firing enumerates each breaching value ("DLQ depth > 0 split
 	// by queue" names WHICH queue backed up).
 	SplitBy string
+	// FireOnNoData makes the ABSENCE of the metric a firing condition,
+	// which is the only way to write a heartbeat: a process that dies
+	// stops emitting, so a threshold on what it emits has nothing left to
+	// breach. Guarded in the engine by "has this rule ever seen a
+	// reading", so it cannot fire on a metric that never existed.
+	FireOnNoData bool
 	// log-signal fields
 	MinSeverity  int32  // OTLP severity floor (error≈17); 0 = any
 	BodyContains string // case-insensitive substring; "" = no text filter
@@ -353,6 +359,68 @@ var monitoringTemplates = []monitoringTemplate{
 		},
 	},
 	{
+		// Grounded in what an Airflow 3 deployment actually emits, read
+		// off a cell rather than recalled: every metric name, type and
+		// attribute below was measured against a running scheduler.
+		//
+		// # It detects the SCHEDULER, not "Airflow"
+		//
+		// Airflow is four processes, and they emit disjoint metrics:
+		//
+		//	scheduler      airflow.dagrun.*  airflow.executor.*
+		//	               airflow.pool.*    airflow.scheduler*  airflow.ti*
+		//	dag-processor  airflow.dag_processing.*  airflow.dagbag_size
+		//	triggerer      airflow.triggers.*  airflow.triggerer*
+		//	apiserver      almost nothing
+		//
+		// So detection names the scheduler's own families rather than the
+		// bare airflow. prefix. Matching that would offer this type to
+		// the triggerer and the dag-processor, whose metrics none of
+		// these checks mention, and every applied check would sit armed
+		// and silent. The cost is that a dag-processor problem - an
+		// import error, which stops a DAG running with no failure
+		// anywhere - is not covered here. That is a second type, not a
+		// check that cannot fire.
+		//
+		// # Per DAG, and why that is not the same as per service
+		//
+		// One scheduler runs every DAG, so "this service is failing"
+		// names the scheduler and hides which DAG broke. The modern OTel
+		// path carries dag_id as a proper metric ATTRIBUTE, so the
+		// per-DAG checks split on it. (Airflow also still emits the
+		// StatsD-era names with the DAG baked in -
+		// airflow.dagrun.orders_export.first_task_scheduling_delay - which
+		// no template can enumerate; the attributed metrics are the ones
+		// to use.)
+		//
+		// The split is load-bearing beyond naming the DAG. A check split
+		// by an attribute is read as describing one flow rather than the
+		// process, so it no longer drags every sibling DAG integration
+		// down with it (alerting.DescribesWholeService). The two
+		// process-level checks here are deliberately left UNSPLIT for the
+		// same reason, so they do reach every DAG: a dead scheduler and a
+		// starved pool break all of them, and naming the pool would cost
+		// exactly that propagation.
+		//
+		// # Why no check on dag run duration
+		//
+		// airflow.dagrun.duration.failed and .success are histograms, and
+		// a histogram lands here with Value as the bucket SUM. A
+		// threshold on it reads as "the total seconds of failed runs",
+		// which is not a duration and not a count. The per-DAG task
+		// failure counter answers the same question exactly.
+		Kind: "airflow", Label: "Apache Airflow", System: false,
+		DetectPrefixes: []string{"airflow.dagrun.", "airflow.executor.", "airflow.pool.", "airflow.scheduler"},
+		Checks: []systemCheck{
+			{Name: "DAG task failures", Description: "Task instances failed, split by DAG so the firing names which one. This is the per-DAG failure signal; bind it to an integration per DAG to alert on one flow alone.", Metric: "airflow.ti_failures", Agg: alerting.AggIncrease, Op: alerting.OpGT, Threshold: 0, SplitBy: "dag_id", Severity: alerting.SeverityWarning, Unit: "tasks", Display: true},
+			{Name: "Operator failures", Description: "Failures counted per operator as well as per DAG - the same events as above seen by the kind of task that raised them, which is what tells a flaky sensor from a broken load step.", Metric: "airflow.operator_failures", Agg: alerting.AggIncrease, Op: alerting.OpGT, Threshold: 0, SplitBy: "dag_id", Severity: alerting.SeverityWarning, Unit: "tasks"},
+			{Name: "Scheduler not running", Description: "The scheduler heartbeat stopped. Fires on the ABSENCE of the metric, because a scheduler that dies emits nothing left to threshold - which is why nothing else here would notice. Every DAG is stopped while this holds.", Metric: "airflow.scheduler_heartbeat", Agg: alerting.AggIncrease, Op: alerting.OpLT, Threshold: 1, FireOnNoData: true, Severity: alerting.SeverityCritical, Display: true},
+			{Name: "Tasks starving for a pool slot", Description: "Tasks are runnable but have no slot, so they wait without failing - a queue nobody is told about. Left unsplit on purpose: it affects every DAG drawing on that pool, and splitting by pool_name would stop it saying so.", Metric: "airflow.pool.starving_tasks", Agg: alerting.AggMax, Op: alerting.OpGT, Threshold: 0, Severity: alerting.SeverityWarning, Unit: "tasks", Display: true},
+			{Name: "Executor out of slots", Description: "No open executor slots, so nothing new starts however much is queued. Raise the threshold above zero to fire before saturation rather than at it.", Metric: "airflow.executor.open_slots", Agg: alerting.AggMin, Op: alerting.OpLT, Threshold: 1, Severity: alerting.SeverityWarning, Unit: "slots", Display: true},
+			{Name: "Tasks queued and not starting", Description: "The queue is deep. Normal during a burst, and a stuck executor otherwise - tune to what your executor clears in five minutes.", Metric: "airflow.executor.queued_tasks", Agg: alerting.AggMax, Op: alerting.OpGT, Threshold: 50, Severity: alerting.SeverityWarning, Unit: "tasks"},
+		},
+	},
+	{
 		// Node-RED, and the reason DetectSpanAttrs exists.
 		//
 		// # It has no metrics to be recognised by
@@ -569,13 +637,14 @@ func (h *Handlers) createTemplateChecks(r *http.Request, orgID uuid.UUID, servic
 			rule.Signal = alerting.SignalMetric
 			rule.DisplayOnService = c.Display
 			rule.Spec = alerting.MetricRuleSpec{
-				MetricName:  c.Metric,
-				Aggregation: c.Agg,
-				Operator:    c.Op,
-				Threshold:   c.Threshold,
-				ForWindow:   "5m",
-				Attrs:       c.Attrs,
-				SplitBy:     c.SplitBy,
+				MetricName:   c.Metric,
+				Aggregation:  c.Agg,
+				Operator:     c.Op,
+				Threshold:    c.Threshold,
+				ForWindow:    "5m",
+				Attrs:        c.Attrs,
+				SplitBy:      c.SplitBy,
+				FireOnNoData: c.FireOnNoData,
 			}
 		}
 		if _, cerr := h.Alerts.CreateRule(r.Context(), rule); cerr != nil {
