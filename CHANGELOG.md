@@ -3,8 +3,17 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.160 — 2026-09-25
+
+- feat(system-types): one Airflow type per process, not one for Airflow (35ac14c)
+- feat(system-types): Apache Airflow, and a heartbeat that fires on absence (6605cd7)
+- test(integrations): a live probe of what the list and health feed say about shared-service integrations (56d4d6c)
+- fix(integrations): a slice of a shared service reads its own health (4210b64)
+- test(alerts): make the delivery-failure count explain its own failure (5d497f0)
+
 ## v0.11.159 — 2026-09-24
 
+- release v0.11.159 — refresh internal changelog (54e9005)
 - feat(system-types): Node-RED, recognised by span attributes rather than metrics (5b3dc4b)
 - feat(system-types): Apache Camel, with every check split by route (7c9ca8e)
 
