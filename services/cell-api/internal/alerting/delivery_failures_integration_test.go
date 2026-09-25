@@ -91,14 +91,65 @@ func TestRecentDeliveryFailuresAreCountedPerChannel(t *testing.T) {
 		t.Errorf("pager: counted %d, want 1", counts["pager"])
 	}
 	if len(got) != 2 {
+		// Seen failing once with every count at zero, on a loaded
+		// machine, and not reproducible afterwards (five consecutive
+		// runs, clocks within a second). Zero rows and no error can only
+		// mean the query looked somewhere the seeds are not, so the
+		// state it looked at is what the next occurrence has to show -
+		// otherwise this is a mystery again rather than a diagnosis.
 		t.Errorf("counted %d channels, want 2: %+v", len(got), got)
+		dumpDeliveryState(t, ctx, pool, org)
 	}
 	// Worst first, so the health line names the channel that matters.
+	//
+	// Guarded: the assertions above already say what went wrong, and
+	// indexing an empty slice replaces that report with a panic and a
+	// stack trace that names the test rather than the cause.
+	if len(got) == 0 {
+		return
+	}
 	if got[0].ChannelName != "slack-ops" {
 		t.Errorf("ordered by count descending, got %s first", got[0].ChannelName)
 	}
 	if got[0].LastError == "" {
 		t.Error("the count says nothing about what went wrong")
+	}
+}
+
+// dumpDeliveryState prints what the count query had to work with: the
+// rows, and both clocks, since the window is compared across them.
+func dumpDeliveryState(t *testing.T, ctx context.Context, pool *pgxpool.Pool, org uuid.UUID) {
+	t.Helper()
+	var dbNow string
+	if err := pool.QueryRow(ctx, `SELECT now()::text`).Scan(&dbNow); err != nil {
+		t.Logf("db clock unreadable: %v", err)
+	}
+	t.Logf("clocks: db=%s host=%s", dbNow, time.Now().UTC().Format("2006-01-02 15:04:05-07"))
+	rows, err := pool.Query(ctx, `
+		SELECT c.organization_id::text, c.name, j.state::text, j.updated_at::text
+		FROM notification_jobs j JOIN notification_channels c ON c.id = j.channel_id
+		ORDER BY j.updated_at DESC`)
+	if err != nil {
+		t.Logf("state unreadable: %v", err)
+		return
+	}
+	defer rows.Close()
+	seen := 0
+	for rows.Next() {
+		var o, name, state, updated string
+		if err := rows.Scan(&o, &name, &state, &updated); err != nil {
+			t.Logf("scan: %v", err)
+			return
+		}
+		mine := ""
+		if o == org.String() {
+			mine = "  <- this org"
+		}
+		t.Logf("  %s %-10s %-9s %s%s", o, name, state, updated, mine)
+		seen++
+	}
+	if seen == 0 {
+		t.Log("  no jobs at all: the seeds are not in the database this query read")
 	}
 }
 
