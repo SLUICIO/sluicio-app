@@ -421,6 +421,48 @@ var monitoringTemplates = []monitoringTemplate{
 		},
 	},
 	{
+		// Airflow's DAG processor: the second of the three Airflow types,
+		// and the reason there are three.
+		//
+		// One type per process, because a type is applied to a SERVICE and
+		// the four Airflow processes emit almost disjoint metrics. A
+		// single "Airflow" type detecting the bare airflow. prefix is
+		// offered to all four and then carries checks that can only fire
+		// on one of them - measured on a live cell, four of seven such
+		// checks were dead wherever the type was applied.
+		//
+		// This one earns its place on the import-error check alone. A DAG
+		// file that stops parsing stops running, and nothing fails: no
+		// task errors, no failed run, no alert on the scheduler. The DAG
+		// simply is not there any more. It is the quietest way for
+		// scheduled work to disappear, and only this process sees it.
+		Kind: "airflow-dag-processor", Label: "Airflow DAG processor", System: false,
+		DetectPrefixes: []string{"airflow.dag_processing.", "airflow.dagbag_size", "airflow.dag_processor_heartbeat"},
+		Checks: []systemCheck{
+			{Name: "DAG processor not running", Description: "The heartbeat stopped, so no DAG file is being reparsed: edits never take effect and a new DAG never appears. Fires on the absence of the metric, because a dead process emits nothing left to threshold.", Metric: "airflow.dag_processor_heartbeat", Agg: alerting.AggIncrease, Op: alerting.OpLT, Threshold: 1, FireOnNoData: true, Severity: alerting.SeverityCritical, Display: true},
+			{Name: "DAG import errors", Description: "A DAG file fails to import. That DAG is not scheduled at all, and it fails nowhere: no task errors, no failed run, nothing on the scheduler. Scheduled work vanishes quietly.", Metric: "airflow.dag_processing.import_errors", Agg: alerting.AggMax, Op: alerting.OpGT, Threshold: 0, Severity: alerting.SeverityCritical, Unit: "files", Display: true},
+			{Name: "No DAGs loaded", Description: "The DAG bag is empty - a bundle that failed to sync, or a path that moved. Raise the threshold to your DAG count to catch losing SOME of them rather than all.", Metric: "airflow.dagbag_size", Agg: alerting.AggMin, Op: alerting.OpLT, Threshold: 1, Severity: alerting.SeverityCritical, Unit: "dags"},
+			{Name: "DAG file not reparsed", Description: "A file has not been reparsed recently, so edits to it are not live. The value is seconds since its last parse, split by file so the firing names it.", Metric: "airflow.dag_processing.last_run.seconds_ago", Agg: alerting.AggMax, Op: alerting.OpGT, Threshold: 600, SplitBy: "file_name", Severity: alerting.SeverityWarning, Unit: "seconds"},
+			{Name: "DAG parsing slow", Description: "Total parse time is high, which delays every schedule. Usually one file doing real work at import time - an API call or a database query at module level. Tune to your DAG count.", Metric: "airflow.dag_processing.total_parse_time", Agg: alerting.AggMax, Op: alerting.OpGT, Threshold: 30, Severity: alerting.SeverityWarning, Unit: "seconds", Display: true},
+		},
+	},
+	{
+		// Airflow's triggerer: the third type, for deferrable operators.
+		//
+		// Nothing on the scheduler notices this process failing. A
+		// deferred task is not running and not failing - it is waiting,
+		// which looks identical to waiting correctly. Sensors in deferred
+		// mode are the common case, so a dead triggerer is a fleet of
+		// tasks that never resume and never complain.
+		Kind: "airflow-triggerer", Label: "Airflow triggerer", System: false,
+		DetectPrefixes: []string{"airflow.triggers.", "airflow.triggerer"},
+		Checks: []systemCheck{
+			{Name: "Triggerer not running", Description: "The heartbeat stopped. Every deferred task stays deferred: not running, not failing, indistinguishable from waiting correctly. Fires on the absence of the metric.", Metric: "airflow.triggerer_heartbeat", Agg: alerting.AggIncrease, Op: alerting.OpLT, Threshold: 1, FireOnNoData: true, Severity: alerting.SeverityCritical, Display: true},
+			{Name: "Trigger blocking the main thread", Description: "A trigger blocked the async loop. One badly written trigger doing synchronous work starves every other deferred task on this process, so the symptom is unrelated tasks hanging.", Metric: "airflow.triggers.blocked_main_thread", Agg: alerting.AggIncrease, Op: alerting.OpGT, Threshold: 0, Severity: alerting.SeverityWarning, Unit: "triggers", Display: true},
+			{Name: "Triggerer at capacity", Description: "No capacity left for new deferred tasks, so they queue behind the ones running. Scale the triggerer or raise its capacity.", Metric: "airflow.triggerer.capacity_left", Agg: alerting.AggMin, Op: alerting.OpLT, Threshold: 1, Severity: alerting.SeverityWarning, Unit: "slots", Display: true},
+		},
+	},
+	{
 		// Node-RED, and the reason DetectSpanAttrs exists.
 		//
 		// # It has no metrics to be recognised by

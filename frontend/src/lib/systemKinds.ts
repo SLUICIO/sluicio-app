@@ -71,6 +71,11 @@ export const SERVICE_TEMPLATE_KINDS: { value: string; label: string }[] = [
   { value: "camel", label: "Apache Camel" },
   { value: "node-red", label: "Node-RED" },
   { value: "airflow", label: "Apache Airflow" },
+  // Airflow is four processes with almost disjoint metrics, so each one
+  // that is worth watching gets its own type - a check belongs where its
+  // metric exists.
+  { value: "airflow-dag-processor", label: "Airflow DAG processor" },
+  { value: "airflow-triggerer", label: "Airflow triggerer" },
 ];
 
 export function templateKindLabel(kind: string | undefined): string {
