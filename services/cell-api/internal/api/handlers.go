@@ -1898,8 +1898,8 @@ func (h *Handlers) enrichServiceListExtras(r *http.Request, tr TimeRange, out []
 		add(downstream, e.Source, e.Target)
 	}
 	for i := range out {
-		out[i].UpstreamCount = len(upstream[out[i].ServiceName])
-		out[i].DownstreamCount = len(downstream[out[i].ServiceName])
+		up, down := len(upstream[out[i].ServiceName]), len(downstream[out[i].ServiceName])
+		out[i].UpstreamCount, out[i].DownstreamCount = &up, &down
 	}
 }
 

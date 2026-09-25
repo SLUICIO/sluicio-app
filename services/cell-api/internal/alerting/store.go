@@ -29,7 +29,7 @@ const ruleCols = `id, organization_id, integration_id, system_id, COALESCE(servi
 	EXTRACT(EPOCH FROM evaluation_interval)::bigint, enabled,
 	COALESCE(title_template, ''), COALESCE(body_template, ''), created_at, updated_at,
 	COALESCE(source, 'telemetry'), display_on_service, COALESCE(unit, ''), COALESCE(resolve_mode, 'auto'),
-	notification_config, COALESCE(runbook, '')`
+	notification_config, COALESCE(runbook, ''), COALESCE(check_scope, '')`
 
 // notifConfigJSON marshals a rule's notification config for the jsonb column;
 // nil → SQL NULL (no per-rule config).
@@ -59,7 +59,7 @@ func scanRule(row pgx.Row) (AlertRule, error) {
 		&r.EvalSeconds, &r.Enabled,
 		&r.TitleTemplate, &r.BodyTemplate, &r.CreatedAt, &r.UpdatedAt,
 		&r.Source, &r.DisplayOnService, &r.Unit, &r.ResolveMode,
-		&ncRaw, &r.Runbook,
+		&ncRaw, &r.Runbook, &r.CheckScope,
 	); err != nil {
 		return AlertRule{}, err
 	}
@@ -284,10 +284,10 @@ func (s *Store) CreateRule(ctx context.Context, r AlertRule) (AlertRule, error) 
 	defer tx.Rollback(ctx)
 
 	row := tx.QueryRow(ctx, `
-		INSERT INTO alert_rules (organization_id, integration_id, system_id, service_name, group_id, name, description, signal, rule_spec, severity, enabled, title_template, body_template, source, display_on_service, unit, resolve_mode, notification_config, runbook)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+		INSERT INTO alert_rules (organization_id, integration_id, system_id, service_name, group_id, name, description, signal, rule_spec, severity, enabled, title_template, body_template, source, display_on_service, unit, resolve_mode, notification_config, runbook, check_scope)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
 		RETURNING `+ruleCols,
-		r.OrganizationID, uuidArg(r.IntegrationID), uuidArg(r.SystemID), nilIfEmpty(r.ServiceName), uuidArg(r.GroupID), r.Name, nilIfEmpty(r.Description), ruleSignal(r), spec, string(r.Severity), r.Enabled, nilIfEmpty(r.TitleTemplate), nilIfEmpty(r.BodyTemplate), ruleSource(r), r.DisplayOnService, nilIfEmpty(r.Unit), resolveModeOf(r), notifConfigJSON(r.NotificationContent), r.Runbook)
+		r.OrganizationID, uuidArg(r.IntegrationID), uuidArg(r.SystemID), nilIfEmpty(r.ServiceName), uuidArg(r.GroupID), r.Name, nilIfEmpty(r.Description), ruleSignal(r), spec, string(r.Severity), r.Enabled, nilIfEmpty(r.TitleTemplate), nilIfEmpty(r.BodyTemplate), ruleSource(r), r.DisplayOnService, nilIfEmpty(r.Unit), resolveModeOf(r), notifConfigJSON(r.NotificationContent), r.Runbook, nilIfEmpty(r.CheckScope))
 	created, err := scanRule(row)
 	if err != nil {
 		return AlertRule{}, fmt.Errorf("insert alert rule: %w", err)
@@ -689,18 +689,63 @@ type ServiceFiring struct {
 	Process bool
 }
 
+// CheckScope values. A rule carrying one has decided; an empty one is
+// inferred by DescribesWholeService.
+const (
+	// CheckScopeProcess: the check is about the service as a process, so
+	// it is true of every flow running on it.
+	CheckScopeProcess = "process"
+	// CheckScopeFlow: the check counts rows belonging to individual
+	// flows, so it says nothing about the others.
+	CheckScopeFlow = "flow"
+)
+
 // DescribesWholeService reports whether a service-bound check is about
 // the service as a process, and so about every flow it runs, or about
 // rows that belong to individual flows.
 //
-// A trace or log check counts spans or log lines, and on a shared
-// runtime those carry the flow they belong to (airflow.dag_id, a
-// Node-RED flow id): it fires because one flow failed. So does a metric
-// check split by, or filtered on, an attribute - the Airflow template's
-// "Task failures" is split by dag_id. What is left is the unsplit,
-// unfiltered metric: a heartbeat, a pool, an executor's free slots.
-// Those break every flow at once.
+// A DECLARED scope wins. The built-in system types declare theirs,
+// because only the author of a check knows which it is.
+//
+// # Why the inference is not enough on its own
+//
+// Without a declaration this reads: a metric check with no split and no
+// attribute filter is about the process; everything else is about a
+// flow. That is right about the common cases and wrong, in the direction
+// that fails quiet, about one.
+//
+// An attribute filter can select a FLOW - dag_id = gl_posting, and the
+// check fires because that DAG failed - or merely a SERIES OF THE SAME
+// PROCESS: instance = scheduler-1, pool_name = default, a heartbeat
+// narrowed to one replica. The filter KEY is what tells them apart, and
+// no list of keys can be right for every estate: one shop's "instance"
+// is another's flow identifier.
+//
+// Guessing "flow" for both is the safer error of the two, since it
+// under-propagates rather than marking healthy flows unhealthy. But it
+// still means a narrowed heartbeat fires while every integration that
+// needed to hear it reads ok. So the built-ins say, and the inference
+// stays for the rules nobody annotated: every rule that predates this,
+// and every rule written by hand.
 func DescribesWholeService(signal string, spec MetricRuleSpec) bool {
+	return inferredWholeService(signal, spec)
+}
+
+// ScopedWholeService is DescribesWholeService with the rule's own
+// declaration taken into account. Prefer it wherever the scope string is
+// to hand; DescribesWholeService remains for callers that only have the
+// signal and spec.
+func ScopedWholeService(checkScope, signal string, spec MetricRuleSpec) bool {
+	switch checkScope {
+	case CheckScopeProcess:
+		return true
+	case CheckScopeFlow:
+		return false
+	}
+	return inferredWholeService(signal, spec)
+}
+
+func inferredWholeService(signal string, spec MetricRuleSpec) bool {
 	return signal == SignalMetric && spec.SplitBy == "" && len(spec.Attrs) == 0
 }
 
@@ -709,7 +754,7 @@ func DescribesWholeService(signal string, spec MetricRuleSpec) bool {
 // like the set it refines.
 func (s *Store) FiringHealthServiceScopes(ctx context.Context, orgID uuid.UUID) (map[string]ServiceFiring, error) {
 	const q = `
-		SELECT r.service_name, r.signal::text, r.rule_spec
+		SELECT r.service_name, r.signal::text, r.rule_spec, COALESCE(r.check_scope, '')
 		FROM alert_instances i
 		JOIN alert_rules r ON r.id = i.alert_rule_id
 		WHERE r.organization_id = $1 AND i.state = 'firing'
@@ -722,10 +767,10 @@ func (s *Store) FiringHealthServiceScopes(ctx context.Context, orgID uuid.UUID) 
 	out := map[string]ServiceFiring{}
 	for rows.Next() {
 		var (
-			name, signal string
-			specRaw      []byte
+			name, signal, scope string
+			specRaw             []byte
 		)
-		if err := rows.Scan(&name, &signal, &specRaw); err != nil {
+		if err := rows.Scan(&name, &signal, &specRaw, &scope); err != nil {
 			return nil, err
 		}
 		var spec MetricRuleSpec
@@ -737,7 +782,7 @@ func (s *Store) FiringHealthServiceScopes(ctx context.Context, orgID uuid.UUID) 
 		}
 		f := out[name]
 		f.Any = true
-		f.Process = f.Process || DescribesWholeService(signal, spec)
+		f.Process = f.Process || ScopedWholeService(scope, signal, spec)
 		out[name] = f
 	}
 	return out, rows.Err()

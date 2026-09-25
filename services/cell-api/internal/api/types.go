@@ -122,8 +122,15 @@ type ServiceSummary struct {
 	// window's service dependency graph: how many distinct services called it
 	// (upstream callers) and how many it called (downstream callees). Drives
 	// the "lacking upstream/downstream" dependency filter. Window-scoped.
-	UpstreamCount   int `json:"upstream_count"`
-	DownstreamCount int `json:"downstream_count"`
+	//
+	// Computed only for ?dependencies=1, and OMITTED otherwise rather than
+	// sent as zero. Zero is a real answer - an isolated service has no
+	// neighbours - so sending it for "you did not ask" made the two
+	// indistinguishable to anything reading this over the API. Present and
+	// zero now means zero; absent means not computed. (The same reasoning
+	// as the deferred integration rows, which omit their stats fields.)
+	UpstreamCount   *int `json:"upstream_count,omitempty"`
+	DownstreamCount *int `json:"downstream_count,omitempty"`
 	// IsSystem flags this service as a monitored "system" (RabbitMQ, SQL
 	// Server, …); SystemKind names which one. Drives the System badge + the
 	// Systems view.

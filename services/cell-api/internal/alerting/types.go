@@ -534,6 +534,18 @@ type AlertRule struct {
 	Severity        Severity             `json:"severity"`
 	EvalSeconds     int                  `json:"evaluation_seconds"`
 	Enabled         bool                 `json:"enabled"`
+	// CheckScope declares what a service-bound check is ABOUT: the
+	// process ("process") or one flow running on it ("flow"). Empty
+	// leaves it to DescribesWholeService to infer, which is what every
+	// hand-written rule gets.
+	//
+	// It decides whether an integration holding a SLICE of the service
+	// reads this check as its own. Declared rather than only inferred
+	// because the inference cannot tell an attribute filter that selects
+	// a flow (dag_id) from one that selects a series of the same process
+	// (instance, pool_name), and gets the second wrong in the direction
+	// that fails quiet.
+	CheckScope string `json:"check_scope,omitempty"`
 	// Source is where a metric rule's value comes from: "telemetry"
 	// (aggregate OTLP, default) or "pushed" (external value). Log rules
 	// are always telemetry.

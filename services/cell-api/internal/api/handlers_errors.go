@@ -173,7 +173,7 @@ func (h *Handlers) failingChecks(r *http.Request) ([]FailingCheck, error) {
 		// every check was filed before slices were told apart.
 		fc.wholeService = true
 		if ru, ok := rulesByID[fi.RuleID]; ok {
-			fc.wholeService = alerting.DescribesWholeService(ru.Signal, ru.Spec)
+			fc.wholeService = alerting.ScopedWholeService(ru.CheckScope, ru.Signal, ru.Spec)
 			for _, a := range ru.Spec.Attrs {
 				fc.Attrs = append(fc.Attrs, ruleAttrWire{Key: a.Key, Op: a.Op, Value: a.Value})
 			}

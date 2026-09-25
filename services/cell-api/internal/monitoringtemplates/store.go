@@ -47,6 +47,9 @@ type Check struct {
 	// FireOnNoData: the absence of the metric fires. How a heartbeat is
 	// written, since a dead process emits nothing left to threshold.
 	FireOnNoData bool `json:"fire_on_no_data,omitempty"`
+	// Scope: "process" or "flow" - what the check is about, which decides
+	// whether an integration holding a slice of the service reads it.
+	Scope string `json:"scope,omitempty"`
 	// log
 	MinSeverity  int32  `json:"min_severity,omitempty"`
 	BodyContains string `json:"body_contains,omitempty"`

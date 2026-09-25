@@ -21,6 +21,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/sluicio/sluicio-app/pkg/httpserver"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/alerting"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/api/middleware"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/monitoringtemplates"
 )
@@ -62,6 +63,7 @@ type docCheck struct {
 	Attrs          []docAttrFilter `json:"attrs,omitempty" yaml:"attrs,omitempty"`
 	SplitBy        string          `json:"split_by,omitempty" yaml:"split_by,omitempty"`
 	FireOnNoData   bool            `json:"fire_on_no_data,omitempty" yaml:"fire_on_no_data,omitempty"`
+	Scope          string          `json:"scope,omitempty" yaml:"scope,omitempty"`
 	MinSeverity    int32           `json:"min_severity,omitempty" yaml:"min_severity,omitempty"`
 	BodyContains   string          `json:"body_contains,omitempty" yaml:"body_contains,omitempty"`
 	LogThreshold   int             `json:"log_threshold,omitempty" yaml:"log_threshold,omitempty"`
@@ -87,7 +89,7 @@ func checkToDoc(c monitoringtemplates.Check) docCheck {
 	return docCheck{
 		Name: c.Name, Description: c.Description, Signal: c.Signal,
 		Metric: c.Metric, Agg: c.Agg, Op: c.Op, Threshold: c.Threshold,
-		Attrs: attrs, SplitBy: c.SplitBy, FireOnNoData: c.FireOnNoData,
+		Attrs: attrs, SplitBy: c.SplitBy, FireOnNoData: c.FireOnNoData, Scope: c.Scope,
 		MinSeverity: c.MinSeverity, BodyContains: c.BodyContains, LogThreshold: c.LogThreshold,
 		TraceThreshold: c.TraceThreshold, ThresholdMs: c.ThresholdMs, WindowSeconds: c.WindowSeconds,
 		Severity: c.Severity, Unit: c.Unit, Display: c.Display,
@@ -102,7 +104,7 @@ func docToCheck(d docCheck) monitoringtemplates.Check {
 	return monitoringtemplates.Check{
 		Name: d.Name, Description: d.Description, Signal: d.Signal,
 		Metric: d.Metric, Agg: d.Agg, Op: d.Op, Threshold: d.Threshold,
-		Attrs: attrs, SplitBy: d.SplitBy, FireOnNoData: d.FireOnNoData,
+		Attrs: attrs, SplitBy: d.SplitBy, FireOnNoData: d.FireOnNoData, Scope: d.Scope,
 		MinSeverity: d.MinSeverity, BodyContains: d.BodyContains, LogThreshold: d.LogThreshold,
 		TraceThreshold: d.TraceThreshold, ThresholdMs: d.ThresholdMs, WindowSeconds: d.WindowSeconds,
 		Severity: d.Severity, Unit: d.Unit, Display: d.Display,
@@ -161,6 +163,14 @@ func validateSystemTypeDoc(d *systemTypeDoc) error {
 		}
 		if !validCheckSignals[c.Signal] {
 			return fmt.Errorf("check[%d] %q: unknown signal %q", i, c.Name, c.Signal)
+		}
+		// An unknown scope is rejected rather than ignored: silently
+		// dropping it would import the check with the inference instead,
+		// which is the one thing declaring it was meant to avoid.
+		switch c.Scope {
+		case "", alerting.CheckScopeProcess, alerting.CheckScopeFlow:
+		default:
+			return fmt.Errorf("check[%d] %q: scope must be %q or %q", i, c.Name, alerting.CheckScopeProcess, alerting.CheckScopeFlow)
 		}
 		if !validCheckSeverities[strings.ToLower(c.Severity)] {
 			return fmt.Errorf("check[%d] %q: unknown severity %q", i, c.Name, c.Severity)
