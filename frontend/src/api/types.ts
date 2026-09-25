@@ -79,6 +79,10 @@ export interface ServiceFacetRef {
   // or "manual" (assigned via a facet override). Optional so older
   // payloads without the field still type-check.
   source?: FacetSource;
+  // When this classification was FIRST seen, for auto-detected facets
+  // read from the store. Absent for a manual override and for the live
+  // fallback, which knows nothing before the window it read.
+  detected_since?: string;
 }
 
 // FacetSource distinguishes telemetry-detected facets from ones a user

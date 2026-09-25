@@ -81,6 +81,16 @@ type ServiceFacetRef struct {
 	Slug   string `json:"slug"`
 	Name   string `json:"name"`
 	Source string `json:"source"`
+	// DetectedSince is when this classification was FIRST seen on the
+	// service, for auto-detected facets read from the store. Omitted for
+	// a manual override, which is a human's claim rather than an
+	// observation, and for the live-profile fallback, which only knows
+	// about the window it just read.
+	//
+	// "This has looked like an HTTP input since March" is a different and
+	// more useful statement than "it does now", and the date was already
+	// being stored with nothing reading it.
+	DetectedSince *time.Time `json:"detected_since,omitempty"`
 }
 
 // Facet source values for ServiceFacetRef.Source.

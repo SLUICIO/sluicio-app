@@ -715,6 +715,19 @@ export default function ServiceDetail() {
 //
 // An unclassified service gets an explicit line rather than an empty
 // row — blank space reads as "broken" just as easily as "none".
+// facetChipTitle says why the facet is there and, for a detected one,
+// since when. "Detected from telemetry since 14 Mar 2026" answers the
+// question a bare chip invites - why does this say HTTP input - which
+// nothing in the UI could answer before, though the date was stored.
+function facetChipTitle(f: ServiceFacetRef): string {
+  if (f.source === "manual") return `${f.name} - assigned manually`;
+  if (!f.detected_since) return `${f.name} - detected from telemetry`;
+  const d = new Date(f.detected_since);
+  if (Number.isNaN(d.getTime())) return `${f.name} - detected from telemetry`;
+  const since = d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+  return `${f.name} - detected from telemetry, first seen ${since}`;
+}
+
 function FacetChips({ facets }: { facets?: ServiceFacetRef[] }) {
   const shown = (facets ?? []).filter((f) => f.slug !== "core");
   if (shown.length === 0) {
@@ -732,7 +745,7 @@ function FacetChips({ facets }: { facets?: ServiceFacetRef[] }) {
         <span
           key={f.slug}
           className={`svc-facet-chip${f.source === "manual" ? " svc-facet-chip--manual" : ""}`}
-          title={f.source === "manual" ? `${f.name} — assigned manually` : `${f.name} — detected from telemetry`}
+          title={facetChipTitle(f)}
         >
           {f.name}
           {f.source === "manual" && <span className="svc-facet-chip__src" aria-label="assigned manually">manual</span>}

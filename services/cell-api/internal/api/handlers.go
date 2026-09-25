@@ -2552,15 +2552,30 @@ func (h *Handlers) storedServiceFacets(ctx context.Context, services []string) (
 		// the user deleted) simply drops out, which is correct: the
 		// registry is the vocabulary, the store is only the evidence.
 		auto := make([]servicetypes.ServiceFacet, 0, len(stored[svc]))
+		// The evidence dates come back with the stored rows and are the
+		// only place they exist: the live fallback knows nothing before
+		// the window it just read.
+		since := make(map[string]time.Time, len(stored[svc]))
 		for _, f := range stored[svc] {
 			if def, ok := bySlug[f.FacetSlug]; ok {
 				auto = append(auto, def)
+				since[f.FacetSlug] = f.FirstDetectedAt
 			}
 		}
 		resolved := h.resolveFacets(merged, auto, h.facetOverridesFor(ctx, svc))
 		refs := make([]ServiceFacetRef, 0, len(resolved))
 		for _, rf := range resolved {
-			refs = append(refs, ServiceFacetRef{Slug: rf.facet.Slug, Name: rf.facet.Name, Source: rf.source})
+			ref := ServiceFacetRef{Slug: rf.facet.Slug, Name: rf.facet.Name, Source: rf.source}
+			// Only for an observation. A manual override is a claim, and
+			// dating it with when the automatic pass happened to agree
+			// would misattribute it.
+			if rf.source == FacetSourceAuto {
+				if t, ok := since[rf.facet.Slug]; ok && !t.IsZero() {
+					at := t
+					ref.DetectedSince = &at
+				}
+			}
+			refs = append(refs, ref)
 		}
 		out[svc] = refs
 	}
