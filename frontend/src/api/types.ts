@@ -1431,6 +1431,10 @@ export interface CurrentUserResponse {
   // The currently active org. The avatar dropdown's org switcher
   // updates this; everything else reads it.
   active_organization_id: string;
+  // True on an instance run by a platform on behalf of someone else: some
+  // settings belong to the deployment, so the UI stops offering them. A
+  // hint only - the server refuses them either way.
+  managed?: boolean;
 }
 
 // Dashboards — per-user, named layouts for the Home page. The
@@ -2358,6 +2362,10 @@ export interface RetentionResponse {
   audit_days: number;
   audit_max_days: number;
   audit_configurable?: boolean;
+  // "deployment" when retention belongs to whoever runs the instance rather
+  // than to anyone signed in, so every field here is read-only and a write
+  // is refused. Absent on an instance that owns its own settings.
+  source?: "deployment";
 }
 
 export interface RetentionRequest {
@@ -2406,6 +2414,9 @@ export interface SMTPSettingsResponse {
   from_name: string;
   password_set: boolean;
   configured: boolean;
+  // "deployment" when the transport comes from the environment and cannot
+  // be changed here. The server details are withheld in that case.
+  source?: "deployment";
 }
 
 // PATCH body. Omit `password` to keep the stored one; send "" to clear it.
@@ -2518,6 +2529,10 @@ export interface MeResponse {
   // True when org-wide MFA enforcement is on (Enterprise) and this user
   // hasn't enabled MFA yet — the UI nudges them to enrol.
   mfa_enrollment_required?: boolean;
+  // True on an instance run by a platform on behalf of someone else. The
+  // UI uses it to stop offering settings the deployment owns; the server
+  // refuses them regardless, so this only decides what is shown.
+  managed?: boolean;
 }
 
 // Org security policy (Settings → System). mfa_policy_entitled reflects the

@@ -11,14 +11,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
-	"net/smtp"
+	"slices"
 	"strings"
 	"text/template"
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/sluicio/sluicio-app/pkg/mail"
 )
 
 // The built-in notifiers register themselves at package init. Adding a
@@ -520,10 +521,35 @@ func SetSystemMailResolver(f func(ctx context.Context) map[string]string) {
 	systemMailDefaults = f
 }
 
+// managed marks an instance run by a platform on behalf of someone else.
+// Set once at startup; false is a self-hosted install.
+var managed bool
+
+// SetManaged marks this instance as platform-run, which makes the mail
+// transport the platform's rather than the channel's.
+func SetManaged(v bool) { managed = v }
+
+// channelTransportKeys are the email-channel keys that choose a SERVER
+// rather than a destination. On a managed instance they are refused at the
+// API and ignored here; everywhere else they are the per-channel override
+// that has always existed.
+var channelTransportKeys = []string{"smtp_host", "smtp_port", "from", "from_name", "username", "password"}
+
+// ChannelTransportKeys is channelTransportKeys for the API layer, so the
+// list of keys to refuse on write and the list to ignore on send are one
+// list rather than two that can drift apart.
+func ChannelTransportKeys() []string { return slices.Clone(channelTransportKeys) }
+
 // effectiveMailConfig overlays a channel's email config on top of the
 // system SMTP defaults: every key the channel sets (non-empty) wins; the
 // rest fall back to system settings. With no resolver wired, the channel
 // config is used as-is (legacy self-contained behaviour).
+//
+// On a managed instance the overlay does not happen. The transport is the
+// platform's, so a channel chooses WHERE its mail goes and nothing about
+// how it gets there. The API refuses those keys on write; ignoring them
+// here as well means a channel that carries them from before the instance
+// became managed cannot quietly keep using its own server.
 func effectiveMailConfig(ctx context.Context, channel map[string]string) map[string]string {
 	if systemMailDefaults == nil {
 		return channel
@@ -533,9 +559,13 @@ func effectiveMailConfig(ctx context.Context, channel map[string]string) map[str
 		merged = map[string]string{}
 	}
 	for k, v := range channel {
-		if strings.TrimSpace(v) != "" {
-			merged[k] = v
+		if strings.TrimSpace(v) == "" {
+			continue
 		}
+		if managed && slices.Contains(channelTransportKeys, k) {
+			continue
+		}
+		merged[k] = v
 	}
 	return merged
 }
@@ -544,32 +574,31 @@ type emailNotifier struct{}
 
 func (emailNotifier) Kind() string { return ChannelEmail }
 
-// Send delivers a plain-text email over SMTP. Config keys: to (required,
+// Send delivers an email over SMTP. Config keys: to (required,
 // comma-separated recipients); smtp_host, smtp_port (default 587), from,
 // username + password are OPTIONAL — when omitted they fall back to the
 // org's system SMTP settings (Settings → System email), so a channel can
 // just say "send to these addresses". A channel that sets its own keys
-// overrides the system defaults per key. net/smtp.SendMail upgrades to
-// STARTTLS when the server advertises it; implicit-TLS (465) isn't
-// supported.
+// overrides the system defaults per key. STARTTLS is used when the server
+// advertises it; implicit-TLS (465) isn't supported.
+//
+// The transport is pkg/mail's, not net/smtp's. smtp.SendMail has no
+// timeout of any kind: an SMTP server that accepts the connection and
+// then says nothing held this call open for ever, and with it the
+// delivery worker that was waiting on it - so one unreachable mail host
+// stalled alert delivery for every channel, including the webhooks that
+// had nothing to do with email. pkg/mail already bounded both the dial
+// and the whole conversation for transactional mail; this now shares it.
 func (emailNotifier) Send(ctx context.Context, _ *http.Client, msg Message) error {
 	cfg := effectiveMailConfig(ctx, msg.Config)
 	host := strings.TrimSpace(cfg["smtp_host"])
 	if host == "" {
 		return fmt.Errorf("email channel has no SMTP host — set one on the channel or configure Settings → System email")
 	}
-	port := strings.TrimSpace(cfg["smtp_port"])
-	if port == "" {
-		port = "587"
-	}
 	from := strings.TrimSpace(cfg["from"])
 	to := splitRecipients(cfg["to"])
 	if from == "" || len(to) == 0 {
 		return fmt.Errorf("email channel needs a from address (channel or system) and at least one to recipient")
-	}
-	var auth smtp.Auth
-	if user := strings.TrimSpace(cfg["username"]); user != "" {
-		auth = smtp.PlainAuth("", user, cfg["password"], host)
 	}
 	// multipart/alternative (plaintext + HTML) when an HTML body was rendered;
 	// plain text/plain otherwise (legacy + fallback).
@@ -579,7 +608,13 @@ func (emailNotifier) Send(ctx context.Context, _ *http.Client, msg Message) erro
 	} else {
 		raw = emailMessage(from, to, msg.Subject, msg.Body)
 	}
-	if err := smtp.SendMail(net.JoinHostPort(host, port), auth, from, to, raw); err != nil {
+	if err := mail.SendRaw(ctx, mail.Config{
+		Host:     host,
+		Port:     strings.TrimSpace(cfg["smtp_port"]),
+		Username: strings.TrimSpace(cfg["username"]),
+		Password: cfg["password"],
+		From:     from,
+	}, to, raw); err != nil {
 		return fmt.Errorf("smtp send: %w", err)
 	}
 	return nil

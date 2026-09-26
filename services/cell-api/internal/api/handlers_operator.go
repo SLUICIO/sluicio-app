@@ -414,6 +414,12 @@ func (h *Handlers) setOperatorFlag(w http.ResponseWriter, r *http.Request) {
 			httpserver.WriteError(w, http.StatusNotFound, "user not found")
 			return
 		}
+		if errors.Is(err, identity.ErrOperatorManaged) {
+			// Same answer as every other setting the deployment owns.
+			httpserver.WriteError(w, http.StatusConflict,
+				"the operator role is managed by the deployment and can't be changed here")
+			return
+		}
 		h.Logger.Error("operator: set operator flag failed", "err", err)
 		httpserver.WriteError(w, http.StatusInternalServerError, "save failed")
 		return

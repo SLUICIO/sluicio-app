@@ -1197,13 +1197,24 @@ export const api = {
   // default admin" hint. fresh=true on a first-boot install.
   // prefill is only present on demo cells (SLUICIO_LOGIN_PREFILL_*):
   // the login form seeds its fields from it.
+  //
+  // managed=true means an instance run by a platform on behalf of someone
+  // else. There the first-run screen needs a claim token, and there is no
+  // default admin password to hint at.
   installState: () =>
-    get<{ fresh: boolean; prefill?: { email: string; password: string } }>(`/auth/install-state`),
+    get<{ fresh: boolean; managed?: boolean; prefill?: { email: string; password: string } }>(
+      `/auth/install-state`,
+    ),
 
   // bootstrapAdmin personalizes the seeded admin on a pristine install —
   // the first-run "create your admin account" screen. Public endpoint;
   // 409 once anyone has ever logged in.
-  bootstrapAdmin: (body: { name: string; email: string; password: string }) =>
+  //
+  // token claims a managed instance and comes from the setup link. It
+  // travels in the BODY: a token in the query string would reach access
+  // logs and Referer headers on its way, which is the whole reason the
+  // link carries it in the fragment.
+  bootstrapAdmin: (body: { name: string; email: string; password: string; token?: string }) =>
     post<void>(`/auth/bootstrap-admin`, body),
 
   // Self-service profile + password. updateMe returns the fresh

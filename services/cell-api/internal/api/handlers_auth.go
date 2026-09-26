@@ -4,6 +4,7 @@ package api
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -200,6 +201,12 @@ func (h *Handlers) me(w http.ResponseWriter, r *http.Request) {
 		// blocks MFA setup); mirrors EnforceMFAEnrollment.
 		"mfa_enrollment_required": !user.IsDemo && h.mfaEnrollmentRequired(r.Context(), user.ID),
 		"principal":               p,
+		// Managed: this instance is run by a platform on behalf of someone
+		// else, so some settings belong to the deployment rather than to
+		// anyone signed in. The UI reads this to stop offering controls the
+		// server would refuse. It is a HINT, not the boundary - every one of
+		// those refusals is enforced server-side too.
+		"managed": h.Managed,
 	})
 }
 
@@ -418,6 +425,11 @@ func (h *Handlers) blockDemo(next http.HandlerFunc) http.HandlerFunc {
 // seeded admin's first login flips that, so the hint disappears
 // immediately after the first sign-in.
 //
+// It also reports whether this is a MANAGED instance - one run by a
+// platform on behalf of someone else - which the setup screen needs in
+// order to ask for a claim token, and the rest of the UI to know which
+// settings belong to the deployment rather than to anyone signed in.
+//
 // The response also carries an optional login pre-fill for public demo
 // cells: when SLUICIO_LOGIN_PREFILL_EMAIL is set (only ever on a demo
 // deployment — the credentials are public by design there), the login
@@ -433,7 +445,7 @@ func (h *Handlers) installState(w http.ResponseWriter, r *http.Request) {
 			fresh = !anyLoggedIn
 		}
 	}
-	resp := map[string]any{"fresh": fresh}
+	resp := map[string]any{"fresh": fresh, "managed": h.Managed}
 	if email := strings.TrimSpace(os.Getenv("SLUICIO_LOGIN_PREFILL_EMAIL")); email != "" {
 		resp["prefill"] = map[string]string{
 			"email":    email,
@@ -441,6 +453,41 @@ func (h *Handlers) installState(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	httpserver.WriteJSON(w, http.StatusOK, resp)
+}
+
+// bootstrapTokenOK reports whether this request may claim the instance.
+//
+// A self-hosted install needs no token: whoever reaches the first-run
+// screen is whoever just installed it, and there is nobody else to beat
+// to it. A MANAGED instance is different - it is on the network before
+// its owner has ever opened it, so the first visitor to find the address
+// would otherwise own it. There the claim needs the token the platform
+// generated for that instance.
+//
+// Compared in constant time. The comparison is against a secret, and a
+// timing signal on a secret of this value is worth nothing to the person
+// holding it and quite a lot to somebody guessing.
+//
+// A managed instance with no token configured refuses every claim. That
+// is the safe end of the trade: an instance nobody can claim is a support
+// call, while an instance anybody can claim is somebody else's data. It is
+// logged loudly at startup, not silently here.
+func (h *Handlers) bootstrapTokenOK(presented string) bool {
+	if !h.Managed {
+		return true
+	}
+	want := strings.TrimSpace(h.BootstrapToken)
+	if want == "" {
+		return false
+	}
+	// Expired is refused exactly as a wrong token is: same status, same
+	// message. Somebody holding a stale link learns that it no longer
+	// works, which is all they can act on, and somebody guessing learns
+	// nothing about whether they guessed a real token that has lapsed.
+	if !h.BootstrapTokenExpiresAt.IsZero() && time.Now().After(h.BootstrapTokenExpiresAt) {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(strings.TrimSpace(presented)), []byte(want)) == 1
 }
 
 // bootstrapAdmin: POST /api/v1/auth/bootstrap-admin
@@ -456,9 +503,21 @@ func (h *Handlers) bootstrapAdmin(w http.ResponseWriter, r *http.Request) {
 		Name     string `json:"name"`
 		Email    string `json:"email"`
 		Password string `json:"password"`
+		// Token claims a managed instance. In the body rather than the URL
+		// so it stays out of access logs and Referer headers.
+		Token string `json:"token"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		httpserver.WriteError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if !h.bootstrapTokenOK(body.Token) {
+		// Deliberately before the freshness check, so somebody without the
+		// token learns nothing here about whether the instance has been
+		// claimed. (They can read that from install-state either way; this
+		// just declines to be a second source.)
+		h.Logger.Warn("first-run bootstrap refused: bad or missing claim token")
+		httpserver.WriteError(w, http.StatusForbidden, "this instance needs a valid setup link to claim")
 		return
 	}
 	email := strings.ToLower(strings.TrimSpace(body.Email))

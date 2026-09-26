@@ -2993,16 +2993,35 @@ function RetentionTab() {
   if (error) return <div className="alert alert--error">Failed to load: {error}</div>;
   if (!data) return <div className="placeholder">Loading…</div>;
 
+  // Retention can belong to whoever runs the instance rather than to anyone
+  // signed in. The numbers still matter to you - how long your own data is
+  // kept is not a detail - so the rows are shown read-only rather than
+  // hidden. That is the opposite call from the email panel, where there was
+  // nothing worth showing.
+  const locked = data.source === "deployment";
+  const editable = isAdmin && !locked;
+
   return (
     <div style={{ maxWidth: 720 }}>
       <p className="muted" style={{ fontSize: 13, marginBottom: 18, lineHeight: 1.55 }}>
         How long {productName} keeps each kind of telemetry before ClickHouse
         evicts it. Settings apply <strong>cell-wide</strong> — every
         organization on this {productName} install shares the same retention.
-        The free tier caps retention at <strong>2 weeks</strong>; {productName}
-        Enterprise unlocks long retention (e.g. metrics raised to 14 months
-        for capacity planning, traces and logs kept shorter for cost).
+        {!locked && (
+          <>
+            {" "}The free tier caps retention at <strong>2 weeks</strong>; {productName}
+            Enterprise unlocks long retention (e.g. metrics raised to 14 months
+            for capacity planning, traces and logs kept shorter for cost).
+          </>
+        )}
       </p>
+
+      {locked && (
+        <div className="alert alert--info" style={{ marginBottom: 16, fontSize: 13, lineHeight: 1.55 }}>
+          Retention is set by whoever runs this {productName} instance, so these
+          values are read-only here. They are what applies to your data today.
+        </div>
+      )}
 
       {data.apply_warning && (
         <div className="alert alert--warn" style={{ marginBottom: 16 }}>
@@ -3010,7 +3029,7 @@ function RetentionTab() {
         </div>
       )}
 
-      {data.long_retention === false && (
+      {data.long_retention === false && !locked && (
         <div
           className="card"
           style={{
@@ -3038,7 +3057,7 @@ function RetentionTab() {
         lastEnforced={data.traces.last_enforced_at}
         min={data.min_days}
         max={data.max_days}
-        isAdmin={isAdmin}
+        isAdmin={editable}
         onSave={async (next) => {
           const r = await api.updateRetention({ traces_days: next });
           setData(r);
@@ -3052,7 +3071,7 @@ function RetentionTab() {
         lastEnforced={data.logs.last_enforced_at}
         min={data.min_days}
         max={data.max_days}
-        isAdmin={isAdmin}
+        isAdmin={editable}
         onSave={async (next) => {
           const r = await api.updateRetention({ logs_days: next });
           setData(r);
@@ -3066,7 +3085,7 @@ function RetentionTab() {
         lastEnforced={data.metrics.last_enforced_at}
         min={data.min_days}
         max={data.max_days}
-        isAdmin={isAdmin}
+        isAdmin={editable}
         onSave={async (next) => {
           const r = await api.updateRetention({ metrics_days: next });
           setData(r);
@@ -3082,7 +3101,7 @@ function RetentionTab() {
         days={data.audit_days}
         min={1}
         max={data.audit_max_days}
-        isAdmin={isAdmin}
+        isAdmin={editable}
         onSave={async (next) => {
           const r = await api.updateRetention({ audit_days: next });
           setData(r);
@@ -3738,6 +3757,29 @@ function SmtpSettings({ isAdmin }: { isAdmin: boolean }) {
       setTestBusy(false);
     }
   };
+
+  // Email provided by the deployment: there is nothing to configure here
+  // and no server details to show. The form is not rendered read-only,
+  // because a form nobody can submit invites the attempt; the sentence
+  // says who owns it instead.
+  if (data.source === "deployment") {
+    return (
+      <div>
+        <h3 style={{ fontSize: 14, fontWeight: 600, margin: "0 0 4px" }}>Email</h3>
+        <p className="muted" style={{ fontSize: 13, lineHeight: 1.55, margin: "0 0 14px" }}>
+          Email is provided by your {productName} service, so there is no SMTP
+          server to configure here.{" "}
+          <strong style={{ color: data.configured ? "var(--ok, #3fb950)" : "var(--muted)" }}>
+            {data.configured ? "Sending is configured ✓" : "Not configured yet"}
+          </strong>
+        </p>
+        <p className="muted" style={{ fontSize: 12.5, lineHeight: 1.55, margin: 0 }}>
+          Who receives which alerts is still yours: set that per notification
+          channel under <strong>Alerts</strong>.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div>

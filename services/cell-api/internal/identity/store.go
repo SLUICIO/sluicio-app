@@ -18,6 +18,10 @@ import (
 var (
 	ErrNotFound           = errors.New("identity: not found")
 	ErrInvalidCredentials = errors.New("identity: invalid credentials")
+	// ErrOperatorManaged means the instance is platform-run, so it has no
+	// operator to grant or revoke. Handlers map it to 409, the same answer
+	// every other deployment-owned setting gives.
+	ErrOperatorManaged = errors.New("identity: the operator role is managed by the deployment")
 )
 
 // Store is the Postgres-backed read+write layer for the auth tables.
@@ -36,12 +40,30 @@ type Store struct {
 	// unavailable (the handlers report a clear error rather than storing a
 	// secret in the clear).
 	mfaKey []byte
+	// managed marks an instance run by a platform on behalf of someone
+	// else, rather than by the people using it. Injected at startup via
+	// SetManaged; false is a self-hosted install, which behaves exactly as
+	// it always has.
+	//
+	// It changes who owns the instance. A self-hosted install's first user
+	// is its operator, above org admin, and holds the instance-wide
+	// settings. On a managed instance those settings belong to the
+	// platform, so no user is operator and the first user is an org admin
+	// instead.
+	managed bool
 }
 
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // SetMFAKey injects the AES-GCM key for TOTP-secret encryption.
 func (s *Store) SetMFAKey(key []byte) { s.mfaKey = key }
+
+// SetManaged marks this instance as run by a platform on behalf of
+// someone else. Called once at startup.
+func (s *Store) SetManaged(v bool) { s.managed = v }
+
+// Managed reports whether this instance is platform-run.
+func (s *Store) Managed() bool { return s.managed }
 
 // ── users ──────────────────────────────────────────────────────────────
 
@@ -499,12 +521,22 @@ func (s *Store) BootstrapAdmin(ctx context.Context, email, name, plaintext strin
 		return ErrInstallNotFresh
 	}
 
-	// The seeded admin is the cell's bootstrap operator (promoted at
-	// startup, see cmd/cell-api). Target the oldest operator row.
+	// Which row to personalize. On a self-hosted install the seeded admin
+	// is the cell's bootstrap operator (promoted at startup, see
+	// cmd/cell-api), so the oldest operator row IS the seeded user.
+	//
+	// A managed instance has no operator, which would leave that query
+	// with nothing to find - so the target is the oldest user, which on an
+	// unclaimed instance is the seeded row and the only one there is. The
+	// freshness check above is what makes that safe: nobody has signed in,
+	// so no later user can be older than the seed.
+	target := `SELECT id FROM users WHERE is_operator ORDER BY created_at ASC LIMIT 1`
+	if s.managed {
+		target = `SELECT id FROM users ORDER BY created_at ASC LIMIT 1`
+	}
 	var id uuid.UUID
-	if err := tx.QueryRow(ctx,
-		`SELECT id FROM users WHERE is_operator ORDER BY created_at ASC LIMIT 1`).Scan(&id); err != nil {
-		return fmt.Errorf("identity: bootstrap admin: no operator row: %w", err)
+	if err := tx.QueryRow(ctx, target).Scan(&id); err != nil {
+		return fmt.Errorf("identity: bootstrap admin: no user to claim: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
 		UPDATE users
@@ -515,6 +547,23 @@ func (s *Store) BootstrapAdmin(ctx context.Context, email, name, plaintext strin
 			return ErrUserExists
 		}
 		return fmt.Errorf("identity: bootstrap admin: %w", err)
+	}
+	// On a managed instance the claiming user is an ADMIN OF THE ORG
+	// rather than the instance's operator, so make sure the membership
+	// says so. The seed migration already grants it; asserting it here
+	// means a claim still lands somebody in charge on an instance whose
+	// seed was edited, instead of handing over an account that can sign in
+	// and do nothing.
+	//
+	// The oldest org is the default one - the only one an unclaimed
+	// instance has.
+	if s.managed {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO org_members (user_id, org_id, role)
+			SELECT $1, id, 'admin' FROM orgs ORDER BY created_at ASC LIMIT 1
+			ON CONFLICT (user_id, org_id) DO UPDATE SET role = 'admin'`, id); err != nil {
+			return fmt.Errorf("identity: bootstrap admin: org membership: %w", err)
+		}
 	}
 	return tx.Commit(ctx)
 }

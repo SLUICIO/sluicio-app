@@ -155,13 +155,28 @@ func main() {
 		logger.Warn("ensure default notification profile failed", "err", err)
 	}
 
+	// Managed mode: this instance is run by a platform on behalf of
+	// someone else, rather than by the people using it. Read once, here,
+	// and injected - so nothing downstream re-reads the environment and
+	// reaches a different conclusion about which kind of instance this is.
+	managed := env.Bool("SLUICIO_MANAGED", false)
+	bootstrapToken := strings.TrimSpace(os.Getenv("SLUICIO_BOOTSTRAP_TOKEN"))
+	identityStore.SetManaged(managed)
+
 	// Bootstrap a usable password for the migration-0017-seeded admin
 	// user the first time the cell-api boots against a fresh DB. The
 	// migration leaves password_hash NULL; we fill it with argon2id(
 	// "admin") and set must_reset_password=true so the first login
 	// flow can force a rotation. Idempotent — does nothing once the
 	// hash is populated.
-	if err := identityStore.BootstrapSeedAdminPassword(ctx, "admin@sluicio.local", "admin"); err != nil {
+	//
+	// NOT on a managed instance. A documented password on an instance that
+	// is reachable before its owner has opened it is an open door, and the
+	// whole point of the claim token is that there is no other way in. The
+	// seeded row keeps its NULL hash and cannot be signed in to at all.
+	if managed {
+		logger.Info("managed mode: skipping the seeded admin password; the instance is claimed with a setup token")
+	} else if err := identityStore.BootstrapSeedAdminPassword(ctx, "admin@sluicio.local", "admin"); err != nil {
 		logger.Warn("seed admin password bootstrap failed", "err", err)
 	}
 
@@ -169,10 +184,62 @@ func main() {
 	// if no operator exists yet, so a later demotion (or a hand-picked
 	// operator) sticks across restarts. In single-org self-hosted this
 	// keeps the admin in full control of orgs + cell-wide settings.
+	//
+	// A managed instance has no operator: EnsureBootstrapOperator does
+	// nothing there, and the claiming user becomes an org admin instead.
 	if promoted, err := identityStore.EnsureBootstrapOperator(ctx, "admin@sluicio.local"); err != nil {
 		logger.Warn("bootstrap operator failed", "err", err)
-	} else if promoted {
-		logger.Info("promoted seeded admin to cell operator", "email", "admin@sluicio.local")
+	} else if promoted != "" {
+		// Who, not "the seeded admin": after an instance has been claimed
+		// the seed row carries the claimant's address, and on the way back
+		// from managed mode the promotion finds them by org role instead.
+		logger.Info("promoted to cell operator", "email", promoted)
+	}
+
+	// A managed instance with no claim token cannot be claimed by anybody.
+	// Loud, because it is a deployment mistake that looks like a working
+	// instance right up until the owner tries to sign in - and the
+	// alternative, leaving the claim open, hands the instance to whoever
+	// finds the address first.
+	if managed && bootstrapToken == "" {
+		logger.Error("managed mode is on but SLUICIO_BOOTSTRAP_TOKEN is not set: " +
+			"nobody can claim this instance, and first-user setup will be refused")
+	}
+
+	// Optional expiry on the claim token (RFC 3339). Whoever issues the
+	// token owns its lifetime; this bounds a link that was sent and never
+	// used, so it does not stay good for ever on its own.
+	var bootstrapExpiry time.Time
+	if raw := strings.TrimSpace(os.Getenv("SLUICIO_BOOTSTRAP_TOKEN_EXPIRES_AT")); raw != "" {
+		t, err := time.Parse(time.RFC3339, raw)
+		switch {
+		case err != nil && managed:
+			// Refuse to start. A value nobody can read is a deployment
+			// mistake, and the two ways to be wrong about it are not
+			// equal: treating it as "no expiry" leaves a token live for
+			// ever because of a typo. Starting anyway with the claim
+			// silently disarmed is barely better - the instance then looks
+			// healthy while the one thing it exists to do is broken, and
+			// the person waiting for the setup link has no way to tell.
+			// Not starting says it where a deployment is already looking.
+			logger.Error("SLUICIO_BOOTSTRAP_TOKEN_EXPIRES_AT is not a valid RFC 3339 time; "+
+				"refusing to start rather than treating it as no expiry",
+				"value", raw, "err", err)
+			os.Exit(1)
+		case err != nil:
+			// Self-hosted: the token is ignored anyway, so this is noise
+			// rather than a risk. Say it once and carry on.
+			logger.Warn("ignoring SLUICIO_BOOTSTRAP_TOKEN_EXPIRES_AT: not a valid RFC 3339 time",
+				"value", raw, "err", err)
+		default:
+			bootstrapExpiry = t
+			if managed && time.Now().After(t) {
+				logger.Error("the claim token for this instance expired; it can no longer be claimed",
+					"expired_at", t.Format(time.RFC3339))
+			} else if managed {
+				logger.Info("claim token expires", "at", t.Format(time.RFC3339))
+			}
+		}
 	}
 
 	// Enterprise license manager (ee/license). Verified offline against the
@@ -242,7 +309,12 @@ func main() {
 	handlers := &api.Handlers{
 		License:     licenseMgr,
 		SelfBaseURL: selfBaseURL,
-		ViaToken:    api.NewViaToken(),
+		// See the managed-mode block above: read from the environment once,
+		// passed everywhere it is needed.
+		Managed:                 managed,
+		BootstrapToken:          bootstrapToken,
+		BootstrapTokenExpiresAt: bootstrapExpiry,
+		ViaToken:                api.NewViaToken(),
 		// Safety valve against a looping caller flooding ClickHouse.
 		// Generous by design — see ratelimit.go.
 		Limiter:             api.NewRateLimiter(0, 0),
@@ -492,6 +564,13 @@ func main() {
 			From:     env.String("SLUICIO_SMTP_FROM", ""),
 			FromName: env.String("SLUICIO_SMTP_FROM_NAME", "Sluicio"),
 		}
+		// On a managed instance the transport belongs to the platform, so
+		// the environment is the whole answer and the stored settings are
+		// ignored - not deleted. Switching managed mode off brings back
+		// whatever an admin had configured before.
+		if managed {
+			return cfg, nil
+		}
 		s, err := settingsStore.GetSMTP(ctx)
 		if err != nil {
 			return cfg, nil // fall back to env on a settings read error
@@ -520,6 +599,7 @@ func main() {
 	// Email alert channels reuse this system SMTP transport unless they set
 	// their own server: expose it to the alerting delivery worker as the
 	// channel-config keys its email notifier reads.
+	alerting.SetManaged(managed)
 	alerting.SetSystemMailResolver(func(ctx context.Context) map[string]string {
 		c, err := resolveSMTP(ctx)
 		if err != nil {

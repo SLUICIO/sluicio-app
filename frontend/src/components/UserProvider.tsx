@@ -191,6 +191,7 @@ function fromMe(me: MeResponse): CurrentUserResponse {
   return {
     user,
     active_organization_id: me.principal.org_id || memberships[0]?.organization.id || "",
+    managed: me.managed === true,
   };
 }
 

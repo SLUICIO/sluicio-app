@@ -680,6 +680,9 @@ function ChannelsCard({
   const [whBody, setWhBody] = useState("");
   const [email, setEmail] = useState({ smtp_host: "", smtp_port: "587", from: "", to: "", username: "", password: "" });
   const [useSystemEmail, setUseSystemEmail] = useState(true);
+  // On a managed instance the mail transport belongs to the deployment, so
+  // an email channel picks recipients and nothing else.
+  const { managed } = useCurrentUser();
 
   const isEmail = kind === "email";
   const destLabel = kind === "pagerduty" ? "Routing key" : "Webhook URL";
@@ -737,7 +740,7 @@ function ChannelsCard({
     setSaving(true);
     try {
       const config: Record<string, string> = isEmail
-        ? useSystemEmail
+        ? useSystemEmail || managed
           ? { to: email.to.trim() }
           : {
               smtp_host: email.smtp_host.trim(),
@@ -855,12 +858,18 @@ function ChannelsCard({
               </label>
               {isEmail ? (
                 <>
-                  <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, paddingBottom: 8, minWidth: 180 }}>
-                    <input type="checkbox" checked={useSystemEmail} onChange={(e) => setUseSystemEmail(e.target.checked)} />
-                    Use system email server
-                  </label>
+                  {/* Email belongs to the deployment on a managed instance:
+                      a channel chooses its recipients, and there is no
+                      server to pick. The server would refuse these keys, so
+                      offering them would only be a form that fails. */}
+                  {!managed && (
+                    <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, paddingBottom: 8, minWidth: 180 }}>
+                      <input type="checkbox" checked={useSystemEmail} onChange={(e) => setUseSystemEmail(e.target.checked)} />
+                      Use system email server
+                    </label>
+                  )}
                   {field("To", email.to, (v) => setEmail((s) => ({ ...s, to: v })), { placeholder: "oncall@example.com, …", width: 220 })}
-                  {!useSystemEmail && (
+                  {!managed && !useSystemEmail && (
                     <>
                       {field("SMTP host", email.smtp_host, (v) => setEmail((s) => ({ ...s, smtp_host: v })), { placeholder: "smtp.example.com" })}
                       {field("Port", email.smtp_port, (v) => setEmail((s) => ({ ...s, smtp_port: v })), { placeholder: "587", width: 80 })}

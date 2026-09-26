@@ -1013,7 +1013,13 @@ type channelRequest struct {
 }
 
 // validateChannel checks the kind + the kind-specific config keys.
-func validateChannel(req *channelRequest) error {
+//
+// managed refuses the email keys that choose a SERVER rather than a
+// destination. On an instance run by a platform on behalf of someone else
+// the transport is the platform's; a channel says where its mail goes and
+// nothing about how it gets there. Refused rather than ignored, so nobody
+// saves a server address and believes it is in use.
+func validateChannel(req *channelRequest, managed bool) error {
 	req.Name = strings.TrimSpace(req.Name)
 	req.Kind = strings.TrimSpace(req.Kind)
 	if req.Name == "" {
@@ -1076,6 +1082,14 @@ func validateChannel(req *channelRequest) error {
 		// system email settings (Settings → System email).
 		if strings.TrimSpace(req.Config["to"]) == "" {
 			return errors.New("config.to is required (comma-separated recipients)")
+		}
+		if managed {
+			for _, k := range alerting.ChannelTransportKeys() {
+				if strings.TrimSpace(req.Config[k]) != "" {
+					return fmt.Errorf("config.%s can't be set: email is provided by this deployment, "+
+						"so a channel chooses its recipients and not its server", k)
+				}
+			}
 		}
 	}
 	return nil
@@ -1185,7 +1199,7 @@ func (h *Handlers) createChannel(w http.ResponseWriter, r *http.Request) {
 		httpserver.WriteError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	if err := validateChannel(&req); err != nil {
+	if err := validateChannel(&req, h.Managed); err != nil {
 		httpserver.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -1232,7 +1246,7 @@ func (h *Handlers) updateChannel(w http.ResponseWriter, r *http.Request) {
 	if existing, err := h.Alerts.GetChannel(r.Context(), middleware.OrgID(r), id); err == nil {
 		req.Config = keepMaskedSecrets(req.Config, existing.Config)
 	}
-	if err := validateChannel(&req); err != nil {
+	if err := validateChannel(&req, h.Managed); err != nil {
 		httpserver.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}

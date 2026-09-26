@@ -13,10 +13,12 @@ package identity
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 // OrgWithCounts is an org plus its member count, for the operator's
@@ -77,6 +79,13 @@ func (s *Store) ListOrgs(ctx context.Context) ([]OrgWithCounts, error) {
 // SetUserOperator promotes (or demotes) a user to/from cell operator.
 // Returns ErrNotFound if the user id doesn't exist.
 func (s *Store) SetUserOperator(ctx context.Context, userID uuid.UUID, isOperator bool) error {
+	// A managed instance has no operator at all: the instance-wide
+	// settings belong to the platform running it, not to anyone signed
+	// in. Refusing here rather than only in the handler means no path -
+	// an API token, a future migration, a script - can quietly create one.
+	if s.managed {
+		return ErrOperatorManaged
+	}
 	tag, err := s.pool.Exec(ctx,
 		`UPDATE users SET is_operator = $2, updated_at = now() WHERE id = $1`,
 		userID, isOperator)
@@ -101,25 +110,75 @@ func (s *Store) CountOperators(ctx context.Context) (int, error) {
 	return n, nil
 }
 
-// EnsureBootstrapOperator promotes the user with the given email to
-// operator IFF the cell currently has no operator at all. Idempotent:
-// once any operator exists it never re-promotes, so a later demotion
-// sticks. Returns whether it promoted someone.
-func (s *Store) EnsureBootstrapOperator(ctx context.Context, email string) (bool, error) {
+// EnsureBootstrapOperator gives the instance an operator when it has
+// none. Returns the email of whoever was promoted, or "" if nobody was.
+//
+// Idempotent: once any operator exists it never promotes again, so a
+// later demotion sticks across restarts.
+//
+// Does nothing on a managed instance, where no user is operator at all.
+//
+// # Two ways to find the operator, and why the second exists
+//
+// The seeded admin is the usual answer, matched by email. But that only
+// works while the seed row still HAS that email, and it does not survive
+// managed mode: claiming a managed instance renames the seed row to the
+// claimant's address, so a later restart with managed mode switched off
+// would match nothing and leave the instance with no operator and no way
+// to get one.
+//
+// So when the email matches nothing, the fallback is the oldest admin of
+// the oldest org - which on an instance that came from a claim is the
+// person who claimed it. That is the same human either way; only the
+// address changed.
+func (s *Store) EnsureBootstrapOperator(ctx context.Context, email string) (string, error) {
+	if s.managed {
+		return "", nil
+	}
 	n, err := s.CountOperators(ctx)
 	if err != nil {
-		return false, err
+		return "", err
 	}
 	if n > 0 {
-		return false, nil
+		return "", nil
 	}
-	tag, err := s.pool.Exec(ctx,
-		`UPDATE users SET is_operator = true, updated_at = now() WHERE lower(email) = lower($1)`,
-		strings.TrimSpace(email))
+
+	const promoteByEmail = `
+		UPDATE users SET is_operator = true, updated_at = now()
+		WHERE lower(email) = lower($1)
+		RETURNING email`
+	var promoted string
+	err = s.pool.QueryRow(ctx, promoteByEmail, strings.TrimSpace(email)).Scan(&promoted)
+	if err == nil {
+		return promoted, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return "", fmt.Errorf("identity: bootstrap operator: %w", err)
+	}
+
+	// Nobody by that email. Promote the oldest admin of the oldest org.
+	const promoteOldestAdmin = `
+		UPDATE users SET is_operator = true, updated_at = now()
+		WHERE id = (
+			SELECT m.user_id
+			FROM org_members m
+			JOIN users u ON u.id = m.user_id
+			WHERE m.role = 'admin'
+			  AND m.org_id = (SELECT id FROM orgs ORDER BY created_at ASC LIMIT 1)
+			ORDER BY u.created_at ASC
+			LIMIT 1
+		)
+		RETURNING email`
+	err = s.pool.QueryRow(ctx, promoteOldestAdmin).Scan(&promoted)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// An instance with no admin in its default org has nobody to
+		// promote. Saying so is better than promoting somebody arbitrary.
+		return "", nil
+	}
 	if err != nil {
-		return false, fmt.Errorf("identity: bootstrap operator: %w", err)
+		return "", fmt.Errorf("identity: bootstrap operator: oldest admin: %w", err)
 	}
-	return tag.RowsAffected() > 0, nil
+	return promoted, nil
 }
 
 // ListUsersPage returns a filtered, paged slice of the cell's users plus

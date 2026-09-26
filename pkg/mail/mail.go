@@ -73,29 +73,69 @@ func (s *Sender) Send(ctx context.Context, to []string, subject, body string) er
 	if !cfg.Configured() {
 		return ErrNotConfigured
 	}
-	recipients := make([]string, 0, len(to))
-	for _, r := range to {
-		if r = strings.TrimSpace(r); r != "" {
-			recipients = append(recipients, r)
-		}
-	}
+	recipients := cleanRecipients(to)
 	if len(recipients) == 0 {
 		return fmt.Errorf("mail: no recipients")
 	}
+	addr, host, auth := transport(cfg)
+	raw := buildMessage(cfg, recipients, subject, body)
+	if err := sendMail(ctx, addr, host, auth, cfg.From, recipients, raw); err != nil {
+		return fmt.Errorf("mail: smtp send: %w", err)
+	}
+	return nil
+}
+
+// SendRaw delivers an already-rendered RFC 822 message.
+//
+// It exists so that there is ONE SMTP implementation. A caller that
+// builds its own body - an alert email is multipart, plain text beside
+// HTML - used to reach for net/smtp directly and got no timeouts with
+// it, which is the one thing this package was written to provide. The
+// message is the caller's; the transport, including the deadlines, is
+// not.
+//
+// The config is passed rather than resolved: alert channels carry their
+// own SMTP settings, layered over the instance's.
+func SendRaw(ctx context.Context, cfg Config, to []string, msg []byte) error {
+	recipients := cleanRecipients(to)
+	if len(recipients) == 0 {
+		return fmt.Errorf("mail: no recipients")
+	}
+	if strings.TrimSpace(cfg.Host) == "" || strings.TrimSpace(cfg.From) == "" {
+		return ErrNotConfigured
+	}
+	addr, host, auth := transport(cfg)
+	if err := sendMail(ctx, addr, host, auth, cfg.From, recipients, msg); err != nil {
+		return fmt.Errorf("mail: smtp send: %w", err)
+	}
+	return nil
+}
+
+// transport resolves a config to what the SMTP conversation needs: the
+// dial address, the host name TLS and AUTH are scoped to, and the auth
+// itself when credentials were given.
+func transport(cfg Config) (addr, host string, auth smtp.Auth) {
+	host = strings.TrimSpace(cfg.Host)
 	port := strings.TrimSpace(cfg.Port)
 	if port == "" {
 		port = "587"
 	}
-	host := strings.TrimSpace(cfg.Host)
-	var auth smtp.Auth
 	if u := strings.TrimSpace(cfg.Username); u != "" {
 		auth = smtp.PlainAuth("", u, cfg.Password, host)
 	}
-	raw := buildMessage(cfg, recipients, subject, body)
-	if err := sendMail(ctx, net.JoinHostPort(host, port), host, auth, cfg.From, recipients, raw); err != nil {
-		return fmt.Errorf("mail: smtp send: %w", err)
+	return net.JoinHostPort(host, port), host, auth
+}
+
+// cleanRecipients drops blanks, which a comma-separated channel setting
+// produces on every trailing comma.
+func cleanRecipients(to []string) []string {
+	out := make([]string, 0, len(to))
+	for _, r := range to {
+		if r = strings.TrimSpace(r); r != "" {
+			out = append(out, r)
+		}
 	}
-	return nil
+	return out
 }
 
 // dialTimeout bounds how long a send may spend waiting on the SMTP server.

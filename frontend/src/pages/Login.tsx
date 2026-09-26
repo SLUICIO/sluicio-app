@@ -48,6 +48,39 @@ interface Props {
   onSuccess: () => Promise<void> | void;
 }
 
+// readClaimToken takes the setup token out of the URL FRAGMENT and
+// removes it from the address bar.
+//
+// The fragment, never the query string: a fragment is not sent to the
+// server, so the token stays out of access logs, out of Referer headers
+// on anything the page loads, and out of any proxy in between. Reading it
+// in the browser is the only way it is meant to travel.
+//
+// Stripped immediately afterwards so it does not sit in the address bar
+// to be copied into a screenshot, a support ticket or a shared tab. The
+// value is already in memory by then; losing it from the URL costs
+// nothing, and a reload lands on the ordinary sign-in page, which is the
+// honest outcome once the instance is claimed.
+export function readClaimToken(): string {
+  if (typeof window === "undefined") return "";
+  const frag = window.location.hash.replace(/^#/, "");
+  if (!frag) return "";
+  const token = new URLSearchParams(frag).get("t")?.trim() ?? "";
+  if (token) {
+    try {
+      window.history.replaceState(
+        null,
+        "",
+        window.location.pathname + window.location.search,
+      );
+    } catch {
+      // A browser that refuses the rewrite (an exotic sandbox) still gets
+      // a working claim; the token merely stays visible.
+    }
+  }
+  return token;
+}
+
 export default function Login({ onSuccess }: Props) {
   // The cell's mark, read without a session. null until it lands (or on
   // an unbranded / unentitled cell), which is why every use below falls
@@ -77,6 +110,13 @@ export default function Login({ onSuccess }: Props) {
   // deployments only) and we seeded the form with them. Gates the
   // "credentials are pre-filled" note under the form.
   const [prefilled, setPrefilled] = useState(false);
+  // Managed instance: one run by a platform on behalf of someone else.
+  // Its first-run screen needs the claim token from the setup link.
+  const [managed, setManaged] = useState(false);
+  // The token, taken from the URL fragment once on mount. Read eagerly
+  // rather than at submit time, because the first thing we do with it is
+  // remove it from the address bar.
+  const [claimToken] = useState(readClaimToken);
   // "login" is the normal form; "forgot" swaps in the password-reset
   // request form (forgotSent flips it to the neutral confirmation);
   // "setup" is the first-run create-your-admin-account screen a pristine
@@ -154,6 +194,7 @@ export default function Login({ onSuccess }: Props) {
       .then((s) => {
         if (cancelled) return;
         setShowFreshHint(s.fresh);
+        setManaged(s.managed === true);
         // Demo cells advertise public credentials — seed the form so a
         // visitor is one click from signed in. Never overwrite anything
         // the user already typed (the fetch races their first keypress).
@@ -192,7 +233,13 @@ export default function Login({ onSuccess }: Props) {
     setSetupBusy(true);
     setError(null);
     try {
-      await api.bootstrapAdmin({ name: setupName.trim(), email: email.trim(), password });
+      await api.bootstrapAdmin({
+        name: setupName.trim(),
+        email: email.trim(),
+        password,
+        // Omitted on a self-hosted install, which needs no token.
+        ...(claimToken ? { token: claimToken } : {}),
+      });
       await api.login({ email: email.trim(), password });
       await onSuccess();
     } catch (err) {
@@ -202,6 +249,15 @@ export default function Login({ onSuccess }: Props) {
         // the install is set up, so fall back to the sign-in form.
         setMode("login");
         setError("This install is already set up — sign in below.");
+      } else if (msg.startsWith("403")) {
+        // The server refuses to say which of the three it is, so the
+        // message covers all of them and points at the one thing the
+        // person can act on: the link they arrived by.
+        setError(
+          claimToken
+            ? "That setup link is no longer valid. Ask for a new one and open it again."
+            : "This instance needs its setup link to finish setting up. Open the link you were sent, in full.",
+        );
       } else {
         setError(msg);
       }
@@ -321,6 +377,15 @@ export default function Login({ onSuccess }: Props) {
             <p className="muted" style={{ fontSize: 12.5, lineHeight: 1.55, margin: 0 }}>
               Create your admin account to finish setting up this install.
             </p>
+            {managed && !claimToken && (
+              // Reached without the token: say so before the form is
+              // filled in, rather than after the server refuses it.
+              <p className="alert alert--warn" style={{ fontSize: 12.5, lineHeight: 1.55, margin: 0 }}>
+                Open the setup link you were sent, in full - it carries a
+                one-time code this page needs. Without it, setting up is
+                refused.
+              </p>
+            )}
             <label className="form__label">
               Name
               <input className="search__input" value={setupName} onChange={(e) => setSetupName(e.target.value)}
@@ -471,7 +536,7 @@ export default function Login({ onSuccess }: Props) {
           </p>
         )}
 
-        {showFreshHint && mode === "login" && (
+        {showFreshHint && !managed && mode === "login" && (
           <p className="muted" style={{ fontSize: 12, marginTop: 18, lineHeight: 1.5 }}>
             {productName} ships with a default admin account on first boot:{" "}
             <strong>admin@sluicio.local</strong> / <strong>admin</strong>.

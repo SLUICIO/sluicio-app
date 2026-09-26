@@ -80,6 +80,19 @@ type retentionResponse struct {
 	AuditDays         int  `json:"audit_days"`
 	AuditMaxDays      int  `json:"audit_max_days"`
 	AuditConfigurable bool `json:"audit_configurable"`
+	// Source is "deployment" when retention belongs to the deployment and
+	// nobody signed in can change it, as on an instance run by a platform
+	// on behalf of someone else. There the licence sets it, up to its
+	// limits, and the core defaults apply without one. Empty otherwise.
+	Source string `json:"source,omitempty"`
+}
+
+// retentionSource renders the Source field above.
+func retentionSource(managed bool) string {
+	if managed {
+		return smtpSourceDeployment
+	}
+	return ""
 }
 
 type retentionEntry struct {
@@ -129,6 +142,11 @@ func (h *Handlers) getRetention(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	maxDays, longUnlocked := h.effectiveRetentionMaxDays()
+	// On a managed instance retention is the deployment's: the licence sets
+	// it, up to its limits, and the core defaults apply when there is no
+	// licence (or it has expired). Nobody signed in can change it, so the
+	// response says so and the UI renders it read-only.
+	managedRetention := h.Managed
 	auditDays, err := h.Settings.GetAuditRetentionDays(r.Context())
 	if err != nil {
 		h.Logger.Warn("get audit retention failed", "err", err)
@@ -145,6 +163,7 @@ func (h *Handlers) getRetention(w http.ResponseWriter, r *http.Request) {
 		AuditDays:         auditDays,
 		AuditMaxDays:      auditMax,
 		AuditConfigurable: auditUnlocked,
+		Source:            retentionSource(managedRetention),
 	})
 }
 
@@ -172,6 +191,20 @@ func toEntry(days int, applied, enforced time.Time) retentionEntry {
 // response then carries an `apply_warning` field so the UI can
 // communicate "saved, but ClickHouse hasn't picked it up yet."
 func (h *Handlers) patchRetention(w http.ResponseWriter, r *http.Request) {
+	if h.Managed {
+		// Retention follows the licence on a managed instance, up to its
+		// limits, and the core defaults without one. Changing it is the
+		// platform's, done by issuing a licence rather than from in here.
+		//
+		// The route guard refuses first today, since a managed instance has
+		// no operator and this route is operator-gated: nobody reaches this
+		// branch, and the 403 is the answer they get. It stays as the
+		// backstop for the day the route moves to an org admin, so that
+		// moving it cannot silently make retention writable.
+		httpserver.WriteError(w, http.StatusConflict,
+			"retention is managed by the deployment and can't be changed here")
+		return
+	}
 	if h.Settings == nil {
 		httpserver.WriteError(w, http.StatusServiceUnavailable, "settings store unavailable")
 		return
@@ -306,8 +339,14 @@ func (h *Handlers) patchRetention(w http.ResponseWriter, r *http.Request) {
 // knobs: the environment label shown in the top nav, and the external
 // ingest base URL the Ingest Keys UI bakes into exporter config.
 type systemSettingsResponse struct {
-	Environment   string `json:"environment"`
-	IngestBaseURL string `json:"ingest_base_url"`
+	Environment string `json:"environment"`
+	// EnvironmentSource is "env" when the deployment sets
+	// SLUICIO_ENVIRONMENT, which is then authoritative and read-only here.
+	// Empty means the stored, admin-editable setting. Same shape as
+	// IngestURLSource below, for the same reason: a value the instance does
+	// not own should say so rather than look editable.
+	EnvironmentSource string `json:"environment_source,omitempty"`
+	IngestBaseURL     string `json:"ingest_base_url"`
 	// IngestURLSource says where IngestBaseURL came from: "env" when the
 	// deployment sets SLUICIO_INGEST_URL (authoritative, read-only in the
 	// UI), "setting" for the admin-editable cell setting, "unset" when
@@ -364,6 +403,13 @@ func (h *Handlers) systemSettings(r *http.Request) (systemSettingsResponse, erro
 	} else if ingest == "" {
 		resp.IngestURLSource = "unset"
 	}
+	// And the same for the environment name: a deployment that renders the
+	// label knows it better than anyone signed in, and an instance whose
+	// name is part of how it was provisioned should not let that drift.
+	if envName := strings.TrimSpace(os.Getenv("SLUICIO_ENVIRONMENT")); envName != "" {
+		resp.Environment = envName
+		resp.EnvironmentSource = "env"
+	}
 	return resp, nil
 }
 
@@ -401,6 +447,11 @@ func (h *Handlers) patchSystemSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	audit := map[string]any{}
 	if body.Environment != nil {
+		if strings.TrimSpace(os.Getenv("SLUICIO_ENVIRONMENT")) != "" {
+			httpserver.WriteError(w, http.StatusConflict,
+				"the environment name is managed by the deployment (SLUICIO_ENVIRONMENT) and can't be changed here")
+			return
+		}
 		env := strings.TrimSpace(*body.Environment)
 		if err := h.Settings.SetEnvironment(r.Context(), env); err != nil {
 			if errors.Is(err, settings.ErrInvalidEnvironment) {
@@ -470,6 +521,27 @@ type smtpResponse struct {
 	FromName    string `json:"from_name"`
 	PasswordSet bool   `json:"password_set"`
 	Configured  bool   `json:"configured"`
+	// Source is "deployment" when the transport comes from the environment
+	// and cannot be changed here, as on an instance run by a platform on
+	// behalf of someone else. Empty otherwise, meaning these settings are
+	// the instance's own. Mirrors ingest_url_source.
+	Source string `json:"source,omitempty"`
+}
+
+// smtpSourceDeployment marks a transport the instance does not own.
+const smtpSourceDeployment = "deployment"
+
+// managedSMTPResponse is what an admin sees when email belongs to the
+// deployment: that it is configured, and nothing about the server.
+//
+// The server details are withheld rather than shown read-only. They are
+// the platform's infrastructure, they may carry a credential, and an
+// address nobody here can change is not information this page needs.
+func (h *Handlers) managedSMTPResponse(ctx context.Context) smtpResponse {
+	return smtpResponse{
+		Configured: h.Mail != nil && h.Mail.Configured(ctx),
+		Source:     smtpSourceDeployment,
+	}
 }
 
 // smtpRequest is the PATCH body. Password is a pointer: omitted = keep the
@@ -487,6 +559,10 @@ type smtpRequest struct {
 func (h *Handlers) getSMTP(w http.ResponseWriter, r *http.Request) {
 	if h.Settings == nil {
 		httpserver.WriteError(w, http.StatusServiceUnavailable, "settings store unavailable")
+		return
+	}
+	if h.Managed {
+		httpserver.WriteJSON(w, http.StatusOK, h.managedSMTPResponse(r.Context()))
 		return
 	}
 	s, err := h.Settings.GetSMTP(r.Context())
@@ -508,6 +584,11 @@ func (h *Handlers) getSMTP(w http.ResponseWriter, r *http.Request) {
 
 // patchSMTP: PATCH /api/v1/cell-settings/smtp (admin).
 func (h *Handlers) patchSMTP(w http.ResponseWriter, r *http.Request) {
+	if h.Managed {
+		httpserver.WriteError(w, http.StatusConflict,
+			"email is managed by the deployment and can't be changed here")
+		return
+	}
 	if h.Settings == nil {
 		httpserver.WriteError(w, http.StatusServiceUnavailable, "settings store unavailable")
 		return
@@ -555,6 +636,13 @@ func (h *Handlers) patchSMTP(w http.ResponseWriter, r *http.Request) {
 // message to the given address (or the caller's email) using the effective
 // transport, so an admin can confirm SMTP works before relying on it.
 func (h *Handlers) testSMTP(w http.ResponseWriter, r *http.Request) {
+	if h.Managed {
+		// Refused with the settings it would be testing: the transport is
+		// the platform's, and so is checking that it works.
+		httpserver.WriteError(w, http.StatusConflict,
+			"email is managed by the deployment and can't be tested here")
+		return
+	}
 	if h.Mail == nil {
 		httpserver.WriteError(w, http.StatusServiceUnavailable, "mailer unavailable")
 		return

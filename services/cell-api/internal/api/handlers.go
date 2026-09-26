@@ -194,10 +194,50 @@ type Handlers struct {
 	Audit  audit.Recorder
 	Logger *slog.Logger
 
+	// Managed marks an instance run by a platform on behalf of someone
+	// else, rather than by the people using it (SLUICIO_MANAGED). False is
+	// a self-hosted install, which behaves exactly as it always has.
+	Managed bool
+	// BootstrapToken gates the first-user claim on a managed instance
+	// (SLUICIO_BOOTSTRAP_TOKEN). A managed instance is reachable before
+	// anyone has opened it, so without this the first visitor to find the
+	// address would own it. Empty on a managed instance means the claim is
+	// refused outright rather than left open.
+	//
+	// Ignored on a self-hosted install, where the first-run screen is
+	// reached by whoever just installed the thing.
+	BootstrapToken string
+	// BootstrapTokenExpiresAt stops the token working after a moment,
+	// whether or not the instance was ever claimed. Zero means no expiry.
+	//
+	// Defence in depth rather than the mechanism: the platform that issues
+	// the token owns its lifetime, and a new setup link is a new token. But
+	// a link that was emailed and never used should not stay good for ever,
+	// and this bounds it without anything else having to remember to.
+	BootstrapTokenExpiresAt time.Time
+
 	// audit_log.viewed throttle state (see recordAuditViewed). Guarded by
 	// auditViewMu; keyed user/org.
 	auditViewMu   sync.Mutex
 	auditViewSeen map[string]time.Time
+}
+
+// operatorOrOrgAdmin gates a route on the operator normally, and on an
+// org admin when the instance is managed.
+//
+// It exists for settings that are instance-wide but belong to the PEOPLE
+// using the instance rather than to whoever runs it. A managed instance
+// has no operator, so an operator-only route there is a setting nobody
+// can reach; handing it to the org's admin keeps the decision with the
+// org it is about.
+func (h *Handlers) operatorOrOrgAdmin(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if h.Managed {
+			h.AuthMW.RequireRole(identity.Role.CanAdmin, next).ServeHTTP(w, r)
+			return
+		}
+		h.AuthMW.RequireOperator(next).ServeHTTP(w, r)
+	}
 }
 
 // ioResolverFor loads the user-defined facet attribute mappings for a
@@ -1490,10 +1530,16 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 			h.AuthMW.RequireOperator(h.testSMTP))
 		// Cell security policy: operator-only; toggling org-wide MFA
 		// enforcement also needs the Enterprise mfa_policy entitlement.
+		//
+		// On a managed instance it is an ORG ADMIN's instead. There is no
+		// operator there, so leaving this operator-only would mean nobody
+		// could ever require two-factor for their own users - and whether
+		// the people in an org must use 2FA is the org's decision, not the
+		// platform's. The entitlement check is unchanged either way.
 		mux.HandleFunc("GET /api/v1/cell-settings/security",
-			h.AuthMW.RequireOperator(h.getSecuritySettings))
+			h.operatorOrOrgAdmin(h.getSecuritySettings))
 		mux.HandleFunc("PATCH /api/v1/cell-settings/security",
-			h.AuthMW.RequireOperator(h.requireFeature(license.FeatureMFAPolicy, h.patchSecuritySettings)))
+			h.operatorOrOrgAdmin(h.requireFeature(license.FeatureMFAPolicy, h.patchSecuritySettings)))
 	}
 
 	// Trace-completion rules per integration. Reads open to any

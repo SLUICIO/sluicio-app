@@ -78,8 +78,22 @@ export interface CurrentUserContext {
   memberships: OrganizationMembership[];
   /** True iff any of the user's roles in the active org grants `perm`. */
   can: (perm: Permission) => boolean;
-  /** True iff this user is a cell operator (gates the Operator surface). */
+  /**
+   * True iff this user is a cell operator (gates the Operator surface).
+   *
+   * Always false on a managed instance: it has no operator, and the server
+   * refuses every operator route there whatever the stored flag says.
+   */
   isOperator: boolean;
+  /**
+   * True on an instance run by a platform on behalf of someone else. Some
+   * settings belong to the deployment there, so the UI stops offering
+   * them rather than showing a control the server will refuse.
+   *
+   * A hint, never the boundary: every one of those refusals is enforced
+   * server-side as well.
+   */
+  managed: boolean;
   /** Sign the user out — POST /api/v1/auth/logout and drop session state. */
   signOut: () => void;
 }
@@ -129,7 +143,21 @@ export function useCurrentUser(): CurrentUserContext {
     // else — for exactly the readers who never reload.
   }, [ctx, productName]);
 
-  return { user, organization, roles, memberships, can, isOperator: user.isOperator, signOut };
+  return {
+    user,
+    organization,
+    roles,
+    memberships,
+    can,
+    // False on a managed instance whatever the row says. An instance
+    // switched into managed mode keeps its is_operator rows - they are not
+    // deleted, so switching back finds it as it was - and the server
+    // refuses every operator route while managed mode is on. The UI has to
+    // agree, or it offers a page that answers 403.
+    isOperator: user.isOperator && data.managed !== true,
+    managed: data.managed === true,
+    signOut,
+  };
 }
 
 function withSyntheticEmpty(u: User): OrganizationMembership[] {

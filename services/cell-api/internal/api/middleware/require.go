@@ -173,6 +173,19 @@ func (r *Resolver) RequireWriteAnywhere(next http.HandlerFunc) http.HandlerFunc 
 // cap is a hard ceiling that operator status must not re-expand.
 func (r *Resolver) RequireOperator(next http.HandlerFunc) http.HandlerFunc {
 	return r.Require(func(w http.ResponseWriter, req *http.Request) {
+		// A managed instance has no operator: the settings an operator
+		// would hold belong to the platform running it.
+		//
+		// Refused here rather than relying on nobody having the flag,
+		// because an instance switched INTO managed mode keeps whatever
+		// is_operator rows it already had. Those rows are left alone -
+		// switching back out should find the instance as it was - and they
+		// grant nothing while managed mode is on.
+		if r.Identity != nil && r.Identity.Managed() {
+			httpserver.WriteError(w, http.StatusForbidden,
+				"this instance has no operator: instance-wide settings are managed by the deployment")
+			return
+		}
 		p, _ := PrincipalFromContext(req.Context())
 		if !p.IsOperator || p.ScopeCapped() {
 			httpserver.WriteError(w, http.StatusForbidden, "operator access required")
