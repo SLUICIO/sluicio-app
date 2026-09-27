@@ -285,6 +285,71 @@ func (s *Store) AddMatcher(ctx context.Context, orgID, integrationID uuid.UUID, 
 	return created, nil
 }
 
+// ReplaceMatchers swaps an integration's whole matcher set, and
+// optionally how its rules combine, in one transaction. The integration
+// must belong to orgID: ErrNotFound otherwise.
+//
+// It exists because the editor used to save by adding the new rows and
+// then deleting the old ones, one request each. A failure part-way
+// through left the integration matching both sets, or half of one, and
+// nothing told the person who pressed Save. Here every matcher is
+// validated before anything is written, and the swap either happens
+// whole or not at all. Returns the stored set and the previous count.
+func (s *Store) ReplaceMatchers(ctx context.Context, orgID, integrationID uuid.UUID, ms []Matcher, ruleMatch *RuleMatch) ([]Matcher, int, error) {
+	for _, m := range ms {
+		if err := m.Validate(); err != nil {
+			return nil, 0, err
+		}
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Locked, so two saves of the same integration serialise rather than
+	// interleave their deletes and inserts.
+	var locked uuid.UUID
+	err = tx.QueryRow(ctx,
+		`SELECT id FROM integrations WHERE id = $1 AND organization_id = $2 FOR UPDATE`,
+		integrationID, orgID).Scan(&locked)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, 0, ErrNotFound
+	}
+	if err != nil {
+		return nil, 0, fmt.Errorf("lock integration: %w", err)
+	}
+	if ruleMatch != nil {
+		if _, err := tx.Exec(ctx,
+			`UPDATE integrations SET rule_match = $2, updated_at = now() WHERE id = $1`,
+			integrationID, string(*ruleMatch)); err != nil {
+			return nil, 0, fmt.Errorf("update rule match: %w", err)
+		}
+	}
+	tag, err := tx.Exec(ctx, `DELETE FROM integration_matchers WHERE integration_id = $1`, integrationID)
+	if err != nil {
+		return nil, 0, fmt.Errorf("delete matchers: %w", err)
+	}
+	out := make([]Matcher, 0, len(ms))
+	for _, m := range ms {
+		var created Matcher
+		if err := tx.QueryRow(ctx, `
+			INSERT INTO integration_matchers (integration_id, attribute, operator, value, match_group, include_descendants)
+			VALUES ($1, $2, $3, $4, $5, $6)
+			RETURNING id, integration_id, attribute, operator, value, match_group, include_descendants, created_at
+		`, integrationID, m.Attribute, m.Operator, m.Value, m.MatchGroup, m.IncludeDescendants).Scan(
+			&created.ID, &created.IntegrationID, &created.Attribute, &created.Operator, &created.Value, &created.MatchGroup, &created.IncludeDescendants, &created.CreatedAt,
+		); err != nil {
+			return nil, 0, fmt.Errorf("insert matcher: %w", err)
+		}
+		out = append(out, created)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, 0, err
+	}
+	return out, int(tag.RowsAffected()), nil
+}
+
 // RemoveMatcher deletes one matcher of one integration of orgID:
 // ErrNotFound unless all three agree. A matcher id alone is not enough,
 // since the integration named in the URL is the one the caller was

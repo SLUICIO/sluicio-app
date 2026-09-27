@@ -171,16 +171,18 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 - POST /api/v1/integrations/{id}/clone — Create integration
 - PUT /api/v1/integrations/{id} — Update integration
 - DELETE /api/v1/integrations/{id} — Delete integration
-- POST /api/v1/integrations/{id}/matchers — Create integration
-- DELETE /api/v1/integrations/{id}/matchers/{matcherId} — Delete integration
+- POST /api/v1/integrations/{id}/matchers — Add one matcher to an integration
+- PUT /api/v1/integrations/{id}/matchers — Replace an integration's whole matcher set (and optionally rule_match) in one transaction
+- DELETE /api/v1/integrations/{id}/matchers/{matcherId} — Remove one matcher from an integration
 - DELETE /api/v1/integrations/{id}/services/{name} — Delete integration
 - POST /api/v1/integrations — Create integration
 - POST /api/v1/integrations/preview — Create integration
 - POST /api/v1/integrations/{id}/clone — Create integration
 - PUT /api/v1/integrations/{id} — Update integration
 - DELETE /api/v1/integrations/{id} — Delete integration
-- POST /api/v1/integrations/{id}/matchers — Create integration
-- DELETE /api/v1/integrations/{id}/matchers/{matcherId} — Delete integration
+- POST /api/v1/integrations/{id}/matchers — Add one matcher to an integration
+- PUT /api/v1/integrations/{id}/matchers — Replace an integration's whole matcher set (and optionally rule_match) in one transaction
+- DELETE /api/v1/integrations/{id}/matchers/{matcherId} — Remove one matcher from an integration
 - DELETE /api/v1/integrations/{id}/services/{name} — Delete integration
 - GET /api/v1/integrations/{id}/notification-profile — List integrations
 - PUT /api/v1/integrations/{id}/notification-profile — Update integration

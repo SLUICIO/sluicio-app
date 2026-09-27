@@ -181,6 +181,11 @@ var summaryOverrides = map[string]string{
 	"POST /api/v1/mcp":   "MCP Streamable HTTP endpoint — one JSON-RPC message in, one response out",
 	"GET /api/v1/mcp":    "Not supported (405) — this endpoint offers no server-initiated event stream",
 	"DELETE /api/v1/mcp": "Not supported (405) — the MCP endpoint is stateless and issues no session id",
+	// The rule reads the integration id and names the INTEGRATION, so an
+	// agent was told these three create, update and delete integrations.
+	"POST /api/v1/integrations/{id}/matchers":               "Add one matcher to an integration",
+	"PUT /api/v1/integrations/{id}/matchers":                "Replace an integration's whole matcher set (and optionally rule_match) in one transaction",
+	"DELETE /api/v1/integrations/{id}/matchers/{matcherId}": "Remove one matcher from an integration",
 }
 
 func summaryFor(method, p, tag string) string {

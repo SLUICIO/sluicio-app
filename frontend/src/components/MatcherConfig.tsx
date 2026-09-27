@@ -59,27 +59,18 @@ export default function MatcherConfig({
     [stored, rules, storedMode, combine],
   );
 
-  // save replaces the stored matcher set with the draft's DNF expansion.
-  // New rows first, then the old ones go: there's no unique constraint
-  // on integration_matchers, so this never conflicts, and adding first
-  // avoids a window where the integration matches nothing.
+  // One request, one transaction: the draft's DNF expansion replaces the
+  // stored set, together with the mode when it changed. It used to be an
+  // add per new row and a delete per old one, and a failure part-way left
+  // the integration matching both sets, or half of one.
   const save = async () => {
     setError(null);
     setSaving(true);
     try {
-      // The mode first: if the matcher write fails halfway the rules are
-      // still the ones the user is looking at, whereas a mode saved after
-      // a failed write would describe rules that were never stored.
-      if (combine !== storedMode) {
-        await api.updateIntegration(id, {
-          name: data.integration.name,
-          description: data.integration.description,
-          rule_match: combine,
-        });
-      }
-      const desired = rulesToMatchers(rules);
-      await Promise.all(desired.map((d) => api.addMatcher(id, d)));
-      await Promise.all((data.matchers ?? []).map((m) => api.removeMatcher(id, m.id)));
+      await api.replaceMatchers(id, {
+        matchers: rulesToMatchers(rules),
+        ...(combine !== storedMode ? { rule_match: combine } : {}),
+      });
       onChanged();
     } catch (e) {
       setError(String((e as Error).message ?? e));

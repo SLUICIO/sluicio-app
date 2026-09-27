@@ -1210,6 +1210,7 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 		mux.HandleFunc("PUT /api/v1/integrations/{id}", h.writeAnywhere(h.requireManageIntegration(h.updateIntegration)))
 		mux.HandleFunc("DELETE /api/v1/integrations/{id}", h.writeAnywhere(h.requireManageIntegration(h.deleteIntegration)))
 		mux.HandleFunc("POST /api/v1/integrations/{id}/matchers", h.writeAnywhere(h.requireManageIntegration(h.addMatcher)))
+		mux.HandleFunc("PUT /api/v1/integrations/{id}/matchers", h.writeAnywhere(h.requireManageIntegration(h.replaceMatchers)))
 		mux.HandleFunc("DELETE /api/v1/integrations/{id}/matchers/{matcherId}", h.writeAnywhere(h.requireManageIntegration(h.removeMatcher)))
 		mux.HandleFunc("DELETE /api/v1/integrations/{id}/services/{name}", h.writeAnywhere(h.requireManageIntegration(h.removeServiceFromIntegration)))
 	} else {
@@ -1219,6 +1220,7 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 		mux.HandleFunc("PUT /api/v1/integrations/{id}", h.updateIntegration)
 		mux.HandleFunc("DELETE /api/v1/integrations/{id}", h.deleteIntegration)
 		mux.HandleFunc("POST /api/v1/integrations/{id}/matchers", h.addMatcher)
+		mux.HandleFunc("PUT /api/v1/integrations/{id}/matchers", h.replaceMatchers)
 		mux.HandleFunc("DELETE /api/v1/integrations/{id}/matchers/{matcherId}", h.removeMatcher)
 		mux.HandleFunc("DELETE /api/v1/integrations/{id}/services/{name}", h.removeServiceFromIntegration)
 	}

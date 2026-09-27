@@ -512,6 +512,16 @@ export const api = {
   removeMatcher: (id: string, matcherId: string) =>
     del(`/integrations/${encodeURIComponent(id)}/matchers/${encodeURIComponent(matcherId)}`),
 
+  // The whole set, and optionally how it combines, in one transaction:
+  // it lands whole or not at all. rule_match is left alone when omitted.
+  replaceMatchers: (
+    id: string,
+    body: {
+      matchers: { operator: string; value: string; attribute?: string; match_group?: number; include_descendants?: boolean }[];
+      rule_match?: RuleMatch;
+    },
+  ) => put<{ matchers: Matcher[]; rule_match: RuleMatch }>(`/integrations/${encodeURIComponent(id)}/matchers`, body),
+
   // Remove a service's direct (equals) link to an integration. Returns the
   // number of matchers removed; 0 means the service is matched by a broader
   // rule that this endpoint won't touch.

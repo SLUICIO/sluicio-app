@@ -1324,6 +1324,87 @@ func (h *Handlers) addMatcher(w http.ResponseWriter, r *http.Request) {
 	httpserver.WriteJSON(w, http.StatusCreated, created)
 }
 
+// replaceMatchers: PUT /api/v1/integrations/{id}/matchers
+//
+// Swaps the whole matcher set, and optionally rule_match, in one
+// transaction. This is how the editor saves: it used to add the new rows
+// and then delete the old ones, one request each, so a failure part-way
+// left the integration matching both sets or half of one. Now the set is
+// validated whole before anything is written, and it lands whole or not
+// at all.
+//
+// The guards are the ones adding a single matcher has - the write role,
+// manage rights over the integration, and for a group-scoped editor the
+// new set may reach only services they manage - and the integration must
+// belong to the caller's org.
+func (h *Handlers) replaceMatchers(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid integration id")
+		return
+	}
+	var req struct {
+		Matchers  []matcherInput          `json:"matchers"`
+		RuleMatch *integrations.RuleMatch `json:"rule_match"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if req.RuleMatch != nil && !req.RuleMatch.Valid() {
+		httpserver.WriteError(w, http.StatusBadRequest, `rule_match must be "any" or "all"`)
+		return
+	}
+	ms := make([]integrations.Matcher, 0, len(req.Matchers))
+	for _, in := range req.Matchers {
+		attr := in.Attribute
+		if attr == "" {
+			attr = "service.name"
+		}
+		ms = append(ms, integrations.Matcher{
+			Attribute:          attr,
+			Operator:           in.Operator,
+			Value:              in.Value,
+			MatchGroup:         in.MatchGroup,
+			IncludeDescendants: in.IncludeDescendants,
+		})
+	}
+	if ok, why := h.matcherContainmentOK(r, ms); !ok {
+		httpserver.WriteError(w, http.StatusForbidden, why)
+		return
+	}
+	stored, previous, err := h.Integrations.ReplaceMatchers(r.Context(), middleware.OrgID(r), id, ms, req.RuleMatch)
+	if err != nil {
+		if integrations.IsValidationError(err) {
+			httpserver.WriteError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if errors.Is(err, integrations.ErrNotFound) {
+			httpserver.WriteError(w, http.StatusNotFound, "integration not found")
+			return
+		}
+		h.Logger.Error("replace matchers failed", "err", err)
+		httpserver.WriteError(w, http.StatusInternalServerError, "save failed")
+		return
+	}
+	h.Resolver.Invalidate()
+	h.reconcileCatalog(r.Context())
+	// Plain values only: the audit hash is taken over a canonical encoding
+	// of this map, and a struct in it does not canonicalise.
+	meta := map[string]any{"count": len(stored), "previous_count": previous}
+	if req.RuleMatch != nil {
+		meta["rule_match"] = string(*req.RuleMatch)
+	}
+	h.recordAudit(r, "integration_matcher.replaced", "integration", id.String(), meta)
+	mode := integrations.RuleMatchAny
+	if req.RuleMatch != nil {
+		mode = *req.RuleMatch
+	} else if m, err := h.Integrations.RuleMatchForIntegration(r.Context(), id); err == nil {
+		mode = m
+	}
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"matchers": stored, "rule_match": mode})
+}
+
 // removeMatcher: DELETE /api/v1/integrations/{id}/matchers/{matcherId}
 func (h *Handlers) removeMatcher(w http.ResponseWriter, r *http.Request) {
 	id, err := uuid.Parse(r.PathValue("id"))
