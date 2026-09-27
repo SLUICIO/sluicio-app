@@ -3,8 +3,16 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.165 — 2026-09-27
+
+- feat(integrations): save what belongs to an integration in one transaction (bf9007b)
+- feat(integrations): give what belongs to an integration its own Services tab (097bc40)
+- fix(integrations): keep "or" out of a member where it would mean "and" (7879c29)
+- feat(integrations): say what belongs to an integration, and what that adds up to (713fd29)
+
 ## v0.11.164 — 2026-09-27
 
+- release v0.11.164 — refresh internal changelog (42d32ab)
 - fix(integrations): an integration's matchers can only be written from its own org (59069f6)
 
 ## v0.11.163 — 2026-09-27
