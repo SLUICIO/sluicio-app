@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
-## v0.11.162 — 2026-09-26
+## v0.11.163 — 2026-09-27
 
+- fix(auth): a setup link lands on the dashboard, not on "page not found" (d30d0f6)
+
+## v0.11.162 — 2026-09-27
+
+- release v0.11.162 — refresh internal changelog (20024d1)
 - feat(auth): an instance a platform can run on behalf of someone else (363e811)
 
 ## v0.11.161 — 2026-09-25
