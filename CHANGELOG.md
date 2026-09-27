@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.162 — 2026-09-26
+
+- feat(auth): an instance a platform can run on behalf of someone else (363e811)
+
 ## v0.11.161 — 2026-09-25
 
+- release v0.11.161 — refresh internal changelog (5314213)
 - feat(facets): say since when a service has looked like this (f1cbaef)
 - fix(alerts): a check says what it is about, instead of being guessed at (ac73efc)
 
