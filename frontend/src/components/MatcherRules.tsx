@@ -290,6 +290,7 @@ export function RuleEditor({
   knownServices,
   attrKeys,
   locked = false,
+  orUnavailable,
 }: {
   rule: Rule;
   onChange: (rule: Rule) => void;
@@ -297,11 +298,15 @@ export function RuleEditor({
   attrKeys: string[];
   /** Shown as it is, with nothing to open. */
   locked?: boolean;
+  /** Set when the conditions cannot be joined with "or" here, to the
+   *  reason. A new condition is then joined with "and". */
+  orUnavailable?: string;
 }) {
   const update = (patch: Partial<Rule>) => onChange({ ...rule, ...patch });
   const updateAttr = (ai: number, patch: Partial<AttrCond>) =>
     update({ attrs: rule.attrs.map((a, idx) => (idx === ai ? { ...a, ...patch } : a)) });
-  const addAttr = () => update({ attrs: [...rule.attrs, blankAttr()] });
+  const addAttr = () =>
+    update({ attrs: [...rule.attrs, blankAttr()], ...(orUnavailable ? { combine: "all" as const } : {}) });
   const removeAttr = (ai: number) => update({ attrs: rule.attrs.filter((_, idx) => idx !== ai) });
   const attrs = rule.attrs;
 
@@ -420,23 +425,32 @@ export function RuleEditor({
                               ["any", "or", "Any one condition is enough."],
                               ["all", "and", "Every condition has to hold."],
                             ] as const
-                          ).map(([value, label, hint]) => (
-                            <button
-                              key={value}
-                              type="button"
-                              className="btn btn--ghost"
-                              style={{ display: "block", width: "100%", textAlign: "left", padding: "6px 8px" }}
-                              onClick={() => {
-                                update({ combine: value as "any" | "all" });
-                                close();
-                              }}
-                            >
-                              <span>
-                                <span style={{ fontWeight: rule.combine === value ? 600 : 400 }}>{label}</span>
-                                <span className="muted" style={{ display: "block", fontSize: 11 }}>{hint}</span>
-                              </span>
-                            </button>
-                          ))}
+                          ).map(([value, label, hint]) => {
+                            // Offered but not choosable, with the reason
+                            // where the choice would have been: a missing
+                            // option reads as a missing feature.
+                            const off = value === "any" && !!orUnavailable;
+                            return (
+                              <button
+                                key={value}
+                                type="button"
+                                className="btn btn--ghost"
+                                disabled={off}
+                                style={{ display: "block", width: "100%", textAlign: "left", padding: "6px 8px" }}
+                                onClick={() => {
+                                  update({ combine: value as "any" | "all" });
+                                  close();
+                                }}
+                              >
+                                <span>
+                                  <span style={{ fontWeight: rule.combine === value ? 600 : 400 }}>{label}</span>
+                                  <span className="muted" style={{ display: "block", fontSize: 11 }}>
+                                    {off ? orUnavailable : hint}
+                                  </span>
+                                </span>
+                              </button>
+                            );
+                          })}
                         </div>
                       )}
                     />

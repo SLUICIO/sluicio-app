@@ -70,3 +70,27 @@ describe("RuleEditor accessible names", () => {
     expect(changes.at(-1)?.service).toBe("nightly-batch-runner");
   });
 });
+
+describe("RuleEditor where \"or\" cannot be stored", () => {
+  it("joins a new condition with \"and\"", async () => {
+    const changes: Rule[] = [];
+    const one: Rule = { ...blankRule({ service: "svc-a" }), attrs: [{ attribute: "a", operator: "equals", value: "1" }] };
+    render(
+      <RuleEditor rule={one} onChange={(r) => changes.push(r)} knownServices={[]} attrKeys={[]} orUnavailable="why not" />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "+ condition" }));
+    expect(changes.at(-1)?.combine).toBe("all");
+    expect(changes.at(-1)?.attrs).toHaveLength(2);
+  });
+
+  // Offered but not choosable, with the reason where the choice would
+  // have been: a missing option reads as a missing feature.
+  it("shows \"or\" as unavailable, with the reason", async () => {
+    render(<RuleEditor rule={rule} onChange={() => {}} knownServices={[]} attrKeys={[]} orUnavailable="why not" />);
+    await userEvent.click(screen.getByRole("button", { name: "How the conditions combine" }));
+    const or = screen.getByRole("button", { name: /^or/ });
+    expect((or as HTMLButtonElement).disabled).toBe(true);
+    expect(or.textContent).toContain("why not");
+    expect((screen.getByRole("button", { name: /^and/ }) as HTMLButtonElement).disabled).toBe(false);
+  });
+});

@@ -28,6 +28,8 @@ import {
   conditionsPhrase,
   completeConds,
   mergeSuggestions,
+  OR_UNAVAILABLE,
+  orConflict,
   patternWords,
   parseAddQuery,
   ruleCovers,
@@ -150,6 +152,14 @@ export default function MembershipEditor({
     const name = rule.service.trim();
     if (!name) {
       return { tone: "warn", note: "No service: this condition selects nothing on its own, and saving drops it." };
+    }
+    // Stored before the editor kept "or" out of this mode. Said first,
+    // since it is about what the member means, not about its traffic.
+    if (orConflict(rule, combine)) {
+      return {
+        tone: "warn",
+        note: 'Its conditions are joined with "or", which this mode reads as every one of them being required. Switch them to "and", or keep one.',
+      };
     }
     if (rule.serviceOp === "equals") {
       const svc = byName.get(name);
@@ -304,6 +314,7 @@ export default function MembershipEditor({
                       onChange={(r) => replace(i, r)}
                       knownServices={knownNames}
                       attrKeys={attrKeys}
+                      orUnavailable={combine === "all" ? OR_UNAVAILABLE : undefined}
                     />
                   </div>
                 )}
@@ -326,7 +337,12 @@ export default function MembershipEditor({
         <Suggestions rules={rules} byName={byName} windowVal={windowVal} onAdd={(n) => add(ruleOf(n))} />
       )}
 
-      <Advanced combine={combine} onChange={onCombineChange} readOnly={readOnly} />
+      <Advanced
+        combine={combine}
+        onChange={onCombineChange}
+        readOnly={readOnly}
+        blockers={rules.filter((r) => orConflict(r, "all")).map((r) => r.service.trim() || "a member")}
+      />
     </div>
   );
 }
@@ -663,10 +679,14 @@ function Advanced({
   combine,
   onChange,
   readOnly,
+  blockers,
 }: {
   combine: RuleMatch;
   onChange: (m: RuleMatch) => void;
   readOnly: boolean;
+  /** Members whose "or" the stricter mode would misread. While there
+   *  are any, switching to it is refused, with the names. */
+  blockers: string[];
 }) {
   const [open, setOpen] = useState(combine === "all");
   useEffect(() => {
@@ -696,23 +716,40 @@ function Advanced({
       </button>
       {open && (
         <div role="radiogroup" aria-label="How the members combine" style={{ display: "grid", gap: 8, marginTop: 10 }}>
-          {MODES.map((m) => (
-            <label key={m.value} style={{ display: "flex", gap: 8, alignItems: "flex-start", cursor: "pointer" }}>
-              <input
-                type="radio"
-                name="membership-combine"
-                checked={combine === m.value}
-                onChange={() => onChange(m.value)}
-                style={{ marginTop: 3 }}
-              />
-              <span>
-                <span style={{ fontSize: 13, fontWeight: combine === m.value ? 600 : 400 }}>{m.label}</span>
-                <span className="muted" style={{ display: "block", fontSize: 12, lineHeight: 1.45 }}>
-                  {m.hint}
+          {MODES.map((m) => {
+            // Only ever blocks moving INTO the stricter mode. An
+            // integration already stored that way keeps it, and its
+            // offending members say so on their rows.
+            const blocked = m.value === "all" && combine !== "all" && blockers.length > 0;
+            return (
+              <label
+                key={m.value}
+                style={{ display: "flex", gap: 8, alignItems: "flex-start", cursor: blocked ? "default" : "pointer" }}
+              >
+                <input
+                  type="radio"
+                  name="membership-combine"
+                  checked={combine === m.value}
+                  disabled={blocked}
+                  onChange={() => onChange(m.value)}
+                  style={{ marginTop: 3 }}
+                />
+                <span>
+                  <span style={{ fontSize: 13, fontWeight: combine === m.value ? 600 : 400 }}>{m.label}</span>
+                  <span className="muted" style={{ display: "block", fontSize: 12, lineHeight: 1.45 }}>
+                    {m.hint}
+                  </span>
+                  {blocked && (
+                    <span style={{ display: "block", fontSize: 12, lineHeight: 1.45, color: "var(--warn-ink, var(--ink-2))" }}>
+                      Not available while {blockers.join(", ")} {blockers.length === 1 ? "joins its" : "join their"}{" "}
+                      conditions with "or": this mode would make every alternative required. Switch{" "}
+                      {blockers.length === 1 ? "it" : "them"} to "and" first.
+                    </span>
+                  )}
                 </span>
-              </span>
-            </label>
-          ))}
+              </label>
+            );
+          })}
         </div>
       )}
     </div>

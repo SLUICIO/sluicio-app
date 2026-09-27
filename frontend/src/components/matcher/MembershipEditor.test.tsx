@@ -151,3 +151,31 @@ describe("read-only", () => {
     expect(screen.queryByRole("button", { name: /Advanced matching/ })).toBeNull();
   });
 });
+
+describe('"or" where members must all appear in one trace', () => {
+  const orMember: Rule = {
+    serviceOp: "equals",
+    service: "order-gateway",
+    combine: "any",
+    attrs: [
+      { attribute: "x", operator: "equals", value: "1" },
+      { attribute: "x", operator: "equals", value: "2" },
+    ],
+  };
+
+  it("refuses to switch into that mode, and names the member in the way", async () => {
+    const { modes } = view({ rules: [orMember] });
+    await userEvent.click(screen.getByRole("button", { name: /Advanced matching/ }));
+    const strict = screen.getByRole("radio", { name: /One trace through every member/ }) as HTMLInputElement;
+    expect(strict.disabled).toBe(true);
+    expect(screen.getByText(/Not available while order-gateway joins its conditions/)).toBeTruthy();
+    await userEvent.click(strict);
+    expect(modes).toEqual([]);
+  });
+
+  // Stored before the guard existed: kept, but said.
+  it("flags a member already stored that way", async () => {
+    view({ rules: [orMember], combine: "all" });
+    expect(await screen.findByText(/which this mode reads as every one of them being required/)).toBeTruthy();
+  });
+});

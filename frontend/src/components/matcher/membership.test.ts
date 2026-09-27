@@ -12,6 +12,7 @@ import {
   describeChanges,
   memberPhrase,
   mergeSuggestions,
+  orConflict,
   parseAddQuery,
   windowPhrase,
 } from "./membership";
@@ -155,5 +156,35 @@ describe("the range, in words", () => {
   it("says a relative range as one, and an absolute one without inventing a length", () => {
     expect(windowPhrase("24h")).toBe("in the last 24h");
     expect(windowPhrase("2026-09-01T00:00:00Z,2026-09-02T00:00:00Z")).toBe("in this range");
+  });
+});
+
+describe('"or" where members must all appear in one trace', () => {
+  const two = (combine: "any" | "all") =>
+    svc("a", {
+      combine,
+      attrs: [
+        { attribute: "x", operator: "equals", value: "1" },
+        { attribute: "x", operator: "equals", value: "2" },
+      ],
+    });
+
+  // Each alternative is its own match group, and that mode requires every
+  // group: "x = 1 or x = 2" would be stored meaning a span with 1 AND a
+  // span with 2.
+  it("is a conflict only in that mode, and only with two real alternatives", () => {
+    expect(orConflict(two("any"), "all")).toBe(true);
+    expect(orConflict(two("any"), "any")).toBe(false);
+    expect(orConflict(two("all"), "all")).toBe(false);
+    const one = svc("a", { attrs: [{ attribute: "x", operator: "equals", value: "1" }] });
+    expect(orConflict(one, "all")).toBe(false);
+    // A half-typed second condition is not an alternative yet.
+    const half = svc("a", {
+      attrs: [
+        { attribute: "x", operator: "equals", value: "1" },
+        { attribute: "x", operator: "equals", value: "" },
+      ],
+    });
+    expect(orConflict(half, "all")).toBe(false);
   });
 });

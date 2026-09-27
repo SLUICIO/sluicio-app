@@ -134,6 +134,25 @@ export function conditionsPhrase(rule: Rule): string {
   return `Only where ${parts.join(joiner)}${rule.descendants ? ", with child spans" : ""}`;
 }
 
+/**
+ * Whether a member joins its conditions with "or" where the integration
+ * cannot store that yet.
+ *
+ * On the wire a member with "or" is several match groups, one per
+ * alternative, and nothing records that they came from one member. With
+ * members combined as "one trace through every member" the backend
+ * requires EVERY group, so the alternatives would all be required: "A
+ * where x = 1 or x = 2" would mean a span of A with 1 and another with 2.
+ * Until the groups carry their member, the editor keeps "or" out of that
+ * mode rather than store a rule that means something else.
+ */
+export const orConflict = (rule: Rule, mode: RuleMatch): boolean =>
+  mode === "all" && rule.combine !== "all" && completeConds(rule).length >= 2;
+
+/** Why "or" is not offered, in the words the editor shows. */
+export const OR_UNAVAILABLE =
+  'With "one trace through every member", a member\'s conditions can only be joined with "and" for now. "Or" would make every alternative required.';
+
 const contentSig = (r: Rule) =>
   JSON.stringify([
     r.combine,
