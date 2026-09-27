@@ -1298,7 +1298,7 @@ func (h *Handlers) addMatcher(w http.ResponseWriter, r *http.Request) {
 		httpserver.WriteError(w, http.StatusForbidden, why)
 		return
 	}
-	created, err := h.Integrations.AddMatcher(r.Context(), id, integrations.Matcher{
+	created, err := h.Integrations.AddMatcher(r.Context(), middleware.OrgID(r), id, integrations.Matcher{
 		Attribute:          attr,
 		Operator:           in.Operator,
 		Value:              in.Value,
@@ -1308,6 +1308,10 @@ func (h *Handlers) addMatcher(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if integrations.IsValidationError(err) {
 			httpserver.WriteError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if errors.Is(err, integrations.ErrNotFound) {
+			httpserver.WriteError(w, http.StatusNotFound, "integration not found")
 			return
 		}
 		h.Logger.Error("add matcher failed", "err", err)
@@ -1322,12 +1326,17 @@ func (h *Handlers) addMatcher(w http.ResponseWriter, r *http.Request) {
 
 // removeMatcher: DELETE /api/v1/integrations/{id}/matchers/{matcherId}
 func (h *Handlers) removeMatcher(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid integration id")
+		return
+	}
 	matcherID, err := uuid.Parse(r.PathValue("matcherId"))
 	if err != nil {
 		httpserver.WriteError(w, http.StatusBadRequest, "invalid matcher id")
 		return
 	}
-	if err := h.Integrations.RemoveMatcher(r.Context(), matcherID); err != nil {
+	if err := h.Integrations.RemoveMatcher(r.Context(), middleware.OrgID(r), id, matcherID); err != nil {
 		if errors.Is(err, integrations.ErrNotFound) {
 			httpserver.WriteError(w, http.StatusNotFound, "matcher not found")
 			return

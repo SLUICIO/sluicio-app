@@ -255,28 +255,47 @@ func (s *Store) Delete(ctx context.Context, orgID, id uuid.UUID) error {
 	return nil
 }
 
-// AddMatcher inserts a matcher under the given integration.
-func (s *Store) AddMatcher(ctx context.Context, integrationID uuid.UUID, m Matcher) (Matcher, error) {
+// AddMatcher inserts a matcher under the given integration, which must
+// belong to orgID: ErrNotFound otherwise.
+//
+// The org is in the query rather than left to the caller, like every
+// other integration write here. The route guard in front of it checks the
+// caller's role, and for an ordinary org editor that holds for any
+// integration id at all - including another org's.
+func (s *Store) AddMatcher(ctx context.Context, orgID, integrationID uuid.UUID, m Matcher) (Matcher, error) {
 	if err := m.Validate(); err != nil {
 		return Matcher{}, err
 	}
 	var created Matcher
 	err := s.pool.QueryRow(ctx, `
 		INSERT INTO integration_matchers (integration_id, attribute, operator, value, match_group, include_descendants)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		SELECT i.id, $3, $4, $5, $6, $7
+		FROM integrations i
+		WHERE i.id = $1 AND i.organization_id = $2
 		RETURNING id, integration_id, attribute, operator, value, match_group, include_descendants, created_at
-	`, integrationID, m.Attribute, m.Operator, m.Value, m.MatchGroup, m.IncludeDescendants).Scan(
+	`, integrationID, orgID, m.Attribute, m.Operator, m.Value, m.MatchGroup, m.IncludeDescendants).Scan(
 		&created.ID, &created.IntegrationID, &created.Attribute, &created.Operator, &created.Value, &created.MatchGroup, &created.IncludeDescendants, &created.CreatedAt,
 	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Matcher{}, ErrNotFound
+	}
 	if err != nil {
 		return Matcher{}, fmt.Errorf("insert matcher: %w", err)
 	}
 	return created, nil
 }
 
-// RemoveMatcher deletes a matcher by ID.
-func (s *Store) RemoveMatcher(ctx context.Context, matcherID uuid.UUID) error {
-	tag, err := s.pool.Exec(ctx, `DELETE FROM integration_matchers WHERE id = $1`, matcherID)
+// RemoveMatcher deletes one matcher of one integration of orgID:
+// ErrNotFound unless all three agree. A matcher id alone is not enough,
+// since the integration named in the URL is the one the caller was
+// checked against.
+func (s *Store) RemoveMatcher(ctx context.Context, orgID, integrationID, matcherID uuid.UUID) error {
+	tag, err := s.pool.Exec(ctx, `
+		DELETE FROM integration_matchers m
+		USING integrations i
+		WHERE m.id = $1 AND m.integration_id = $2
+		  AND i.id = m.integration_id AND i.organization_id = $3
+	`, matcherID, integrationID, orgID)
 	if err != nil {
 		return fmt.Errorf("delete matcher: %w", err)
 	}
