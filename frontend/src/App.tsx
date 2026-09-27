@@ -64,6 +64,12 @@ export default function App() {
       <Routes>
         <Route element={<AppShell />}>
         <Route index element={<Navigate to="/health" replace />} />
+        {/* Where a setup link points (/setup#t=<token>). Signed out, any
+            path shows the sign-in page, which is where the claim happens;
+            this route is what the address means AFTERWARDS. Without it the
+            first thing somebody saw on claiming their instance was "Page
+            not found", and so was anyone opening the link again later. */}
+        <Route path="/setup" element={<Navigate to="/health" replace />} />
         <Route path="/health" element={<Health />} />
         <Route path="/services" element={<Services />} />
         <Route path="/systems" element={<Systems />} />
