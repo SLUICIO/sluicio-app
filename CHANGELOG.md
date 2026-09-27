@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.164 — 2026-09-27
+
+- fix(integrations): an integration's matchers can only be written from its own org (59069f6)
+
 ## v0.11.163 — 2026-09-27
 
+- release v0.11.163 — refresh internal changelog (895ac28)
 - fix(auth): a setup link lands on the dashboard, not on "page not found" (d30d0f6)
 
 ## v0.11.162 — 2026-09-27
