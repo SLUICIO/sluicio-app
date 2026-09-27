@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.166 — 2026-09-27
+
+- fix(integrations): the add list closes after a pick, so it cannot cover the Create button (f54185e)
+
 ## v0.11.165 — 2026-09-27
 
+- release v0.11.165 — refresh internal changelog (047316d)
 - feat(integrations): save what belongs to an integration in one transaction (bf9007b)
 - feat(integrations): give what belongs to an integration its own Services tab (097bc40)
 - fix(integrations): keep "or" out of a member where it would mean "and" (7879c29)
