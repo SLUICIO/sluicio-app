@@ -77,10 +77,16 @@ function toSeconds(n: number, unit: TimeUnit): number {
 // question with four answers - the checks, the alert rules, the
 // completion stages and the profile that routes them - and they were
 // scattered across the length of the page.
-type SettingsTab = "general" | "messages" | "alerting" | "metadata" | "access";
+type SettingsTab = "general" | "services" | "messages" | "alerting" | "metadata" | "access";
 
 const TABS: [SettingsTab, string][] = [
   ["general", "General"],
+  // Second, because everything to its right acts on what it decides: the
+  // message columns and filters on its traffic, the checks and completion
+  // rules on its messages. It also has its own save, and General has its
+  // own; one tab with two save buttons made "did I save the other part?"
+  // a real question.
+  ["services", "Services"],
   ["messages", "Messages"],
   ["alerting", "Alerting"],
   ["metadata", "Metadata"],
@@ -196,7 +202,10 @@ export default function IntegrationSettings() {
           canWrite={canWrite}
           onSaved={refresh}
         />
+        </div>
+      )}
 
+      {tab === "services" && (
         <MatcherConfig
           integrationId={id}
           data={integration}
@@ -204,7 +213,6 @@ export default function IntegrationSettings() {
           windowVal={windowVal}
           onChanged={refresh}
         />
-        </div>
       )}
 
       {tab === "messages" && (

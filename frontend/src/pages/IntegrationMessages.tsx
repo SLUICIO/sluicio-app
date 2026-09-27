@@ -726,7 +726,7 @@ export default function IntegrationMessagesPage() {
               still open ({delayedSeverity.size} in this window). Manage the SLA
               rules on the{" "}
               <Link
-                to={`/integrations/${encodeURIComponent(id)}/settings`}
+                to={`/integrations/${encodeURIComponent(id)}/settings?tab=alerting`}
                 className="underline-offset-2 hover:underline"
               >
                 Settings tab

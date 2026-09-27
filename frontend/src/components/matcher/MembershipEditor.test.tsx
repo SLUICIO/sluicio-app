@@ -100,10 +100,10 @@ describe("the add box", () => {
 
   // Typing a member's name and getting nothing back reads as "that
   // service does not exist".
-  it("says a name is already a member instead of going quiet", async () => {
+  it("says a name is already added instead of going quiet", async () => {
     const { changes, box } = view({ rules: [member("order-gateway")] });
     await userEvent.type(box(), "order-gateway");
-    expect((await screen.findByRole("option", { name: /order-gateway/ })).textContent).toContain("already a member");
+    expect((await screen.findByRole("option", { name: /order-gateway/ })).textContent).toContain("already added");
     await userEvent.keyboard("{Enter}");
     expect(changes).toEqual([]);
   });
@@ -127,9 +127,9 @@ describe("the add box", () => {
 describe("how members combine", () => {
   it("is folded away while it says the usual thing", async () => {
     const { modes } = view({ rules: [member("a")] });
-    expect(screen.queryByRole("radiogroup", { name: "How the members combine" })).toBeNull();
+    expect(screen.queryByRole("radiogroup", { name: "How the services combine" })).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: /Advanced matching/ }));
-    await userEvent.click(screen.getByRole("radio", { name: /One trace through every member/ }));
+    await userEvent.click(screen.getByRole("radio", { name: /One trace through every service/ }));
     expect(modes).toEqual(["all"]);
   });
 
@@ -137,8 +137,8 @@ describe("how members combine", () => {
   // to hide.
   it("is never folded away while it says the unusual thing", () => {
     view({ rules: [member("a")], combine: "all" });
-    expect(screen.getByRole("radiogroup", { name: "How the members combine" })).toBeTruthy();
-    expect(screen.getByText(/only when one trace passed through every member/)).toBeTruthy();
+    expect(screen.getByRole("radiogroup", { name: "How the services combine" })).toBeTruthy();
+    expect(screen.getByText(/only when one trace passed through every service/)).toBeTruthy();
   });
 });
 
@@ -166,7 +166,7 @@ describe('"or" where members must all appear in one trace', () => {
   it("refuses to switch into that mode, and names the member in the way", async () => {
     const { modes } = view({ rules: [orMember] });
     await userEvent.click(screen.getByRole("button", { name: /Advanced matching/ }));
-    const strict = screen.getByRole("radio", { name: /One trace through every member/ }) as HTMLInputElement;
+    const strict = screen.getByRole("radio", { name: /One trace through every service/ }) as HTMLInputElement;
     expect(strict.disabled).toBe(true);
     expect(screen.getByText(/Not available while order-gateway joins its conditions/)).toBeTruthy();
     await userEvent.click(strict);

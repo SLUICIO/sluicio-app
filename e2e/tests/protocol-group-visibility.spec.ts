@@ -49,7 +49,7 @@ test("protocol: group-granted visibility of one integration", async ({ page }) =
   const addBox = page.getByRole("combobox", { name: "Add a service or pattern" });
   await addBox.fill(svc!);
   await addBox.press("Enter");
-  await expect(page.getByRole("list", { name: "Members" })).toContainText(svc!);
+  await expect(page.getByRole("list", { name: "Services" })).toContainText(svc!);
   await page.getByRole("button", { name: /Create integration/ }).click();
   await expect(page).toHaveURL(/\/integrations\/[0-9a-f-]{36}/, { timeout: 15_000 });
 

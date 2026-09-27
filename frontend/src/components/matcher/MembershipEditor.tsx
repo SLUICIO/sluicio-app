@@ -198,8 +198,8 @@ export default function MembershipEditor({
     <div>
       <p className="muted" style={{ fontSize: 13, margin: "0 0 12px", lineHeight: 1.5 }}>
         {combine === "all"
-          ? "A message belongs here only when one trace passed through every member below."
-          : "A message belongs here when any member below handled it."}
+          ? "A message belongs here only when one trace passed through every service below."
+          : "A message belongs here when any service below handled it."}
       </p>
 
       {rules.length > 0 && (
@@ -232,7 +232,7 @@ export default function MembershipEditor({
         </div>
       ) : (
         <ul
-          aria-label="Members"
+          aria-label="Services"
           style={{ listStyle: "none", margin: 0, padding: 0, border: "1px solid var(--border)", borderRadius: 8 }}
         >
           {rules.map((rule, i) => {
@@ -341,7 +341,7 @@ export default function MembershipEditor({
         combine={combine}
         onChange={onCombineChange}
         readOnly={readOnly}
-        blockers={rules.filter((r) => orConflict(r, "all")).map((r) => r.service.trim() || "a member")}
+        blockers={rules.filter((r) => orConflict(r, "all")).map((r) => r.service.trim() || "a condition with no service")}
       />
     </div>
   );
@@ -420,7 +420,7 @@ function AddBox({
             Add {patternWords(parsed.serviceOp)} <span className="mono">{parsed.service}</span>
           </>
         ),
-        hint: taken(parsed) ? "already a member" : `matches ${n} now`,
+        hint: taken(parsed) ? "already added" : `matches ${n} now`,
         rule: taken(parsed) ? null : parsed,
       });
     }
@@ -431,7 +431,7 @@ function AddBox({
         out.push({
           key: "taken",
           label: <span className="mono">{parsed.service}</span>,
-          hint: "already a member",
+          hint: "already added",
           rule: null,
         });
       } else if (!knownNames.includes(parsed.service)) {
@@ -631,7 +631,7 @@ function Suggestions({
   return (
     <div style={{ marginTop: 16 }}>
       <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>
-        Traces connect these to your members
+        Traces connect these to your services
       </div>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
         {shown.map((s) => (
@@ -660,13 +660,13 @@ function Suggestions({
 const MODES: { value: RuleMatch; label: string; hint: string }[] = [
   {
     value: "any",
-    label: "Any member",
-    hint: "A message belongs here when any member handled it. Right for almost every integration.",
+    label: "Any service",
+    hint: "A message belongs here when any of the services handled it. Right for almost every integration.",
   },
   {
     value: "all",
-    label: "One trace through every member",
-    hint: "A message belongs here only when a single trace passed through every member. For a flow that is only complete once it has crossed all of them.",
+    label: "One trace through every service",
+    hint: "A message belongs here only when a single trace passed through every service. For a flow that is only complete once it has crossed all of them.",
   },
 ];
 
@@ -715,7 +715,7 @@ function Advanced({
         {!open && <span className="muted"> · {current.label.toLowerCase()}</span>}
       </button>
       {open && (
-        <div role="radiogroup" aria-label="How the members combine" style={{ display: "grid", gap: 8, marginTop: 10 }}>
+        <div role="radiogroup" aria-label="How the services combine" style={{ display: "grid", gap: 8, marginTop: 10 }}>
           {MODES.map((m) => {
             // Only ever blocks moving INTO the stricter mode. An
             // integration already stored that way keeps it, and its

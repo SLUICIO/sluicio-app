@@ -45,7 +45,7 @@ export default function IntegrationServicesGuide({ integrationId, compact = fals
     };
   }, []);
 
-  const settingsTab = `/integrations/${encodeURIComponent(integrationId)}/settings`;
+  const servicesTab = `/integrations/${encodeURIComponent(integrationId)}/settings?tab=services`;
 
   return (
     <div
@@ -93,10 +93,11 @@ export default function IntegrationServicesGuide({ integrationId, compact = fals
         title="Match it to this integration"
         status={hasTelemetry === true ? "todo" : "neutral"}
       >
-        Add a matcher (for example <code>service.name = orders-api</code>) on the Settings
-        tab. Any service whose telemetry matches will join this integration automatically.{" "}
-        <Link to={settingsTab} className="btn btn--link" style={{ padding: 0 }}>
-          Configure matchers →
+        Add the service by name on the Services tab of its settings, or a pattern such as{" "}
+        <code>orders-*</code> to take in a family of them. Any service whose telemetry matches
+        joins this integration automatically.{" "}
+        <Link to={servicesTab} className="btn btn--link" style={{ padding: 0 }}>
+          Add services →
         </Link>
       </Step>
     </div>

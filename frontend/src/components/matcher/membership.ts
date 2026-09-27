@@ -140,7 +140,7 @@ export function conditionsPhrase(rule: Rule): string {
  *
  * On the wire a member with "or" is several match groups, one per
  * alternative, and nothing records that they came from one member. With
- * members combined as "one trace through every member" the backend
+ * members combined as "one trace through every service" the backend
  * requires EVERY group, so the alternatives would all be required: "A
  * where x = 1 or x = 2" would mean a span of A with 1 and another with 2.
  * Until the groups carry their member, the editor keeps "or" out of that
@@ -151,7 +151,7 @@ export const orConflict = (rule: Rule, mode: RuleMatch): boolean =>
 
 /** Why "or" is not offered, in the words the editor shows. */
 export const OR_UNAVAILABLE =
-  'With "one trace through every member", a member\'s conditions can only be joined with "and" for now. "Or" would make every alternative required.';
+  'With "one trace through every service", a service\'s conditions can only be joined with "and" for now. "Or" would make every alternative required.';
 
 const contentSig = (r: Rule) =>
   JSON.stringify([
@@ -201,7 +201,7 @@ export function describeChanges(
     (r.service.trim() ? out : dropped).push(`removed ${memberPhrase(r)}`);
   }
   if (storedMode !== draftMode) {
-    out.push(draftMode === "all" ? "now needs one trace through every member" : "back to matching any member");
+    out.push(draftMode === "all" ? "now needs one trace through every service" : "back to matching any service");
   }
   return out.length > 0 ? [...out, ...dropped] : [];
 }

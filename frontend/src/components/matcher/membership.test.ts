@@ -100,7 +100,7 @@ describe("what the save bar says will change", () => {
   });
 
   it("names a change of how members combine", () => {
-    expect(describeChanges(stored, stored, "any", "all")).toEqual(["now needs one trace through every member"]);
+    expect(describeChanges(stored, stored, "any", "all")).toEqual(["now needs one trace through every service"]);
   });
 
   // The draft is read as it will be stored. A condition with no service
