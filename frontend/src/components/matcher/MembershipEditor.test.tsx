@@ -108,6 +108,18 @@ describe("the add box", () => {
     expect(changes).toEqual([]);
   });
 
+  // An open list sits over whatever is below it. On the create page that
+  // is the Create button, and the click meant to create the integration
+  // added another service instead (caught by the e2e suite).
+  it("closes the list after a pick, and reopens it on the next keystroke", async () => {
+    const { box } = view();
+    await userEvent.type(box(), "nightly-batch{Enter}");
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(box()).toBe(document.activeElement);
+    await userEvent.type(box(), "o");
+    expect(screen.getByRole("listbox")).toBeTruthy();
+  });
+
   // On the create page this box sits inside the form. Enter here means
   // "add this", never "create the integration".
   it("never submits the form around it", async () => {

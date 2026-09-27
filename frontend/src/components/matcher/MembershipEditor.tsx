@@ -387,8 +387,12 @@ function Dot({ tone, pattern }: { tone: Look["tone"]; pattern: boolean }) {
  * The one way in. A name adds that service; a star adds a pattern and
  * says how many services it takes in now; a name the cell has not seen
  * is still allowed, because the quiet nightly job is exactly the service
- * people need to add by hand. The list stays open after a pick, since
- * nobody adds just one.
+ * people need to add by hand.
+ *
+ * The list closes after a pick, and focus stays in the box, so the next
+ * name is one keystroke away. It used to stay open, and an open list sits
+ * over whatever is below it - on the create page, the Create button: the
+ * click meant to create the integration added another service instead.
  */
 function AddBox({
   rules,
@@ -403,6 +407,9 @@ function AddBox({
 }) {
   const [q, setQ] = useState("");
   const [focused, setFocused] = useState(false);
+  // Open is asked for - by focusing, typing or pressing down - and a pick
+  // closes it. Focus alone would reopen it straight after every pick.
+  const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const listId = "membership-add-options";
 
@@ -463,13 +470,14 @@ function AddBox({
     return out;
   }, [q, rules, knownNames, when]);
 
-  const show = focused && options.length > 0;
+  const show = focused && open && options.length > 0;
   const pick = (i: number) => {
     const o = options[i];
     if (!o?.rule) return;
     onAdd(o.rule);
     setQ("");
     setActive(0);
+    setOpen(false);
   };
 
   return (
@@ -487,13 +495,24 @@ function AddBox({
         onChange={(e) => {
           setQ(e.target.value);
           setActive(0);
+          setOpen(true);
         }}
-        onFocus={() => setFocused(true)}
+        onFocus={() => {
+          setFocused(true);
+          setOpen(true);
+        }}
+        // Clicking the box that already has focus is asking for the list.
+        onMouseDown={() => setOpen(true)}
         // After the click on an option has landed, not before it.
         onBlur={() => window.setTimeout(() => setFocused(false), 120)}
         onKeyDown={(e) => {
           if (e.key === "ArrowDown") {
             e.preventDefault();
+            // Down on a closed list opens it, on the first option.
+            if (!open) {
+              setOpen(true);
+              return;
+            }
             setActive((a) => Math.min(a + 1, options.length - 1));
           } else if (e.key === "ArrowUp") {
             e.preventDefault();
@@ -502,9 +521,9 @@ function AddBox({
             // Never the form's submit: on the create page this box sits
             // inside the form, and Enter here means "add this".
             e.preventDefault();
-            pick(active);
+            if (show) pick(active);
           } else if (e.key === "Escape") {
-            setFocused(false);
+            setOpen(false);
           }
         }}
         style={{ width: "100%" }}

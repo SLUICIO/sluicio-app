@@ -9,7 +9,9 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 const calls = vi.hoisted(() => ({
-  replaceMatchers: vi.fn((..._args: unknown[]) => Promise.resolve({ matchers: [], rule_match: "any" })),
+  replaceMatchers: vi.fn<(id: string, body: unknown) => Promise<unknown>>(() =>
+    Promise.resolve({ matchers: [], rule_match: "any" }),
+  ),
   addMatcher: vi.fn(),
   removeMatcher: vi.fn(),
   updateIntegration: vi.fn(),
