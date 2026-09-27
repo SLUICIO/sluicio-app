@@ -1,29 +1,22 @@
 // SPDX-License-Identifier: FSL-1.1-Apache-2.0
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { slugify } from "../lib/slugify";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import type { CreateTagRequest, MetadataField, Tag } from "../api/types";
 import { FieldInput } from "../components/MetadataPanel";
-import ServiceDependencySuggestions from "../components/ServiceDependencySuggestions";
-import MatcherRules, { Rule, blankRule, rulesToMatchers } from "../components/MatcherRules";
+import { blankRule, rulesToMatchers, type Rule } from "../components/MatcherRules";
+import MembershipEditor from "../components/matcher/MembershipEditor";
 import type { RuleMatch } from "../api/types";
-
-// One rule, asked of the server on its own. rulesToMatchers is the same
-// translation the save path uses, so the rehearsal runs the predicate
-// that would be stored rather than one written to look like it.
-async function previewRule(rule: Rule, combine: RuleMatch, windowVal: string) {
-  const matchers = rulesToMatchers([rule]);
-  if (matchers.length === 0) return { incomplete: true };
-  return api.previewIntegrationRules({ matchers, rule_match: combine }, windowVal);
-}
 
 import TagPicker from "../components/tags/TagPicker";
 import { useCurrentUser } from "../lib/useCurrentUser";
 import { usePageTitle } from "../lib/usePageTitle";
-import { useTimeWindow } from "../lib/useTimeWindow";
 
-const SERVICE_NAME_ATTR = "service.name";
+// The create page has no range picker of its own, so its counts are
+// taken over a fixed day and say so. A day is long enough to catch a
+// service that only runs a few times, and short enough to answer fast.
+const PREVIEW_WINDOW = "24h";
 
 export default function IntegrationNew() {
   usePageTitle("New integration");
@@ -31,12 +24,8 @@ export default function IntegrationNew() {
   const [params] = useSearchParams();
   const { can } = useCurrentUser();
   const allowed = can("integration.write");
-  // Suggestions need a time window for their neighbor query. We reuse
-  // the app-wide window so it tracks whatever the user has dialed in
-  // — no separate picker needed on this form.
-  const [windowVal] = useTimeWindow();
-  // When linked from a service page (?seedService=order-api) we
-  // pre-populate one rule pinning that service.
+  // When linked from a service page (?seedService=order-api) the
+  // integration starts with that service as its first member.
   const seedService = params.get("seedService") ?? "";
 
   const [slug, setSlug] = useState("");
@@ -44,9 +33,9 @@ export default function IntegrationNew() {
   // The slug auto-fills from the name until the user edits it directly.
   const [slugEdited, setSlugEdited] = useState(false);
   const [description, setDescription] = useState("");
-  const [rules, setRules] = useState<Rule[]>([
-    blankRule(seedService ? { serviceOp: "equals", service: seedService } : { serviceOp: "prefix" }),
-  ]);
+  const [rules, setRules] = useState<Rule[]>(
+    seedService ? [blankRule({ serviceOp: "equals", service: seedService })] : [],
+  );
   const [combine, setCombine] = useState<RuleMatch>("any");
   // Tag ids selected for attachment after the integration is created.
   // The picker can also create new tags inline via createTag below.
@@ -65,33 +54,12 @@ export default function IntegrationNew() {
   }, []);
   const [submitting, setSubmitting] = useState(false);
 
-  // Known service names for the service-rule autocomplete.
-  // Fetched once on mount; an empty list just means no suggestions.
-  const [knownServices, setKnownServices] = useState<string[]>([]);
-  // Live attribute keys (producer, consumer, …) suggested for the
-  // attribute-condition inputs, discovered from recent telemetry.
-  const [attrKeys, setAttrKeys] = useState<string[]>([]);
   useEffect(() => {
-    api
-      .listServices()
-      .then((r) =>
-        setKnownServices((r.services ?? []).map((s) => s.service_name).sort())
-      )
-      .catch(() => setKnownServices([]));
     api
       .listTags()
       .then((d) => setAllTags(d.tags ?? []))
       .catch(() => setAllTags([]));
-    api
-      .messageFields(windowVal)
-      .then((r) => {
-        const keys = (r.fields.find((f) => f.field === "payload")?.attributeKeys ?? [])
-          .map((k) => k.key)
-          .filter((k) => k !== SERVICE_NAME_ATTR);
-        setAttrKeys(keys);
-      })
-      .catch(() => setAttrKeys([]));
-  }, [windowVal]);
+  }, []);
 
   // Inline tag creation lives on the parent so the picker can call
   // it without owning any API knowledge. We refresh the local cache
@@ -103,47 +71,6 @@ export default function IntegrationNew() {
       [...curr, created].sort((a, b) => a.name.localeCompare(b.name)),
     );
     return created;
-  };
-
-  // The set of "covered" service names for the suggestions panel is the
-  // equals rules' services. We deliberately don't expand prefix/regex rules
-  // against the known service list — that would duplicate backend matcher
-  // logic in TypeScript. Equals coverage is the precise, safe case.
-  const equalsCoverage = useMemo(
-    () => rules.filter((r) => r.serviceOp === "equals" && r.service.trim()).map((r) => r.service.trim()),
-    [rules],
-  );
-
-  // The focal services for suggestion panels are equals rules whose service
-  // is a known service in the trace data. We dedupe so accidental duplicates
-  // in the draft don't render twice.
-  const knownServiceSet = useMemo(() => new Set(knownServices), [knownServices]);
-  const focalServices = useMemo(() => {
-    const seen = new Set<string>();
-    const out: string[] = [];
-    for (const r of rules) {
-      if (r.serviceOp !== "equals") continue;
-      const v = r.service.trim();
-      if (!v || !knownServiceSet.has(v) || seen.has(v)) continue;
-      seen.add(v);
-      out.push(v);
-    }
-    return out;
-  }, [rules, knownServiceSet]);
-
-  // Append accepted dependency-suggestion service names as new service-only
-  // rules. We skip services already pinned by an equals rule so accepting a
-  // name twice doesn't add it twice.
-  const addDependencyMatchers = (names: string[]) => {
-    setRules((curr) => {
-      const existing = new Set(
-        curr.filter((r) => r.serviceOp === "equals").map((r) => r.service.trim()),
-      );
-      const additions = names
-        .filter((n) => !existing.has(n))
-        .map((n) => blankRule({ serviceOp: "equals", service: n }));
-      return [...curr, ...additions];
-    });
   };
 
   const submit = async (e: FormEvent) => {
@@ -228,13 +155,12 @@ export default function IntegrationNew() {
           </p>
           <h1 className="page__title">New integration</h1>
           <p className="page__subtitle">
-            Give it a name, then add one or more rules describing which services belong to it.
+            Give it a name, then add the services that belong to it.
           </p>
           {seedService && (
             <p className="muted" style={{ fontSize: 13, marginTop: 4 }}>
-              Pre-filled with a rule that matches the service{" "}
-              <span className="mono">{seedService}</span>. Add more rules to include
-              additional services, or change the operator below.
+              Starts with <span className="mono">{seedService}</span> as a member. Add the
+              other services that belong to it below.
             </p>
           )}
         </div>
@@ -325,49 +251,15 @@ export default function IntegrationNew() {
         )}
 
         <div className="form__section">
-          <div className="form__section-title">Rules</div>
-          <p className="muted form__hint">
-            The integration matches the <strong>union</strong> of its rules. Each rule
-            pins a <strong>service</strong> and can add attribute conditions scoped to
-            that service — e.g. <span className="mono">service is order-gateway</span>{" "}
-            where it matches <span className="mono">producer = ttf</span> OR{" "}
-            <span className="mono">consumer = dcd</span>. A rule with no conditions
-            includes all of that service's traffic.
-          </p>
-          <MatcherRules
+          <div className="form__section-title">What belongs to this integration</div>
+          <MembershipEditor
             rules={rules}
             onChange={setRules}
-            knownServices={knownServices}
-            attrKeys={attrKeys}
             combine={combine}
             onCombineChange={setCombine}
-            onPreviewRule={(rule) => previewRule(rule, combine, "24h")}
+            windowVal={PREVIEW_WINDOW}
           />
         </div>
-
-        {focalServices.length > 0 && (
-          <div className="form__section">
-            <div className="form__section-title">Suggested dependencies</div>
-            <p className="muted form__hint">
-              Based on traces, these services are directly involved in flows
-              with the ones you've pinned with <span className="mono">is</span>.
-              Add the ones that should be part of this integration —
-              they'll each become their own service rule.
-            </p>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {focalServices.map((focal) => (
-                <ServiceDependencySuggestions
-                  key={focal}
-                  serviceName={focal}
-                  window={windowVal}
-                  alreadyCovered={equalsCoverage}
-                  onAdd={addDependencyMatchers}
-                  addButtonLabel="Include in this integration"
-                />
-              ))}
-            </div>
-          </div>
-        )}
 
         <div className="form__actions">
           <Link className="btn" to="/integrations">

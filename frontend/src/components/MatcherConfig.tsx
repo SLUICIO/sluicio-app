@@ -1,37 +1,18 @@
 // SPDX-License-Identifier: FSL-1.1-Apache-2.0
 //
-// MatcherConfig — the "Configuration · matchers" surface for an
-// integration. Presents the integration's matchers as a list of
-// per-service Rules (see MatcherRules), lets a contributor edit them, and
-// on Save replaces the stored matcher set. Also surfaces trace-graph
-// dependency suggestions for the rules' focal (equals-matched) services.
+// MatcherConfig - what belongs to an existing integration, on its
+// Settings tab. The editing itself is MembershipEditor, shared with the
+// create page; this owns the stored state, the draft, and saving it.
 //
-// It lives on the Settings tab — the operational view (Overview) shouldn't
-// carry admin configuration. The matcher logic is self-contained here so any
-// surface can mount it.
+// It lives on the Settings tab - the operational view (Overview)
+// shouldn't carry admin configuration.
 
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
-import ServiceDependencySuggestions from "./ServiceDependencySuggestions";
-import MatcherRules, {
-  Rule,
-  blankRule,
-  matchersToRules,
-  rulesToMatchers,
-} from "./MatcherRules";
+import { matchersToRules, rulesToMatchers, type Rule } from "./MatcherRules";
+import MembershipEditor from "./matcher/MembershipEditor";
+import { describeChanges } from "./matcher/membership";
 import type { IntegrationDetail, RuleMatch } from "../api/types";
-
-// One rule, asked of the server on its own. rulesToMatchers is the same
-// translation the save path uses, so the rehearsal runs the predicate
-// that would be stored rather than one written to look like it.
-async function previewRule(rule: Rule, combine: RuleMatch, windowVal: string) {
-  const matchers = rulesToMatchers([rule]);
-  if (matchers.length === 0) return { incomplete: true };
-  return api.previewIntegrationRules({ matchers, rule_match: combine }, windowVal);
-}
-
-
-const SERVICE_NAME_ATTR = "service.name";
 
 export default function MatcherConfig({
   integrationId,
@@ -50,56 +31,38 @@ export default function MatcherConfig({
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  // Re-initialise the draft whenever the stored matcher set changes (mount,
-  // and after a save → onChanged → refetch). dirty tracks unsaved edits.
+  // Re-initialise the draft whenever the stored matcher set changes
+  // (mount, and after a save → onChanged → refetch). Keyed off a
+  // value-equality signature rather than the array itself: a parent
+  // re-render that hands over a new-but-equal array must not blow away
+  // unsaved edits.
   const matchersSig = useMemo(
     () => JSON.stringify((data.matchers ?? []).map((m) => [m.attribute, m.operator, m.value, m.match_group, !!m.include_descendants])),
     [data.matchers],
   );
-  const [rules, setRules] = useState<Rule[]>(() => matchersToRules(data.matchers ?? []));
-  const [combine, setCombine] = useState<RuleMatch>(data.integration.rule_match ?? "any");
-  const [dirty, setDirty] = useState(false);
-  useEffect(() => {
-    setRules(matchersToRules(data.matchers ?? []));
-    setCombine(data.integration.rule_match ?? "any");
-    setDirty(false);
-    // Intentionally keyed off matchersSig (a value-equality signature of
-    // data.matchers), not data.matchers itself: depending on the array
-    // identity would re-init the draft on every parent re-render that
-    // hands us a new-but-equal array, blowing away unsaved edits.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [matchersSig, data.integration.rule_match]);
-  const onRulesChange = (r: Rule[]) => {
-    setRules(r);
-    setDirty(true);
+  const storedMode: RuleMatch = data.integration.rule_match ?? "any";
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const stored = useMemo(() => matchersToRules(data.matchers ?? []), [matchersSig]);
+  const [rules, setRules] = useState<Rule[]>(stored);
+  const [combine, setCombine] = useState<RuleMatch>(storedMode);
+  const discard = () => {
+    setRules(stored);
+    setCombine(storedMode);
+    setError(null);
   };
-  const onCombineChange = (mode: RuleMatch) => {
-    setCombine(mode);
-    setDirty(true);
-  };
+  useEffect(discard, [stored, storedMode]);
 
-  const [knownServices, setKnownServices] = useState<string[]>([]);
-  const [attrKeys, setAttrKeys] = useState<string[]>([]);
-  useEffect(() => {
-    api
-      .listServices(windowVal)
-      .then((r) => setKnownServices((r.services ?? []).map((s) => s.service_name).sort()))
-      .catch(() => setKnownServices([]));
-    api
-      .messageFields(windowVal)
-      .then((r) => {
-        const keys = (r.fields.find((f) => f.field === "payload")?.attributeKeys ?? [])
-          .map((k) => k.key)
-          .filter((k) => k !== SERVICE_NAME_ATTR);
-        setAttrKeys(keys);
-      })
-      .catch(() => setAttrKeys([]));
-  }, [windowVal]);
+  // The draft's differences from what is stored, in words. Derived rather
+  // than tracked, so undoing an edit by hand clears it.
+  const changes = useMemo(
+    () => describeChanges(stored, rules, storedMode, combine),
+    [stored, rules, storedMode, combine],
+  );
 
-  // save replaces the stored matcher set with the draft's DNF expansion. We
-  // add the new rows first, then delete the old ones — there's no unique
-  // constraint on integration_matchers, so this never conflicts, and adding
-  // first avoids a window where the integration matches nothing.
+  // save replaces the stored matcher set with the draft's DNF expansion.
+  // New rows first, then the old ones go: there's no unique constraint
+  // on integration_matchers, so this never conflicts, and adding first
+  // avoids a window where the integration matches nothing.
   const save = async () => {
     setError(null);
     setSaving(true);
@@ -107,7 +70,7 @@ export default function MatcherConfig({
       // The mode first: if the matcher write fails halfway the rules are
       // still the ones the user is looking at, whereas a mode saved after
       // a failed write would describe rules that were never stored.
-      if (combine !== (data.integration.rule_match ?? "any")) {
+      if (combine !== storedMode) {
         await api.updateIntegration(id, {
           name: data.integration.name,
           description: data.integration.description,
@@ -125,143 +88,68 @@ export default function MatcherConfig({
     }
   };
 
-  // Append accepted dependency suggestions as service-only rules in the
-  // draft (saved together with the rest on Save), skipping services already
-  // pinned by an equals rule.
-  const addDependencyMatchers = (names: string[]) => {
-    setRules((curr) => {
-      const existing = new Set(
-        curr.filter((r) => r.serviceOp === "equals").map((r) => r.service.trim()),
-      );
-      const additions = names
-        .filter((n) => !existing.has(n))
-        .map((n) => blankRule({ serviceOp: "equals", service: n }));
-      if (additions.length === 0) return curr;
-      setDirty(true);
-      return [...curr, ...additions];
-    });
-  };
-
-  // Focal services for the suggestion panels are the draft's equals rules
-  // whose service is a known service in the trace data.
-  const knownServiceSet = useMemo(() => new Set(knownServices), [knownServices]);
-  const equalsCoverage = useMemo(
-    () => rules.filter((r) => r.serviceOp === "equals" && r.service.trim()).map((r) => r.service.trim()),
-    [rules],
-  );
-  const focalServices = useMemo(() => {
-    const seen = new Set<string>();
-    const out: string[] = [];
-    for (const r of rules) {
-      if (r.serviceOp !== "equals") continue;
-      const v = r.service.trim();
-      if (!v || !knownServiceSet.has(v) || seen.has(v)) continue;
-      seen.add(v);
-      out.push(v);
-    }
-    return out;
-  }, [rules, knownServiceSet]);
-
-  // ruleCovers evaluates a candidate service against the draft's service
-  // rules so a service already pinned (by any operator) is hidden from
-  // suggestions even before it appears in resolved traffic.
-  const ruleCovers = useMemo(() => {
-    return (name: string): boolean =>
-      rules.some((r) => {
-        const v = r.service.trim();
-        if (!v) return false;
-        switch (r.serviceOp) {
-          case "equals": return name === v;
-          case "prefix": return name.startsWith(v);
-          case "suffix": return name.endsWith(v);
-          case "contains": return name.includes(v);
-          case "regex":
-            try { return new RegExp(v).test(name); } catch { return false; }
-          default: return false;
-        }
-      });
-  }, [rules]);
-
   return (
     <section
-      // No overflow-hidden: the service picker (SearchableSelect) drops a
-      // popover below its trigger, and overflow-hidden on this card would
-      // clip the list.
+      // No overflow-hidden: the add box and the condition pills drop
+      // popovers below their triggers, and overflow-hidden on this card
+      // would clip them. It would also stop the save bar sticking.
       className="rounded-lg border bg-surface-2"
       style={{ borderColor: "var(--border)" }}
     >
       <div className="border-b border-border px-4 py-3">
-        <h2 className="text-base font-semibold">Configuration · matchers</h2>
-        <p className="text-xs text-muted mt-1">
-          The integration matches the union of its rules. Each rule pins a
-          service and can scope attribute conditions to it.
-        </p>
+        <h2 className="text-base font-semibold">What belongs to this integration</h2>
       </div>
       <div className="p-4">
         {error && <div className="alert alert--error" style={{ marginBottom: 12 }}>{error}</div>}
-
-        {canWrite ? (
-          <>
-            <MatcherRules
-              rules={rules}
-              onChange={onRulesChange}
-              knownServices={knownServices}
-              attrKeys={attrKeys}
-              combine={combine}
-              onCombineChange={onCombineChange}
-              onPreviewRule={(rule) => previewRule(rule, combine, windowVal)}
-            />
-            <div style={{ display: "flex", gap: 8, marginTop: 12, alignItems: "center" }}>
-              <button
-                className="btn btn--primary"
-                type="button"
-                onClick={save}
-                disabled={saving || !dirty}
-              >
-                {saving ? "Saving…" : "Save matchers"}
-              </button>
-              {dirty && !saving && <span className="muted" style={{ fontSize: 12 }}>Unsaved changes</span>}
-            </div>
-          </>
-        ) : rules.length === 0 ? (
-          <div className="placeholder">No matchers configured.</div>
-        ) : (
-          <>
-            <MatcherRules
-              rules={rules}
-              onChange={() => {}}
-              knownServices={knownServices}
-              attrKeys={attrKeys}
-              combine={combine}
-            />
-            <p className="muted" style={{ fontSize: 12, marginTop: 12 }}>
-              Your role doesn't allow editing matchers. Ask an{" "}
-              <strong>integration contributor</strong> or <strong>org admin</strong>{" "}
-              to make changes.
-            </p>
-          </>
-        )}
-
-        {canWrite && focalServices.length > 0 && (
-          <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 10 }}>
-            <div className="muted" style={{ fontSize: 12 }}>
-              Trace data suggests these services may belong here too — pick the
-              ones that should join this integration:
-            </div>
-            {focalServices.map((focal) => (
-              <ServiceDependencySuggestions
-                key={focal}
-                serviceName={focal}
-                window={windowVal}
-                alreadyCovered={equalsCoverage}
-                covers={ruleCovers}
-                onAdd={addDependencyMatchers}
-                addButtonLabel="Add to integration"
-              />
-            ))}
-          </div>
+        <MembershipEditor
+          rules={rules}
+          onChange={setRules}
+          combine={combine}
+          onCombineChange={setCombine}
+          windowVal={windowVal}
+          readOnly={!canWrite}
+        />
+        {!canWrite && (
+          <p className="muted" style={{ fontSize: 12, marginTop: 12 }}>
+            Your role doesn't allow editing what belongs here. Ask an{" "}
+            <strong>integration contributor</strong> or <strong>org admin</strong> to make changes.
+          </p>
         )}
       </div>
+
+      {canWrite && (changes.length > 0 || saving) && (
+        // Sticky, because the moment a change is made is often the moment
+        // somebody is furthest from the button - down among the
+        // suggestions, having just accepted one.
+        <div
+          role="region"
+          aria-label="Unsaved changes"
+          style={{
+            position: "sticky",
+            bottom: 0,
+            zIndex: 10,
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            flexWrap: "wrap",
+            padding: "10px 16px",
+            borderTop: "1px solid var(--border)",
+            background: "var(--surface-2)",
+            borderRadius: "0 0 8px 8px",
+          }}
+        >
+          <span className="muted" style={{ flex: 1, minWidth: 200, fontSize: 12.5 }}>
+            {changes.length === 1 ? "1 unsaved change: " : `${changes.length} unsaved changes: `}
+            {changes.join("; ")}
+          </span>
+          <button type="button" className="btn" onClick={discard} disabled={saving}>
+            Discard
+          </button>
+          <button type="button" className="btn btn--primary" onClick={save} disabled={saving}>
+            {saving ? "Saving…" : "Save"}
+          </button>
+        </div>
+      )}
     </section>
   );
 }
