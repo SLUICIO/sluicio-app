@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.167 — 2026-09-29
+
+- fix(alerting): a managed instance ignores a channel's own server even with no resolver wired (941bc75)
+
 ## v0.11.166 — 2026-09-27
 
+- release v0.11.166 — refresh internal changelog (2e86130)
 - fix(integrations): the add list closes after a pick, so it cannot cover the Create button (f54185e)
 
 ## v0.11.165 — 2026-09-27
