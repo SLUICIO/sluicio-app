@@ -127,6 +127,14 @@ func (h *Handlers) IntegrationStates(ctx context.Context, orgID uuid.UUID, healt
 			}
 		}
 
+		// Active as the list and the detail page read it: traces, or
+		// failing those the integration's metrics.
+		isSlice := integrations.SelectsSlice(matchersByIntegration[integ.ID], integ.RuleMatch)
+		active := st.Traces > 0
+		if !active {
+			active = h.activeWithoutTraces(ctx, store.IntegrationSlice{Key: integ.ID.String(), Services: names, Groups: groups}, isSlice, healthFrom, healthTo)
+		}
+
 		out = append(out, EntityState{
 			ID:   integ.ID,
 			Name: integ.Name,
@@ -136,8 +144,8 @@ func (h *Handlers) IntegrationStates(ctx context.Context, orgID uuid.UUID, healt
 			// reading the list gives. A member's firing check counts
 			// whether or not it emitted, which is the list's rule too.
 			Status: integrationRollupStatus(integrationHealth{
-				Slice:             integrations.SelectsSlice(matchersByIntegration[integ.ID], integ.RuleMatch),
-				Active:            st.Traces > 0,
+				Slice:             isSlice,
+				Active:            active,
 				OpenSliceErrors:   st.OpenErrorTraces,
 				MemberFiring:      memberFiring(names, firingScopes),
 				IntegrationFiring: firingIntegrations[integ.ID],

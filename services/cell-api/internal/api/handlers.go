@@ -2324,8 +2324,8 @@ type integrationHealth struct {
 //     bound to a member service fires and speaks for this integration.
 //   - "errors": an open SLA breach among the window's traces; or, for a
 //     slice, an unacknowledged error trace in the slice.
-//   - "ok" when the integration carried traffic in the window, else
-//     "quiet".
+//   - "ok" when the integration carried traffic in the window - traces,
+//     or failing those metrics (activeWithoutTraces) - else "quiet".
 //
 // Which member-service signals speak for an integration depends on
 // whether it owns its members or a slice of them.
@@ -2375,6 +2375,36 @@ func integrationRollupStatus(in integrationHealth) string {
 		memberSpeaks = in.MemberFiring.Process
 	}
 	return statusWithIntegrationCheck(statusWithDelays(base, in.Delayed), in.IntegrationFiring || memberSpeaks)
+}
+
+// activeWithoutTraces says whether an integration that carried no traces
+// in the window carried metrics instead.
+//
+// "Active" used to mean traces, in all three places that decide an
+// integration's state - the list, the detail page and the state export.
+// An integration whose telemetry is metrics alone - one queue of a broker
+// read by a collector - therefore read "quiet" whatever its queue was
+// doing, as if nothing were watching it. For a slice, the question is
+// asked of the slice's own metric rows: the broker sending metrics says
+// nothing about whether this queue did.
+//
+// Asked only after the traces said no, so an integration with traffic
+// costs nothing extra. Logs are not read: an integration fed by logs
+// alone still reads quiet.
+func (h *Handlers) activeWithoutTraces(ctx context.Context, slice store.IntegrationSlice, isSlice bool, from, to time.Time) bool {
+	if len(slice.Services) == 0 {
+		return false
+	}
+	p := store.MetricCatalogParams{ServiceIn: slice.Services, From: from, To: to}
+	if isSlice {
+		p.AttrGroups = slice.Groups
+	}
+	_, points, err := h.Store.MetricMatchCounts(ctx, p)
+	if err != nil {
+		h.Logger.Warn("integration activity from metrics failed", "integration", slice.Key, "err", err)
+		return false
+	}
+	return points > 0
 }
 
 // memberFiring folds the firing checks of an integration's members into

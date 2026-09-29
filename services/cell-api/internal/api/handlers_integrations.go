@@ -327,6 +327,7 @@ func (h *Handlers) buildIntegrationSummaries(
 	type pendingRow struct {
 		index  int
 		health integrationHealth
+		slice  store.IntegrationSlice
 		// ownCounts: the row's card numbers come from its slice read
 		// too. False for a start-span gated row, which counts its own.
 		ownCounts bool
@@ -477,8 +478,12 @@ func (h *Handlers) buildIntegrationSummaries(
 			Delayed:           delayed,
 		}
 		if len(matchedNames) > 0 {
-			slices = append(slices, integrationSlice(integ.ID, matchedNames, matchers, modeByIntegration[integ.ID]))
-			pending = append(pending, pendingRow{index: len(summaries), health: health, ownCounts: !gated})
+			sl := integrationSlice(integ.ID, matchedNames, matchers, modeByIntegration[integ.ID])
+			if !health.Slice && !health.Active {
+				health.Active = h.activeWithoutTraces(r.Context(), sl, false, tr.From, tr.To)
+			}
+			slices = append(slices, sl)
+			pending = append(pending, pendingRow{index: len(summaries), health: health, slice: sl, ownCounts: !gated})
 		}
 		summaries = append(summaries, IntegrationSummary{
 			Integration:       integ,
@@ -504,7 +509,7 @@ func (h *Handlers) buildIntegrationSummaries(
 				sum.TraceCount, sum.ErrorTraceCount = st.Traces, st.ErrorTraces
 			}
 			if p.health.Slice {
-				p.health.Active = st.Traces > 0
+				p.health.Active = st.Traces > 0 || h.activeWithoutTraces(r.Context(), p.slice, true, tr.From, tr.To)
 				p.health.OpenSliceErrors = st.OpenErrorTraces
 				sum.Status = integrationRollupStatus(p.health)
 			}
@@ -1135,13 +1140,16 @@ func (h *Handlers) getIntegration(w http.ResponseWriter, r *http.Request) {
 	for _, s := range matched {
 		health.Active = health.Active || s.TraceCount > 0
 	}
+	slice := integrationSlice(id, memberNames, full.Matchers, full.Integration.RuleMatch)
 	if health.Slice {
-		slice := integrationSlice(id, memberNames, full.Matchers, full.Integration.RuleMatch)
 		if stats := h.sliceStats(r.Context(), []store.IntegrationSlice{slice}, tr.From, tr.To, errAcks, false); stats != nil {
 			st := stats[id.String()]
 			health.Active = st.Traces > 0
 			health.OpenSliceErrors = st.OpenErrorTraces
 		}
+	}
+	if !health.Active {
+		health.Active = h.activeWithoutTraces(r.Context(), slice, health.Slice, tr.From, tr.To)
 	}
 	status := integrationRollupStatus(health)
 
