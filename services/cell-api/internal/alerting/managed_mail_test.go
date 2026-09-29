@@ -80,3 +80,50 @@ func TestASelfHostedChannelStillOverridesTheSystemServer(t *testing.T) {
 		t.Errorf("from = %q, want the system default", got["from"])
 	}
 }
+
+// With no system resolver wired the channel config used to be returned as
+// it was, server keys and all - on a managed instance too. cell-api always
+// wires one, so this was never reachable there; but "the transport is the
+// deployment's" should not hold only because of how main happens to be
+// written. Unwired and managed, a channel still chooses only where its
+// mail goes.
+func TestAManagedInstanceIgnoresAChannelsServerEvenUnwired(t *testing.T) {
+	prevResolver, prevManaged := systemMailDefaults, managed
+	systemMailDefaults = nil
+	SetManaged(true)
+	t.Cleanup(func() { systemMailDefaults, managed = prevResolver, prevManaged })
+
+	got := effectiveMailConfig(context.Background(), map[string]string{
+		"to":        "on-call@acme.test",
+		"smtp_host": "smuggled.acme.test",
+		"smtp_port": "25",
+		"from":      "spoofed@acme.test",
+		"from_name": "Not Us",
+		"username":  "u",
+		"password":  "p",
+	})
+	for _, k := range ChannelTransportKeys() {
+		if got[k] != "" {
+			t.Errorf("%s = %q came from the channel on a managed instance", k, got[k])
+		}
+	}
+	if got["to"] != "on-call@acme.test" {
+		t.Errorf("to = %q, want the channel's recipients", got["to"])
+	}
+}
+
+// The unwired self-hosted case is the legacy one, and stays as it was: a
+// channel carrying its own server uses it.
+func TestAnUnwiredSelfHostedChannelStillUsesItsOwnServer(t *testing.T) {
+	prevResolver, prevManaged := systemMailDefaults, managed
+	systemMailDefaults = nil
+	SetManaged(false)
+	t.Cleanup(func() { systemMailDefaults, managed = prevResolver, prevManaged })
+
+	got := effectiveMailConfig(context.Background(), map[string]string{
+		"to": "ops@acme.test", "smtp_host": "mail.acme.test", "from": "alerts@acme.test",
+	})
+	if got["smtp_host"] != "mail.acme.test" || got["from"] != "alerts@acme.test" {
+		t.Errorf("self-hosted unwired channel lost its own server: %v", got)
+	}
+}

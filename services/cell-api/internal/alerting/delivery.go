@@ -549,12 +549,16 @@ func ChannelTransportKeys() []string { return slices.Clone(channelTransportKeys)
 // platform's, so a channel chooses WHERE its mail goes and nothing about
 // how it gets there. The API refuses those keys on write; ignoring them
 // here as well means a channel that carries them from before the instance
-// became managed cannot quietly keep using its own server.
+// became managed cannot quietly keep using its own server. That holds with
+// no resolver wired too, rather than only because cell-api wires one.
 func effectiveMailConfig(ctx context.Context, channel map[string]string) map[string]string {
-	if systemMailDefaults == nil {
+	if systemMailDefaults == nil && !managed {
 		return channel
 	}
-	merged := systemMailDefaults(ctx)
+	var merged map[string]string
+	if systemMailDefaults != nil {
+		merged = systemMailDefaults(ctx)
+	}
 	if merged == nil {
 		merged = map[string]string{}
 	}
