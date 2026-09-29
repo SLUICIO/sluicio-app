@@ -3,8 +3,14 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.168 — 2026-09-29
+
+- feat(ingest): store exponential histograms, and say when metric points are dropped (270fbc7)
+- chore(dev): the dev stack comes back after the podman machine restarts (0fb50a3)
+
 ## v0.11.167 — 2026-09-29
 
+- release v0.11.167 — refresh internal changelog (30c45a6)
 - fix(alerting): a managed instance ignores a channel's own server even with no resolver wired (941bc75)
 
 ## v0.11.166 — 2026-09-27
