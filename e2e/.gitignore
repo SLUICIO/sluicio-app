@@ -3,3 +3,8 @@ test-results/
 playwright-report/
 playwright/.cache/
 blob-report/
+
+# Local credentials for the walkthrough recorder (e2e/recordings). Never committed.
+.env.recording
+# Walkthrough videos and raw takes.
+recordings-output/
