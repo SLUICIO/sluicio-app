@@ -174,7 +174,10 @@ export default function MembershipEditor({
           return { tone: "warn", note: `Not seen ${when}. Kept, since a quiet service can still belong here.` };
         }
       }
-      if (p && !p.incomplete && completeConds(rule).length > 0 && (p.trace_count ?? 0) === 0) {
+      // Nothing meets the conditions only when neither messages nor metric
+      // series do: a queue watched through a collector has series and no
+      // messages, and is exactly what it looks like.
+      if (p && !p.incomplete && completeConds(rule).length > 0 && !hasTraffic(p)) {
         return { tone: "warn", note: `No traffic from ${name} meets these conditions ${when}. Check the attribute and value.` };
       }
       // Not in the catalog yet: it has traffic, but no health of its own.
@@ -231,7 +234,12 @@ export default function MembershipEditor({
           style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 8, marginBottom: 12 }}
         >
           <Tile label="Services" value={total ? formatNumber(total.service_count ?? 0) : "…"} />
-          <Tile label={`Messages, ${windowShort(windowVal)}`} value={total?.trace_count != null ? formatNumber(total.trace_count) : "…"} />
+          {total && !total.trace_count && (total.metric_series ?? 0) > 0 ? (
+            // All metrics, no messages: the count that means something here.
+            <Tile label={`Metric series, ${windowShort(windowVal)}`} value={formatNumber(total.metric_series ?? 0)} />
+          ) : (
+            <Tile label={`Messages, ${windowShort(windowVal)}`} value={total?.trace_count != null ? formatNumber(total.trace_count) : "…"} />
+          )}
           <Tile
             label="Failing"
             value={
@@ -302,7 +310,7 @@ export default function MembershipEditor({
                     )}
                   </div>
                   <span className="muted" style={{ fontSize: 12, whiteSpace: "nowrap", paddingTop: 2 }}>
-                    {p?.trace_count != null ? `${formatNumber(p.trace_count)} msgs` : p ? "" : "…"}
+                    {trafficLabel(p)}
                   </span>
                   <span style={{ display: "flex", gap: 2 }}>
                     {!readOnly && (
@@ -372,8 +380,18 @@ export default function MembershipEditor({
 const ruleOf = (name: string): Rule => ({ serviceOp: "equals", service: name, combine: "any", attrs: [] });
 
 /** Whether a member's preview found the service in the telemetry. */
-const seenByPreview = (p: RulePreview): boolean =>
-  !p.incomplete && ((p.service_count ?? 0) > 0 || (p.trace_count ?? 0) > 0);
+const hasTraffic = (p: RulePreview): boolean => (p.trace_count ?? 0) > 0 || (p.metric_series ?? 0) > 0;
+
+const seenByPreview = (p: RulePreview): boolean => !p.incomplete && ((p.service_count ?? 0) > 0 || hasTraffic(p));
+
+/** What a member row says it takes in: messages when it has them,
+ *  metric series when that is all it has. */
+function trafficLabel(p: RulePreview | undefined): string {
+  if (!p) return "…";
+  if ((p.trace_count ?? 0) > 0) return `${formatNumber(p.trace_count ?? 0)} msgs`;
+  if ((p.metric_series ?? 0) > 0) return `${formatNumber(p.metric_series ?? 0)} series`;
+  return p.trace_count != null ? "0 msgs" : "";
+}
 
 function Tile({ label, value, warn = false }: { label: string; value: string; warn?: boolean }) {
   return (

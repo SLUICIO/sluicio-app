@@ -475,6 +475,8 @@ export const api = {
       service_count?: number;
       trace_count?: number;
       error_trace_count?: number;
+      metric_series?: number;
+      metric_points?: number;
     }>(`/integrations/preview?range=${encodeURIComponent(window)}`, body),
 
   getIntegration: (id: string, window: string = "1h") =>

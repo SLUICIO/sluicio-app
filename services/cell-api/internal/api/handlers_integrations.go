@@ -2138,7 +2138,7 @@ func (h *Handlers) previewIntegrationRules(w http.ResponseWriter, r *http.Reques
 	}
 
 	tr := ParseRange(r, time.Hour)
-	services, err := h.Store.ListServices(r.Context(), tr.From, tr.To)
+	candidates, err := h.previewCandidates(r.Context(), tr.From, tr.To)
 	if err != nil {
 		h.Logger.Warn("rule preview: list services failed", "err", err)
 		httpserver.WriteError(w, http.StatusInternalServerError, "query failed")
@@ -2153,16 +2153,16 @@ func (h *Handlers) previewIntegrationRules(w http.ResponseWriter, r *http.Reques
 	}
 
 	names := make([]string, 0, 8)
-	for _, s := range services {
-		if !anyMatcherMatches(matchers, s.ServiceName) {
+	for _, name := range candidates {
+		if !anyMatcherMatches(matchers, name) {
 			continue
 		}
 		if restricted {
-			if _, ok := visible[s.ServiceName]; !ok {
+			if _, ok := visible[name]; !ok {
 				continue
 			}
 		}
-		names = append(names, s.ServiceName)
+		names = append(names, name)
 		if len(names) >= maxPreviewServices {
 			break
 		}
@@ -2183,6 +2183,69 @@ func (h *Handlers) previewIntegrationRules(w http.ResponseWriter, r *http.Reques
 			resp["trace_count"] = total
 			resp["error_trace_count"] = errored
 		}
+		// A member can be all metrics - a broker read by a collector, one
+		// queue per integration - and then it has no messages to count.
+		// What it does have is series, and without them the editor could
+		// not tell a queue that exists from a misspelled one.
+		series, points, mErr := h.Store.MetricMatchCounts(r.Context(), store.MetricCatalogParams{
+			ServiceIn:  names,
+			AttrGroups: groups,
+			From:       tr.From,
+			To:         tr.To,
+		})
+		if mErr != nil {
+			h.Logger.Warn("rule preview: metric counts failed", "err", mErr)
+		} else {
+			resp["metric_series"] = series
+			resp["metric_points"] = points
+		}
 	}
 	httpserver.WriteJSON(w, http.StatusOK, resp)
+}
+
+// previewCandidates is every service that sent anything in the window:
+// traces, metrics or logs. It used to be traces alone, so a service that
+// only exports metrics - a broker watched through a collector - matched
+// no rule at all in the preview, and the editor called it unseen while
+// its integration was working. Metrics and logs are best-effort: if
+// either list fails, the preview still answers from what it has.
+func (h *Handlers) previewCandidates(ctx context.Context, from, to time.Time) ([]string, error) {
+	traced, err := h.Store.ListServices(ctx, from, to)
+	if err != nil {
+		return nil, err
+	}
+	fromTraces := make([]string, 0, len(traced))
+	for _, s := range traced {
+		fromTraces = append(fromTraces, s.ServiceName)
+	}
+	fromMetrics, mErr := h.Store.DistinctMetricServices(ctx, from, to)
+	if mErr != nil {
+		h.Logger.Warn("rule preview: metric services failed", "err", mErr)
+	}
+	fromLogs, lErr := h.Store.DistinctLogServices(ctx, from, to)
+	if lErr != nil {
+		h.Logger.Warn("rule preview: log services failed", "err", lErr)
+	}
+	return unionServiceNames(fromTraces, fromMetrics, fromLogs), nil
+}
+
+// unionServiceNames merges service lists into one, sorted and without
+// duplicates or blanks.
+func unionServiceNames(lists ...[]string) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0)
+	for _, l := range lists {
+		for _, n := range l {
+			if n == "" {
+				continue
+			}
+			if _, ok := seen[n]; ok {
+				continue
+			}
+			seen[n] = struct{}{}
+			out = append(out, n)
+		}
+	}
+	sort.Strings(out)
+	return out
 }

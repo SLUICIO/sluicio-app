@@ -4027,6 +4027,30 @@ func metricPredicates(p MetricCatalogParams) ([]string, []any) {
 	return where, args
 }
 
+// MetricMatchCounts is how many metric series, and data points, match p
+// across every metric - what the integration editor reports for a
+// member whose telemetry is metrics rather than traces.
+//
+// It filters with metricPredicates, the metric catalog's predicate, so
+// the rows it counts are the rows the integration's Metrics tab shows. A
+// series is one (metric, service, attributes, resource attributes)
+// stream, the definition MetricSeriesCount uses for alert rules: one
+// queue of a broker is one series of its own, because the queue name is
+// a resource attribute.
+func (s *Store) MetricMatchCounts(ctx context.Context, p MetricCatalogParams) (series, points uint64, err error) {
+	where, args := metricPredicates(p)
+	q := fmt.Sprintf(`
+		SELECT
+			toUInt64(uniqExact((MetricName, ServiceName, ServiceNamespace, MetricAttributes, ResourceAttributes))),
+			toUInt64(count())
+		FROM metrics
+		WHERE %s`, strings.Join(where, " AND "))
+	if err := s.conn.QueryRow(ctx, q, args...).Scan(&series, &points); err != nil {
+		return 0, 0, fmt.Errorf("metric match counts: %w", err)
+	}
+	return series, points, nil
+}
+
 // metricHeadlineValue maps a metric's windowed aggregates to the single
 // "current" value the explorer table shows, by OTLP type:
 //   - histogram          → mean observation (sum/count)

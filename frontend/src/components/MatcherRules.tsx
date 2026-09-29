@@ -273,6 +273,10 @@ export interface RulePreview {
   services?: string[];
   trace_count?: number;
   error_trace_count?: number;
+  /** Metric series and points the member matches: what a member whose
+   *  telemetry is metrics rather than traces has instead of messages. */
+  metric_series?: number;
+  metric_points?: number;
 }
 
 /**
