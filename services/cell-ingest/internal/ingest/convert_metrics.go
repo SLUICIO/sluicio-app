@@ -12,24 +12,29 @@ import (
 // ResourceMetrics into MetricRows — one row per numeric data point.
 //
 // Only the metric types thresholding needs are stored: gauge, sum, and
-// histogram (as count + sum). ExponentialHistogram and Summary points
-// are skipped for now; see 0003_metrics.sql for the rationale.
-func ConvertMetricsRequest(resourceMetrics []*metricspb.ResourceMetrics) []MetricRow {
-	var rows []MetricRow
+// histogram (as count + sum). Exponential histograms are stored exactly
+// like explicit ones - MetricType "histogram", Value = sum, Count =
+// count - since only sum/count is kept and buckets are dropped either
+// way. Summary points are not stored; see 0003_metrics.sql for the
+// rationale. skipped counts the data points dropped so the caller can
+// surface them instead of losing them silently.
+func ConvertMetricsRequest(resourceMetrics []*metricspb.ResourceMetrics) (rows []MetricRow, skipped int) {
 	for _, rm := range resourceMetrics {
 		resourceAttrs := attributesToMap(rm.GetResource().GetAttributes())
 		serviceName := resolveServiceName(resourceAttrs)
 		serviceNamespace := resourceAttrs["service.namespace"]
 		for _, sm := range rm.GetScopeMetrics() {
 			for _, m := range sm.GetMetrics() {
-				rows = append(rows, convertMetric(m, resourceAttrs, serviceName, serviceNamespace)...)
+				mRows, mSkipped := convertMetric(m, resourceAttrs, serviceName, serviceNamespace)
+				rows = append(rows, mRows...)
+				skipped += mSkipped
 			}
 		}
 	}
-	return rows
+	return rows, skipped
 }
 
-func convertMetric(m *metricspb.Metric, resourceAttrs map[string]string, serviceName, serviceNamespace string) []MetricRow {
+func convertMetric(m *metricspb.Metric, resourceAttrs map[string]string, serviceName, serviceNamespace string) (rows []MetricRow, skipped int) {
 	// base returns a row pre-filled with the fields common to every data
 	// point of this metric.
 	base := func() MetricRow {
@@ -42,7 +47,6 @@ func convertMetric(m *metricspb.Metric, resourceAttrs map[string]string, service
 		}
 	}
 
-	var rows []MetricRow
 	switch data := m.GetData().(type) {
 	case *metricspb.Metric_Gauge:
 		for _, dp := range data.Gauge.GetDataPoints() {
@@ -80,10 +84,29 @@ func convertMetric(m *metricspb.Metric, resourceAttrs map[string]string, service
 			r.MetricAttributes = attributesToMap(dp.GetAttributes())
 			rows = append(rows, r)
 		}
+	case *metricspb.Metric_ExponentialHistogram:
+		// Stored like an explicit histogram: only sum + count, so the
+		// bucket encoding (scale, offsets) doesn't matter. Apache Airflow
+		// 3.x forces this aggregation for all its timing metrics.
+		for _, dp := range data.ExponentialHistogram.GetDataPoints() {
+			r := base()
+			r.MetricType = "histogram"
+			r.Timestamp = time.Unix(0, int64(dp.GetTimeUnixNano())).UTC()
+			r.StartTimestamp = time.Unix(0, int64(dp.GetStartTimeUnixNano())).UTC()
+			// Sum is optional (absent when observations may be negative).
+			// Without it Value stays 0 and the mean reads 0; Count is still
+			// real, so rate-of-observations checks keep working.
+			r.Value = dp.GetSum()
+			r.Count = dp.GetCount()
+			r.MetricAttributes = attributesToMap(dp.GetAttributes())
+			rows = append(rows, r)
+		}
+	case *metricspb.Metric_Summary:
+		skipped = len(data.Summary.GetDataPoints())
 	default:
-		// ExponentialHistogram, Summary, or an unset Data oneof — skipped.
+		// Unset Data oneof - nothing to store.
 	}
-	return rows
+	return rows, skipped
 }
 
 // numberDataPointValue resolves a NumberDataPoint's value, which is a

@@ -72,8 +72,9 @@ type LogRow struct {
 
 // MetricRow is one row in the ClickHouse `metrics` table — one numeric
 // data point of an OTLP metric. MetricType is "gauge", "sum", or
-// "histogram"; for histograms Value is the bucket sum and Count is the
-// observation count, otherwise Count is 0. IsMonotonic is 1 for
+// "histogram" (explicit-bucket or exponential - stored identically); for
+// histograms Value is the bucket sum and Count is the observation count,
+// otherwise Count is 0. IsMonotonic is 1 for
 // monotonic sums (true counters), else 0.
 type MetricRow struct {
 	Timestamp          time.Time

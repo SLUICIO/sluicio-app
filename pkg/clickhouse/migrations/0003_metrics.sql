@@ -8,13 +8,19 @@
 --   sum        -> one row per point, Value = the (counter) value,
 --                 IsMonotonic = 1 for monotonic counters
 --   histogram  -> one row per point, Value = the bucket sum,
---                 Count = the observation count
+--                 Count = the observation count. Exponential
+--                 histograms are stored the same way (MetricType
+--                 "histogram"): with buckets dropped, sum + count is
+--                 identical for both encodings. Value is 0 when the
+--                 optional sum is absent.
 --
 -- This is enough to evaluate the threshold rules that drive health
 -- (e.g. files_ready gauge > 100, or files_read sum rate < 1 over a
--- window). Exponential histograms and summaries, and full histogram
--- buckets, are intentionally NOT stored yet — they add a lot of schema
--- for no thresholding benefit today. Revisit if a widget needs them.
+-- window). Summaries and full histogram buckets (explicit or
+-- exponential) are intentionally NOT stored yet - they add a lot of
+-- schema for no thresholding benefit today. Revisit if a widget needs
+-- them. Skipped summary points are counted by cell-ingest
+-- (counters.metrics.skipped_points) and logged at Warn.
 --
 -- ORDER BY (ServiceName, MetricName, time) so "latest / aggregate of
 -- metric M for service S over a window" hits the sort key.

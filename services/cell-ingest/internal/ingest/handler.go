@@ -64,6 +64,9 @@ type signalCounters struct {
 	accepted  atomic.Uint64
 	rejected  atomic.Uint64
 	rowsTotal atomic.Uint64
+	// skippedPoints counts data points received but not stored (today
+	// only OTLP Summary metric points). Metrics-only.
+	skippedPoints atomic.Uint64
 }
 
 var (
@@ -86,6 +89,9 @@ type CounterSnapshot struct {
 	Accepted  uint64 `json:"accepted"`
 	Rejected  uint64 `json:"rejected"`
 	RowsTotal uint64 `json:"rows_total"`
+	// SkippedPoints is data points accepted on the wire but not stored
+	// (metrics: Summary points). Omitted for signals that never skip.
+	SkippedPoints uint64 `json:"skipped_points,omitempty"`
 }
 
 // GetCounters reads the current values atomically.
@@ -102,9 +108,10 @@ func GetCounters() Counters {
 			RowsTotal: logsCounters.rowsTotal.Load(),
 		},
 		Metrics: CounterSnapshot{
-			Accepted:  metricsCounters.accepted.Load(),
-			Rejected:  metricsCounters.rejected.Load(),
-			RowsTotal: metricsCounters.rowsTotal.Load(),
+			Accepted:      metricsCounters.accepted.Load(),
+			Rejected:      metricsCounters.rejected.Load(),
+			RowsTotal:     metricsCounters.rowsTotal.Load(),
+			SkippedPoints: metricsCounters.skippedPoints.Load(),
 		},
 	}
 }
@@ -392,7 +399,19 @@ func MetricsHandler(store *Store, logger *slog.Logger) http.Handler {
 			httpserver.WriteError(w, http.StatusBadRequest, "failed to unmarshal OTLP request")
 			return
 		}
-		rows := ConvertMetricsRequest(req.GetResourceMetrics())
+		rows, skipped := ConvertMetricsRequest(req.GetResourceMetrics())
+		if skipped > 0 {
+			// Not a rejection - the request succeeds - but say so, or a
+			// source emitting only Summary metrics looks healthy yet
+			// never shows up.
+			metricsCounters.skippedPoints.Add(uint64(skipped))
+			logger.Warn("ingest skipped unsupported metric points",
+				"signal", "metrics",
+				"type", "summary",
+				"points", skipped,
+				"remote", remoteAddr(r),
+			)
+		}
 		org := orgIDFromContext(r.Context())
 		for i := range rows {
 			rows[i].OrganizationID = org
