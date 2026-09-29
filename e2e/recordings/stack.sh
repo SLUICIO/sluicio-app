@@ -99,7 +99,13 @@ up() {
     printf 'RECORDING_INGEST_KEY=%s\n' "$key" >>"$envfile"
   fi
 
-  if ! "$engine" container exists "$project-seeder" 2>/dev/null && ! "$engine" inspect "$project-seeder" >/dev/null 2>&1; then
+  # A seeder from another tag is replaced, not restarted: moving the stack
+  # to a new release used to leave the seeder on the old one.
+  running_image="$("$engine" inspect -f '{{.Config.Image}}' "$project-seeder" 2>/dev/null || true)"
+  if [ -n "$running_image" ] && [ "$running_image" != "ghcr.io/sluicio/demo-seeder:$tag" ]; then
+    "$engine" rm -f "$project-seeder" >/dev/null
+  fi
+  if ! "$engine" inspect "$project-seeder" >/dev/null 2>&1; then
     "$engine" run -d --name "$project-seeder" --network "${project}_default" --restart unless-stopped \
       -e SLUICIO_INGEST_KEY="$key" "ghcr.io/sluicio/demo-seeder:$tag" \
       -continuous -interval=15s -batch=50 \
