@@ -1,0 +1,53 @@
+# SPDX-License-Identifier: FSL-1.1-Apache-2.0
+#
+# RabbitMQ into the recording stack, the way the docs tell a customer to
+# do it (guides/rabbitmq-queue-depth, system-types/rabbitmq): per-queue
+# metrics from the management API, node alarms from the prometheus
+# plugin, out over OTLP/HTTP with an ingest key.
+#
+# Validated against collector-contrib 0.157.0, the version this stack
+# pins. Component names change between collector versions - the OTLP/HTTP
+# exporter is `otlp_http` from v0.146.0 and `otlphttp` before it - so
+# re-validate before changing the image tag.
+
+receivers:
+  # Per-queue depth and consumer counts, one resource per queue
+  # (rabbitmq.queue.name, rabbitmq.vhost.name, rabbitmq.node.name).
+  rabbitmq:
+    endpoint: http://rabbitmq:15672
+    username: monitoring
+    password: ${env:RABBITMQ_MONITOR_PASSWORD}
+    collection_interval: 15s
+  # Node-level resource alarms and disk headroom.
+  prometheus/rabbitmq:
+    config:
+      scrape_configs:
+        - job_name: rabbitmq-node
+          scrape_interval: 15s
+          static_configs:
+            - targets: ["rabbitmq:15692"]
+
+processors:
+  # The receivers set no service.name, and without one every metric lands
+  # under unknown_service. One name for the broker is what lets each
+  # queue become an integration of its own: "rabbitmq, where
+  # rabbitmq.queue.name is invoices.outbound".
+  resource/broker:
+    attributes:
+      - key: service.name
+        value: rabbitmq
+        action: upsert
+  batch: {}
+
+exporters:
+  otlp_http/sluicio:
+    endpoint: http://cell-ingest:4318
+    headers:
+      authorization: Bearer ${env:SLUICIO_INGEST_KEY}
+
+service:
+  pipelines:
+    metrics:
+      receivers: [rabbitmq, prometheus/rabbitmq]
+      processors: [resource/broker, batch]
+      exporters: [otlp_http/sluicio]

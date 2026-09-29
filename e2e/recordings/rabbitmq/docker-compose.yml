@@ -1,0 +1,102 @@
+# SPDX-License-Identifier: FSL-1.1-Apache-2.0
+#
+# A RabbitMQ broker with three queues that each tell a different story,
+# and the OpenTelemetry Collector that streams their metrics into the
+# recording stack. Started and stopped by recordings/stack.sh; it joins
+# that stack's network, so the collector reaches cell-ingest by name.
+#
+#   orders.inbound     healthy: consumers keep up, depth stays near zero
+#   invoices.outbound  bursty: a one-minute burst builds a backlog of about
+#                      1,500 that drains over the next three minutes
+#   shipments.events   stalled: no consumer at all, so depth climbs ~180 a
+#                      minute to a 6,000 cap - "No consumers" fires at
+#                      once, "Queue backlog" once it passes 5,000
+#
+# Management UI on http://localhost:15680 (user admin, password in
+# e2e/.env.recording).
+
+x-perf-test: &perf-test
+  image: docker.io/pivotalrabbitmq/perf-test:2.23.0
+  depends_on:
+    rabbitmq:
+      condition: service_healthy
+  restart: unless-stopped
+  environment:
+    # UseSVE=0: the JVM dies with SIGILL on some Apple chips inside a VM.
+    # IgnoreUnrecognizedVMOptions keeps the same setting harmless on a
+    # machine whose JVM has no such option.
+    JAVA_TOOL_OPTIONS: "-XX:+IgnoreUnrecognizedVMOptions -XX:UseSVE=0 -Xmx96m"
+  mem_limit: 256m
+
+services:
+  rabbitmq:
+    image: docker.io/library/rabbitmq:4.1-management
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_ADMIN_PASSWORD:?run recordings/stack.sh up, which sets it}
+    ports:
+      - "15680:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+    restart: unless-stopped
+
+  otel-collector:
+    image: docker.io/otel/opentelemetry-collector-contrib:0.157.0
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      RABBITMQ_MONITOR_PASSWORD: ${RABBITMQ_MONITOR_PASSWORD:?run recordings/stack.sh up, which sets it}
+      SLUICIO_INGEST_KEY: ${SLUICIO_INGEST_KEY:?run recordings/stack.sh up, which sets it}
+    volumes:
+      - ./otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+    restart: unless-stopped
+
+  orders-load:
+    <<: *perf-test
+    command:
+      - --uri=amqp://admin:${RABBITMQ_ADMIN_PASSWORD}@rabbitmq:5672
+      - --queue=orders.inbound
+      - --auto-delete=false
+      - --producers=1
+      - --consumers=2
+      - --rate=15
+      - --qos=10
+      - --size=512
+
+  invoices-load:
+    <<: *perf-test
+    command:
+      - --uri=amqp://admin:${RABBITMQ_ADMIN_PASSWORD}@rabbitmq:5672
+      - --queue=invoices.outbound
+      - --auto-delete=false
+      - --producers=1
+      - --consumers=1
+      - --variable-rate=40:60
+      - --variable-rate=2:180
+      - --consumer-rate=15
+      # A prefetch limit, or the consumer takes every message at once and
+      # the backlog sits in it as "unacknowledged" instead of in the queue
+      # as "ready" - which is the depth this queue is here to show.
+      - --qos=10
+      - --size=512
+
+  shipments-load:
+    <<: *perf-test
+    command:
+      - --uri=amqp://admin:${RABBITMQ_ADMIN_PASSWORD}@rabbitmq:5672
+      - --queue=shipments.events
+      - --auto-delete=false
+      - --queue-args=x-max-length=6000
+      - --producers=1
+      - --consumers=0
+      - --rate=3
+      - --size=512
+
+networks:
+  default:
+    name: sluicio-recording_default
+    external: true

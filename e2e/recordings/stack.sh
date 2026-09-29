@@ -23,7 +23,23 @@ repo="$(cd "$here/../.." && pwd)"
 envfile="$here/../.env.recording"
 
 project=sluicio-recording
-tag="${RECORDING_TAG:-latest}"
+# A key that is not there yet is an empty answer, not a failure: under
+# pipefail a grep with no match would end the script at the first lookup.
+mq() {
+  RABBITMQ_ADMIN_PASSWORD="$(getenv RABBITMQ_ADMIN_PASSWORD)" \
+    RABBITMQ_MONITOR_PASSWORD="$(getenv RABBITMQ_MONITOR_PASSWORD)" \
+    SLUICIO_INGEST_KEY="$(getenv RECORDING_INGEST_KEY)" \
+    "$engine" compose -p "$project-mq" -f "$here/rabbitmq/docker-compose.yml" "$@"
+}
+
+setenv_once() { [ -n "$(getenv "$1")" ] || printf '%s=%s\n' "$1" "$(openssl rand -base64 24 | tr -d '/+=' | cut -c1-20)" >>"$envfile"; }
+
+getenv() { { grep -E "^$1=" "$envfile" 2>/dev/null || true; } | head -1 | cut -d= -f2-; }
+# The tag the stack was created with is remembered and reused. A re-run
+# without RECORDING_TAG used to fall back to whatever `latest` image sat on
+# the machine - weeks old, once - and quietly put an old UI on camera.
+tag="${RECORDING_TAG:-$(getenv RECORDING_TAG)}"
+tag="${tag:-latest}"
 port="${RECORDING_PORT:-8095}"
 ingest_port="${RECORDING_INGEST_PORT:-4325}"
 org_name="${RECORDING_ORG:-Acme Logistics}"
@@ -38,11 +54,10 @@ compose() {
     "$engine" compose -f "$repo/deploy/quickstart/docker-compose.yml" "$@"
 }
 
-# A key that is not there yet is an empty answer, not a failure: under
-# pipefail a grep with no match would end the script at the first lookup.
-getenv() { { grep -E "^$1=" "$envfile" 2>/dev/null || true; } | head -1 | cut -d= -f2-; }
 
 up() {
+  # `latest` means the newest release, not the newest image on this machine.
+  [ "$tag" = latest ] && compose pull -q cell-api cell-ingest frontend
   compose up -d
   printf 'waiting for the stack'
   until curl -sf -o /dev/null "$base/api/v1/auth/install-state"; do printf .; sleep 2; done
@@ -95,11 +110,30 @@ up() {
     "$engine" start "$project-seeder" >/dev/null
   fi
 
-  echo "recording stack up at $base, org \"$org_name\", seeder running."
+  # RabbitMQ, its three queues and the Collector streaming their metrics.
+  setenv_once RABBITMQ_ADMIN_PASSWORD
+  setenv_once RABBITMQ_MONITOR_PASSWORD
+  mq up -d
+  printf 'waiting for rabbitmq'
+  until "$engine" exec "$project-mq-rabbitmq-1" rabbitmq-diagnostics -q ping >/dev/null 2>&1; do printf .; sleep 2; done
+  echo
+  # The monitoring user, exactly as the RabbitMQ guide sets it up: tagged
+  # monitoring, no rights on any queue. Already there on a re-run.
+  "$engine" exec "$project-mq-rabbitmq-1" rabbitmqctl add_user monitoring "$(getenv RABBITMQ_MONITOR_PASSWORD)" >/dev/null 2>&1 || true
+  "$engine" exec "$project-mq-rabbitmq-1" rabbitmqctl set_user_tags monitoring monitoring >/dev/null
+  "$engine" exec "$project-mq-rabbitmq-1" rabbitmqctl set_permissions -p / monitoring "^$" "^$" ".*" >/dev/null
+
+  { grep -v '^RECORDING_TAG=' "$envfile" || true; printf 'RECORDING_TAG=%s\n' "$tag"; } >"$envfile.tmp" && mv "$envfile.tmp" "$envfile"
+  chmod 600 "$envfile"
+
+  echo "recording stack up at $base (images :$tag), org \"$org_name\", seeder running."
+  echo "rabbitmq management UI at http://localhost:15680 (user admin), metrics flowing through the collector."
   echo "give it 30 minutes of traffic before a take, so the counts and charts have history."
 }
 
 down() {
+  # The broker's containers sit on the stack's network: gone first.
+  mq down -v 2>/dev/null || true
   "$engine" rm -f "$project-seeder" >/dev/null 2>&1 || true
   compose down -v
   rm -f "$envfile"

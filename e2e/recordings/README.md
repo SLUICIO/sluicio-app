@@ -14,6 +14,20 @@ Give it **30 minutes of traffic** before a take, so counts, charts and health ha
 
 `RECORDING_TAG` picks the image version (default `latest`); set it to the release you want on screen. `recordings/stack.sh status` shows what is running; `recordings/stack.sh down` removes the stack **and its data**.
 
+### RabbitMQ in the stack
+
+`stack.sh up` also starts a RabbitMQ broker and the OpenTelemetry Collector that streams its metrics in, set up the way the [RabbitMQ guide](https://docs.sluicio.com/guides/rabbitmq-queue-depth/) tells a customer to: per-queue metrics from the management API, node alarms from the prometheus plugin, a read-only `monitoring` user, OTLP/HTTP with an ingest key. The collector sets `service.name: rabbitmq`, so every queue arrives under one service and each can become an integration of its own ("rabbitmq, where `rabbitmq.queue.name` is `invoices.outbound`").
+
+Three queues, each with a different story (`recordings/rabbitmq/docker-compose.yml`):
+
+| Queue | Story |
+|---|---|
+| `orders.inbound` | Healthy: consumers keep up, depth stays near zero. |
+| `invoices.outbound` | Bursty: a one-minute burst builds a backlog of about 1,500 that drains over the next three minutes. |
+| `shipments.events` | Stalled: no consumer, so depth climbs about 180 a minute to a 6,000 cap. "No consumers" fires at once, "Queue backlog" once it passes 5,000. |
+
+The broker's management UI is at `http://localhost:15680` (user `admin`, password in `e2e/.env.recording`). The collector is pinned to contrib 0.157.0 and its config is validated against that version: component names change between collector versions, so re-validate before moving the tag.
+
 ## Record
 
 ```bash
