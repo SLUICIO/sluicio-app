@@ -3,8 +3,17 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.169 — 2026-09-29
+
+- fix(integrations): an integration fed by metrics alone is not called quiet (3edc79d)
+- fix(integrations): the services editor understands a service that only sends metrics (84dbaa9)
+- test(e2e): a RabbitMQ broker in the recording stack, streamed in by a collector (0ff7a6a)
+- test(e2e): record product walkthroughs from a script (54be152)
+- fix(integrations): a service that has just started sending is not called unseen (44cbac5)
+
 ## v0.11.168 — 2026-09-29
 
+- release v0.11.168 — refresh internal changelog (0364296)
 - feat(ingest): store exponential histograms, and say when metric points are dropped (270fbc7)
 - chore(dev): the dev stack comes back after the podman machine restarts (0fb50a3)
 
