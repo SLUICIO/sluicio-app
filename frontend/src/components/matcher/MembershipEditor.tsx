@@ -164,11 +164,21 @@ export default function MembershipEditor({
     if (rule.serviceOp === "equals") {
       const svc = byName.get(name);
       if (!svc) {
-        return { tone: "warn", note: `Not seen ${when}. Kept, since a quiet service can still belong here.` };
+        // The services list is the catalog, refreshed on a schedule; this
+        // member's preview reads the telemetry directly. A service that
+        // has only just started sending is counted by the one before the
+        // other knows it, so the preview decides - and "not seen" waits
+        // for its answer rather than guessing ahead of it.
+        if (!p || p.incomplete) return { tone: "muted" };
+        if (!seenByPreview(p)) {
+          return { tone: "warn", note: `Not seen ${when}. Kept, since a quiet service can still belong here.` };
+        }
       }
       if (p && !p.incomplete && completeConds(rule).length > 0 && (p.trace_count ?? 0) === 0) {
         return { tone: "warn", note: `No traffic from ${name} meets these conditions ${when}. Check the attribute and value.` };
       }
+      // Not in the catalog yet: it has traffic, but no health of its own.
+      if (!svc) return { tone: "muted" };
       const s = svc.status;
       return { tone: s === "ok" ? "ok" : s === "errors" || s === "unhealthy" ? "err" : "muted" };
     }
@@ -178,6 +188,18 @@ export default function MembershipEditor({
     return { tone: "muted" };
   };
   const looks = rules.map((r, i) => lookOf(r, previews.get(memberSigs[i])));
+  // Services that exist as far as this editor can tell: the catalog's,
+  // plus members whose own preview has found traffic the catalog has not
+  // caught up with yet. Suggestions start from these.
+  const liveNames = useMemo(() => {
+    const out = new Set(byName.keys());
+    rules.forEach((r, i) => {
+      const p = previews.get(memberSigs[i]);
+      if (r.serviceOp === "equals" && p && seenByPreview(p)) out.add(r.service.trim());
+    });
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [byName, previews, sigKey]);
   const needsLook = looks.filter((l) => l.note).length;
 
   // ── Editing ──────────────────────────────────────────────────────
@@ -334,7 +356,7 @@ export default function MembershipEditor({
       )}
 
       {!readOnly && (
-        <Suggestions rules={rules} byName={byName} windowVal={windowVal} onAdd={(n) => add(ruleOf(n))} />
+        <Suggestions rules={rules} known={liveNames} windowVal={windowVal} onAdd={(n) => add(ruleOf(n))} />
       )}
 
       <Advanced
@@ -348,6 +370,10 @@ export default function MembershipEditor({
 }
 
 const ruleOf = (name: string): Rule => ({ serviceOp: "equals", service: name, combine: "any", attrs: [] });
+
+/** Whether a member's preview found the service in the telemetry. */
+const seenByPreview = (p: RulePreview): boolean =>
+  !p.incomplete && ((p.service_count ?? 0) > 0 || (p.trace_count ?? 0) > 0);
 
 function Tile({ label, value, warn = false }: { label: string; value: string; warn?: boolean }) {
   return (
@@ -597,12 +623,13 @@ const SUGGESTIONS_SHOWN = 6;
  */
 function Suggestions({
   rules,
-  byName,
+  known,
   windowVal,
   onAdd,
 }: {
   rules: Rule[];
-  byName: Map<string, ServiceSummary>;
+  /** Services the editor knows exist, catalog or live traffic. */
+  known: Set<string>;
   windowVal: string;
   onAdd: (name: string) => void;
 }) {
@@ -610,10 +637,10 @@ function Suggestions({
     const seen = new Set<string>();
     for (const r of rules) {
       const v = r.service.trim();
-      if (r.serviceOp === "equals" && v && byName.has(v)) seen.add(v);
+      if (r.serviceOp === "equals" && v && known.has(v)) seen.add(v);
     }
     return [...seen].sort();
-  }, [rules, byName]);
+  }, [rules, known]);
 
   // Keyed by range AND service: a neighbourhood is an answer about a
   // range, and a new range has to ask again rather than reuse it.
