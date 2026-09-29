@@ -7,9 +7,20 @@
 #   - Prometheus (cell-local metrics)
 #   - Keycloak (OIDC, with a default `sluicio` realm to be added)
 
+# Every service is `restart: always`, and it has to be `always`. Podman
+# brings containers back after its machine restarts only through
+# podman-restart.service, which starts `--filter restart-policy=always` and
+# nothing else: `unless-stopped` survives a crash but not a reboot. Without
+# it a podman machine restart left the data stores down, and cell-api and
+# cell-ingest down with them, until somebody noticed. On Podman the service
+# also has to be enabled inside the machine, once:
+#   podman machine ssh sudo systemctl enable podman-restart.service
+# (drop sudo on a rootless machine and add --user). Docker needs nothing.
+
 services:
   postgres:
     image: postgres:16-alpine
+    restart: always
     environment:
       POSTGRES_DB: controlplane
       POSTGRES_USER: controlplane
@@ -24,6 +35,7 @@ services:
 
   clickhouse:
     image: clickhouse/clickhouse-server:24.8
+    restart: always
     # ClickHouse normally wants a high nofile ulimit; we omit it here so
     # the compose file runs under rootless Podman without privilege errors.
     # Production deployments should set ulimits via Kubernetes pod specs.
@@ -45,6 +57,7 @@ services:
 
   prometheus:
     image: prom/prometheus:v2.55.0
+    restart: always
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
@@ -58,10 +71,10 @@ services:
   # ── Application services ───────────────────────────────────────────
   # cell-api + cell-ingest run in-container so the local stack stays up
   # without a babysat `go run`. They build from the repo (context = root)
-  # and talk to postgres/clickhouse over the compose network. `restart:
-  # unless-stopped` means they retry until the data stores are ready (the
-  # services exit on a failed connect rather than blocking), so no
-  # healthcheck wiring is needed.
+  # and talk to postgres/clickhouse over the compose network. The restart
+  # policy (see the top of the file) also means they retry until the data
+  # stores are ready (the services exit on a failed connect rather than
+  # blocking), so no healthcheck wiring is needed.
 
   # cell-api also serves the remote MCP endpoint at /api/v1/mcp (Bearer-auth,
   # read-only) and the API docs at /api/docs — no separate service needed.
@@ -70,7 +83,7 @@ services:
       context: .
       dockerfile: services/cell-api/Dockerfile
     depends_on: [postgres, clickhouse]
-    restart: unless-stopped
+    restart: always
     environment:
       POSTGRES_DSN: postgres://controlplane:controlplane@postgres:5432/controlplane?sslmode=disable
       CLICKHOUSE_ENDPOINT: clickhouse:9000
@@ -121,7 +134,7 @@ services:
       context: .
       dockerfile: services/cell-ingest/Dockerfile
     depends_on: [postgres, clickhouse]
-    restart: unless-stopped
+    restart: always
     environment:
       POSTGRES_DSN: postgres://controlplane:controlplane@postgres:5432/controlplane?sslmode=disable
       CLICKHOUSE_ENDPOINT: clickhouse:9000
