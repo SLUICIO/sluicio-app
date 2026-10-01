@@ -32,11 +32,11 @@ import (
 
 // ── status → badge ────────────────────────────────────────────────────────
 
-// badgeStatus computes a coarse public health for an entity from its member
-// services. unhealthy (a health check is firing — the app's own definition of
-// unhealthy) wins; else errors (error traces in the last 24h — raw, so a
-// coarser signal than the acked in-app view); else ok; else "quiet" (no
-// members). No principal needed — it's an org-scoped read.
+// badgeStatus computes a coarse public health for a system or service from
+// its member services. unhealthy (a health check is firing - the app's own
+// definition of unhealthy) wins; else errors (error traces in the last 24h -
+// raw, so a coarser signal than the acked in-app view); else ok; else
+// "quiet" (no members). No principal needed - it's an org-scoped read.
 func (h *Handlers) badgeStatus(ctx context.Context, orgID uuid.UUID, members []string) string {
 	if len(members) == 0 {
 		return "quiet"
@@ -58,6 +58,78 @@ func (h *Handlers) badgeStatus(ctx context.Context, orgID uuid.UUID, members []s
 		if n, err := h.Store.CountErrorTracesForServices(ctx, members, from, to, nil, nil); err == nil && n > 0 {
 			return "errors"
 		}
+	}
+	return "ok"
+}
+
+// integrationBadgeStatus is badgeStatus for an integration, read off the
+// integration rather than its member services.
+//
+// Two integrations can share a service and own disjoint slices of it: one
+// Node-RED runtime with an integration per flow, one broker with an
+// integration per queue. Read off the members, every one of them wore the
+// badge of whichever sibling was failing. So "unhealthy" is decided by the
+// fold the integration list uses (integrationRollupStatus): a check bound
+// to the integration, or a member's check that speaks for it. And the
+// error traces are counted in the integration's slice, the predicate its
+// Messages tab and its checks apply.
+func (h *Handlers) integrationBadgeStatus(ctx context.Context, orgID uuid.UUID, integ integrations.IntegrationWithMatchers) string {
+	id := integ.Integration.ID
+	members, err := h.Catalog.IntegrationServices(ctx, id)
+	if err != nil {
+		h.Logger.Warn("badge: integration members lookup failed", "err", err, "integration", id)
+	}
+	if len(members) == 0 {
+		return "quiet"
+	}
+	health := integrationHealth{Slice: integrations.SelectsSlice(integ.Matchers, integ.Integration.RuleMatch)}
+	if h.Alerts != nil {
+		if scopes, err := h.Alerts.FiringHealthServiceScopes(ctx, orgID); err == nil {
+			health.MemberFiring = memberFiring(members, scopes)
+		} else {
+			h.Logger.Warn("badge: firing services lookup failed", "err", err)
+		}
+		if firing, err := h.Alerts.FiringHealthIntegrations(ctx, orgID); err == nil {
+			health.IntegrationFiring = firing[id]
+		} else {
+			h.Logger.Warn("badge: firing integrations lookup failed", "err", err)
+		}
+	}
+	var errorTraces uint64
+	if h.Store != nil && !integrationBadgeUnhealthy(health) {
+		to := time.Now().UTC()
+		from := to.Add(-24 * time.Hour)
+		groups := AttrGroupsFromMatchers(integ.Matchers, integ.Integration.RuleMatch)
+		if n, err := h.Store.CountErrorTracesForServices(ctx, members, from, to, nil, groups); err == nil {
+			errorTraces = n
+		}
+	}
+	return integrationBadgeFold(health, errorTraces)
+}
+
+// integrationBadgeUnhealthy asks integrationRollupStatus whether a firing
+// check makes the integration unhealthy. The badge has no window of its
+// own to be quiet in, so the fold is asked about an active integration
+// and nothing else: delays and open slice errors are left out, and the
+// answer is "unhealthy" or not.
+func integrationBadgeUnhealthy(health integrationHealth) bool {
+	return integrationRollupStatus(integrationHealth{
+		Slice:             health.Slice,
+		Active:            true,
+		MemberFiring:      health.MemberFiring,
+		IntegrationFiring: health.IntegrationFiring,
+	}) == "unhealthy"
+}
+
+// integrationBadgeFold maps what the integration badge read to its status:
+// unhealthy, else errors (error traces in its slice over the last 24h,
+// raw like every other badge), else ok.
+func integrationBadgeFold(health integrationHealth, errorTraces uint64) string {
+	if integrationBadgeUnhealthy(health) {
+		return "unhealthy"
+	}
+	if errorTraces > 0 {
+		return "errors"
 	}
 	return "ok"
 }
@@ -165,8 +237,7 @@ func (h *Handlers) badgeSVG(w http.ResponseWriter, r *http.Request) {
 			http.NotFound(w, r)
 			return
 		}
-		members, _ := h.Catalog.IntegrationServices(r.Context(), iid)
-		writeBadge(w, integ.Name, h.badgeStatus(r.Context(), orgID, members))
+		writeBadge(w, integ.Name, h.integrationBadgeStatus(r.Context(), orgID, integ))
 	case "system":
 		sid, err := uuid.Parse(id)
 		if err != nil {

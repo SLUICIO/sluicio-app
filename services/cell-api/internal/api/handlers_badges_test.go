@@ -5,6 +5,8 @@ package api
 import (
 	"strings"
 	"testing"
+
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/alerting"
 )
 
 func TestBadgeColorMessage(t *testing.T) {
@@ -59,5 +61,57 @@ func TestBadgeTruncate(t *testing.T) {
 	}
 	if badgeTruncate("short", 40) != "short" {
 		t.Errorf("short string should be unchanged")
+	}
+}
+
+// Two integrations sharing one service: a RabbitMQ broker with one
+// integration per queue. The badge used to be read off the broker, so
+// every queue wore the badge of whichever sibling was failing. It is now
+// read off the integration: its own checks, the member checks that speak
+// for it, and the error traces in its own slice.
+func TestIntegrationBadgeReadsTheIntegration(t *testing.T) {
+	cases := []struct {
+		name        string
+		health      integrationHealth
+		errorTraces uint64
+		want        string
+	}{
+		{"quiet slice, nothing firing", integrationHealth{Slice: true}, 0, "ok"},
+		{"errors in its own slice", integrationHealth{Slice: true}, 3, "errors"},
+		{"its own check fires", integrationHealth{Slice: true, IntegrationFiring: true}, 0, "unhealthy"},
+		// A sibling queue's backlog check bound to the shared broker is
+		// span-level: it speaks for the queue it read, not for this one.
+		{"sibling's span-level check on the shared broker", integrationHealth{Slice: true, MemberFiring: alerting.ServiceFiring{Any: true}}, 0, "ok"},
+		// A check describing the broker process does speak for every
+		// queue on it: a dead broker breaks them all.
+		{"broker process check fires", integrationHealth{Slice: true, MemberFiring: alerting.ServiceFiring{Any: true, Process: true}}, 0, "unhealthy"},
+		// A service-only integration IS its members' traffic, so any
+		// member check speaks for it, as it always did.
+		{"service-only, member check fires", integrationHealth{MemberFiring: alerting.ServiceFiring{Any: true}}, 0, "unhealthy"},
+		{"service-only, error traces", integrationHealth{}, 1, "errors"},
+		{"unhealthy outranks errors", integrationHealth{IntegrationFiring: true}, 5, "unhealthy"},
+	}
+	for _, c := range cases {
+		if got := integrationBadgeFold(c.health, c.errorTraces); got != c.want {
+			t.Errorf("%s: integrationBadgeFold = %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+// The badge must agree with the integration list about "unhealthy": the
+// same fold decides both, so a badge cannot read red while the list
+// reads the integration as fine, or the other way round.
+func TestIntegrationBadgeAgreesWithTheListOnUnhealthy(t *testing.T) {
+	for _, slice := range []bool{false, true} {
+		for _, integ := range []bool{false, true} {
+			for _, f := range []alerting.ServiceFiring{{}, {Any: true}, {Any: true, Process: true}} {
+				h := integrationHealth{Slice: slice, Active: true, MemberFiring: f, IntegrationFiring: integ}
+				list := integrationRollupStatus(h) == "unhealthy"
+				badge := integrationBadgeFold(h, 0) == "unhealthy"
+				if list != badge {
+					t.Errorf("slice=%v integration=%v member=%+v: list unhealthy=%v, badge unhealthy=%v", slice, integ, f, list, badge)
+				}
+			}
+		}
 	}
 }
