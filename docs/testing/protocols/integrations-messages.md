@@ -31,7 +31,7 @@
 - **Endpoint:** `PUT /api/v1/integrations/{id}` · **Expected:** Header + list card update; routing unaffected. · **Code:** `:756` · **Automation:** yes.
 
 ### Case 4 — Delete integration
-- **Endpoint:** `DELETE /api/v1/integrations/{id}` · **Expected:** Removed from list; traces render without the association; dashboard tiles clear. · **Code:** `:788` · **Automation:** yes.
+- **Endpoint:** `DELETE /api/v1/integrations/{id}` (count first via `GET …/delete-impact`) · **Steps:** On an integration with health checks bound to it, click Delete. · **Expected:** The confirmation says how many health checks are deleted with it. After confirming: removed from list; traces render without the association; dashboard tiles clear; its health checks are gone from Alerts (not left behind unbound, where they would evaluate over every service). A check bound to a service or another integration is untouched. Deleting a system works the same for the checks bound to the system; its member services keep their own checks. · **Code:** `deleteIntegration`, `deleteSystem` · **Automation:** API yes (`delete_bound_checks_integration_test.go`); dialog wording manual.
 
 ## Matcher routing (the core)
 

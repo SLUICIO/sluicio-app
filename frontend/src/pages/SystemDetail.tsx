@@ -16,6 +16,7 @@ import HealthChecks from "../components/health/HealthChecks";
 import ResourceGroupsCard from "../components/ResourceGroupsCard";
 import ResourceSharesCard from "../components/ResourceSharesCard";
 import { useTimeWindow } from "../lib/useTimeWindow";
+import { systemDeleteConfirm } from "../lib/deleteConfirm";
 import StatusPip from "../components/primitives/StatusPip";
 import { pipForStatus } from "../components/primitives/pipForStatus";
 import SystemEditDrawer from "../components/SystemEditDrawer";
@@ -162,7 +163,13 @@ export default function SystemDetail() {
 
   const remove = async () => {
     if (!system) return;
-    if (!window.confirm(`Delete system "${system.name}"? Its services are detached (their health checks are not removed).`)) return;
+    // Asked at click time, not page load: the count has to match what
+    // the delete removes.
+    const checks = await api
+      .systemDeleteImpact(id)
+      .then((r) => r.health_checks)
+      .catch(() => null);
+    if (!window.confirm(systemDeleteConfirm(system.name, checks))) return;
     setBusy(true);
     try {
       await api.deleteSystem(id);

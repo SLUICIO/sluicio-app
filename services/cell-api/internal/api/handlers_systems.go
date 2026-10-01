@@ -350,7 +350,10 @@ func (h *Handlers) deleteSystem(w http.ResponseWriter, r *http.Request) {
 		httpserver.WriteError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	if err := h.Catalog.DeleteSystem(r.Context(), middleware.OrgID(r), id); err != nil {
+	// The health checks bound to the system go with it, in the same
+	// transaction (see catalog.DeleteSystem).
+	checks, err := h.Catalog.DeleteSystem(r.Context(), middleware.OrgID(r), id)
+	if err != nil {
 		if err == catalog.ErrSystemNotFound {
 			httpserver.WriteError(w, http.StatusNotFound, "system not found")
 			return
@@ -363,8 +366,32 @@ func (h *Handlers) deleteSystem(w http.ResponseWriter, r *http.Request) {
 	if err := h.Identity.DeleteSharesForResource(r.Context(), middleware.OrgID(r), identity.ShareSystem, id); err != nil {
 		h.Logger.Warn("delete system: clear shares failed", "err", err)
 	}
-	h.recordAudit(r, "system.deleted", "system", id.String(), nil)
-	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"deleted": true})
+	for _, c := range checks {
+		h.recordAudit(r, "alert_rule.deleted", "alert_rule", c.ID.String(), map[string]any{
+			"name": c.Name, "deleted_with": "system", "system_id": id.String(),
+		})
+	}
+	h.recordAudit(r, "system.deleted", "system", id.String(), map[string]any{"health_checks_deleted": len(checks)})
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"deleted": true, "health_checks_deleted": len(checks)})
+}
+
+// systemDeleteImpact: GET /api/v1/systems/{id}/delete-impact
+//
+// What deleting the system would take with it; see
+// integrationDeleteImpact for why the count is unfiltered.
+func (h *Handlers) systemDeleteImpact(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	n, err := h.Catalog.CountSystemChecks(r.Context(), middleware.OrgID(r), id)
+	if err != nil {
+		h.Logger.Error("system delete impact failed", "err", err)
+		httpserver.WriteError(w, http.StatusInternalServerError, "query failed")
+		return
+	}
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"health_checks": n})
 }
 
 // attachSystemService: POST /api/v1/systems/{id}/services  (writer+)

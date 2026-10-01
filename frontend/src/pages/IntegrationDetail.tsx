@@ -42,6 +42,7 @@ import type {
 } from "../api/types";
 import { formatNumber } from "../lib/format";
 import { useBreadcrumbLeaf } from "../lib/breadcrumb";
+import { integrationDeleteConfirm } from "../lib/deleteConfirm";
 import { useCurrentUser } from "../lib/useCurrentUser";
 import { usePageTitle } from "../lib/usePageTitle";
 import { traceStatesByService, traceSummaryLine } from "../lib/traceNodeVisual";
@@ -266,7 +267,13 @@ export default function IntegrationDetailPage() {
   const [cloneOpen, setCloneOpen] = useState(false);
 
   const onDelete = async () => {
-    if (!confirm("Delete this integration? Matchers will be removed.")) return;
+    // Asked at click time, not page load: checks may have been added
+    // since, and the number has to match what the delete removes.
+    const checks = await api
+      .integrationDeleteImpact(id)
+      .then((r) => r.health_checks)
+      .catch(() => null);
+    if (!confirm(integrationDeleteConfirm(data?.integration.name ?? "this integration", checks))) return;
     try {
       await api.deleteIntegration(id);
       navigate("/integrations");

@@ -273,6 +273,9 @@ export const api = {
   updateSystem: (id: string, body: { name: string; type_key: string; description?: string }) =>
     put<System>(`/systems/${encodeURIComponent(id)}`, body),
   deleteSystem: (id: string) => del(`/systems/${encodeURIComponent(id)}`),
+  // How many health checks a delete would take with it, for the confirm.
+  systemDeleteImpact: (id: string) =>
+    get<{ health_checks: number }>(`/systems/${encodeURIComponent(id)}/delete-impact`),
   attachSystemService: (id: string, serviceName: string) =>
     post<{ attached: boolean }>(`/systems/${encodeURIComponent(id)}/services`, { service_name: serviceName }),
   detachSystemService: (id: string, serviceName: string) =>
@@ -495,6 +498,9 @@ export const api = {
 
   deleteIntegration: (id: string) =>
     del(`/integrations/${encodeURIComponent(id)}`),
+  // How many health checks a delete would take with it, for the confirm.
+  integrationDeleteImpact: (id: string) =>
+    get<{ health_checks: number }>(`/integrations/${encodeURIComponent(id)}/delete-impact`),
 
   // copied_group_access reports whether the clone reproduced the source's
   // team grants — an editor's clone does not, and the UI has to say so

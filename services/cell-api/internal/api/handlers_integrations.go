@@ -1260,7 +1260,10 @@ func (h *Handlers) deleteIntegration(w http.ResponseWriter, r *http.Request) {
 		httpserver.WriteError(w, http.StatusBadRequest, "invalid integration id")
 		return
 	}
-	if err := h.Integrations.Delete(r.Context(), middleware.OrgID(r), id); err != nil {
+	// The health checks bound to it go in the same transaction: left
+	// behind unbound they would evaluate over every service in the org.
+	checks, err := h.Integrations.Delete(r.Context(), middleware.OrgID(r), id)
+	if err != nil {
 		if errors.Is(err, integrations.ErrNotFound) {
 			httpserver.WriteError(w, http.StatusNotFound, "integration not found")
 			return
@@ -1275,8 +1278,35 @@ func (h *Handlers) deleteIntegration(w http.ResponseWriter, r *http.Request) {
 	if err := h.Identity.DeleteSharesForResource(r.Context(), middleware.OrgID(r), identity.ShareIntegration, id); err != nil {
 		h.Logger.Warn("delete integration: clear shares failed", "err", err)
 	}
-	h.recordAudit(r, "integration.deleted", "integration", id.String(), nil)
+	for _, c := range checks {
+		h.recordAudit(r, "alert_rule.deleted", "alert_rule", c.ID.String(), map[string]any{
+			"name": c.Name, "deleted_with": "integration", "integration_id": id.String(),
+		})
+	}
+	h.recordAudit(r, "integration.deleted", "integration", id.String(), map[string]any{"health_checks_deleted": len(checks)})
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// integrationDeleteImpact: GET /api/v1/integrations/{id}/delete-impact
+//
+// What deleting the integration would take with it, so the confirmation
+// can say so before the click rather than after. Counted server side and
+// unfiltered: a caller who may delete the integration deletes every check
+// bound to it, including team checks they cannot see, and the number has
+// to match what the delete does.
+func (h *Handlers) integrationDeleteImpact(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid integration id")
+		return
+	}
+	n, err := h.Integrations.CountBoundChecks(r.Context(), middleware.OrgID(r), id)
+	if err != nil {
+		h.Logger.Error("integration delete impact failed", "err", err)
+		httpserver.WriteError(w, http.StatusInternalServerError, "query failed")
+		return
+	}
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"health_checks": n})
 }
 
 // addMatcher: POST /api/v1/integrations/{id}/matchers

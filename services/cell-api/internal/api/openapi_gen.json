@@ -1984,6 +1984,33 @@
         ]
       }
     },
+    "/api/v1/integrations/{id}/delete-impact": {
+      "get": {
+        "operationId": "get_api_v1_integrations_id_delete_impact",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "List integrations",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
     "/api/v1/integrations/{id}/error-breakdown": {
       "get": {
         "operationId": "get_api_v1_integrations_id_error_breakdown",
@@ -6907,6 +6934,33 @@
           }
         },
         "summary": "Update system",
+        "tags": [
+          "systems"
+        ]
+      }
+    },
+    "/api/v1/systems/{id}/delete-impact": {
+      "get": {
+        "operationId": "get_api_v1_systems_id_delete_impact",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "List systems",
         "tags": [
           "systems"
         ]

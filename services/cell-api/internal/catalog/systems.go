@@ -185,21 +185,66 @@ func (s *Store) UpdateSystem(ctx context.Context, orgID, id uuid.UUID, name, typ
 	return sy, ok, err
 }
 
-// DeleteSystem removes a system; its members are detached (is_system cleared).
-func (s *Store) DeleteSystem(ctx context.Context, orgID, id uuid.UUID) error {
-	if _, err := s.pool.Exec(ctx,
+// SystemCheck is a health check (alert rule) that is deleted together with
+// the system it is bound to.
+type SystemCheck struct {
+	ID   uuid.UUID
+	Name string
+}
+
+// CountSystemChecks reports how many health checks DeleteSystem would take
+// with it, for the confirmation that has to say so beforehand.
+func (s *Store) CountSystemChecks(ctx context.Context, orgID, id uuid.UUID) (int, error) {
+	var n int
+	if err := s.pool.QueryRow(ctx,
+		`SELECT count(*) FROM alert_rules WHERE organization_id = $1 AND system_id = $2`, orgID, id).Scan(&n); err != nil {
+		return 0, fmt.Errorf("count system checks: %w", err)
+	}
+	return n, nil
+}
+
+// DeleteSystem removes a system in one transaction: its members are
+// detached (is_system cleared), and the health checks bound to the system
+// are deleted and returned. The foreign key would cascade them anyway
+// (migration 0077, which explains why a check about a system must not
+// survive it); deleting them here first is what lets the caller say which
+// went. The members' own service checks are untouched.
+func (s *Store) DeleteSystem(ctx context.Context, orgID, id uuid.UUID) ([]SystemCheck, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(ctx,
 		`UPDATE services SET is_system = false, system_kind = '', system_id = NULL
 		 WHERE organization_id = $1 AND system_id = $2`, orgID, id); err != nil {
-		return fmt.Errorf("delete system: detach members: %w", err)
+		return nil, fmt.Errorf("delete system: detach members: %w", err)
 	}
-	tag, err := s.pool.Exec(ctx, `DELETE FROM systems WHERE org_id = $1 AND id = $2`, orgID, id)
+	rows, err := tx.Query(ctx,
+		`DELETE FROM alert_rules WHERE organization_id = $1 AND system_id = $2 RETURNING id, name`, orgID, id)
 	if err != nil {
-		return fmt.Errorf("delete system: %w", err)
+		return nil, fmt.Errorf("delete system: delete bound checks: %w", err)
+	}
+	checks, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (SystemCheck, error) {
+		var c SystemCheck
+		err := row.Scan(&c.ID, &c.Name)
+		return c, err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("delete system: delete bound checks: %w", err)
+	}
+	tag, err := tx.Exec(ctx, `DELETE FROM systems WHERE org_id = $1 AND id = $2`, orgID, id)
+	if err != nil {
+		return nil, fmt.Errorf("delete system: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return ErrSystemNotFound
+		return nil, ErrSystemNotFound
 	}
-	return nil
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("delete system: commit: %w", err)
+	}
+	return checks, nil
 }
 
 // AttachService adds a service to a system, syncing is_system/system_kind.

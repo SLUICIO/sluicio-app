@@ -171,6 +171,7 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 - POST /api/v1/integrations/{id}/clone — Create integration
 - PUT /api/v1/integrations/{id} — Update integration
 - DELETE /api/v1/integrations/{id} — Delete integration
+- GET /api/v1/integrations/{id}/delete-impact — List integrations
 - POST /api/v1/integrations/{id}/matchers — Add one matcher to an integration
 - PUT /api/v1/integrations/{id}/matchers — Replace an integration's whole matcher set (and optionally rule_match) in one transaction
 - DELETE /api/v1/integrations/{id}/matchers/{matcherId} — Remove one matcher from an integration
@@ -180,6 +181,7 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 - POST /api/v1/integrations/{id}/clone — Create integration
 - PUT /api/v1/integrations/{id} — Update integration
 - DELETE /api/v1/integrations/{id} — Delete integration
+- GET /api/v1/integrations/{id}/delete-impact — List integrations
 - POST /api/v1/integrations/{id}/matchers — Add one matcher to an integration
 - PUT /api/v1/integrations/{id}/matchers — Replace an integration's whole matcher set (and optionally rule_match) in one transaction
 - DELETE /api/v1/integrations/{id}/matchers/{matcherId} — Remove one matcher from an integration
@@ -479,6 +481,7 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 - POST /api/v1/systems — Create system
 - PUT /api/v1/systems/{id} — Update system
 - DELETE /api/v1/systems/{id} — Delete system
+- GET /api/v1/systems/{id}/delete-impact — List systems
 - POST /api/v1/systems/{id}/services — Create system
 - DELETE /api/v1/systems/{id}/services/{name} — Delete system
 - GET /api/v1/systems/{id}/shares — List systems

@@ -1052,6 +1052,9 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/systems", h.writeAnywhere(h.createSystem))
 	mux.HandleFunc("PUT /api/v1/systems/{id}", h.writeAnywhere(h.requireManageSystem(h.updateSystem)))
 	mux.HandleFunc("DELETE /api/v1/systems/{id}", h.writeAnywhere(h.requireManageSystem(h.deleteSystem)))
+	// Gated like the delete it describes: only someone who may delete the
+	// system needs to know what the delete takes with it.
+	mux.HandleFunc("GET /api/v1/systems/{id}/delete-impact", h.writeAnywhere(h.requireManageSystem(h.systemDeleteImpact)))
 	mux.HandleFunc("POST /api/v1/systems/{id}/services", h.writeAnywhere(h.requireManageSystem(h.attachSystemService)))
 	mux.HandleFunc("DELETE /api/v1/systems/{id}/services/{name}", h.writeAnywhere(h.requireManageSystem(h.detachSystemService)))
 	// Resource sharing (RBAC v2 phase 3, EE): viewer-only grants of one
@@ -1209,6 +1212,8 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 			h.writeAnywhere(h.requireManageIntegration(h.cloneIntegration)))
 		mux.HandleFunc("PUT /api/v1/integrations/{id}", h.writeAnywhere(h.requireManageIntegration(h.updateIntegration)))
 		mux.HandleFunc("DELETE /api/v1/integrations/{id}", h.writeAnywhere(h.requireManageIntegration(h.deleteIntegration)))
+		// Gated like the delete it describes.
+		mux.HandleFunc("GET /api/v1/integrations/{id}/delete-impact", h.writeAnywhere(h.requireManageIntegration(h.integrationDeleteImpact)))
 		mux.HandleFunc("POST /api/v1/integrations/{id}/matchers", h.writeAnywhere(h.requireManageIntegration(h.addMatcher)))
 		mux.HandleFunc("PUT /api/v1/integrations/{id}/matchers", h.writeAnywhere(h.requireManageIntegration(h.replaceMatchers)))
 		mux.HandleFunc("DELETE /api/v1/integrations/{id}/matchers/{matcherId}", h.writeAnywhere(h.requireManageIntegration(h.removeMatcher)))
@@ -1219,6 +1224,7 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 		mux.HandleFunc("POST /api/v1/integrations/{id}/clone", h.cloneIntegration)
 		mux.HandleFunc("PUT /api/v1/integrations/{id}", h.updateIntegration)
 		mux.HandleFunc("DELETE /api/v1/integrations/{id}", h.deleteIntegration)
+		mux.HandleFunc("GET /api/v1/integrations/{id}/delete-impact", h.integrationDeleteImpact)
 		mux.HandleFunc("POST /api/v1/integrations/{id}/matchers", h.addMatcher)
 		mux.HandleFunc("PUT /api/v1/integrations/{id}/matchers", h.replaceMatchers)
 		mux.HandleFunc("DELETE /api/v1/integrations/{id}/matchers/{matcherId}", h.removeMatcher)

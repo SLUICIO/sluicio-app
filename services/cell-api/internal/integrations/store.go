@@ -243,16 +243,76 @@ func (s *Store) Update(ctx context.Context, orgID, id uuid.UUID, name, descripti
 	return i, nil
 }
 
-// Delete removes the integration; matchers cascade.
-func (s *Store) Delete(ctx context.Context, orgID, id uuid.UUID) error {
-	tag, err := s.pool.Exec(ctx, `DELETE FROM integrations WHERE organization_id = $1 AND id = $2`, orgID, id)
+// BoundCheck is a health check (alert rule) that is deleted together with
+// the integration it is bound to.
+type BoundCheck struct {
+	ID   uuid.UUID
+	Name string
+}
+
+// boundChecksWhere selects the checks that belong to an integration and
+// so go with it. A check that ALSO names a system is about the system
+// (system wins over integration wherever a rule's scope is resolved), so
+// it is not one of them: Delete unbinds it from the integration instead.
+// Only rules from before the API rejected ambiguous scopes look like that.
+const boundChecksWhere = `organization_id = $1 AND integration_id = $2 AND system_id IS NULL`
+
+// CountBoundChecks reports how many health checks Delete would take with
+// it, for the confirmation that has to say so beforehand.
+func (s *Store) CountBoundChecks(ctx context.Context, orgID, id uuid.UUID) (int, error) {
+	var n int
+	if err := s.pool.QueryRow(ctx,
+		`SELECT count(*) FROM alert_rules WHERE `+boundChecksWhere, orgID, id).Scan(&n); err != nil {
+		return 0, fmt.Errorf("count bound checks: %w", err)
+	}
+	return n, nil
+}
+
+// Delete removes the integration and, in the same transaction, the health
+// checks bound to it; matchers cascade. It returns the checks it removed.
+//
+// The checks cannot outlive it. Unbound, a check has no service, no
+// integration and no system, which every evaluator reads as "all
+// services": a threshold written for one queue would start firing on
+// every queue in the org. The foreign key cascades too (migration 0099);
+// deleting them here first is what lets the caller say which went.
+func (s *Store) Delete(ctx context.Context, orgID, id uuid.UUID) ([]BoundCheck, error) {
+	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("delete integration: %w", err)
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(ctx,
+		`UPDATE alert_rules SET integration_id = NULL, updated_at = now()
+		 WHERE organization_id = $1 AND integration_id = $2 AND system_id IS NOT NULL`, orgID, id); err != nil {
+		return nil, fmt.Errorf("delete integration: unbind system checks: %w", err)
+	}
+	rows, err := tx.Query(ctx,
+		`DELETE FROM alert_rules WHERE `+boundChecksWhere+` RETURNING id, name`, orgID, id)
+	if err != nil {
+		return nil, fmt.Errorf("delete integration: delete bound checks: %w", err)
+	}
+	checks, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (BoundCheck, error) {
+		var c BoundCheck
+		err := row.Scan(&c.ID, &c.Name)
+		return c, err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("delete integration: delete bound checks: %w", err)
+	}
+
+	tag, err := tx.Exec(ctx, `DELETE FROM integrations WHERE organization_id = $1 AND id = $2`, orgID, id)
+	if err != nil {
+		return nil, fmt.Errorf("delete integration: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return ErrNotFound
+		return nil, ErrNotFound
 	}
-	return nil
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("delete integration: commit: %w", err)
+	}
+	return checks, nil
 }
 
 // AddMatcher inserts a matcher under the given integration, which must
