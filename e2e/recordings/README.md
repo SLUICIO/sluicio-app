@@ -46,6 +46,7 @@ Knobs: `RECORDING_PACE` (default `1`; `1.5` is slower), `RECORDING_WIDTH` / `REC
 | File | What it shows |
 |---|---|
 | `integration-to-message.rec.ts` | Building an integration from one service, adding the next one the traces suggest, then finding one customer's order among its messages and opening its whole path. |
+| `queue-integration.rec.ts` | One queue of the RabbitMQ broker as an integration of its own: built from the broker's service, narrowed to `invoices.outbound`, given a backlog check, and ending on the stalled `shipments.events` integration turned red. Needs the RabbitMQ part of the stack. |
 
 ## Writing one
 
