@@ -100,6 +100,23 @@ func TestCheckScopeLive(t *testing.T) {
 		t.Errorf("invoices split by state: want ready=873 first of 2, got %+v", groups)
 	}
 
+	// ── one counter, its resource map stored in two key orders ──────────
+	// Written with literal maps, because a map's stored order is the order
+	// its keys arrived in, and the driver's order comes from a Go map.
+	if err := conn.Exec(ctx, `
+		INSERT INTO metrics (Timestamp, MetricName, MetricType, ServiceName, Value, IsMonotonic, ResourceAttributes, MetricAttributes, OrganizationId) VALUES
+		(?, 'queue.published', 'sum', ?, 100, 1, map('rabbitmq.queue.name', 'invoices', 'rabbitmq.vhost.name', '/'), map(), 'checkscope-probe'),
+		(?, 'queue.published', 'sum', ?, 160, 1, map('rabbitmq.vhost.name', '/', 'rabbitmq.queue.name', 'invoices'), map(), 'checkscope-probe')`,
+		now.Add(-40*time.Second), broker, now.Add(-10*time.Second), broker); err != nil {
+		t.Fatal(err)
+	}
+	if v, _, err := s.MetricAggregate(ctx, "queue.published", nil, "increase", from, to, svcs, queue("invoices")); err != nil || v != 60 {
+		t.Errorf("one counter rising 100 -> 160 must increase by 60 whatever its map order; got %v (err %v)", v, err)
+	}
+	if n, err := s.MetricSeriesCount(ctx, "queue.published", nil, from, to, svcs, queue("invoices")); err != nil || n != 1 {
+		t.Errorf("one counter in two map orders is one series; got %d (err %v)", n, err)
+	}
+
 	// ── traces: one runtime, two flows ──────────────────────────────────
 	runtime := fmt.Sprintf("checkscope-runtime-%d", run)
 	tid := func(s string) string { return fmt.Sprintf("%s%020d", s, run) }

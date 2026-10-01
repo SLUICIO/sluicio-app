@@ -80,7 +80,7 @@ func MetricsSupply(ctx context.Context, conn driver.Conn, orgID uuid.UUID, from,
 	rows, err := conn.Query(ctx, `
 		SELECT MetricName,
 		       count()                                   AS rows,
-		       uniqExact((ServiceName, MetricAttributes)) AS series,
+		       uniqExact((ServiceName, mapSort(MetricAttributes))) AS series,
 		       groupUniqArray(10)(ServiceName)            AS services,
 		       min(Timestamp)                             AS firstSeen,
 		       max(Timestamp)                             AS lastSeen,

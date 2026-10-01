@@ -4068,7 +4068,7 @@ func (s *Store) MetricMatchCounts(ctx context.Context, p MetricCatalogParams) (s
 	where, args := metricPredicates(p)
 	q := fmt.Sprintf(`
 		SELECT
-			toUInt64(uniqExact((MetricName, ServiceName, ServiceNamespace, MetricAttributes, ResourceAttributes))),
+			toUInt64(uniqExact((MetricName, ServiceName, ServiceNamespace, mapSort(MetricAttributes), mapSort(ResourceAttributes)))),
 			toUInt64(count())
 		FROM metrics
 		WHERE %s`, strings.Join(where, " AND "))
@@ -4129,7 +4129,7 @@ func (s *Store) MetricCatalog(ctx context.Context, p MetricCatalogParams) ([]Met
 			any(MetricType) AS mtype,
 			any(Unit) AS unit,
 			max(IsMonotonic) AS is_monotonic,
-			toUInt64(uniqExact(ServiceName, MetricAttributes)) AS series,
+			toUInt64(uniqExact(ServiceName, mapSort(MetricAttributes))) AS series,
 			toUInt64(count()) AS points,
 			max(Timestamp) AS last_seen,
 			argMax(Value, Timestamp) AS latest_v,
@@ -4273,7 +4273,7 @@ func (s *Store) MetricGroups(ctx context.Context, p MetricCatalogParams, by, att
 	sql := fmt.Sprintf(`
 		SELECT %[1]s AS gk,
 		       toUInt64(uniqExact(MetricName)) AS metrics,
-		       toUInt64(uniqExact(ServiceName, MetricAttributes)) AS series,
+		       toUInt64(uniqExact(ServiceName, mapSort(MetricAttributes))) AS series,
 		       toUInt64(count()) AS points
 		FROM metrics
 		WHERE %[2]s
@@ -4511,7 +4511,7 @@ func (s *Store) UsageVolume(ctx context.Context, serviceIn []string, from, to ti
 	{
 		where, args := buildWhere()
 		sql := fmt.Sprintf(
-			"SELECT ServiceName, toUInt64(count()) AS n, toUInt64(uniqExact(MetricName, MetricAttributes)) AS series FROM metrics %s GROUP BY ServiceName",
+			"SELECT ServiceName, toUInt64(count()) AS n, toUInt64(uniqExact(MetricName, mapSort(MetricAttributes))) AS series FROM metrics %s GROUP BY ServiceName",
 			where,
 		)
 		rows, err := s.conn.Query(ctx, sql, args...)
@@ -4661,12 +4661,19 @@ func (s *Store) MetricAggregate(ctx context.Context, metricName string, attrs []
 		// across series. A "series" is one (service, namespace, resource
 		// attrs, metric attrs) stream — pooling max/min across series would
 		// undercount, so reduce per series first then sum.
+		//
+		// The maps are compared sorted. A map is stored in the order its
+		// keys arrived, and that order is not stable: the same series
+		// lands as several differently-ordered maps, and grouping by the
+		// map as stored split one counter into fragments whose rises were
+		// summed instead of measured. Every series identity in this file
+		// sorts the same way, for the same reason.
 		sql = fmt.Sprintf(`
 			SELECT sum(delta) AS v, sum(cnt) AS n FROM (
 				SELECT greatest(max(Value) - min(Value), 0) AS delta, toUInt64(count()) AS cnt
 				FROM metrics
 				WHERE %s
-				GROUP BY ServiceName, ServiceNamespace, MetricAttributes, ResourceAttributes
+				GROUP BY ServiceName, ServiceNamespace, mapSort(MetricAttributes), mapSort(ResourceAttributes)
 			)
 		`, strings.Join(where, " AND "))
 	} else {
@@ -4712,7 +4719,7 @@ func (s *Store) MetricAggregate(ctx context.Context, metricName string, attrs []
 func (s *Store) MetricSeriesCount(ctx context.Context, metricName string, attrs []LogAttrFilter, from, to time.Time, serviceIn []string, groups [][]LogAttrFilter) (uint64, error) {
 	where, args := metricCheckPredicates(metricName, attrs, from, to, serviceIn, groups)
 	sql := fmt.Sprintf(`
-		SELECT toUInt64(uniqExact((ServiceName, ServiceNamespace, MetricAttributes, ResourceAttributes)))
+		SELECT toUInt64(uniqExact((ServiceName, ServiceNamespace, mapSort(MetricAttributes), mapSort(ResourceAttributes))))
 		FROM metrics
 		WHERE %s
 	`, strings.Join(where, " AND "))
@@ -4758,7 +4765,7 @@ func (s *Store) MetricAggregateGrouped(ctx context.Context, metricName string, a
 				SELECT %s AS label, greatest(max(Value) - min(Value), 0) AS delta, toUInt64(count()) AS cnt
 				FROM metrics
 				WHERE %s
-				GROUP BY label, ServiceName, ServiceNamespace, MetricAttributes, ResourceAttributes
+				GROUP BY label, ServiceName, ServiceNamespace, mapSort(MetricAttributes), mapSort(ResourceAttributes)
 			)
 			GROUP BY label
 			HAVING n > 0
