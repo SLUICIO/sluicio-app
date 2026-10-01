@@ -674,6 +674,20 @@ func EvaluatesForIntegration(r AlertRule, integrationID uuid.UUID) bool {
 	return r.ServiceName == ""
 }
 
+// EvaluatesForService reports whether a rule is evaluated over the
+// service's telemetry as the service's own: it is bound to that service,
+// or it is bound to nothing and reads every service. A system or
+// integration binding takes precedence over a service one, so a rule
+// carrying either reads that scope instead. A rule bound to an integration
+// or system the service belongs to is that entity's rule, not the
+// service's, and does not count.
+func EvaluatesForService(r AlertRule, serviceName string) bool {
+	if r.SystemID != nil || r.IntegrationID != nil {
+		return false
+	}
+	return r.ServiceName == "" || r.ServiceName == serviceName
+}
+
 // FiringHealthServices returns the set of service names that currently
 // have a firing alert rule bound to them — the service analogue of
 // FiringHealthIntegrations, so a metric formula can define a single

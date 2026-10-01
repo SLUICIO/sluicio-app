@@ -100,14 +100,31 @@ func (h *Handlers) metricCatalog(w http.ResponseWriter, r *http.Request) {
 	// from the alert engine — drive the rule badge, sparkline threshold
 	// line, and breach tint. Non-fatal: a failure just omits rule data.
 	//
-	// Scoped to an integration, only the rules evaluated over it count:
-	// the ones bound to it and the global ones. Counted cell-wide, a new
-	// integration on a shared broker showed a sibling queue's rule as its
-	// own. An integration that does not resolve keeps the global rules.
-	var keep func(alerting.AlertRule) bool
+	// Scoped to an integration or a service, only the rules evaluated
+	// over it count: the ones bound to it and the global ones. Counted
+	// cell-wide, a new integration on a shared broker showed a sibling
+	// queue's rule as its own, and a service showed every other service's
+	// rules on a metric they both emit. An integration that does not
+	// resolve keeps the global rules; both scopes at once keep the rules
+	// both would.
+	var keeps []func(alerting.AlertRule) bool
 	if name := strings.TrimSpace(r.URL.Query().Get("integration")); name != "" {
 		id, _ := h.integrationIDByName(r.Context(), name)
-		keep = func(rule alerting.AlertRule) bool { return alerting.EvaluatesForIntegration(rule, id) }
+		keeps = append(keeps, func(rule alerting.AlertRule) bool { return alerting.EvaluatesForIntegration(rule, id) })
+	}
+	if svc := strings.TrimSpace(r.URL.Query().Get("service")); svc != "" {
+		keeps = append(keeps, func(rule alerting.AlertRule) bool { return alerting.EvaluatesForService(rule, svc) })
+	}
+	var keep func(alerting.AlertRule) bool
+	if len(keeps) > 0 {
+		keep = func(rule alerting.AlertRule) bool {
+			for _, k := range keeps {
+				if !k(rule) {
+					return false
+				}
+			}
+			return true
+		}
 	}
 	summaries, err := h.Alerts.MetricRuleSummaries(r.Context(), middleware.OrgID(r), keep)
 	if err != nil {

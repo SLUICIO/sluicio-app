@@ -78,3 +78,49 @@ func TestSummarizeMetricRulesScopedToIntegration(t *testing.T) {
 		t.Errorf("Invoice dispatch summary = %+v, want the global rule alone", sum)
 	}
 }
+
+func TestEvaluatesForService(t *testing.T) {
+	integ, sys := uuid.New(), uuid.New()
+	cases := []struct {
+		name string
+		rule AlertRule
+		want bool
+	}{
+		{"bound to this service", AlertRule{ServiceName: "rabbitmq"}, true},
+		{"bound to another service", AlertRule{ServiceName: "order-intake"}, false},
+		{"global", AlertRule{}, true},
+		// One queue's rule reads that queue's slice of the broker; it is
+		// the integration's rule, not the broker's.
+		{"bound to an integration on this service", AlertRule{IntegrationID: &integ}, false},
+		{"bound to a system", AlertRule{SystemID: &sys}, false},
+		// Integration wins the precedence, so the rule reads the slice.
+		{"integration and this service", AlertRule{IntegrationID: &integ, ServiceName: "rabbitmq"}, false},
+	}
+	for _, c := range cases {
+		if got := EvaluatesForService(c.rule, "rabbitmq"); got != c.want {
+			t.Errorf("%s: EvaluatesForService = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+func TestSummarizeMetricRulesScopedToService(t *testing.T) {
+	const metric = "process.cpu.utilization"
+	own := metricRule(metric, 0.8, SeverityWarning)
+	own.ServiceName = "rabbitmq"
+	other := metricRule(metric, 0.5, SeverityCritical)
+	other.ServiceName = "order-intake"
+	rules := []AlertRule{own, other}
+
+	keep := func(r AlertRule) bool { return EvaluatesForService(r, "rabbitmq") }
+	sum := SummarizeMetricRules(rules, keep)[metric]
+	if sum.Count != 1 || sum.Threshold != 0.8 || sum.Severity != SeverityWarning {
+		t.Errorf("rabbitmq summary = %+v, want its own rule alone", sum)
+	}
+	if got := SummarizeMetricRules(rules, nil)[metric].Count; got != 2 {
+		t.Errorf("cell-wide count = %d, want 2", got)
+	}
+	rules = append(rules, metricRule(metric, 0.9, SeverityInfo))
+	if got := SummarizeMetricRules(rules, keep)[metric].Count; got != 2 {
+		t.Errorf("rabbitmq count with a global rule = %d, want 2", got)
+	}
+}
