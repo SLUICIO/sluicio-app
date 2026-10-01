@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/sluicio/sluicio-app/pkg/httpserver"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/alerting"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/api/middleware"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/demand"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/identity"
@@ -98,7 +99,17 @@ func (h *Handlers) metricCatalog(w http.ResponseWriter, r *http.Request) {
 	// Rule summaries (count + tightest threshold + severity) per metric,
 	// from the alert engine — drive the rule badge, sparkline threshold
 	// line, and breach tint. Non-fatal: a failure just omits rule data.
-	summaries, err := h.Alerts.MetricRuleSummaries(r.Context(), middleware.OrgID(r))
+	//
+	// Scoped to an integration, only the rules evaluated over it count:
+	// the ones bound to it and the global ones. Counted cell-wide, a new
+	// integration on a shared broker showed a sibling queue's rule as its
+	// own. An integration that does not resolve keeps the global rules.
+	var keep func(alerting.AlertRule) bool
+	if name := strings.TrimSpace(r.URL.Query().Get("integration")); name != "" {
+		id, _ := h.integrationIDByName(r.Context(), name)
+		keep = func(rule alerting.AlertRule) bool { return alerting.EvaluatesForIntegration(rule, id) }
+	}
+	summaries, err := h.Alerts.MetricRuleSummaries(r.Context(), middleware.OrgID(r), keep)
 	if err != nil {
 		h.Logger.Warn("metric rule summaries failed", "err", err)
 		summaries = nil

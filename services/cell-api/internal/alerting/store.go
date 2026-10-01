@@ -619,16 +619,25 @@ func (s *Store) ServiceReadings(ctx context.Context, orgID uuid.UUID, serviceNam
 }
 
 // MetricRuleSummaries groups the enabled metric rules by metric name:
-// count, tightest threshold to draw, and the most severe severity.
-func (s *Store) MetricRuleSummaries(ctx context.Context, orgID uuid.UUID) (map[string]MetricRuleSummary, error) {
+// count, tightest threshold to draw, and the most severe severity. keep,
+// when not nil, decides which rules count (see SummarizeMetricRules).
+func (s *Store) MetricRuleSummaries(ctx context.Context, orgID uuid.UUID, keep func(AlertRule) bool) (map[string]MetricRuleSummary, error) {
 	rules, err := s.EnabledMetricRules(ctx, orgID)
 	if err != nil {
 		return nil, err
 	}
+	return SummarizeMetricRules(rules, keep), nil
+}
+
+// SummarizeMetricRules is MetricRuleSummaries over rules already read.
+// keep narrows it to the rules a scoped view evaluates (an integration's
+// Metrics tab counts its own rules, not every rule on the metric name in
+// the cell); nil keeps every rule.
+func SummarizeMetricRules(rules []AlertRule, keep func(AlertRule) bool) map[string]MetricRuleSummary {
 	out := map[string]MetricRuleSummary{}
 	for _, r := range rules {
 		name := r.Spec.MetricName
-		if name == "" {
+		if name == "" || (keep != nil && !keep(r)) {
 			continue
 		}
 		cur, ok := out[name]
@@ -646,7 +655,23 @@ func (s *Store) MetricRuleSummaries(ctx context.Context, orgID uuid.UUID) (map[s
 		}
 		out[name] = cur
 	}
-	return out, nil
+	return out
+}
+
+// EvaluatesForIntegration reports whether a rule is evaluated over the
+// integration's telemetry: it is bound to that integration, or it is bound
+// to nothing and reads every service. A system binding takes precedence
+// over an integration one (the order every scope resolver follows), so a
+// rule carrying both reads the system. A rule bound to a member service
+// reads the whole service, not this integration, and does not count.
+func EvaluatesForIntegration(r AlertRule, integrationID uuid.UUID) bool {
+	if r.SystemID != nil {
+		return false
+	}
+	if r.IntegrationID != nil {
+		return *r.IntegrationID == integrationID
+	}
+	return r.ServiceName == ""
 }
 
 // FiringHealthServices returns the set of service names that currently
