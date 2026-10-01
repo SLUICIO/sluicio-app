@@ -715,6 +715,8 @@ func (h *Handlers) previewAlertRule(w http.ResponseWriter, r *http.Request) {
 	// the real evaluation. A caller with no access (or asking for a service
 	// they can't see) gets an empty (no-data) preview.
 	var pf policyResolution
+	// A bound integration's conditions; nil for every other scope.
+	var groups [][]store.LogAttrFilter
 	switch {
 	case req.ServiceName != "":
 		pf = h.resolveServiceFilter(r, req.ServiceName, []string{req.ServiceName})
@@ -773,6 +775,9 @@ func (h *Handlers) previewAlertRule(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		pf = h.resolveServiceFilter(r, "", members)
+		// The integration's conditions too, exactly as the evaluator
+		// applies them: one queue of a broker previews that queue.
+		groups = h.integrationGroups(r.Context(), id)
 		// A caller who can see NONE of the members intersects down to an
 		// empty list, and an empty ServiceIn reads downstream as "no
 		// filter" — i.e. the whole cell. The ?service= path is protected
@@ -799,7 +804,7 @@ func (h *Handlers) previewAlertRule(w http.ResponseWriter, r *http.Request) {
 	if req.Spec.SplitBy != "" {
 		groups, err := h.Store.MetricAggregateGrouped(
 			r.Context(), req.Spec.MetricName, ruleAttrsToStore(req.Spec.Attrs),
-			string(req.Spec.Aggregation), req.Spec.SplitBy, from, to, pf.ServiceIn,
+			string(req.Spec.Aggregation), req.Spec.SplitBy, from, to, pf.ServiceIn, groups,
 		)
 		if err != nil {
 			h.Logger.Error("alert preview grouped aggregate failed", "err", err)
@@ -836,7 +841,7 @@ func (h *Handlers) previewAlertRule(w http.ResponseWriter, r *http.Request) {
 
 	value, samples, err := h.Store.MetricAggregate(
 		r.Context(), req.Spec.MetricName, ruleAttrsToStore(req.Spec.Attrs),
-		string(req.Spec.Aggregation), from, to, pf.ServiceIn,
+		string(req.Spec.Aggregation), from, to, pf.ServiceIn, groups,
 	)
 	if err != nil {
 		h.Logger.Error("alert preview aggregate failed", "err", err)
@@ -858,7 +863,7 @@ func (h *Handlers) previewAlertRule(w http.ResponseWriter, r *http.Request) {
 	// query is only run where it can change what the builder says.
 	if samples > 0 && alerting.AggregationPicksBySample(string(req.Spec.Aggregation)) {
 		series, err := h.Store.MetricSeriesCount(
-			r.Context(), req.Spec.MetricName, ruleAttrsToStore(req.Spec.Attrs), from, to, pf.ServiceIn,
+			r.Context(), req.Spec.MetricName, ruleAttrsToStore(req.Spec.Attrs), from, to, pf.ServiceIn, groups,
 		)
 		if err != nil {
 			// A missing count degrades the warning, not the preview.

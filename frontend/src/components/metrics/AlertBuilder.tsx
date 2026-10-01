@@ -374,7 +374,7 @@ export default function AlertBuilder({
               : bindKind === "integration" && healthIntegration
                 ? `Whenever the threshold above is breached, ${
                     integrations.find((i) => i.id === healthIntegration)?.name ?? "this integration"
-                  } reads as unhealthy. The check is evaluated across that integration's member services — bind it to a service instead if you mean one service specifically.`
+                  } reads as unhealthy. The check reads what the integration matches: its services, narrowed by any conditions on them, so one queue of a broker reads that queue alone. Bind it to a service instead to read the whole service.`
                 : bindKind === "system" && healthSystem
                   ? `Whenever the threshold above is breached, ${
                       systems.find((sy) => sy.id === healthSystem)?.name ?? "this system"

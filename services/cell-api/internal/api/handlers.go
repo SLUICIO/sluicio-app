@@ -2195,7 +2195,7 @@ func (h *Handlers) effectiveErrorCount(ctx context.Context, service string, wind
 	if !ok || !ack.AcknowledgedUntil.After(from) {
 		return windowErr
 	}
-	n, err := h.Store.ErrorTraceCountSince(ctx, service, ack.AcknowledgedUntil, to, nil)
+	n, err := h.Store.ErrorTraceCountSince(ctx, service, ack.AcknowledgedUntil, to, nil, nil)
 	if err != nil {
 		h.Logger.Warn("effective error count failed; using raw", "err", err, "service", service)
 		return windowErr

@@ -476,12 +476,25 @@ func (s *Store) CountDistinctTracesIn(ctx context.Context, serviceNames, traceID
 	return n, nil
 }
 
+// checkSliceClause renders a bound integration's conditions for the span
+// reads a health check makes, so the check reads the slice the
+// integration's status and Messages tab read - not every span of its
+// member services. Empty (and no args) for a check with no conditions.
+func checkSliceClause(groups [][]LogAttrFilter, from, to time.Time) (string, []any) {
+	clause, args := attrGroupsClause("SpanAttributes", groups, from, to)
+	if clause == "" {
+		return "", nil
+	}
+	return " AND " + clause, args
+}
+
 // LatencyMsForServices returns the aggregate span duration in milliseconds
 // over [from,to] for the given services, at the requested quantile (use
 // 1.0 for max). samples is the span count behind the aggregate — 0 means no
 // data (the caller treats that as "don't evaluate"). Powers the
-// trace-latency ("response time > X") health check.
-func (s *Store) LatencyMsForServices(ctx context.Context, serviceNames []string, quantile float64, from, to time.Time) (float64, uint64, error) {
+// trace-latency ("response time > X") health check. groups is the bound
+// integration's conditions (nil for none).
+func (s *Store) LatencyMsForServices(ctx context.Context, serviceNames []string, quantile float64, from, to time.Time, groups [][]LogAttrFilter) (float64, uint64, error) {
 	if len(serviceNames) == 0 {
 		return 0, 0, nil
 	}
@@ -491,11 +504,13 @@ func (s *Store) LatencyMsForServices(ctx context.Context, serviceNames []string,
 		svc[i] = "?"
 		args = append(args, n)
 	}
+	sliceSQL, sliceArgs := checkSliceClause(groups, from, to)
+	args = append(args, sliceArgs...)
 	q := `
 		SELECT quantile(?)(DurationNs) / 1e6 AS latency_ms, toUInt64(count()) AS samples
 		FROM traces
 		WHERE Timestamp >= ? AND Timestamp <= ?
-		  AND ServiceName IN (` + strings.Join(svc, ",") + `)`
+		  AND ServiceName IN (` + strings.Join(svc, ",") + `)` + sliceSQL
 	var latencyMs float64
 	var samples uint64
 	if err := s.conn.QueryRow(ctx, q, args...).Scan(&latencyMs, &samples); err != nil {
@@ -525,25 +540,29 @@ func errorSpanCondition(attrs []LogAttrFilter) (string, []any) {
 // Powers the trace_error alert evaluator ("alert when this integration
 // has ≥ N failed traces in the last W minutes"). attrs narrow which
 // error spans count (AND-ed span/resource attribute predicates; keys
-// validated upstream via attrKeyRe); empty = any error span.
-func (s *Store) CountErrorTracesForServices(ctx context.Context, serviceNames []string, from, to time.Time, attrs []LogAttrFilter) (uint64, error) {
+// validated upstream via attrKeyRe); empty = any error span. groups is
+// the bound integration's conditions (nil for none): an error counts
+// when its span is in the integration's slice, as on its status.
+func (s *Store) CountErrorTracesForServices(ctx context.Context, serviceNames []string, from, to time.Time, attrs []LogAttrFilter, groups [][]LogAttrFilter) (uint64, error) {
 	if len(serviceNames) == 0 {
 		return 0, nil
 	}
 	cond, condArgs := errorSpanCondition(attrs)
 	// Placeholder order: the condition (SELECT clause) binds first, then
-	// the Timestamp bounds, then the ServiceName IN-list.
+	// the Timestamp bounds, then the ServiceName IN-list, then the slice.
 	args := append(condArgs, from, to)
 	svc := make([]string, len(serviceNames))
 	for i, n := range serviceNames {
 		svc[i] = "?"
 		args = append(args, n)
 	}
+	sliceSQL, sliceArgs := checkSliceClause(groups, from, to)
+	args = append(args, sliceArgs...)
 	q := `
 		SELECT toUInt64(uniqExactIf(TraceId, ` + cond + `))
 		FROM traces
 		WHERE Timestamp >= ? AND Timestamp <= ?
-		  AND ServiceName IN (` + strings.Join(svc, ",") + `)`
+		  AND ServiceName IN (` + strings.Join(svc, ",") + `)` + sliceSQL
 	var n uint64
 	if err := s.conn.QueryRow(ctx, q, args...).Scan(&n); err != nil {
 		return 0, fmt.Errorf("count error traces for services: %w", err)
@@ -564,7 +583,9 @@ func (s *Store) CountErrorTracesForServices(ctx context.Context, serviceNames []
 // attrs must be non-empty — the caller validates it. An empty list here
 // would count every trace in scope and quietly turn a span-attribute
 // rule into a traffic rule.
-func (s *Store) CountTracesMatchingAttrs(ctx context.Context, serviceNames []string, from, to time.Time, attrs []LogAttrFilter) (uint64, error) {
+//
+// groups is the bound integration's conditions (nil for none).
+func (s *Store) CountTracesMatchingAttrs(ctx context.Context, serviceNames []string, from, to time.Time, attrs []LogAttrFilter, groups [][]LogAttrFilter) (uint64, error) {
 	if len(serviceNames) == 0 || len(attrs) == 0 {
 		return 0, nil
 	}
@@ -579,19 +600,21 @@ func (s *Store) CountTracesMatchingAttrs(ctx context.Context, serviceNames []str
 		condArgs = append(condArgs, a...)
 	}
 	// Placeholder order: the condition (SELECT clause) binds first, then
-	// the Timestamp bounds, then the ServiceName IN-list. Mirrors
-	// CountErrorTracesForServices.
+	// the Timestamp bounds, then the ServiceName IN-list, then the slice.
+	// Mirrors CountErrorTracesForServices.
 	args := append(condArgs, from, to)
 	svc := make([]string, len(serviceNames))
 	for i, n := range serviceNames {
 		svc[i] = "?"
 		args = append(args, n)
 	}
+	sliceSQL, sliceArgs := checkSliceClause(groups, from, to)
+	args = append(args, sliceArgs...)
 	q := `
 		SELECT toUInt64(uniqExactIf(TraceId, ` + cond + `))
 		FROM traces
 		WHERE Timestamp >= ? AND Timestamp <= ?
-		  AND ServiceName IN (` + strings.Join(svc, ",") + `)`
+		  AND ServiceName IN (` + strings.Join(svc, ",") + `)` + sliceSQL
 	var n uint64
 	if err := s.conn.QueryRow(ctx, q, args...).Scan(&n); err != nil {
 		return 0, fmt.Errorf("count traces matching attrs: %w", err)
@@ -781,14 +804,18 @@ func (s *Store) ServiceStatsSeries(ctx context.Context, service string, from, to
 // service's effective error count is the number of NEW error traces
 // since the acknowledgement watermark, so it reads healthy again until
 // fresh failures arrive. Same error definition as everywhere else
-// (uniqExactIf(TraceId, StatusCode='Error')).
-func (s *Store) ErrorTraceCountSince(ctx context.Context, service string, since, to time.Time, attrs []LogAttrFilter) (uint64, error) {
+// (uniqExactIf(TraceId, StatusCode='Error')). groups is a bound
+// integration's conditions (nil for none), as in
+// CountErrorTracesForServices.
+func (s *Store) ErrorTraceCountSince(ctx context.Context, service string, since, to time.Time, attrs []LogAttrFilter, groups [][]LogAttrFilter) (uint64, error) {
 	cond, condArgs := errorSpanCondition(attrs)
+	sliceSQL, sliceArgs := checkSliceClause(groups, since, to)
 	q := `
 		SELECT toUInt64(uniqExactIf(TraceId, ` + cond + `))
 		FROM traces
-		WHERE ServiceName = ? AND Timestamp > ? AND Timestamp <= ?`
+		WHERE ServiceName = ? AND Timestamp > ? AND Timestamp <= ?` + sliceSQL
 	args := append(condArgs, service, since, to)
+	args = append(args, sliceArgs...)
 	var n uint64
 	if err := s.conn.QueryRow(ctx, q, args...).Scan(&n); err != nil {
 		return 0, fmt.Errorf("error trace count since: %w", err)
@@ -4585,14 +4612,17 @@ func metricAggExpr(aggregation string) string {
 	}
 }
 
-// MetricAggregate reduces a metric's points to a single number over the
-// window, applying the given aggregation and attribute filters — the
-// value an alert rule compares against its threshold. Returns the
-// aggregate and the matched sample count (0 ⇒ no data, value is 0).
-// serviceIn (when non-empty) restricts the aggregate to a set of
-// services — the caller's policy allowlist. Pass nil for no restriction
-// (org admins, and the alert evaluator, which is a trusted system path).
-func (s *Store) MetricAggregate(ctx context.Context, metricName string, attrs []LogAttrFilter, aggregation string, from, to time.Time, serviceIn []string) (float64, uint64, error) {
+// metricCheckPredicates is the WHERE of every read a metric check makes:
+// the metric, the window, the check's own attribute filters, the services
+// in scope and, for a check bound to an integration, that integration's
+// conditions.
+//
+// The conditions are what make one queue of a broker an integration of
+// its own. Without them a check bound to "rabbitmq, where
+// rabbitmq.queue.name is invoices.outbound" read every queue on the
+// broker, and a backlog check on one queue was decided by whichever
+// queue's sample won the tie at the latest timestamp.
+func metricCheckPredicates(metricName string, attrs []LogAttrFilter, from, to time.Time, serviceIn []string, groups [][]LogAttrFilter) ([]string, []any) {
 	where := []string{"MetricName = ?", "Timestamp >= ?", "Timestamp <= ?"}
 	args := []any{metricName, from, to}
 	for _, f := range attrs {
@@ -4608,6 +4638,23 @@ func (s *Store) MetricAggregate(ctx context.Context, metricName string, attrs []
 		}
 		where = append(where, "ServiceName IN ("+strings.Join(ph, ",")+")")
 	}
+	if clause, cargs := attrGroupsClause("MetricAttributes", groups, from, to); clause != "" {
+		where = append(where, clause)
+		args = append(args, cargs...)
+	}
+	return where, args
+}
+
+// MetricAggregate reduces a metric's points to a single number over the
+// window, applying the given aggregation and attribute filters — the
+// value an alert rule compares against its threshold. Returns the
+// aggregate and the matched sample count (0 ⇒ no data, value is 0).
+// serviceIn (when non-empty) restricts the aggregate to a set of
+// services — the caller's policy allowlist. Pass nil for no restriction
+// (org admins, and the alert evaluator, which is a trusted system path).
+// groups is the bound integration's conditions (nil for none).
+func (s *Store) MetricAggregate(ctx context.Context, metricName string, attrs []LogAttrFilter, aggregation string, from, to time.Time, serviceIn []string, groups [][]LogAttrFilter) (float64, uint64, error) {
+	where, args := metricCheckPredicates(metricName, attrs, from, to, serviceIn, groups)
 	var sql string
 	if aggregation == "increase" || aggregation == "rate" {
 		// Counter delta: rise per series (guarded against resets), summed
@@ -4662,22 +4709,8 @@ func (s *Store) MetricAggregate(ctx context.Context, metricName string, attrs []
 //
 // The count is what lets the rule builder say so before the rule is
 // saved. Nothing about the aggregate itself changes.
-func (s *Store) MetricSeriesCount(ctx context.Context, metricName string, attrs []LogAttrFilter, from, to time.Time, serviceIn []string) (uint64, error) {
-	where := []string{"MetricName = ?", "Timestamp >= ?", "Timestamp <= ?"}
-	args := []any{metricName, from, to}
-	for _, f := range attrs {
-		clause, cargs := attrClauseIn("MetricAttributes", f)
-		where = append(where, clause)
-		args = append(args, cargs...)
-	}
-	if len(serviceIn) > 0 {
-		ph := make([]string, len(serviceIn))
-		for i, n := range serviceIn {
-			ph[i] = "?"
-			args = append(args, n)
-		}
-		where = append(where, "ServiceName IN ("+strings.Join(ph, ",")+")")
-	}
+func (s *Store) MetricSeriesCount(ctx context.Context, metricName string, attrs []LogAttrFilter, from, to time.Time, serviceIn []string, groups [][]LogAttrFilter) (uint64, error) {
+	where, args := metricCheckPredicates(metricName, attrs, from, to, serviceIn, groups)
 	sql := fmt.Sprintf(`
 		SELECT toUInt64(uniqExact((ServiceName, ServiceNamespace, MetricAttributes, ResourceAttributes)))
 		FROM metrics
@@ -4713,22 +4746,8 @@ const metricGroupCap = 500
 // serviceIn (when non-empty) restricts the aggregate to the caller's
 // policy-visible services; pass nil for no restriction (admins / the
 // trusted evaluator path).
-func (s *Store) MetricAggregateGrouped(ctx context.Context, metricName string, attrs []LogAttrFilter, aggregation, splitKey string, from, to time.Time, serviceIn []string) ([]MetricGroupAggregate, error) {
-	where := []string{"MetricName = ?", "Timestamp >= ?", "Timestamp <= ?"}
-	args := []any{metricName, from, to}
-	for _, f := range attrs {
-		clause, cargs := attrClauseIn("MetricAttributes", f)
-		where = append(where, clause)
-		args = append(args, cargs...)
-	}
-	if len(serviceIn) > 0 {
-		ph := make([]string, len(serviceIn))
-		for i, n := range serviceIn {
-			ph[i] = "?"
-			args = append(args, n)
-		}
-		where = append(where, "ServiceName IN ("+strings.Join(ph, ",")+")")
-	}
+func (s *Store) MetricAggregateGrouped(ctx context.Context, metricName string, attrs []LogAttrFilter, aggregation, splitKey string, from, to time.Time, serviceIn []string, groups [][]LogAttrFilter) ([]MetricGroupAggregate, error) {
+	where, args := metricCheckPredicates(metricName, attrs, from, to, serviceIn, groups)
 	label := attrEffectiveExprIn("MetricAttributes", splitKey)
 	var sql string
 	if aggregation == "increase" || aggregation == "rate" {
