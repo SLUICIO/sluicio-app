@@ -380,14 +380,18 @@ function MemberDetails({
   );
 }
 
-function MembersTab() {
+export function MembersTab() {
   const { can, user: me } = useCurrentUser();
   const isAdmin = can("org.manage");
   const [members, setMembers] = useState<MemberRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [resetting, setResetting] = useState<MemberRow | null>(null);
-  const [viewing, setViewing] = useState<MemberRow | null>(null);
+  // The open member is held by id and read from the list, so the blade
+  // shows what a refresh brought back. Holding the row itself kept the
+  // copy from when the blade opened: a role change saved, and the select
+  // went straight back to the old role until the page was reloaded.
+  const [viewingId, setViewingId] = useState<string | null>(null);
 
   const refresh = () => {
     api
@@ -400,6 +404,7 @@ function MembersTab() {
   if (error)
     return <div className="alert alert--error">Failed to load: {error}</div>;
   if (!members) return <div className="placeholder">Loading…</div>;
+  const viewing = members.find((m) => m.user.id === viewingId) ?? null;
 
   return (
     <div>
@@ -467,7 +472,7 @@ function MembersTab() {
           {members.map((m) => (
             <tr
               key={m.user.id}
-              onClick={() => setViewing(m)}
+              onClick={() => setViewingId(m.user.id)}
               style={{ cursor: "pointer" }}
               title="Member details"
             >
@@ -518,7 +523,7 @@ function MembersTab() {
         <EditDrawer
           title={viewing.user.name || viewing.user.email}
           width="medium"
-          onClose={() => setViewing(null)}
+          onClose={() => setViewingId(null)}
         >
           <MemberDetails
             member={viewing}
@@ -528,11 +533,11 @@ function MembersTab() {
               refresh();
             }}
             onResetPassword={() => {
-              setViewing(null);
+              setViewingId(null);
               setResetting(viewing);
             }}
             onRemoved={() => {
-              setViewing(null);
+              setViewingId(null);
               refresh();
             }}
           />
