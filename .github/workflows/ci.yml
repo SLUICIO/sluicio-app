@@ -19,7 +19,7 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           # Read the version from go.work so CI always matches what the
-          # modules declare (currently 1.25.0). setup-go@v6 defaults
+          # modules declare (currently 1.26.0). setup-go@v6 defaults
           # GOTOOLCHAIN=local, so a hardcoded older version no longer
           # auto-upgrades and would fail the go.work toolchain check.
           go-version-file: go.work
@@ -127,9 +127,9 @@ jobs:
           fetch-depth: 0 # full history so gitleaks scans every commit
       - uses: actions/setup-go@v6
         with:
-          # Installs the toolchain pinned in go.work (>= go1.25.11), so
+          # Installs the toolchain pinned in go.work (>= go1.26.9), so
           # govulncheck evaluates the patched standard library — the same
-          # one the golang:1.25 Docker builders ship.
+          # one the golang:1.26 Docker builders ship.
           go-version-file: go.work
           cache: true
       # Reachability-aware Go vuln scan: only fails on advisories your code

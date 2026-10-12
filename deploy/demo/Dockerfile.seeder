@@ -16,7 +16,7 @@
 # cross-compiles natively, so an arm64 image costs the same as an amd64
 # one — emulating it would have cost several times more and is a known
 # source of flaky, slow CI.
-FROM --platform=$BUILDPLATFORM golang:1.25-bookworm AS build
+FROM --platform=$BUILDPLATFORM golang:1.26-bookworm AS build
 WORKDIR /src
 COPY go.work go.work.sum ./
 COPY go.mod go.sum ./

@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
-go 1.25.0
+go 1.26.0
 
-// Require at least this patch toolchain to build: it carries the crypto/tls,
-// crypto/x509, html/template and net/* standard-library security fixes (the
-// go1.25.6–1.25.12 CVEs govulncheck flags against 1.25.0). The Docker builders
-// use the floating golang:1.25 tag, which already tracks the latest patch.
-toolchain go1.25.13
+// Require at least this patch toolchain to build: it carries the standard
+// library's security fixes (html/template, net/http, net/textproto,
+// crypto/tls - GO-2026-6599 to -6611). Go 1.25 is out of support and got
+// none of them, so the floor is a 1.26 patch. The Docker builders use the
+// floating golang:1.26 tag, which tracks the latest patch.
+toolchain go1.26.9
 
 use (
 	.
