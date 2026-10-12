@@ -3,8 +3,21 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.170 — 2026-10-08
+
+- fix(settings): a member's new role shows at once, not after a reload (1850d53)
+- fix(metrics): a service's Metrics tab counts its own rules and the global ones (565abc7)
+- fix(alerting): deleting an integration deletes the health checks bound to it (f4f6594)
+- fix(metrics): an integration's Metrics tab counts the rules evaluated over it (9838bae)
+- fix(badges): an integration's badge reads that integration, not its services (45a682b)
+- test(e2e): a walkthrough of one queue as an integration of its own (97367d7)
+- fix(metrics): one series is one series, whatever order its attributes arrived in (dd4971e)
+- fix(alerting): a check bound to an integration reads that integration, not its services (812e906)
+- test(e2e): moving the recording stack to a new release moves its seeder too (060ba3b)
+
 ## v0.11.169 — 2026-09-29
 
+- release v0.11.169 — refresh internal changelog (9edf991)
 - fix(integrations): an integration fed by metrics alone is not called quiet (3edc79d)
 - fix(integrations): the services editor understands a service that only sends metrics (84dbaa9)
 - test(e2e): a RabbitMQ broker in the recording stack, streamed in by a collector (0ff7a6a)
