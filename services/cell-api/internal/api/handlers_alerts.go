@@ -1017,14 +1017,30 @@ type channelRequest struct {
 	Config map[string]string `json:"config"`
 }
 
-// validateChannel checks the kind + the kind-specific config keys.
+// channelPolicy is what the instance allows a channel to be.
 //
-// managed refuses the email keys that choose a SERVER rather than a
+// Managed refuses the email keys that choose a SERVER rather than a
 // destination. On an instance run by a platform on behalf of someone else
 // the transport is the platform's; a channel says where its mail goes and
 // nothing about how it gets there. Refused rather than ignored, so nobody
 // saves a server address and believes it is in use.
-func validateChannel(req *channelRequest, managed bool) error {
+//
+// EmailDisabled refuses email channels altogether.
+type channelPolicy struct {
+	Managed       bool
+	EmailDisabled bool
+}
+
+func (h *Handlers) channelPolicy() channelPolicy {
+	return channelPolicy{Managed: h.Managed, EmailDisabled: h.EmailDisabled}
+}
+
+// errEmailDisabled is the refusal for anything that would configure or
+// send email on an instance with email turned off.
+const errEmailDisabled = "email is turned off on this instance"
+
+// validateChannel checks the kind + the kind-specific config keys.
+func validateChannel(req *channelRequest, policy channelPolicy) error {
 	req.Name = strings.TrimSpace(req.Name)
 	req.Kind = strings.TrimSpace(req.Kind)
 	if req.Name == "" {
@@ -1082,13 +1098,16 @@ func validateChannel(req *channelRequest, managed bool) error {
 			return errors.New("config.events_url must be an http(s) URL when set")
 		}
 	case alerting.ChannelEmail:
+		if policy.EmailDisabled {
+			return errors.New(errEmailDisabled)
+		}
 		// Recipients are always required. The SMTP server (smtp_host / from /
 		// auth) is optional: when omitted, delivery falls back to the org's
 		// system email settings (Settings → System email).
 		if strings.TrimSpace(req.Config["to"]) == "" {
 			return errors.New("config.to is required (comma-separated recipients)")
 		}
-		if managed {
+		if policy.Managed {
 			for _, k := range alerting.ChannelTransportKeys() {
 				if strings.TrimSpace(req.Config[k]) != "" {
 					return fmt.Errorf("config.%s can't be set: email is provided by this deployment, "+
@@ -1204,7 +1223,7 @@ func (h *Handlers) createChannel(w http.ResponseWriter, r *http.Request) {
 		httpserver.WriteError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	if err := validateChannel(&req, h.Managed); err != nil {
+	if err := validateChannel(&req, h.channelPolicy()); err != nil {
 		httpserver.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -1251,7 +1270,7 @@ func (h *Handlers) updateChannel(w http.ResponseWriter, r *http.Request) {
 	if existing, err := h.Alerts.GetChannel(r.Context(), middleware.OrgID(r), id); err == nil {
 		req.Config = keepMaskedSecrets(req.Config, existing.Config)
 	}
-	if err := validateChannel(&req, h.Managed); err != nil {
+	if err := validateChannel(&req, h.channelPolicy()); err != nil {
 		httpserver.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}

@@ -34,6 +34,7 @@ package main
 import (
 	"context"
 	"encoding/base64"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -160,6 +161,10 @@ func main() {
 	// and injected - so nothing downstream re-reads the environment and
 	// reaches a different conclusion about which kind of instance this is.
 	managed := env.Bool("SLUICIO_MANAGED", false)
+	// Email off for the whole instance, whoever runs it: no mail server
+	// can be set, no email channel kept or created, no mail sent. Read
+	// once, like managed, and injected.
+	emailDisabled := env.Bool("SLUICIO_EMAIL_DISABLED", false)
 	bootstrapToken := strings.TrimSpace(os.Getenv("SLUICIO_BOOTSTRAP_TOKEN"))
 	identityStore.SetManaged(managed)
 
@@ -312,6 +317,7 @@ func main() {
 		// See the managed-mode block above: read from the environment once,
 		// passed everywhere it is needed.
 		Managed:                 managed,
+		EmailDisabled:           emailDisabled,
 		BootstrapToken:          bootstrapToken,
 		BootstrapTokenExpiresAt: bootstrapExpiry,
 		ViaToken:                api.NewViaToken(),
@@ -556,6 +562,13 @@ func main() {
 	// SLUICIO_SMTP_* env as defaults, overlaid by anything an admin set in
 	// Settings → System (so UI edits take effect without a restart).
 	resolveSMTP := func(ctx context.Context) (mail.Config, error) {
+		// Email off: there is no transport, whatever the environment or
+		// the stored settings say. Every sender reads "not configured" and
+		// takes the path it already has for that (a password reset logs
+		// rather than mails; a share hands back its link).
+		if emailDisabled {
+			return mail.Config{}, nil
+		}
 		cfg := mail.Config{
 			Host:     env.String("SLUICIO_SMTP_HOST", ""),
 			Port:     env.String("SLUICIO_SMTP_PORT", ""),
@@ -600,6 +613,10 @@ func main() {
 	// their own server: expose it to the alerting delivery worker as the
 	// channel-config keys its email notifier reads.
 	alerting.SetManaged(managed)
+	alerting.SetEmailDisabled(emailDisabled)
+	if emailDisabled {
+		removeEmailChannels(ctx, alertStore, auditRecorder, licenseMgr.Entitled(license.FeatureAuditLog), logger)
+	}
 	alerting.SetSystemMailResolver(func(ctx context.Context) map[string]string {
 		c, err := resolveSMTP(ctx)
 		if err != nil {
@@ -1477,4 +1494,46 @@ func envDuration(key string, fallback time.Duration) time.Duration {
 		return fallback
 	}
 	return d
+}
+
+// removeEmailChannels deletes every email channel, in every org, on an
+// instance started with email turned off (SLUICIO_EMAIL_DISABLED).
+//
+// Deleted rather than left in place: a channel that can never deliver
+// still looks like somewhere an alert goes, and an alert routed only to it
+// would reach nobody while the rule reads as wired up. Everything that
+// referenced a channel - rule routes, profiles, subscriptions, delivery
+// history - goes with it, as for any channel delete.
+//
+// Each deletion is logged and, where the audit log is entitled, recorded
+// in the org it belonged to with no user as the actor, so an admin who
+// finds a channel gone can see when and why. A failure is logged and
+// startup goes on: email stays off either way, because every send is
+// refused regardless.
+func removeEmailChannels(ctx context.Context, alerts *alerting.Store, rec pkgaudit.Recorder, auditEntitled bool, logger *slog.Logger) {
+	gone, err := alerts.DeleteChannelsOfKind(ctx, alerting.ChannelEmail)
+	if err != nil {
+		logger.Error("email is turned off, but removing email channels failed", "err", err)
+		return
+	}
+	for _, c := range gone {
+		logger.Info("email is turned off: removed email channel",
+			"org", c.OrganizationID, "channel", c.ID, "name", c.Name)
+		if !auditEntitled || rec == nil {
+			continue
+		}
+		if err := rec.Record(ctx, pkgaudit.Entry{
+			OrgID:      c.OrganizationID,
+			ActorName:  "system",
+			Action:     "notification_channel.deleted",
+			TargetType: "notification_channel",
+			TargetID:   c.ID.String(),
+			Metadata:   map[string]any{"name": c.Name, "kind": c.Kind, "reason": "email is turned off on this instance"},
+		}); err != nil {
+			logger.Warn("audit record failed", "err", err, "action", "notification_channel.deleted")
+		}
+	}
+	if len(gone) > 0 {
+		logger.Info("email is turned off: email channels removed", "count", len(gone))
+	}
 }

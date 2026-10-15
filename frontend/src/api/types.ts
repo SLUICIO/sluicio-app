@@ -1435,6 +1435,9 @@ export interface CurrentUserResponse {
   // settings belong to the deployment, so the UI stops offering them. A
   // hint only - the server refuses them either way.
   managed?: boolean;
+  // True when email is turned off for the instance: no email channels and
+  // no mail settings. Also only a hint.
+  email_disabled?: boolean;
 }
 
 // Dashboards — per-user, named layouts for the Home page. The
@@ -2417,6 +2420,9 @@ export interface SMTPSettingsResponse {
   // "deployment" when the transport comes from the environment and cannot
   // be changed here. The server details are withheld in that case.
   source?: "deployment";
+  // Email is turned off for the instance: nothing else is returned, and
+  // nothing can be set or tested.
+  disabled?: boolean;
 }
 
 // PATCH body. Omit `password` to keep the stored one; send "" to clear it.
@@ -2533,6 +2539,8 @@ export interface MeResponse {
   // UI uses it to stop offering settings the deployment owns; the server
   // refuses them regardless, so this only decides what is shown.
   managed?: boolean;
+  // True when email is turned off for the instance.
+  email_disabled?: boolean;
 }
 
 // Org security policy (Settings → System). mfa_policy_entitled reflects the

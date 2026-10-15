@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -529,6 +530,18 @@ var managed bool
 // transport the platform's rather than the channel's.
 func SetManaged(v bool) { managed = v }
 
+// emailDisabled turns email off for the whole instance
+// (SLUICIO_EMAIL_DISABLED). Set once at startup.
+var emailDisabled bool
+
+// SetEmailDisabled turns email off: an email channel refuses to send
+// rather than reaching for any server, its own or the instance's.
+func SetEmailDisabled(v bool) { emailDisabled = v }
+
+// ErrEmailDisabled is what an email send returns on an instance with email
+// turned off.
+var ErrEmailDisabled = errors.New("email is turned off on this instance")
+
 // channelTransportKeys are the email-channel keys that choose a SERVER
 // rather than a destination. On a managed instance they are refused at the
 // API and ignored here; everywhere else they are the per-channel override
@@ -594,6 +607,11 @@ func (emailNotifier) Kind() string { return ChannelEmail }
 // had nothing to do with email. pkg/mail already bounded both the dial
 // and the whole conversation for transactional mail; this now shares it.
 func (emailNotifier) Send(ctx context.Context, _ *http.Client, msg Message) error {
+	// Checked before any config is read: with email off, no server is
+	// used, whichever one the channel or the instance names.
+	if emailDisabled {
+		return ErrEmailDisabled
+	}
 	cfg := effectiveMailConfig(ctx, msg.Config)
 	host := strings.TrimSpace(cfg["smtp_host"])
 	if host == "" {

@@ -84,6 +84,8 @@ func (h *Handlers) importConfig(w http.ResponseWriter, r *http.Request) {
 		MatchMembersByEmail: r.URL.Query().Get("match_members_by_email") == "true",
 		ActorUserID:         p.UserID.String(),
 		IsOperator:          p.IsOperator,
+		Managed:             h.Managed,
+		EmailDisabled:       h.EmailDisabled,
 	}
 	orgID := middleware.OrgID(r)
 

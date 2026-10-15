@@ -94,6 +94,11 @@ export interface CurrentUserContext {
    * server-side as well.
    */
   managed: boolean;
+  /**
+   * True when email is turned off for the instance: there are no email
+   * channels and no mail settings to offer. A hint; the server refuses both.
+   */
+  emailDisabled: boolean;
   /** Sign the user out — POST /api/v1/auth/logout and drop session state. */
   signOut: () => void;
 }
@@ -156,6 +161,7 @@ export function useCurrentUser(): CurrentUserContext {
     // agree, or it offers a page that answers 403.
     isOperator: user.isOperator && data.managed !== true,
     managed: data.managed === true,
+    emailDisabled: data.email_disabled === true,
     signOut,
   };
 }

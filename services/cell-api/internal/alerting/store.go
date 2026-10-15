@@ -1028,6 +1028,29 @@ func (s *Store) UpdateChannel(ctx context.Context, orgID uuid.UUID, c Notificati
 }
 
 // DeleteChannel removes a channel (cascade drops its routes + jobs).
+// DeleteChannelsOfKind deletes every channel of one kind, in every org,
+// and returns what it deleted. Used at startup when an instance turns a
+// kind off (email, SLUICIO_EMAIL_DISABLED); everything that references a
+// channel cascades with it, exactly as for a single delete.
+func (s *Store) DeleteChannelsOfKind(ctx context.Context, kind string) ([]NotificationChannel, error) {
+	rows, err := s.pool.Query(ctx, `
+		DELETE FROM notification_channels WHERE kind = $1
+		RETURNING id, organization_id, name, kind`, kind)
+	if err != nil {
+		return nil, fmt.Errorf("delete channels of kind: %w", err)
+	}
+	defer rows.Close()
+	var out []NotificationChannel
+	for rows.Next() {
+		var c NotificationChannel
+		if err := rows.Scan(&c.ID, &c.OrganizationID, &c.Name, &c.Kind); err != nil {
+			return nil, fmt.Errorf("delete channels of kind: %w", err)
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) DeleteChannel(ctx context.Context, orgID, id uuid.UUID) error {
 	tag, err := s.pool.Exec(ctx, `DELETE FROM notification_channels WHERE organization_id = $1 AND id = $2`, orgID, id)
 	if err != nil {

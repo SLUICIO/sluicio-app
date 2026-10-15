@@ -72,6 +72,10 @@ spec:
               value: {{ . | quote }}
             {{- end }}
             {{- end }}
+            {{- if .Values.smtp.disabled }}
+            - name: SLUICIO_EMAIL_DISABLED
+              value: "true"
+            {{- end }}
             {{- with .Values.cellApi.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

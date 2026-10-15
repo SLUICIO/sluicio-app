@@ -7,9 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/alerting"
 )
 
 // ConflictError is a natural-key collision under ModeStrict. The
@@ -102,6 +105,10 @@ type resolver struct {
 	integs   map[string]string
 	channels map[string]string
 	profiles map[string]string
+	// skippedChannels are the bundle's channels the target does not take
+	// (email, when its email is turned off). References to them are left
+	// out rather than failing the import as dangling.
+	skippedChannels map[string]bool
 }
 
 // lookup resolves a natural key: imported map first, then the target
@@ -169,6 +176,25 @@ func (r *resolver) channel(name string) (string, error) {
 	}
 	return r.lookup("notification channel", r.channels, name, `SELECT id FROM notification_channels WHERE organization_id=$1 AND name=$2`, r.org, name)
 }
+
+// withoutKeys returns a channel config minus keys. An empty config stays
+// empty.
+func withoutKeys(cfg json.RawMessage, keys []string) (json.RawMessage, error) {
+	if len(cfg) == 0 {
+		return cfg, nil
+	}
+	var m map[string]any
+	if err := json.Unmarshal(cfg, &m); err != nil {
+		return nil, err
+	}
+	for k := range m {
+		if slices.Contains(keys, k) {
+			delete(m, k)
+		}
+	}
+	return json.Marshal(m)
+}
+
 func (r *resolver) profile(name string) (string, error) {
 	if r.profiles == nil {
 		r.profiles = map[string]string{}
@@ -581,6 +607,21 @@ func (r *resolver) importChannels(channels []Channel) func() error {
 			r.channels = map[string]string{}
 		}
 		for _, c := range channels {
+			if c.Kind == alerting.ChannelEmail && r.opts.EmailDisabled {
+				if r.skippedChannels == nil {
+					r.skippedChannels = map[string]bool{}
+				}
+				r.skippedChannels[c.Name] = true
+				r.rep.warnf("notification channel %q not imported: email is turned off on this instance; rules and profiles that used it keep their other channels", c.Name)
+				continue
+			}
+			if c.Kind == alerting.ChannelEmail && r.opts.Managed {
+				cfg, err := withoutKeys(c.Config, alerting.ChannelTransportKeys())
+				if err != nil {
+					return &ValidationError{Msg: fmt.Sprintf("notification channel %q: config: %v", c.Name, err)}
+				}
+				c.Config = cfg
+			}
 			id, err := r.upsert(sec, "notification channel", c.Name,
 				`SELECT id FROM notification_channels WHERE organization_id=$1 AND name=$2`, []any{r.org, c.Name},
 				func() (string, error) {
@@ -657,6 +698,9 @@ func (r *resolver) importProfiles(profiles []Profile) func() error {
 				return err
 			}
 			for _, cn := range p.Channels {
+				if r.skippedChannels[cn] {
+					continue
+				}
 				cid, err := r.channel(cn)
 				if err != nil {
 					return err
@@ -1025,6 +1069,9 @@ func (r *resolver) importAlertRules(rules []AlertRule) func() error {
 				return err
 			}
 			for _, cn := range a.Channels {
+				if r.skippedChannels[cn] {
+					continue
+				}
 				cid, err := r.channel(cn)
 				if err != nil {
 					return err

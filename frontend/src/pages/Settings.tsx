@@ -3767,6 +3767,21 @@ function SmtpSettings({ isAdmin }: { isAdmin: boolean }) {
   // and no server details to show. The form is not rendered read-only,
   // because a form nobody can submit invites the attempt; the sentence
   // says who owns it instead.
+  // Email turned off for the instance: nothing to configure, test or show.
+  if (data.disabled) {
+    return (
+      <div>
+        <h3 style={{ fontSize: 14, fontWeight: 600, margin: "0 0 4px" }}>Email</h3>
+        <p className="muted" style={{ fontSize: 13, lineHeight: 1.55, margin: 0 }}>
+          Email is turned off on this instance. No mail server can be set, no
+          email notification channels can be created, and no mail is sent.
+          Alerts reach people through the other channel kinds under{" "}
+          <strong>Alerts</strong>.
+        </p>
+      </div>
+    );
+  }
+
   if (data.source === "deployment") {
     return (
       <div>

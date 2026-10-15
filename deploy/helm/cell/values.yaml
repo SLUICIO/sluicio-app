@@ -79,6 +79,10 @@ smtp:
   secretKey: "password"
   from: ""                # e.g. sluicio@acme.com
   fromName: "Sluicio"
+  # Turn email off for the instance: no mail server can be set in the UI,
+  # no email notification channels can be created, and none is sent.
+  # Existing email channels are DELETED at startup while this is on.
+  disabled: false
 
 cellApi:
   image:

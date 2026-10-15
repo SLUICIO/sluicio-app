@@ -682,7 +682,9 @@ function ChannelsCard({
   const [useSystemEmail, setUseSystemEmail] = useState(true);
   // On a managed instance the mail transport belongs to the deployment, so
   // an email channel picks recipients and nothing else.
-  const { managed } = useCurrentUser();
+  // With email turned off the kind is not offered at all: the server
+  // refuses an email channel, so the form would only fail.
+  const { managed, emailDisabled } = useCurrentUser();
 
   const isEmail = kind === "email";
   const destLabel = kind === "pagerduty" ? "Routing key" : "Webhook URL";
@@ -854,7 +856,7 @@ function ChannelsCard({
               {field("Name", name, setName, { placeholder: "#orders-oncall" })}
               <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12 }}>
                 <span className="muted">Kind</span>
-                <SearchableSelect value={kind} onChange={(v) => { if (v) setKind(v); }} options={KINDS} placeholder="Search kinds…" allLabel="Select a kind…" />
+                <SearchableSelect value={kind} onChange={(v) => { if (v) setKind(v); }} options={emailDisabled ? KINDS.filter((k) => k !== "email") : KINDS} placeholder="Search kinds…" allLabel="Select a kind…" />
               </label>
               {isEmail ? (
                 <>
@@ -929,7 +931,14 @@ function ChannelsCard({
               )}
             </div>
             <span className="muted" style={{ fontSize: 11.5 }}>
-              Slack/webhook take a URL, PagerDuty an Events API routing key. Email sends over SMTP — by default it reuses the org SMTP server from <Link to="/settings?tab=system&sub=email">Settings → System → Email</Link>, so you only enter recipients; untick &ldquo;Use system email server&rdquo; to point a channel at its own server.
+              Slack/webhook take a URL, PagerDuty an Events API routing key.{" "}
+              {emailDisabled ? (
+                <>Email is turned off on this instance.</>
+              ) : managed ? (
+                <>Email is sent by the service this instance runs on, so an email channel names its recipients and nothing else.</>
+              ) : (
+                <>Email sends over SMTP — by default it reuses the org SMTP server from <Link to="/settings?tab=system&sub=email">Settings → System → Email</Link>, so you only enter recipients; untick &ldquo;Use system email server&rdquo; to point a channel at its own server.</>
+              )}
             </span>
           </>
         ) : (

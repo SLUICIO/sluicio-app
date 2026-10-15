@@ -30,7 +30,7 @@ func TestAManagedEmailChannelChoosesRecipientsOnly(t *testing.T) {
 			Name: "ops", Kind: alerting.ChannelEmail,
 			Config: map[string]string{"to": "on-call@example.test", key: "something"},
 		}
-		err := validateChannel(req, true)
+		err := validateChannel(req, channelPolicy{Managed: true})
 		if err == nil {
 			t.Errorf("managed mode accepted config.%s on an email channel", key)
 			continue
@@ -43,7 +43,7 @@ func TestAManagedEmailChannelChoosesRecipientsOnly(t *testing.T) {
 
 func TestAManagedEmailChannelStillNeedsRecipients(t *testing.T) {
 	req := &channelRequest{Name: "ops", Kind: alerting.ChannelEmail, Config: map[string]string{}}
-	if err := validateChannel(req, true); err == nil {
+	if err := validateChannel(req, channelPolicy{Managed: true}); err == nil {
 		t.Error("an email channel with no recipients was accepted")
 	}
 	// And a channel that only says where mail goes is fine, which is the
@@ -52,7 +52,7 @@ func TestAManagedEmailChannelStillNeedsRecipients(t *testing.T) {
 		Name: "ops", Kind: alerting.ChannelEmail,
 		Config: map[string]string{"to": "on-call@example.test, second@example.test"},
 	}
-	if err := validateChannel(ok, true); err != nil {
+	if err := validateChannel(ok, channelPolicy{Managed: true}); err != nil {
 		t.Errorf("a recipients-only channel was refused: %v", err)
 	}
 }
@@ -67,7 +67,7 @@ func TestSelfHostedEmailChannelsKeepTheirOwnServer(t *testing.T) {
 			"from": "alerts@example.test", "username": "u", "password": "p",
 		},
 	}
-	if err := validateChannel(req, false); err != nil {
+	if err := validateChannel(req, channelPolicy{}); err != nil {
 		t.Errorf("a self-hosted channel with its own server was refused: %v", err)
 	}
 }
@@ -80,7 +80,7 @@ func TestOtherChannelKindsAreUntouchedByManagedMode(t *testing.T) {
 			Name: "ops-" + kind, Kind: kind,
 			Config: map[string]string{"url": "https://hooks.example.test/x"},
 		}
-		if err := validateChannel(req, true); err != nil {
+		if err := validateChannel(req, channelPolicy{Managed: true}); err != nil {
 			t.Errorf("%s channel refused on a managed instance: %v", kind, err)
 		}
 	}

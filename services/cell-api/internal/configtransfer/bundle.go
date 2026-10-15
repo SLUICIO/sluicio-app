@@ -328,6 +328,14 @@ type Options struct {
 	ActorUserID string
 	// IsOperator gates the cell_settings section.
 	IsOperator bool
+	// Managed: the target is run by a platform on behalf of someone else,
+	// so an email channel chooses its recipients and never its server.
+	// The server keys are dropped from imported email channels, as the
+	// API refuses them on write.
+	Managed bool
+	// EmailDisabled: the target has email turned off. Email channels are
+	// skipped, and the references to them left out, with a warning.
+	EmailDisabled bool
 }
 
 // Report is what a dry-run (and a real import) returns.

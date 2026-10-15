@@ -526,6 +526,10 @@ type smtpResponse struct {
 	// behalf of someone else. Empty otherwise, meaning these settings are
 	// the instance's own. Mirrors ingest_url_source.
 	Source string `json:"source,omitempty"`
+	// Disabled is true when email is turned off for the instance
+	// (SLUICIO_EMAIL_DISABLED). Nothing else is returned then: there is
+	// no server, and none can be set.
+	Disabled bool `json:"disabled,omitempty"`
 }
 
 // smtpSourceDeployment marks a transport the instance does not own.
@@ -557,6 +561,10 @@ type smtpRequest struct {
 
 // getSMTP: GET /api/v1/cell-settings/smtp (admin).
 func (h *Handlers) getSMTP(w http.ResponseWriter, r *http.Request) {
+	if h.EmailDisabled {
+		httpserver.WriteJSON(w, http.StatusOK, smtpResponse{Disabled: true})
+		return
+	}
 	if h.Settings == nil {
 		httpserver.WriteError(w, http.StatusServiceUnavailable, "settings store unavailable")
 		return
@@ -584,6 +592,10 @@ func (h *Handlers) getSMTP(w http.ResponseWriter, r *http.Request) {
 
 // patchSMTP: PATCH /api/v1/cell-settings/smtp (admin).
 func (h *Handlers) patchSMTP(w http.ResponseWriter, r *http.Request) {
+	if h.EmailDisabled {
+		httpserver.WriteError(w, http.StatusConflict, errEmailDisabled)
+		return
+	}
 	if h.Managed {
 		httpserver.WriteError(w, http.StatusConflict,
 			"email is managed by the deployment and can't be changed here")
@@ -636,6 +648,10 @@ func (h *Handlers) patchSMTP(w http.ResponseWriter, r *http.Request) {
 // message to the given address (or the caller's email) using the effective
 // transport, so an admin can confirm SMTP works before relying on it.
 func (h *Handlers) testSMTP(w http.ResponseWriter, r *http.Request) {
+	if h.EmailDisabled {
+		httpserver.WriteError(w, http.StatusConflict, errEmailDisabled)
+		return
+	}
 	if h.Managed {
 		// Refused with the settings it would be testing: the transport is
 		// the platform's, and so is checking that it works.

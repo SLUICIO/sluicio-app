@@ -126,6 +126,8 @@ smtp:
   existingSecret: sluicio-smtp       # key `password`
 ```
 
+To run with no email at all, set `smtp.disabled: true`: no mail server can be set in the UI, no email notification channels can be created, and nothing is mailed. **Existing email channels are deleted at startup** while it is on, along with their place in alert routes and notification profiles.
+
 ## Databases
 
 ### Bring your own (recommended for production)

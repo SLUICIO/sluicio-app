@@ -198,6 +198,10 @@ type Handlers struct {
 	// else, rather than by the people using it (SLUICIO_MANAGED). False is
 	// a self-hosted install, which behaves exactly as it always has.
 	Managed bool
+	// EmailDisabled turns email off for the whole instance
+	// (SLUICIO_EMAIL_DISABLED): no email channels, no mail server to set,
+	// no mail sent. Independent of Managed.
+	EmailDisabled bool
 	// BootstrapToken gates the first-user claim on a managed instance
 	// (SLUICIO_BOOTSTRAP_TOKEN). A managed instance is reachable before
 	// anyone has opened it, so without this the first visitor to find the
