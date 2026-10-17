@@ -37,6 +37,8 @@ RECORDING_CAPTIONS=1 recordings/record.sh         # with on-screen captions, for
 RECORDING_HEADED=1 recordings/record.sh           # a visible browser, to capture with your own recorder
 ```
 
+On a Mac the take runs under `caffeinate`, so the machine stays awake while it records: with the display asleep, macOS throttles the test runner and a take stalls at a random step.
+
 Each take is written to `e2e/recordings-output/<walkthrough>-<date>[-captions].mp4` (H.264, 1440x900). A take that fails leaves a Playwright trace in `recordings-output/raw/` showing where it stopped.
 
 Knobs: `RECORDING_PACE` (default `1`; `1.5` is slower), `RECORDING_WIDTH` / `RECORDING_HEIGHT`, `RECORDING_THEME=dark`.

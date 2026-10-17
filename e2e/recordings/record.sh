@@ -16,7 +16,13 @@ out="$e2e/recordings-output"
 cd "$e2e"
 rm -rf "$out/raw"
 
-npx playwright test -c playwright.recording.config.ts "$@"
+# On a Mac, keep it awake for the length of the take. With the display
+# asleep macOS throttles background processes: the test runner's own
+# timers fired minutes late, and a take stalled at a random step or never
+# finished, while the app itself sat idle and answering.
+awake=()
+command -v caffeinate >/dev/null && awake=(caffeinate -dims)
+${awake[@]+"${awake[@]}"} npx playwright test -c playwright.recording.config.ts "$@"
 
 command -v ffmpeg >/dev/null || { echo "no ffmpeg: the raw takes are in $out/raw (WebM)"; exit 0; }
 
