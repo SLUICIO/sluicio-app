@@ -3,8 +3,15 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
-## v0.11.170 — 2026-10-08
+## v0.11.171 — 2026-10-17
 
+- feat(settings): SLUICIO_ORG_MANAGEMENT_DISABLED fixes an org's name and slug (7f39826)
+- feat(settings): SLUICIO_EMAIL_DISABLED turns email off for the instance (a4ed63a)
+- build: Go 1.26.9, golang.org/x/net 0.60.0 and x/text 0.42.0 for security fixes (1c488ba)
+
+## v0.11.170 — 2026-10-12
+
+- release v0.11.170 - refresh internal changelog (d20a202)
 - fix(settings): a member's new role shows at once, not after a reload (1850d53)
 - fix(metrics): a service's Metrics tab counts its own rules and the global ones (565abc7)
 - fix(alerting): deleting an integration deletes the health checks bound to it (f4f6594)
