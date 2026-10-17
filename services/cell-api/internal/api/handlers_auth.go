@@ -210,6 +210,9 @@ func (h *Handlers) me(w http.ResponseWriter, r *http.Request) {
 		// Email turned off for the instance: the UI stops offering email
 		// channels and mail settings. Also a hint - the server refuses both.
 		"email_disabled": h.EmailDisabled,
+		// The org's name and slug are fixed for the instance: the UI shows
+		// them read-only. A hint; the server refuses the change.
+		"org_management_disabled": h.OrgManagementDisabled,
 	})
 }
 

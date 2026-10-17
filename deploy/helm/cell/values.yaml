@@ -84,6 +84,11 @@ smtp:
   # Existing email channels are DELETED at startup while this is on.
   disabled: false
 
+# Fix each organization's name and slug for the instance: nobody signed in,
+# org admin or operator, can rename or re-slug it.
+orgManagement:
+  disabled: false
+
 cellApi:
   image:
     repository: ghcr.io/sluicio/cell-api

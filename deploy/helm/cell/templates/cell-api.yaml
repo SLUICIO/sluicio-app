@@ -76,6 +76,10 @@ spec:
             - name: SLUICIO_EMAIL_DISABLED
               value: "true"
             {{- end }}
+            {{- if .Values.orgManagement.disabled }}
+            - name: SLUICIO_ORG_MANAGEMENT_DISABLED
+              value: "true"
+            {{- end }}
             {{- with .Values.cellApi.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

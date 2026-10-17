@@ -747,8 +747,11 @@ function AddMemberForm({ onClose, onCreated }: { onClose: () => void; onCreated:
 // enforces the same on PATCH/DELETE).
 
 function OrganizationTab() {
-  const { can, organization } = useCurrentUser();
+  const { can, organization, orgManagementDisabled } = useCurrentUser();
   const isAdmin = can("org.manage");
+  // Name and slug are fixed for the instance: shown, not editable. The
+  // rest of the tab (config transfer) is unaffected.
+  const canRename = isAdmin && !orgManagementDisabled;
   const [org, setOrg] = useState<AuthOrg | null>(null);
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
@@ -801,7 +804,7 @@ function OrganizationTab() {
             className="search__input"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            disabled={!isAdmin}
+            disabled={!canRename}
             required
           />
           <span className="form__hint">Shown in the user menu + member lists.</span>
@@ -812,13 +815,15 @@ function OrganizationTab() {
             className="search__input mono"
             value={slug}
             onChange={(e) => setSlug(e.target.value)}
-            disabled={!isAdmin}
+            disabled={!canRename}
             pattern="[a-z0-9-]+"
             required
           />
-          <span className="form__hint">
-            Lowercase letters, digits, hyphens. Changes URL paths — bookmarks may break.
-          </span>
+          {!orgManagementDisabled && (
+            <span className="form__hint">
+              Lowercase letters, digits, hyphens. Changes URL paths — bookmarks may break.
+            </span>
+          )}
         </label>
         <div className="form__label">
           <span>Created</span>
@@ -830,7 +835,12 @@ function OrganizationTab() {
         {savedAt && !error && (
           <div className="alert alert--ok">Saved.</div>
         )}
-        {isAdmin && (
+        {isAdmin && orgManagementDisabled && (
+          <p className="muted" style={{ fontSize: 12.5, margin: 0 }}>
+            The organization&rsquo;s name and slug are set for this instance and can&rsquo;t be changed here.
+          </p>
+        )}
+        {canRename && (
           <div className="form__actions">
             <button type="submit" className="btn btn--primary" disabled={busy || !dirty || !name.trim() || !slug.trim()}>
               {busy ? "Saving…" : "Save changes"}

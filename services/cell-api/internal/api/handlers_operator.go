@@ -81,6 +81,12 @@ func (h *Handlers) createOperatorOrg(w http.ResponseWriter, r *http.Request) {
 
 // updateOperatorOrg: PATCH /api/v1/operator/orgs/{id}
 func (h *Handlers) updateOperatorOrg(w http.ResponseWriter, r *http.Request) {
+	// The operator is refused too: the name is the deployment's, not the
+	// people's who run things inside the instance.
+	if h.OrgManagementDisabled {
+		httpserver.WriteError(w, http.StatusConflict, errOrgManagementDisabled)
+		return
+	}
 	orgID, ok := pathOrgID(w, r)
 	if !ok {
 		return

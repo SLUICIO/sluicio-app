@@ -99,6 +99,12 @@ export interface CurrentUserContext {
    * channels and no mail settings to offer. A hint; the server refuses both.
    */
   emailDisabled: boolean;
+  /**
+   * True when organization management is turned off for the instance: the
+   * org's name and slug are fixed, so they are shown read-only. A hint; the
+   * server refuses the change.
+   */
+  orgManagementDisabled: boolean;
   /** Sign the user out — POST /api/v1/auth/logout and drop session state. */
   signOut: () => void;
 }
@@ -162,6 +168,7 @@ export function useCurrentUser(): CurrentUserContext {
     isOperator: user.isOperator && data.managed !== true,
     managed: data.managed === true,
     emailDisabled: data.email_disabled === true,
+    orgManagementDisabled: data.org_management_disabled === true,
     signOut,
   };
 }

@@ -60,6 +60,11 @@ func (h *Handlers) getOrg(w http.ResponseWriter, r *http.Request) {
 	httpserver.WriteJSON(w, http.StatusOK, o)
 }
 
+// errOrgManagementDisabled is the refusal for a rename or re-slug on an
+// instance with organization management turned off.
+const errOrgManagementDisabled = "organization management is turned off on this instance: " +
+	"the organization's name and slug can't be changed here"
+
 type updateOrgBody struct {
 	Name string `json:"name"`
 	Slug string `json:"slug"`
@@ -72,6 +77,11 @@ type updateOrgBody struct {
 // to org admin (RequireRole at the mux level), and the path id must
 // also be the principal's active org.
 func (h *Handlers) updateOrg(w http.ResponseWriter, r *http.Request) {
+	// Refused outright: name and slug are the only things this changes.
+	if h.OrgManagementDisabled {
+		httpserver.WriteError(w, http.StatusConflict, errOrgManagementDisabled)
+		return
+	}
 	orgID, ok := pathOrgID(w, r)
 	if !ok {
 		return

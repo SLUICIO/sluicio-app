@@ -15,6 +15,7 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
 import BrandingCard from "../components/BrandingCard";
 import { api } from "../api/client";
+import { useCurrentUser } from "../lib/useCurrentUser";
 import type { AuthRole, MemberRow, OperatorOrg, OperatorUser } from "../api/types";
 import { usePageTitle } from "../lib/usePageTitle";
 
@@ -45,6 +46,9 @@ export default function Operator() {
 // ── Organizations ──────────────────────────────────────────────────
 
 function OrganizationsCard() {
+  // Names fixed for the instance: the server refuses a rename, so none is
+  // offered.
+  const { orgManagementDisabled } = useCurrentUser();
   const [orgs, setOrgs] = useState<OperatorOrg[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState("");
@@ -175,9 +179,13 @@ function OrganizationsCard() {
                     >
                       {expanded === o.id ? "Hide members" : "Members"}
                     </button>{" "}
-                    <button className="btn btn--sm" onClick={() => rename(o)}>
-                      Rename
-                    </button>{" "}
+                    {!orgManagementDisabled && (
+                      <>
+                        <button className="btn btn--sm" onClick={() => rename(o)}>
+                          Rename
+                        </button>{" "}
+                      </>
+                    )}
                     <button className="btn btn--sm btn--danger" onClick={() => remove(o)}>
                       Delete
                     </button>

@@ -1438,6 +1438,8 @@ export interface CurrentUserResponse {
   // True when email is turned off for the instance: no email channels and
   // no mail settings. Also only a hint.
   email_disabled?: boolean;
+  // True when the org's name and slug are fixed for the instance. A hint.
+  org_management_disabled?: boolean;
 }
 
 // Dashboards — per-user, named layouts for the Home page. The
@@ -2541,6 +2543,9 @@ export interface MeResponse {
   managed?: boolean;
   // True when email is turned off for the instance.
   email_disabled?: boolean;
+  // True when the org's name and slug can't be changed from inside the
+  // instance.
+  org_management_disabled?: boolean;
 }
 
 // Org security policy (Settings → System). mfa_policy_entitled reflects the

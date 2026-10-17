@@ -165,6 +165,9 @@ func main() {
 	// can be set, no email channel kept or created, no mail sent. Read
 	// once, like managed, and injected.
 	emailDisabled := env.Bool("SLUICIO_EMAIL_DISABLED", false)
+	// Organization names fixed by whoever runs the instance: no rename or
+	// re-slug from inside it, by an org admin or an operator.
+	orgManagementDisabled := env.Bool("SLUICIO_ORG_MANAGEMENT_DISABLED", false)
 	bootstrapToken := strings.TrimSpace(os.Getenv("SLUICIO_BOOTSTRAP_TOKEN"))
 	identityStore.SetManaged(managed)
 
@@ -318,6 +321,7 @@ func main() {
 		// passed everywhere it is needed.
 		Managed:                 managed,
 		EmailDisabled:           emailDisabled,
+		OrgManagementDisabled:   orgManagementDisabled,
 		BootstrapToken:          bootstrapToken,
 		BootstrapTokenExpiresAt: bootstrapExpiry,
 		ViaToken:                api.NewViaToken(),

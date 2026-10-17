@@ -202,6 +202,11 @@ type Handlers struct {
 	// (SLUICIO_EMAIL_DISABLED): no email channels, no mail server to set,
 	// no mail sent. Independent of Managed.
 	EmailDisabled bool
+	// OrgManagementDisabled fixes each organization's name and slug
+	// (SLUICIO_ORG_MANAGEMENT_DISABLED): whoever runs the instance names
+	// the org, and nobody signed in can rename or re-slug it. Independent
+	// of Managed.
+	OrgManagementDisabled bool
 	// BootstrapToken gates the first-user claim on a managed instance
 	// (SLUICIO_BOOTSTRAP_TOKEN). A managed instance is reachable before
 	// anyone has opened it, so without this the first visitor to find the
