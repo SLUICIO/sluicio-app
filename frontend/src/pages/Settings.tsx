@@ -2566,7 +2566,7 @@ function TypeSwitch({ value, onChange }: { value: "group" | "not" | "leaf"; onCh
   );
 }
 
-function CreatePolicyForm({
+export function CreatePolicyForm({
   groupId,
   policy,
   onClose,
@@ -2586,6 +2586,13 @@ function CreatePolicyForm({
   const [kind, setKind] = useState<PolicyKind>(policy?.kind ?? "attributes");
   const [serviceName, setServiceName] = useState(policy?.target_service_name ?? "");
   const [integrationID, setIntegrationID] = useState(policy?.target_integration_id ?? "");
+  // Creating an integration policy picks SEVERAL integrations: granting
+  // two of three should not need a name pattern, which matches names and
+  // stops matching the day one is renamed. Each pick is saved as its own
+  // policy, by id - the grant every part of the system already handles,
+  // down to removing it with the integration. Editing a policy still
+  // changes its one integration.
+  const [integrationIDs, setIntegrationIDs] = useState<string[]>([]);
   const systemKindOptions = useSystemTypes();
 
   // Loaded once for the picker. A failure leaves the list empty rather
@@ -2675,6 +2682,7 @@ function CreatePolicyForm({
         : undefined;
   const usePattern = patternable && byPattern;
   const wantsIntegration = (kind === "integration" && !usePattern) || kind === "compound";
+  const picksSeveral = kind === "integration" && !usePattern && !policy;
   const wantsAttrs = kind === "attributes" || kind === "compound";
   const wantsSystem = kind === "system";
   const wantsExpr = kind === "expression" || usePattern;
@@ -2688,8 +2696,8 @@ function CreatePolicyForm({
     // the UUID field. Without this the form posts an empty id and the
     // failure comes back as a server error about a field the author
     // thought they had filled in.
-    if (wantsIntegration && !integrationID.trim()) {
-      setError("Pick an integration for this policy.");
+    if (picksSeveral ? integrationIDs.length === 0 : wantsIntegration && !integrationID.trim()) {
+      setError(picksSeveral ? "Pick at least one integration for this policy." : "Pick an integration for this policy.");
       setBusy(false);
       return;
     }
@@ -2712,6 +2720,24 @@ function CreatePolicyForm({
       };
       if (policy) {
         await api.updateGroupPolicy(groupId, policy.id, body);
+      } else if (picksSeveral) {
+        // One policy per integration, in turn. If one fails (already
+        // granted, say) the ones before it stay created; they leave the
+        // selection so a retry does not try them again, and the message
+        // says what happened to which.
+        const done: string[] = [];
+        for (const id of integrationIDs) {
+          try {
+            await api.createGroupPolicy(groupId, { ...body, target_integration_id: id });
+            done.push(id);
+          } catch (err) {
+            const name = integrationOptions.find((i) => i.id === id)?.name ?? id;
+            setIntegrationIDs((ids) => ids.filter((x) => !done.includes(x)));
+            throw new Error(
+              `${done.length ? `Granted ${done.length} of ${integrationIDs.length}. ` : ""}${name}: ${String((err as Error).message ?? err)}`,
+            );
+          }
+        }
       } else {
         await api.createGroupPolicy(groupId, body);
       }
@@ -2772,7 +2798,7 @@ function CreatePolicyForm({
           How to name the target
           <div className="m-seg" style={{ marginTop: 4 }}>
             <button type="button" className={`m-seg-b ${!byPattern ? "on" : ""}`} onClick={() => setByPattern(false)}>
-              {kind === "system" ? "By kind" : "Pick one"}
+              {kind === "system" ? "By kind" : policy ? "Pick one" : "Pick"}
             </button>
             <button type="button" className={`m-seg-b ${byPattern ? "on" : ""}`} onClick={() => setByPattern(true)}>
               By name pattern
@@ -2783,11 +2809,47 @@ function CreatePolicyForm({
               ? `Matches every ${kind} whose NAME satisfies the rule below, including ones created later. Conditions combine, so "starts with abc" AND "ends with -at" is one policy.`
               : kind === "system"
                 ? "Grants systems of one kind, or every flagged system."
-                : "Grants exactly the integration you choose."}
+                : policy
+                  ? "Grants exactly the integration you choose."
+                  : "Grants exactly the integrations you choose. They are stored by id, so renaming one later changes nothing; each becomes a policy of its own."}
           </span>
         </label>
       )}
-      {wantsIntegration && (
+      {picksSeveral && (
+        <div className="form__label">
+          <span>Integrations</span>
+          <span style={{ display: "inline-flex", flexWrap: "wrap", gap: 4, alignItems: "center", marginTop: 4 }}>
+            {integrationIDs.map((id) => {
+              const name = integrationOptions.find((i) => i.id === id)?.name ?? id;
+              return (
+                <span key={id} className="pill" style={{ display: "inline-flex", gap: 4, alignItems: "center" }}>
+                  {name}
+                  <button
+                    type="button"
+                    className="btn btn--sm"
+                    style={{ padding: "0 4px", lineHeight: 1 }}
+                    aria-label={`Remove ${name}`}
+                    onClick={() => setIntegrationIDs((ids) => ids.filter((x) => x !== id))}
+                  >
+                    ×
+                  </button>
+                </span>
+              );
+            })}
+            <SearchableSelect
+              value=""
+              onChange={(id) => {
+                if (id) setIntegrationIDs((ids) => (ids.includes(id) ? ids : [...ids, id]));
+              }}
+              options={integrationOptions.map((i) => i.id).filter((id) => !integrationIDs.includes(id))}
+              labelFor={(id) => integrationOptions.find((i) => i.id === id)?.name ?? id}
+              allLabel={!integrationsLoaded ? "Loading…" : integrationIDs.length ? "Add another…" : "Pick integrations…"}
+              placeholder="Search integrations…"
+            />
+          </span>
+        </div>
+      )}
+      {wantsIntegration && !picksSeveral && (
         <label className="form__label">
           Integration
           {/* A UUID typed by hand is a UUID mistyped by hand, and the
@@ -2895,7 +2957,10 @@ function CreatePolicyForm({
             {usePattern ? (
               <>
                 Grants every {exprSubject} whose name matches this rule. Combine
-                conditions with ALL / ANY / NOT groups.
+                conditions with ALL / ANY / NOT groups. Names are matched as they
+                are when access is checked, so a rule that names a{" "}
+                {exprSubject} stops matching it if it is renamed.
+                {exprSubject === "integration" && " To grant particular integrations, use Pick: it stores them by id."}
               </>
             ) : (
               <>
