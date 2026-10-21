@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.174 — 2026-10-21
+
+- feat: limits a deployment can set on storage and on integrations + systems (9e9b1ee)
+
 ## v0.11.173 — 2026-10-21
 
+- release v0.11.173 - refresh internal changelog (957cd22)
 - feat(settings): grant several integrations at once, by id (4305b79)
 - fix(settings): "is one of" in an access policy takes more than one value (227107c)
 - build: pin Go 1.26.10 so CI scans what the images ship with (b14aea0)
