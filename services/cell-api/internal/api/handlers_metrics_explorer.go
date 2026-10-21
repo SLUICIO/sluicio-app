@@ -58,7 +58,7 @@ func (h *Handlers) metricCatalog(w http.ResponseWriter, r *http.Request) {
 	// through the METRICS tier, like every other metrics endpoint. This
 	// endpoint originally used the signal-agnostic filter, which leaked
 	// metric values to viewers whose grant excluded the metrics signal.
-	pf := h.resolveServiceFilterSignal(r, strings.TrimSpace(r.URL.Query().Get("service")), serviceIn, identity.SignalMetrics)
+	pf, integGroups := h.resolveSignalRead(r, strings.TrimSpace(r.URL.Query().Get("service")), serviceIn, integGroups, identity.SignalMetrics)
 	if pf.Blocked {
 		httpserver.WriteError(w, http.StatusNotFound, "service not found")
 		return
@@ -177,13 +177,14 @@ func (h *Handlers) metricCatalog(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) metricFields(w http.ResponseWriter, r *http.Request) {
 	tr := ParseRange(r, time.Hour)
 	metric := strings.TrimSpace(r.URL.Query().Get("metric"))
-	// G5: restrict the attribute-key sample to the caller's visible services.
-	pf := h.resolveServiceFilterSignal(r, "", nil, identity.SignalMetrics)
-	if pf.EmptyAccess {
+	// G5: restrict the attribute-key sample to what the caller may read,
+	// or to one integration's slice with ?integration=.
+	serviceIn, groups, empty := h.pickerAccess(r, identity.SignalMetrics)
+	if empty {
 		httpserver.WriteJSON(w, http.StatusOK, LogFieldsResponse{Window: tr.Window(), Fields: []LogFieldEntry{}})
 		return
 	}
-	keys, err := h.Store.MetricAttributeKeys(r.Context(), metric, pf.ServiceIn, tr.From, tr.To, logFieldsSampleLimit)
+	keys, err := h.Store.MetricAttributeKeys(r.Context(), metric, serviceIn, groups, tr.From, tr.To, logFieldsSampleLimit)
 	if err != nil {
 		h.Logger.Error("metric attribute keys failed", "err", err)
 		httpserver.WriteError(w, http.StatusInternalServerError, "query failed")
@@ -228,13 +229,14 @@ func (h *Handlers) metricAttributeValues(w http.ResponseWriter, r *http.Request)
 			limit = n
 		}
 	}
-	// G5: restrict the value scan to the caller's visible services.
-	pf := h.resolveServiceFilterSignal(r, "", nil, identity.SignalMetrics)
-	if pf.EmptyAccess {
+	// G5: restrict the value scan to what the caller may read, or to one
+	// integration's slice with ?integration=.
+	serviceIn, groups, empty := h.pickerAccess(r, identity.SignalMetrics)
+	if empty {
 		httpserver.WriteJSON(w, http.StatusOK, LogAttrValuesResponse{Key: key, Window: tr.Window(), Values: []LogAttrValue{}})
 		return
 	}
-	rows, err := h.Store.MetricAttributeValues(r.Context(), key, strings.TrimSpace(r.URL.Query().Get("metric")), strings.TrimSpace(r.URL.Query().Get("q")), pf.ServiceIn, tr.From, tr.To, limit)
+	rows, err := h.Store.MetricAttributeValues(r.Context(), key, strings.TrimSpace(r.URL.Query().Get("metric")), strings.TrimSpace(r.URL.Query().Get("q")), serviceIn, groups, tr.From, tr.To, limit)
 	if err != nil {
 		h.Logger.Error("metric attribute values failed", "err", err, "key", key)
 		httpserver.WriteError(w, http.StatusInternalServerError, "query failed")

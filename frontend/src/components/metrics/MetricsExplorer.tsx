@@ -205,10 +205,10 @@ export default function MetricsExplorer({
 
   useEffect(() => {
     api
-      .metricFields(windowVal, focusedMetric || undefined)
+      .metricFields(windowVal, focusedMetric || undefined, integration)
       .then((r) => setFields(r.fields ?? []))
       .catch(() => setFields([]));
-  }, [windowVal, focusedMetric]);
+  }, [windowVal, focusedMetric, integration]);
 
   useEffect(() => {
     if (!grouped) {
@@ -484,6 +484,8 @@ export default function MetricsExplorer({
                     win,
                     50,
                     focusedMetric || undefined,
+                    undefined,
+                    integration,
                   )
                 }
                 keyPlaceholder="Filter attributes by name…"

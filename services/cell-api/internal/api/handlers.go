@@ -840,6 +840,103 @@ func (h *Handlers) grantedIntegrations(r *http.Request) (map[uuid.UUID]struct{},
 	return set, true
 }
 
+// grantedIntegrationsForSignal is grantedIntegrations narrowed to the
+// policies covering one signal, plus shared integrations (all-signal).
+// restricted=false means the caller is unrestricted for the signal.
+//
+// grantedIntegrations ignores a policy's signals, which was harmless
+// while an integration grant only ever reached messages. It now reaches
+// metrics and logs too, so a grant narrowed to messages must not.
+func (h *Handlers) grantedIntegrationsForSignal(r *http.Request, sig identity.Signal) (map[uuid.UUID]struct{}, bool) {
+	ref, restricted := h.visibilityMember(r)
+	if !restricted {
+		return nil, false
+	}
+	sets, err := resolveOnce(r, memoAccessSets, func() (identity.AccessSets, error) {
+		return h.Identity.ResolveAccessSetsMember(r.Context(), ref, middleware.Principal(r).OrgID, h.integrationExpander, h.systemExpander, h.serviceUniverse)
+	})
+	if err != nil {
+		// Unlike the service filters this does not fail open: it only
+		// ever ADDS reach, so failing to answer means adding none.
+		h.Logger.Warn("signal integration grants resolve failed", "err", err, "signal", sig)
+		return map[uuid.UUID]struct{}{}, true
+	}
+	if _, wildcard := sets.VisibleFor(sig); wildcard {
+		return nil, false
+	}
+	return sets.IntegrationsFor(sig), true
+}
+
+// integrationSliceScope decides a metrics or logs read that names an
+// integration (?integration=<name>) for a caller granted that
+// integration directly, for this signal. ok=false means the grant does
+// not apply and the caller's service grants decide as before.
+//
+// A grant of an integration used to reach its messages and nothing else:
+// metrics and logs are emitted by a SERVICE, and a service can carry
+// several integrations. But an integration's conditions apply to its
+// metrics and logs exactly as they apply to its spans - one queue of a
+// broker is `rabbitmq.queue.name` on every data point - so its slice of
+// those signals is as much its own as its messages are. The read is
+// scoped to that slice and nothing else: the member services, narrowed
+// by the integration's conditions. A condition the signal does not carry
+// matches nothing, so a flow told apart only by span attributes still
+// reaches no logs or metrics, which is the case the old rule was right
+// about.
+//
+// Fails CLOSED. If the members or the conditions cannot be loaded the
+// read is empty: without the conditions the scope would be the member
+// services' whole telemetry, the one thing this must never become.
+func (h *Handlers) integrationSliceScope(r *http.Request, service string, sig identity.Signal) (policyResolution, [][]store.LogAttrFilter, bool) {
+	name := strings.TrimSpace(r.URL.Query().Get("integration"))
+	if name == "" || name == noIntegrationLabel {
+		return policyResolution{}, nil, false
+	}
+	granted, restricted := h.grantedIntegrationsForSignal(r, sig)
+	if !restricted || len(granted) == 0 {
+		return policyResolution{}, nil, false
+	}
+	id, ok := h.integrationIDByName(r.Context(), name)
+	if !ok {
+		return policyResolution{}, nil, false
+	}
+	if _, ok := granted[id]; !ok {
+		return policyResolution{}, nil, false
+	}
+	empty := policyResolution{EmptyAccess: true}
+	members, err := h.Catalog.IntegrationServices(r.Context(), id)
+	if err != nil {
+		h.Logger.Warn("integration slice: members failed", "err", err, "integration", id)
+		return empty, nil, true
+	}
+	if len(members) == 0 {
+		return empty, nil, true
+	}
+	matchers, err := h.Integrations.MatchersForIntegration(r.Context(), id)
+	if err != nil {
+		h.Logger.Warn("integration slice: matchers failed", "err", err, "integration", id)
+		return empty, nil, true
+	}
+	mode, err := h.Integrations.RuleMatchForIntegration(r.Context(), id)
+	if err != nil {
+		h.Logger.Warn("integration slice: rule match failed", "err", err, "integration", id)
+		return empty, nil, true
+	}
+	return applyAllowlist(service, members, members, true), AttrGroupsFromMatchers(matchers, mode), true
+}
+
+// resolveSignalRead is the access decision for a metrics or logs read:
+// through an integration the caller was granted, that integration's
+// slice; otherwise the caller's services for the signal, as before.
+// integGroups is what integrationFilter returned, used on the second
+// path. The groups returned are the ones the query must apply.
+func (h *Handlers) resolveSignalRead(r *http.Request, service string, serviceIn []string, integGroups [][]store.LogAttrFilter, sig identity.Signal) (policyResolution, [][]store.LogAttrFilter) {
+	if pf, groups, ok := h.integrationSliceScope(r, service, sig); ok {
+		return pf, groups
+	}
+	return h.resolveServiceFilterSignal(r, service, serviceIn, sig), integGroups
+}
+
 // canSeeIntegration reports whether the caller may see one integration.
 //
 // Two independent routes in (issue #28):

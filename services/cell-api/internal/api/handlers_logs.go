@@ -134,8 +134,9 @@ func (h *Handlers) listLogs(w http.ResponseWriter, r *http.Request) {
 	})
 
 	// G5: merge in the policy allowlist so non-admin callers only see
-	// logs from services they can access.
-	pf := h.resolveServiceFilterSignal(r, service, serviceIn, identity.SignalLogs)
+	// logs from services they can access - or, through an integration
+	// they were granted, that integration's slice of the logs.
+	pf, integGroups := h.resolveSignalRead(r, service, serviceIn, integGroups, identity.SignalLogs)
 	if pf.Blocked {
 		httpserver.WriteError(w, http.StatusNotFound, "service not found")
 		return
@@ -290,9 +291,18 @@ func parseAttrFilters(r *http.Request) ([]store.LogAttrFilter, error) {
 
 // logFields: GET /api/v1/log-fields — the attribute keys seen on recent
 // logs, each tagged numeric, for the Logs page's filter key picker.
+//
+// Scoped to the logs the caller may read: the keys are a summary of
+// those rows, and listing them cell-wide told a viewer of one
+// integration which attributes every other service's logs carry.
 func (h *Handlers) logFields(w http.ResponseWriter, r *http.Request) {
 	tr := ParseRange(r, time.Hour)
-	keys, err := h.Store.DistinctLogAttributeKeys(r.Context(), tr.From, tr.To, logFieldsSampleLimit)
+	serviceIn, groups, empty := h.pickerAccess(r, identity.SignalLogs)
+	if empty {
+		httpserver.WriteJSON(w, http.StatusOK, LogFieldsResponse{Window: tr.Window(), Fields: []LogFieldEntry{}})
+		return
+	}
+	keys, err := h.Store.DistinctLogAttributeKeys(r.Context(), tr.From, tr.To, logFieldsSampleLimit, serviceIn, groups)
 	if err != nil {
 		h.Logger.Error("distinct log attribute keys failed", "err", err)
 		httpserver.WriteError(w, http.StatusInternalServerError, "query failed")
@@ -328,7 +338,15 @@ func (h *Handlers) logAttrValues(w http.ResponseWriter, r *http.Request) {
 			limit = n
 		}
 	}
-	rows, err := h.Store.LogAttrValues(r.Context(), key, tr.From, tr.To, limit)
+	// Scoped like the rows: the values ARE log data (an order number, a
+	// customer id), and this listed them from every service's logs for
+	// any signed-in member.
+	serviceIn, groups, empty := h.pickerAccess(r, identity.SignalLogs)
+	if empty {
+		httpserver.WriteJSON(w, http.StatusOK, LogAttrValuesResponse{Key: key, Window: tr.Window(), Values: []LogAttrValue{}})
+		return
+	}
+	rows, err := h.Store.LogAttrValues(r.Context(), key, tr.From, tr.To, limit, serviceIn, groups)
 	if err != nil {
 		h.Logger.Error("log attr values failed", "err", err, "key", key)
 		httpserver.WriteError(w, http.StatusInternalServerError, "query failed")
@@ -390,7 +408,7 @@ func (h *Handlers) logVolume(w http.ResponseWriter, r *http.Request) {
 	// G5: enforce policy-based service visibility for the global
 	// volume histogram. Empty access → empty buckets; ?service=X
 	// the caller can't see → 404.
-	pf := h.resolveServiceFilterSignal(r, service, serviceIn, identity.SignalLogs)
+	pf, integGroups := h.resolveSignalRead(r, service, serviceIn, integGroups, identity.SignalLogs)
 	if pf.Blocked {
 		httpserver.WriteError(w, http.StatusNotFound, "service not found")
 		return

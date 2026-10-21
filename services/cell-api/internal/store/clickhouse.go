@@ -3338,7 +3338,10 @@ type LogAttrValueRow struct {
 // each tagged numeric when all of its non-empty sampled values parse as
 // a float. Backs the Logs page's attribute-filter key autocomplete and
 // the per-key operator set. The inner LIMIT keeps the scan O(constant).
-func (s *Store) DistinctLogAttributeKeys(ctx context.Context, from, to time.Time, sampleLimit int) ([]LogAttrKeyRow, error) {
+//
+// serviceIn and groups scope the keys to what the caller may read (see
+// pickerScope); both empty is the unrestricted, cell-wide list.
+func (s *Store) DistinctLogAttributeKeys(ctx context.Context, from, to time.Time, sampleLimit int, serviceIn []string, groups [][]LogAttrFilter) ([]LogAttrKeyRow, error) {
 	// sampleLimit is accepted for call-site compatibility and no longer
 	// caps anything: the keys are aggregated over the window rather than
 	// sampled from it. Kept rather than removed from the signature so
@@ -3348,28 +3351,34 @@ func (s *Store) DistinctLogAttributeKeys(ctx context.Context, from, to time.Time
 	// uses and decide numeric = (≥1 non-empty value) AND (no non-empty
 	// value fails toFloat64OrNull). min() across the two sources ANDs
 	// their numeric verdicts.
-	const q = `
+	scope, scopeArgs := pickerScope("LogAttributes", serviceIn, groups, from, to)
+	q := fmt.Sprintf(`
 		SELECT key, toUInt64(sum(uses)) AS uses, toUInt64(max(card)) AS cardinality, min(is_numeric) AS numeric
 		FROM (
 			SELECT kv.1 AS key,
 			       toUInt64(count()) AS uses,
 			       toUInt64(uniqExact(kv.2)) AS card,
 			       toUInt8(countIf(kv.2 != '') > 0 AND countIf(kv.2 != '' AND isNull(toFloat64OrNull(kv.2))) = 0) AS is_numeric
-			FROM (SELECT arrayJoin(LogAttributes) AS kv FROM logs WHERE Timestamp >= ? AND Timestamp <= ? LIMIT ?)
+			FROM (SELECT arrayJoin(LogAttributes) AS kv FROM logs WHERE Timestamp >= ? AND Timestamp <= ?%[1]s LIMIT ?)
 			GROUP BY key
 			UNION ALL
 			SELECT kv.1 AS key,
 			       toUInt64(count()) AS uses,
 			       toUInt64(uniqExact(kv.2)) AS card,
 			       toUInt8(countIf(kv.2 != '') > 0 AND countIf(kv.2 != '' AND isNull(toFloat64OrNull(kv.2))) = 0) AS is_numeric
-			FROM (SELECT arrayJoin(ResourceAttributes) AS kv FROM logs WHERE Timestamp >= ? AND Timestamp <= ? LIMIT ?)
+			FROM (SELECT arrayJoin(ResourceAttributes) AS kv FROM logs WHERE Timestamp >= ? AND Timestamp <= ?%[1]s LIMIT ?)
 			GROUP BY key
 		)
 		GROUP BY key
 		ORDER BY uses DESC, key ASC
 		LIMIT 500
-	`
-	rows, err := s.conn.Query(ctx, q, from, to, sampleLimit, from, to, sampleLimit)
+	`, scope)
+	args := []any{from, to}
+	args = append(args, scopeArgs...)
+	args = append(args, sampleLimit, from, to)
+	args = append(args, scopeArgs...)
+	args = append(args, sampleLimit)
+	rows, err := s.conn.Query(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("distinct log attribute keys: %w", err)
 	}
@@ -3392,25 +3401,32 @@ func (s *Store) DistinctLogAttributeKeys(ctx context.Context, from, to time.Time
 // interpolated (caller validates the charset); it reads the effective
 // value (log attribute, else resource attribute) so it matches how the
 // filters compare. Backs the value picker's second step.
-func (s *Store) LogAttrValues(ctx context.Context, key string, from, to time.Time, limit int) ([]LogAttrValueRow, error) {
+//
+// serviceIn and groups scope the values to what the caller may read (see
+// pickerScope); both empty is the unrestricted, cell-wide list.
+func (s *Store) LogAttrValues(ctx context.Context, key string, from, to time.Time, limit int, serviceIn []string, groups [][]LogAttrFilter) ([]LogAttrValueRow, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
 	eff := attrEffectiveExpr(key)
+	scope, scopeArgs := pickerScope("LogAttributes", serviceIn, groups, from, to)
 	sql := fmt.Sprintf(`
 		SELECT v, toUInt64(count()) AS events
 		FROM (
 			SELECT %s AS v
 			FROM logs
-			WHERE Timestamp >= ? AND Timestamp <= ?
+			WHERE Timestamp >= ? AND Timestamp <= ?%s
 			  AND (mapContains(LogAttributes, '%s') OR mapContains(ResourceAttributes, '%s'))
 		)
 		WHERE v != ''
 		GROUP BY v
 		ORDER BY events DESC, v ASC
 		LIMIT ?
-	`, eff, key, key)
-	rows, err := s.conn.Query(ctx, sql, from, to, limit)
+	`, eff, scope, key, key)
+	args := []any{from, to}
+	args = append(args, scopeArgs...)
+	args = append(args, limit)
+	rows, err := s.conn.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, fmt.Errorf("log attr values: %w", err)
 	}
@@ -3684,6 +3700,29 @@ func (s *Store) DistinctMetricServices(ctx context.Context, from, to time.Time) 
 // visibility on the global metric endpoints (a teamless caller never gets
 // here — the handler short-circuits on empty access — but a team-scoped
 // caller is constrained to exactly the services their policies grant).
+// pickerScope renders the access scope of an attribute picker: the
+// services the caller may read and, for a read through an integration,
+// that integration's conditions against primaryMap. Returned as an
+// " AND ..." suffix for a WHERE that already has its time bounds, with
+// its args in order. Empty when the caller is unrestricted.
+//
+// The pickers list attribute KEYS and VALUES, which are data in their
+// own right - an order number, a customer id - so they are scoped like
+// the rows they come from, not left cell-wide.
+func pickerScope(primaryMap string, serviceIn []string, groups [][]LogAttrFilter, from, to time.Time) (string, []any) {
+	sql := ""
+	var args []any
+	if c, a := metricServiceIn(serviceIn); c != "" {
+		sql += " AND " + c
+		args = append(args, a...)
+	}
+	if c, a := attrGroupsClause(primaryMap, groups, from, to); c != "" {
+		sql += " AND " + c
+		args = append(args, a...)
+	}
+	return sql, args
+}
+
 func metricServiceIn(serviceIn []string) (clause string, args []any) {
 	if len(serviceIn) == 0 {
 		return "", nil
@@ -4304,7 +4343,10 @@ func (s *Store) MetricGroups(ctx context.Context, p MetricCatalogParams, by, att
 // MetricAttributes and the ResourceAttributes are surfaced. A non-empty
 // metricName scopes discovery to one metric (the drawer's per-metric
 // Attributes section); "" spans all metrics (the explorer filter picker).
-func (s *Store) MetricAttributeKeys(ctx context.Context, metricName string, serviceIn []string, from, to time.Time, sampleLimit int) ([]LogAttrKeyRow, error) {
+//
+// groups is a bound integration's conditions, for a read through an
+// integration (nil for none).
+func (s *Store) MetricAttributeKeys(ctx context.Context, metricName string, serviceIn []string, groups [][]LogAttrFilter, from, to time.Time, sampleLimit int) ([]LogAttrKeyRow, error) {
 	if sampleLimit <= 0 {
 		sampleLimit = 4000
 	}
@@ -4318,10 +4360,8 @@ func (s *Store) MetricAttributeKeys(ctx context.Context, metricName string, serv
 	}
 	// Group-policy service allowlist, appended to BOTH UNION subqueries'
 	// WHERE (after the optional MetricName predicate, before the LIMIT).
-	svcClause, svcArgs := metricServiceIn(serviceIn)
-	if svcClause != "" {
-		metricPred += " AND " + svcClause
-	}
+	svcClause, svcArgs := pickerScope("MetricAttributes", serviceIn, groups, from, to)
+	metricPred += svcClause
 	q := fmt.Sprintf(`
 		SELECT key, toUInt64(sum(uses)) AS uses, toUInt64(max(card)) AS cardinality, min(is_numeric) AS numeric
 		FROM (
@@ -4378,7 +4418,10 @@ func (s *Store) MetricAttributeKeys(ctx context.Context, metricName string, serv
 // search restricts to values containing it (case-insensitive), so the UI
 // can show the top 10 yet still find a value buried beyond the cap when an
 // attribute has hundreds of distinct values.
-func (s *Store) MetricAttributeValues(ctx context.Context, key, metricName, search string, serviceIn []string, from, to time.Time, limit int) ([]LogAttrValueRow, error) {
+//
+// groups is a bound integration's conditions, for a read through an
+// integration (nil for none).
+func (s *Store) MetricAttributeValues(ctx context.Context, key, metricName, search string, serviceIn []string, groups [][]LogAttrFilter, from, to time.Time, limit int) ([]LogAttrValueRow, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
@@ -4389,8 +4432,8 @@ func (s *Store) MetricAttributeValues(ctx context.Context, key, metricName, sear
 		metricPred = " AND MetricName = ?"
 		args = append(args, metricName)
 	}
-	if c, a := metricServiceIn(serviceIn); c != "" {
-		metricPred += " AND " + c
+	if c, a := pickerScope("MetricAttributes", serviceIn, groups, from, to); c != "" {
+		metricPred += c
 		args = append(args, a...)
 	}
 	searchPred := ""

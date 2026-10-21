@@ -29,6 +29,7 @@ package api
 
 import (
 	"net/http"
+	"sort"
 	"time"
 
 	"github.com/sluicio/sluicio-app/pkg/httpserver"
@@ -50,6 +51,13 @@ type NavigationResponse struct {
 	// skip the per-entry reasoning entirely rather than inferring it
 	// from eight trues.
 	Unrestricted bool `json:"unrestricted"`
+	// IntegrationMetrics and IntegrationLogs are the integrations whose
+	// own slice of that signal the caller reaches through a grant of the
+	// integration itself, without reaching its services. Metrics and Logs
+	// above answer for the global pages, which list by service; these
+	// answer for one integration's tabs. Omitted when empty.
+	IntegrationMetrics []string `json:"integration_metrics,omitempty"`
+	IntegrationLogs    []string `json:"integration_logs,omitempty"`
 }
 
 // getNavigation: GET /api/v1/me/navigation
@@ -110,6 +118,18 @@ func (h *Handlers) getNavigation(w http.ResponseWriter, r *http.Request) {
 		names, filtered := h.signalServiceFilter(r, sig)
 		return !filtered || len(names) > 0
 	}
+	integrationsReaching := func(sig identity.Signal) []string {
+		set, restricted := h.grantedIntegrationsForSignal(r, sig)
+		if !restricted {
+			return nil
+		}
+		out := make([]string, 0, len(set))
+		for id := range set {
+			out = append(out, id.String())
+		}
+		sort.Strings(out)
+		return out
+	}
 
 	httpserver.WriteJSON(w, http.StatusOK, NavigationResponse{
 		Integrations: hasIntegrations,
@@ -125,6 +145,8 @@ func (h *Handlers) getNavigation(w http.ResponseWriter, r *http.Request) {
 		// Errors is attributed per service today, so it follows the
 		// service set. When error attribution becomes integration-aware
 		// it should follow Integrations too.
-		Errors: hasServices,
+		Errors:             hasServices,
+		IntegrationMetrics: integrationsReaching(identity.SignalMetrics),
+		IntegrationLogs:    integrationsReaching(identity.SignalLogs),
 	})
 }

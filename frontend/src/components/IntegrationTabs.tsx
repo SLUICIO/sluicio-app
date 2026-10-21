@@ -41,6 +41,14 @@ interface Tab {
   disabled?: boolean;
 }
 
+// reachesSignal: unknown reach (null) offers the tab; otherwise the
+// caller reaches the signal through its services or through a grant of
+// this integration.
+function reachesSignal(global: boolean | undefined, viaIntegration: string[] | undefined, id: string): boolean {
+  if (global === undefined || global) return true;
+  return (viaIntegration ?? []).includes(id);
+}
+
 export default function IntegrationTabs({ integrationId, messagesCount, errorsCount }: Props) {
   // What this reader can actually reach; null while unknown, which
   // reads as "offer everything".
@@ -56,8 +64,11 @@ export default function IntegrationTabs({ integrationId, messagesCount, errorsCo
     // those are emitted by the service and carry nothing attributing
     // them to one flow. Offering the tabs anyway means three of seven
     // lead to an empty page or "not found".
-    ...(reach?.metrics === false ? [] : [{ label: "Metrics", path: `${base}/metrics` }]),
-    ...(reach?.logs === false ? [] : [{ label: "Logs", path: `${base}/logs` }]),
+    // A grant of the integration itself reaches its own slice of metrics
+    // and logs where its conditions carry onto them (one queue of a
+    // broker), which is what integration_metrics / integration_logs say.
+    ...(reachesSignal(reach?.metrics, reach?.integration_metrics, integrationId) ? [{ label: "Metrics", path: `${base}/metrics` }] : []),
+    ...(reachesSignal(reach?.logs, reach?.integration_logs, integrationId) ? [{ label: "Logs", path: `${base}/logs` }] : []),
     ...(reach?.services === false ? [] : [{ label: "Services", path: `${base}/services` }]),
     { label: "Errors", path: `${base}/errors`, count: errorsCount, tone: "err" },
     { label: "Metadata", path: `${base}/metadata` },

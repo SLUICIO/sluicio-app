@@ -801,12 +801,18 @@ export const api = {
   logServices: (window: string = "1h") =>
     get<LogServicesResponse>(`/log-services?range=${encodeURIComponent(window)}`),
 
-  logFields: (window: string = "1h") =>
-    get<LogFieldsResponse>(`/log-fields?range=${encodeURIComponent(window)}`),
+  // `integration` scopes the picker to that integration's slice, which is
+  // also what a reader granted only the integration may read.
+  logFields: (window: string = "1h", integration?: string) =>
+    get<LogFieldsResponse>(
+      `/log-fields?range=${encodeURIComponent(window)}${integration ? `&integration=${encodeURIComponent(integration)}` : ""}`,
+    ),
 
-  logAttrValues: (key: string, window: string = "1h", limit = 50) =>
+  logAttrValues: (key: string, window: string = "1h", limit = 50, integration?: string) =>
     get<LogAttrValuesResponse>(
-      `/log-attributes/${encodeURIComponent(key)}/values?range=${encodeURIComponent(window)}&limit=${limit}`,
+      `/log-attributes/${encodeURIComponent(key)}/values?range=${encodeURIComponent(window)}&limit=${limit}${
+        integration ? `&integration=${encodeURIComponent(integration)}` : ""
+      }`,
     ),
 
   logVolume: (
@@ -879,16 +885,18 @@ export const api = {
       `/usage/volume?range=${encodeURIComponent(window)}${windowed ? "&windowed=1" : ""}`,
     ),
 
-  metricFields: (window: string = "1h", metric?: string) =>
+  metricFields: (window: string = "1h", metric?: string, integration?: string) =>
     get<LogFieldsResponse>(
-      `/metric-fields?range=${encodeURIComponent(window)}${metric ? `&metric=${encodeURIComponent(metric)}` : ""}`,
+      `/metric-fields?range=${encodeURIComponent(window)}${metric ? `&metric=${encodeURIComponent(metric)}` : ""}${
+        integration ? `&integration=${encodeURIComponent(integration)}` : ""
+      }`,
     ),
 
-  metricAttributeValues: (key: string, window: string = "1h", limit = 50, metric?: string, q?: string) =>
+  metricAttributeValues: (key: string, window: string = "1h", limit = 50, metric?: string, q?: string, integration?: string) =>
     get<LogAttrValuesResponse>(
       `/metric-attributes/${encodeURIComponent(key)}/values?range=${encodeURIComponent(window)}&limit=${limit}${
         metric ? `&metric=${encodeURIComponent(metric)}` : ""
-      }${q ? `&q=${encodeURIComponent(q)}` : ""}`,
+      }${q ? `&q=${encodeURIComponent(q)}` : ""}${integration ? `&integration=${encodeURIComponent(integration)}` : ""}`,
     ),
 
   // Alerting: metric rules, would-fire preview, channels, instances ----

@@ -272,8 +272,8 @@ export default function LogsView({ forcedIntegration, forcedIntegrationId, force
 
   // Attribute key catalog for the autocomplete.
   useEffect(() => {
-    api.logFields(windowVal).then((r) => setFields(r.fields ?? [])).catch(() => setFields([]));
-  }, [windowVal]);
+    api.logFields(windowVal, forcedIntegration).then((r) => setFields(r.fields ?? [])).catch(() => setFields([]));
+  }, [windowVal, forcedIntegration]);
 
   // Group rollups, when a dimension is selected.
   useEffect(() => {
@@ -556,6 +556,7 @@ export default function LogsView({ forcedIntegration, forcedIntegrationId, force
                 window={windowVal}
                 onPick={addFilter}
                 onClose={() => setSuggestOpen(false)}
+                fetchValues={(key, win) => api.logAttrValues(key, win, 50, forcedIntegration)}
               />
             )}
           </div>

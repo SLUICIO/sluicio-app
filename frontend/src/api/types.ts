@@ -3031,6 +3031,13 @@ export interface NavigationReach {
   errors: boolean;
   /** Admin or a wildcard policy: every field above is true. */
   unrestricted: boolean;
+  /**
+   * Integration ids whose own slice of metrics / logs the caller reaches
+   * through a grant of the integration itself. `metrics` and `logs` above
+   * answer for the global pages; these answer for one integration's tabs.
+   */
+  integration_metrics?: string[];
+  integration_logs?: string[];
 }
 
 /** The cell's mark, when a partner runs Sluicio under their own brand

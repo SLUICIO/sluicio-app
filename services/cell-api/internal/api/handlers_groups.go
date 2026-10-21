@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/sluicio/sluicio-app/pkg/httpserver"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/api/middleware"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/identity"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/store"
 )
 
@@ -87,6 +88,23 @@ func (h *Handlers) integrationFilter(ctx context.Context, r *http.Request, candi
 		return []string{""}, attrGroups, true
 	}
 	return svcs, attrGroups, true
+}
+
+// pickerAccess is the access scope of an attribute picker (keys or
+// values) for one signal: the caller's services, or through
+// ?integration= that integration's slice - the same decision as the rows
+// the picker helps filter (resolveSignalRead). empty=true means nothing
+// is in reach and the store must not be asked: an empty service list
+// there reads as unrestricted.
+func (h *Handlers) pickerAccess(r *http.Request, sig identity.Signal) (serviceIn []string, groups [][]store.LogAttrFilter, empty bool) {
+	serviceIn, integGroups, _ := h.integrationFilter(r.Context(), r, func() ([]string, error) {
+		return h.catalogServiceNames(r.Context())
+	})
+	pf, groups := h.resolveSignalRead(r, "", serviceIn, integGroups, sig)
+	if pf.EmptyAccess || pf.Blocked {
+		return nil, nil, true
+	}
+	return pf.ServiceIn, groups, false
 }
 
 // integrationIDByName resolves an integration's display name to its ID
@@ -274,8 +292,10 @@ func (h *Handlers) logGroups(w http.ResponseWriter, r *http.Request) {
 	serviceIn, integGroups, _ := h.integrationFilter(r.Context(), r, func() ([]string, error) {
 		return h.catalogServiceNames(r.Context())
 	})
-	// G5: enforce policy-based service visibility for log group counts.
-	pf := h.resolveServiceFilter(r, rawService, serviceIn)
+	// G5: enforce policy-based visibility for log group counts, through
+	// the LOGS tier: the counts are a summary of log rows, and the
+	// signal-agnostic filter let a grant that excluded logs read them.
+	pf, integGroups := h.resolveSignalRead(r, rawService, serviceIn, integGroups, identity.SignalLogs)
 	if pf.Blocked {
 		httpserver.WriteError(w, http.StatusNotFound, "service not found")
 		return

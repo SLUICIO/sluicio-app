@@ -774,6 +774,22 @@ type AccessSets struct {
 	VisibleBySignal map[Signal]map[string]struct{}
 	// SignalAll marks signals with a wildcard grant.
 	SignalAll map[Signal]bool
+	// IntegrationsBySignal is the integrations granted DIRECTLY (issue
+	// #28) by policies covering each signal, plus shared integrations,
+	// which are all-signal. It is what lets an integration grant reach its
+	// own slice of metrics and logs, and not only its messages, without a
+	// grant narrowed to messages reaching more than it says. Populated
+	// alongside VisibleBySignal, under the same conditions.
+	IntegrationsBySignal map[Signal]map[uuid.UUID]struct{}
+}
+
+// IntegrationsFor returns the integrations granted directly for one
+// signal. Empty, never nil, when there are none.
+func (a AccessSets) IntegrationsFor(sig Signal) map[uuid.UUID]struct{} {
+	if set := a.IntegrationsBySignal[sig]; set != nil {
+		return set
+	}
+	return map[uuid.UUID]struct{}{}
 }
 
 // VisibleFor returns the visible set for one signal (set, wildcard).
@@ -1186,7 +1202,11 @@ func (s *Store) ResolveAccessSetsMember(ctx context.Context, ref MemberRef, orgI
 		}
 	}
 
-	out := AccessSets{VisibleBySignal: map[Signal]map[string]struct{}{}, SignalAll: map[Signal]bool{}}
+	out := AccessSets{
+		VisibleBySignal:      map[Signal]map[string]struct{}{},
+		SignalAll:            map[Signal]bool{},
+		IntegrationsBySignal: map[Signal]map[uuid.UUID]struct{}{},
+	}
 	// materialize memo: identical policy subsets share one evaluation —
 	// the common all-signal case costs exactly one extra map lookup per
 	// signal, not four re-resolutions.
@@ -1226,8 +1246,30 @@ func (s *Store) ResolveAccessSetsMember(ctx context.Context, ref MemberRef, orgI
 	if out.Managed, out.ManagedAll, err2 = materialize(manKey, managed); err2 != nil {
 		return AccessSets{}, err2
 	}
+	// Direct integration grants per signal. Composed separately from the
+	// service sets: materializing lowers a composition to service names,
+	// and the integrations are exactly what that drops.
+	composed := map[string]map[uuid.UUID]struct{}{}
+	integrationsOf := func(key string, pols []AccessPolicy) (map[uuid.UUID]struct{}, error) {
+		if set, ok := composed[key]; ok {
+			return set, nil
+		}
+		access, err := s.composeAccess(ctx, orgID, pols, expand, expandSystem)
+		if err != nil {
+			return nil, err
+		}
+		composed[key] = access.Integrations
+		return access.Integrations, nil
+	}
 	if !out.VisibleAll {
 		for _, sig := range AllSignals {
+			integs, err := integrationsOf(perSignalKey[sig], perSignal[sig])
+			if err != nil {
+				return AccessSets{}, err
+			}
+			cp := make(map[uuid.UUID]struct{}, len(integs))
+			maps.Copy(cp, integs)
+			out.IntegrationsBySignal[sig] = cp
 			set, wild, err := materialize(perSignalKey[sig], perSignal[sig])
 			if err != nil {
 				return AccessSets{}, err
@@ -1261,6 +1303,8 @@ func (s *Store) ResolveAccessSetsMember(ctx context.Context, ref MemberRef, orgI
 		}
 		out.Visible = vis
 		for _, sig := range AllSignals {
+			// Shared integrations are all-signal, like shared services.
+			maps.Copy(out.IntegrationsBySignal[sig], shared.Integrations)
 			if out.SignalAll[sig] {
 				continue
 			}
