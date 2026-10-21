@@ -3,8 +3,15 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.172 — 2026-10-21
+
+- feat(access): a grant of an integration reaches its own metrics and logs (94f397c)
+- fix(settings): the integration policy kind says what it grants (4c793d7)
+- test(e2e): a recording keeps the Mac awake while it runs (9509990)
+
 ## v0.11.171 — 2026-10-17
 
+- release v0.11.171 - refresh internal changelog (bff84a1)
 - feat(settings): SLUICIO_ORG_MANAGEMENT_DISABLED fixes an org's name and slug (7f39826)
 - feat(settings): SLUICIO_EMAIL_DISABLED turns email off for the instance (a4ed63a)
 - build: Go 1.26.9, golang.org/x/net 0.60.0 and x/text 0.42.0 for security fixes (1c488ba)
