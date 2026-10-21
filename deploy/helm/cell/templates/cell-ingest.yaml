@@ -29,6 +29,11 @@ spec:
               value: ":4318"
             # cell-ingest reads Postgres too — it verifies ingest keys there.
             {{- include "cell.dbEnv" . | nindent 12 }}
+            {{- if .Values.limits.storageGB }}
+            # cell-ingest is where the storage limit is enforced.
+            - name: SLUICIO_STORAGE_LIMIT_GB
+              value: {{ .Values.limits.storageGB | quote }}
+            {{- end }}
             {{- with .Values.cellIngest.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

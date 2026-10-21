@@ -5,6 +5,7 @@
 
 import type {
   IntegrationStats,
+  LimitsStatus,
   RuleMatch,
   AdvisorLedger,
   Branding,
@@ -1362,6 +1363,10 @@ export const api = {
     postEmpty(
       `/integrations/${encodeURIComponent(integrationID)}/completion-firings/${encodeURIComponent(instanceID)}/handle`,
     ),
+
+  // The deployment's limits (storage, integrations + systems), for the
+  // banner. Any signed-in member.
+  getLimits: () => get<LimitsStatus>(`/limits`),
 
   // ── Settings → Members (admin) ─────────────────────────────────
   listMembers: () => get<ListMembersResponse>(`/settings/members`),

@@ -15,6 +15,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	imclickhouse "github.com/sluicio/sluicio-app/pkg/clickhouse"
 	"github.com/sluicio/sluicio-app/pkg/env"
@@ -83,8 +84,22 @@ func main() {
 		logger.Warn("INGEST_ALLOW_ANONYMOUS=true — unauthenticated telemetry is accepted and attributed to the default org (dev only)")
 	}
 
+	// The storage limit set by the deployment, if any. Inside the key
+	// check, so a caller without a valid key learns nothing about the
+	// instance from a 429.
+	storageLimit, err := imclickhouse.StorageLimitFromEnv()
+	if err != nil {
+		logger.Error("invalid storage limit; refusing to start", "err", err)
+		os.Exit(1)
+	}
+	storage := ingest.NewStorageGate(conn, storageLimit, logger)
+	if storageLimit.Bytes > 0 {
+		logger.Info("storage limit set", "limit_bytes", storageLimit.Bytes)
+		go storage.Run(ctx, time.Minute)
+	}
+
 	wrap := func(signal string, h http.Handler) http.Handler {
-		return ingest.RequireIngestKey(keys, allowAnonymous, defaultOrgID, signal, logger, h)
+		return ingest.RequireIngestKey(keys, allowAnonymous, defaultOrgID, signal, logger, storage.Wrap(signal, h))
 	}
 
 	// Cell-level ingest flags (e.g. 5xx→Error span normalization),
@@ -101,10 +116,14 @@ func main() {
 		// alongside the status. Cheap (atomics), no DB hit. An operator
 		// curl'ing this gets the answer to "is the cell live AND
 		// receiving data?" in one call.
-		httpserver.WriteJSON(w, http.StatusOK, map[string]any{
+		body := map[string]any{
 			"status":   "ok",
 			"counters": ingest.GetCounters(),
-		})
+		}
+		if st := storage.Snapshot(); st != nil {
+			body["storage"] = st
+		}
+		httpserver.WriteJSON(w, http.StatusOK, body)
 	})
 
 	addr := env.String("CELL_INGEST_ADDR", ":4318")

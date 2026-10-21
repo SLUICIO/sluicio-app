@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/sluicio/sluicio-app/pkg/audit"
+	imclickhouse "github.com/sluicio/sluicio-app/pkg/clickhouse"
 	"github.com/sluicio/sluicio-app/pkg/httpserver"
 	"github.com/sluicio/sluicio-app/pkg/license"
 	"github.com/sluicio/sluicio-app/pkg/mail"
@@ -26,6 +27,7 @@ import (
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/catalog"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/dashboards"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/demand"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/deploymentlimits"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/erroracks"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/eventsubs"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/facetmappings"
@@ -207,6 +209,23 @@ type Handlers struct {
 	// the org, and nobody signed in can rename or re-slug it. Independent
 	// of Managed.
 	OrgManagementDisabled bool
+	// MonitoredEntityLimit caps integrations and systems combined
+	// (SLUICIO_MONITORED_ENTITY_LIMIT); 0 is no cap. Enforced in Postgres;
+	// kept here for the refusal message and the usage report.
+	MonitoredEntityLimit int
+	// StorageLimit caps the telemetry database's size on disk
+	// (SLUICIO_STORAGE_LIMIT_GB). cell-ingest enforces it; cell-api
+	// reports it.
+	StorageLimit imclickhouse.StorageLimit
+	// DeploymentToken authenticates the deployment's read of the
+	// instance's usage (SLUICIO_DEPLOYMENT_TOKEN). Empty disables that
+	// endpoint.
+	DeploymentToken string
+	// Limits reads the counts the monitored-entity limit is measured on.
+	Limits *deploymentlimits.Store
+	// storage caches the storage measurement (see storageUsage).
+	storageMu sync.Mutex
+	storage   storageCache
 	// BootstrapToken gates the first-user claim on a managed instance
 	// (SLUICIO_BOOTSTRAP_TOKEN). A managed instance is reachable before
 	// anyone has opened it, so without this the first visitor to find the
@@ -1629,6 +1648,12 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 		// RequireOperator: it refuses capped tokens by design, and an
 		// endpoint only a logged-in human can reach cannot be polled,
 		// which is the one thing this endpoint is for.
+		// Usage against the deployment's limits, for the deployment to
+		// poll with its own token (handlers_deployment_limits.go). Not a
+		// session route; skipped by the auth wrap in main.go.
+		mux.HandleFunc("GET /api/v1/deployment/usage", h.deploymentUsage)
+		// The deployment's limits for the in-app banner: any member.
+		mux.HandleFunc("GET /api/v1/limits", h.getLimitsStatus)
 		mux.HandleFunc("GET /api/v1/cell-health", func(w http.ResponseWriter, r *http.Request) {
 			if healthTokenOK(r) {
 				h.cellHealth(w, r)

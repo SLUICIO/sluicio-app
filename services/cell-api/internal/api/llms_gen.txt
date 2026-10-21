@@ -112,6 +112,9 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 - PUT /api/v1/dashboards/{id} — Update dashboard
 - DELETE /api/v1/dashboards/{id} — Delete dashboard
 
+## deployment
+- GET /api/v1/deployment/usage — List deployment
+
 ## digest
 - GET /api/v1/digest — List digest
 - POST /api/v1/digest/seen — Create digest
@@ -203,6 +206,9 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 
 ## license
 - GET /api/v1/license — List license
+
+## limits
+- GET /api/v1/limits — List limits
 
 ## llms.txt
 - GET /api/v1/llms.txt — List llms.txt (no auth)

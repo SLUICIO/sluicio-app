@@ -80,6 +80,10 @@ services:
       # published port; override if you remap CELL_INGEST_PORT.
       SLUICIO_INGEST_URL: ${SLUICIO_INGEST_URL:-http://localhost:4318}
       SLUICIO_LICENSE_KEY: ${SLUICIO_LICENSE_KEY:-}
+      # Limits on the instance; empty is no limit. See docs: storage limit.
+      SLUICIO_STORAGE_LIMIT_GB: ${SLUICIO_STORAGE_LIMIT_GB:-}
+      SLUICIO_MONITORED_ENTITY_LIMIT: ${SLUICIO_MONITORED_ENTITY_LIMIT:-}
+      SLUICIO_DEPLOYMENT_TOKEN: ${SLUICIO_DEPLOYMENT_TOKEN:-}
 
   cell-ingest:
     image: ${REGISTRY:-ghcr.io}/${NAMESPACE:-sluicio}/cell-ingest:${TAG:-latest}
@@ -93,6 +97,8 @@ services:
       <<: *ch-env
       CELL_INGEST_ADDR: ":4318"
       POSTGRES_DSN: postgres://${POSTGRES_USER:-sluicio}:${POSTGRES_PASSWORD:-sluicio_dev}@postgres:5432/controlplane?sslmode=disable
+      # Enforced here: at the limit, telemetry is refused. Empty is none.
+      SLUICIO_STORAGE_LIMIT_GB: ${SLUICIO_STORAGE_LIMIT_GB:-}
     ports:
       - "${CELL_INGEST_PORT:-4318}:4318"   # OTLP/HTTP — point your OTel Collector here
 

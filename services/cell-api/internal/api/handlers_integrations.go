@@ -992,6 +992,9 @@ func (h *Handlers) createIntegration(w http.ResponseWriter, r *http.Request) {
 	}
 	created, err := h.Integrations.Create(r.Context(), in)
 	if err != nil {
+		if h.refusedByEntityLimit(w, err) {
+			return
+		}
 		if integrations.IsValidationError(err) {
 			httpserver.WriteError(w, http.StatusBadRequest, err.Error())
 			return
@@ -1875,6 +1878,9 @@ func (h *Handlers) cloneIntegration(w http.ResponseWriter, r *http.Request) {
 		Name: req.Name, Slug: req.Slug, Scope: scope,
 	})
 	if err != nil {
+		if h.refusedByEntityLimit(w, err) {
+			return
+		}
 		if integrations.IsValidationError(err) {
 			httpserver.WriteError(w, http.StatusBadRequest, err.Error())
 			return

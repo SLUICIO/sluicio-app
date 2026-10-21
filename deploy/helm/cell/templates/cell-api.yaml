@@ -80,6 +80,15 @@ spec:
             - name: SLUICIO_ORG_MANAGEMENT_DISABLED
               value: "true"
             {{- end }}
+            {{- if .Values.limits.storageGB }}
+            - name: SLUICIO_STORAGE_LIMIT_GB
+              value: {{ .Values.limits.storageGB | quote }}
+            {{- end }}
+            {{- if .Values.limits.monitoredEntities }}
+            - name: SLUICIO_MONITORED_ENTITY_LIMIT
+              value: {{ .Values.limits.monitoredEntities | quote }}
+            {{- end }}
+            {{- include "cell.secretEnv" (dict "root" . "name" "SLUICIO_DEPLOYMENT_TOKEN" "cfg" .Values.deploymentToken "appKey" "deployment-token") | nindent 12 }}
             {{- with .Values.cellApi.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

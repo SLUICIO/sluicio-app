@@ -38,6 +38,7 @@ import { AnnouncementsBanner } from "./AnnouncementsBanner";
 import { MFAEnrollmentBanner } from "./MFAEnrollmentBanner";
 import ForcePasswordChange from "./ForcePasswordChange";
 import { IntegrationLimitBanner } from "./IntegrationLimitBanner";
+import { DeploymentLimitsBanner } from "./DeploymentLimitsBanner";
 import { useProductName } from "../lib/useProductName";
 
 interface NavItem {
@@ -167,6 +168,7 @@ export default function AppShell() {
             <div className="flex-1 px-8 py-6">
               <AnnouncementsBanner />
               <MFAEnrollmentBanner />
+              <DeploymentLimitsBanner />
               <IntegrationLimitBanner />
               <Outlet />
             </div>

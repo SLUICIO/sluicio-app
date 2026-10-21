@@ -62,6 +62,7 @@ import (
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/collectorversion"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/dashboards"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/demand"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/deploymentlimits"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/erroracks"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/errornotify"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/eventsubs"
@@ -168,6 +169,31 @@ func main() {
 	// Organization names fixed by whoever runs the instance: no rename or
 	// re-slug from inside it, by an org admin or an operator.
 	orgManagementDisabled := env.Bool("SLUICIO_ORG_MANAGEMENT_DISABLED", false)
+	// Limits the deployment sets on the instance. A malformed value stops
+	// startup rather than meaning "no limit": a limit someone set and
+	// mistyped must not vanish without a word.
+	storageLimit, err := imclickhouse.StorageLimitFromEnv()
+	if err != nil {
+		logger.Error("invalid storage limit; refusing to start", "err", err)
+		os.Exit(1)
+	}
+	entityLimit, err := deploymentlimits.MonitoredEntityLimitFromEnv()
+	if err != nil {
+		logger.Error("invalid monitored entity limit; refusing to start", "err", err)
+		os.Exit(1)
+	}
+	limitsStore := deploymentlimits.New(pg)
+	// Written at every start, so removing the setting removes the limit.
+	if err := limitsStore.SetMonitoredEntityLimit(ctx, entityLimit); err != nil {
+		logger.Error("could not record the monitored entity limit; refusing to start", "err", err)
+		os.Exit(1)
+	}
+	if entityLimit > 0 {
+		logger.Info("monitored entity limit set", "integrations_and_systems", entityLimit)
+	}
+	if storageLimit.Bytes > 0 {
+		logger.Info("storage limit set", "limit_bytes", storageLimit.Bytes)
+	}
 	bootstrapToken := strings.TrimSpace(os.Getenv("SLUICIO_BOOTSTRAP_TOKEN"))
 	identityStore.SetManaged(managed)
 
@@ -322,6 +348,10 @@ func main() {
 		Managed:                 managed,
 		EmailDisabled:           emailDisabled,
 		OrgManagementDisabled:   orgManagementDisabled,
+		MonitoredEntityLimit:    entityLimit,
+		StorageLimit:            storageLimit,
+		DeploymentToken:         strings.TrimSpace(os.Getenv("SLUICIO_DEPLOYMENT_TOKEN")),
+		Limits:                  limitsStore,
 		BootstrapToken:          bootstrapToken,
 		BootstrapTokenExpiresAt: bootstrapExpiry,
 		ViaToken:                api.NewViaToken(),
@@ -879,6 +909,10 @@ func main() {
 		// inside the handler, not a session; the auth middleware would
 		// reject the request before it got there.
 		"/api/v1/cell-health",
+		// The deployment's read of usage against its limits: a token
+		// checked inside the handler (SLUICIO_DEPLOYMENT_TOKEN), never a
+		// session. 404 when no token is set.
+		"/api/v1/deployment/usage",
 		"/api/v1/auth/login",
 		"/api/v1/auth/logout",
 		"/api/v1/auth/install-state",

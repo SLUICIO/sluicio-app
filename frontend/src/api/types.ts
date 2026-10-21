@@ -3117,3 +3117,16 @@ export interface AdvisorLedger {
   empty?: boolean;
   unavailable?: boolean;
 }
+
+/** The deployment's limits on the instance (GET /limits). Each half is
+ *  absent when no such limit is set. */
+export interface LimitsStatus {
+  storage?: {
+    limit_bytes: number;
+    used_bytes?: number;
+    /** Telemetry is being refused. */
+    at_limit?: boolean;
+    resumes_below_bytes?: number;
+  };
+  monitored_entities?: { used: number; limit: number };
+}

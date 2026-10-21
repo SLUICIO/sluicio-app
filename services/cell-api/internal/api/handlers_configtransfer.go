@@ -24,6 +24,7 @@ import (
 	"github.com/sluicio/sluicio-app/pkg/version"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/api/middleware"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/configtransfer"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/deploymentlimits"
 )
 
 // exportConfig: GET /api/v1/settings/config-export
@@ -105,6 +106,10 @@ func (h *Handlers) importConfig(w http.ResponseWriter, r *http.Request) {
 		var invalid *configtransfer.ValidationError
 		var pgErr *pgconn.PgError
 		switch {
+		case deploymentlimits.IsEntityLimit(err):
+			// Before the generic integrity case below: this is the
+			// instance's limit, not a fault in the bundle.
+			h.refusedByEntityLimit(w, err)
 		case errors.As(err, &conflict):
 			httpserver.WriteError(w, http.StatusConflict, conflict.Error()+" — use mode=replace to overwrite")
 		case errors.As(err, &invalid):

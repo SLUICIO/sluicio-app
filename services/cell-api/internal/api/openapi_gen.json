@@ -1252,6 +1252,23 @@
         ]
       }
     },
+    "/api/v1/deployment/usage": {
+      "get": {
+        "operationId": "get_api_v1_deployment_usage",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "List deployment",
+        "tags": [
+          "deployment"
+        ]
+      }
+    },
     "/api/v1/digest": {
       "get": {
         "operationId": "get_api_v1_digest",
@@ -2595,6 +2612,23 @@
         "summary": "List license",
         "tags": [
           "license"
+        ]
+      }
+    },
+    "/api/v1/limits": {
+      "get": {
+        "operationId": "get_api_v1_limits",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "List limits",
+        "tags": [
+          "limits"
         ]
       }
     },
@@ -7562,6 +7596,9 @@
       "name": "dashboards"
     },
     {
+      "name": "deployment"
+    },
+    {
       "name": "digest"
     },
     {
@@ -7593,6 +7630,9 @@
     },
     {
       "name": "license"
+    },
+    {
+      "name": "limits"
     },
     {
       "name": "llms.txt"

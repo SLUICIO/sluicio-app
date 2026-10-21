@@ -67,6 +67,10 @@ type signalCounters struct {
 	// skippedPoints counts data points received but not stored (today
 	// only OTLP Summary metric points). Metrics-only.
 	skippedPoints atomic.Uint64
+	// storageRefused counts requests turned away because the instance
+	// reached its storage limit (StorageGate). Kept apart from rejected,
+	// which means the request itself was wrong.
+	storageRefused atomic.Uint64
 }
 
 var (
@@ -92,26 +96,31 @@ type CounterSnapshot struct {
 	// SkippedPoints is data points accepted on the wire but not stored
 	// (metrics: Summary points). Omitted for signals that never skip.
 	SkippedPoints uint64 `json:"skipped_points,omitempty"`
+	// StorageRefused is requests turned away at the storage limit.
+	StorageRefused uint64 `json:"storage_refused,omitempty"`
 }
 
 // GetCounters reads the current values atomically.
 func GetCounters() Counters {
 	return Counters{
 		Traces: CounterSnapshot{
-			Accepted:  tracesCounters.accepted.Load(),
-			Rejected:  tracesCounters.rejected.Load(),
-			RowsTotal: tracesCounters.rowsTotal.Load(),
+			Accepted:       tracesCounters.accepted.Load(),
+			Rejected:       tracesCounters.rejected.Load(),
+			RowsTotal:      tracesCounters.rowsTotal.Load(),
+			StorageRefused: tracesCounters.storageRefused.Load(),
 		},
 		Logs: CounterSnapshot{
-			Accepted:  logsCounters.accepted.Load(),
-			Rejected:  logsCounters.rejected.Load(),
-			RowsTotal: logsCounters.rowsTotal.Load(),
+			Accepted:       logsCounters.accepted.Load(),
+			Rejected:       logsCounters.rejected.Load(),
+			RowsTotal:      logsCounters.rowsTotal.Load(),
+			StorageRefused: logsCounters.storageRefused.Load(),
 		},
 		Metrics: CounterSnapshot{
-			Accepted:      metricsCounters.accepted.Load(),
-			Rejected:      metricsCounters.rejected.Load(),
-			RowsTotal:     metricsCounters.rowsTotal.Load(),
-			SkippedPoints: metricsCounters.skippedPoints.Load(),
+			Accepted:       metricsCounters.accepted.Load(),
+			Rejected:       metricsCounters.rejected.Load(),
+			RowsTotal:      metricsCounters.rowsTotal.Load(),
+			SkippedPoints:  metricsCounters.skippedPoints.Load(),
+			StorageRefused: metricsCounters.storageRefused.Load(),
 		},
 	}
 }

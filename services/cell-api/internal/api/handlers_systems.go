@@ -43,6 +43,9 @@ func (h *Handlers) putServiceSystem(w http.ResponseWriter, r *http.Request) {
 		kind = ""
 	}
 	if err := h.Catalog.SetServiceSystem(r.Context(), middleware.OrgID(r), name, req.IsSystem, kind); err != nil {
+		if h.refusedByEntityLimit(w, err) {
+			return
+		}
 		h.Logger.Error("set service system failed", "err", err, "service", name)
 		httpserver.WriteError(w, http.StatusInternalServerError, "save failed")
 		return
@@ -296,6 +299,9 @@ func (h *Handlers) createSystem(w http.ResponseWriter, r *http.Request) {
 	}
 	sy, err := h.Catalog.CreateSystem(r.Context(), middleware.OrgID(r), name, strings.ToLower(strings.TrimSpace(in.TypeKey)), strings.TrimSpace(in.Description))
 	if err != nil {
+		if h.refusedByEntityLimit(w, err) {
+			return
+		}
 		if isUniqueViolation(err) {
 			httpserver.WriteError(w, http.StatusConflict, "a system with that name already exists")
 			return

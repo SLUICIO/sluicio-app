@@ -89,6 +89,23 @@ smtp:
 orgManagement:
   disabled: false
 
+# Limits on the instance. 0 is no limit.
+limits:
+  # Telemetry on disk, in decimal GB. At the limit new telemetry is refused
+  # (OTLP 429 with Retry-After) until retention brings usage back under it.
+  storageGB: 0
+  # Integrations and systems combined. At the limit no new one can be
+  # created; nothing existing is removed if it is lowered.
+  monitoredEntities: 0
+
+# Token for reading usage against those limits from outside
+# (GET /api/v1/deployment/usage, bearer). Unset: the endpoint does not
+# exist. existingSecret preferred.
+deploymentToken:
+  key: ""
+  existingSecret: ""
+  secretKey: "deployment-token"
+
 cellApi:
   image:
     repository: ghcr.io/sluicio/cell-api
