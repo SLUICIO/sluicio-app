@@ -3,8 +3,15 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.173 — 2026-10-21
+
+- feat(settings): grant several integrations at once, by id (4305b79)
+- fix(settings): "is one of" in an access policy takes more than one value (227107c)
+- build: pin Go 1.26.10 so CI scans what the images ship with (b14aea0)
+
 ## v0.11.172 — 2026-10-21
 
+- release v0.11.172 - refresh internal changelog (33da823)
 - feat(access): a grant of an integration reaches its own metrics and logs (94f397c)
 - fix(settings): the integration policy kind says what it grants (4c793d7)
 - test(e2e): a recording keeps the Mac awake while it runs (9509990)
