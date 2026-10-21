@@ -1073,6 +1073,10 @@ func AttrGroupsFromMatchers(matchers []integrations.Matcher, mode integrations.R
 		}
 		f := attrFilterFromMatcher(m)
 		f.RequireAllGroups = mode.RequiresAll()
+		// Which member the group belongs to (#39): "all" requires one
+		// group per member, not every group.
+		member := m.MemberID()
+		f.Member = &member
 		byGroup[m.MatchGroup] = append(byGroup[m.MatchGroup], f)
 	}
 	if len(order) == 0 {

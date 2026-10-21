@@ -5,14 +5,13 @@
 // claims is about to change.
 
 import { describe, expect, it } from "vitest";
-import { blankRule, type Rule } from "../MatcherRules";
+import { blankRule, matchersToRules, rulesToMatchers, type Rule } from "../MatcherRules";
 import type { NeighborsResponse } from "../../api/types";
 import {
   conditionsPhrase,
   describeChanges,
   memberPhrase,
   mergeSuggestions,
-  orConflict,
   parseAddQuery,
   windowPhrase,
 } from "./membership";
@@ -159,32 +158,45 @@ describe("the range, in words", () => {
   });
 });
 
+// #39: a member whose conditions are joined with "or" is several match
+// groups, and they now say they belong to one member, so "one trace
+// through every service" requires one of them, not all of them.
 describe('"or" where members must all appear in one trace', () => {
-  const two = (combine: "any" | "all") =>
-    svc("a", {
-      combine,
-      attrs: [
-        { attribute: "x", operator: "equals", value: "1" },
-        { attribute: "x", operator: "equals", value: "2" },
-      ],
-    });
+  const orRule = svc("a", {
+    combine: "any",
+    attrs: [
+      { attribute: "x", operator: "equals", value: "1" },
+      { attribute: "x", operator: "equals", value: "2" },
+    ],
+  });
 
-  // Each alternative is its own match group, and that mode requires every
-  // group: "x = 1 or x = 2" would be stored meaning a span with 1 AND a
-  // span with 2.
-  it("is a conflict only in that mode, and only with two real alternatives", () => {
-    expect(orConflict(two("any"), "all")).toBe(true);
-    expect(orConflict(two("any"), "any")).toBe(false);
-    expect(orConflict(two("all"), "all")).toBe(false);
-    const one = svc("a", { attrs: [{ attribute: "x", operator: "equals", value: "1" }] });
-    expect(orConflict(one, "all")).toBe(false);
-    // A half-typed second condition is not an alternative yet.
-    const half = svc("a", {
-      attrs: [
-        { attribute: "x", operator: "equals", value: "1" },
-        { attribute: "x", operator: "equals", value: "" },
-      ],
-    });
-    expect(orConflict(half, "all")).toBe(false);
+  it("gives every group of one rule the same member, and each rule its own", () => {
+    const rows = rulesToMatchers([orRule, svc("b")]);
+    const membersOf = (service: string) =>
+      new Set(rows.filter((r) => r.attribute === "service.name" && r.value === service).map((r) => r.member));
+    expect(new Set(rows.filter((r) => r.value === "a").map((r) => r.match_group)).size).toBe(2);
+    expect(membersOf("a").size).toBe(1);
+    expect(membersOf("b").size).toBe(1);
+    expect([...membersOf("a")][0]).not.toBe([...membersOf("b")][0]);
+  });
+
+  it("reads the rows back as the same rules", () => {
+    const back = matchersToRules(rulesToMatchers([orRule, svc("b")]));
+    expect(back).toHaveLength(2);
+    expect(back[0].combine).toBe("any");
+    expect(back[0].attrs.map((a) => a.value)).toEqual(["1", "2"]);
+  });
+
+  it("keeps two members on the same service apart", () => {
+    const rules = [
+      svc("a", { attrs: [{ attribute: "x", operator: "equals", value: "1" }] }),
+      svc("a", { attrs: [{ attribute: "y", operator: "equals", value: "2" }] }),
+    ];
+    expect(matchersToRules(rulesToMatchers(rules))).toHaveLength(2);
+  });
+
+  it("still groups rows without a member by service, as before members existed", () => {
+    const rows = rulesToMatchers([orRule]).map((r) => ({ ...r, member: undefined }));
+    expect(matchersToRules(rows)).toHaveLength(1);
   });
 });

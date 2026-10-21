@@ -48,7 +48,7 @@ describe("saving what belongs to an integration", () => {
     expect(calls.replaceMatchers).toHaveBeenCalledTimes(1);
     expect(calls.replaceMatchers.mock.calls[0]).toEqual([
       "int-1",
-      { matchers: [{ attribute: "service.name", operator: "equals", value: "order-gateway", match_group: 0 }] },
+      { matchers: [{ attribute: "service.name", operator: "equals", value: "order-gateway", match_group: 0, member: 0 }] },
     ]);
     expect(calls.addMatcher).not.toHaveBeenCalled();
     expect(calls.removeMatcher).not.toHaveBeenCalled();

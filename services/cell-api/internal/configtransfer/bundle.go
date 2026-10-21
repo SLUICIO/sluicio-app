@@ -188,6 +188,12 @@ type Matcher struct {
 	// omitempty keeps bundles written before the flag byte-identical, and
 	// a bundle without it imports as the old span-by-span match.
 	IncludeDescendants bool `json:"include_descendants,omitempty"`
+	// Member is the integration member the group belongs to (#39). Only
+	// written when it differs from match_group, so a bundle where every
+	// group is its own member reads as before; a bundle without it - one
+	// from an older version - imports with member = match_group, which is
+	// what it meant there.
+	Member *int16 `json:"member,omitempty"`
 }
 
 type AccessPolicy struct {

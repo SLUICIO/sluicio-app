@@ -2835,6 +2835,13 @@ type LogAttrFilter struct {
 	// whole predicate, carried on each row of it because the predicate
 	// travels as a plain group list. See attrGroupsClause.
 	RequireAllGroups bool `json:"require_all_groups,omitempty"`
+	// Member is which member of an integration the filter's GROUP belongs
+	// to (#39). With RequireAllGroups, one group per member must be
+	// satisfied, not every group: a member whose conditions are joined
+	// with "or" is several groups, and only one of its alternatives has to
+	// hold. Nil makes the group its own member, which is how every group
+	// was read before members existed.
+	Member *int `json:"member,omitempty"`
 }
 
 // Attribute filter operators. Text ops compare the attribute value as a
@@ -3016,8 +3023,9 @@ func attrGroupsClause(primaryMap string, groups [][]LogAttrFilter, from, to time
 	// and the gate says the trace satisfied EVERY one of them.
 	groupSQL := make([]string, 0, len(groups))
 	groupArgs := make([][]any, 0, len(groups))
+	groupMember := make([]int, 0, len(groups))
 	requireAll := false
-	for _, g := range groups {
+	for gi, g := range groups {
 		andParts := make([]string, 0, len(g))
 		var andArgs []any
 		descendants := false
@@ -3044,6 +3052,7 @@ func attrGroupsClause(primaryMap string, groups [][]LogAttrFilter, from, to time
 		}
 		groupSQL = append(groupSQL, gateSQL)
 		groupArgs = append(groupArgs, gateArgs)
+		groupMember = append(groupMember, groupMemberOf(g, gi))
 		if !descendants || primaryMap == "MetricAttributes" || from.IsZero() || to.IsZero() {
 			orParts = append(orParts, plain)
 			args = append(args, andArgs...)
@@ -3069,30 +3078,67 @@ func attrGroupsClause(primaryMap string, groups [][]LogAttrFilter, from, to time
 		return "", nil
 	}
 	clause := "(" + strings.Join(orParts, " OR ") + ")"
-	if gate, gateArgs := allGroupsClause(primaryMap, groupSQL, groupArgs, requireAll, from, to); gate != "" {
+	if gate, gateArgs := allGroupsClause(primaryMap, groupSQL, groupArgs, groupMember, requireAll, from, to); gate != "" {
 		clause = "(" + clause + " AND " + gate + ")"
 		args = append(args, gateArgs...)
 	}
 	return clause, args
 }
 
+// groupMemberOf is the member a group belongs to: the first filter's
+// Member, or, when it has none, a member of its own. Negative so it can
+// never collide with a member an integration set.
+func groupMemberOf(g []LogAttrFilter, index int) int {
+	for _, f := range g {
+		if f.Member != nil {
+			return *f.Member
+		}
+	}
+	return -1 - index
+}
+
 // allGroupsClause renders "and this row's trace satisfies every one of the
-// groups", for a predicate whose rules are combined with all rather than
+// members", for a predicate whose rules are combined with all rather than
 // any.
 //
 // The question cannot be asked of a row: a rule names a service, and one
 // span is in one service, so a span can only ever satisfy one of them. It
 // is asked of the trace, which is the unit a message is anyway.
 //
-// Metrics carry no trace, and a single group is already its own
+// A member is satisfied when ANY of its groups is (#39). Its groups are
+// the alternatives of one entry on the Services tab - "order-gateway
+// where x = 1 or x = 2" is two groups - and requiring every group read
+// that "or" as "and". members runs parallel to groups.
+//
+// Metrics carry no trace, and a single member is already its own
 // conjunction, so both render nothing and the caller keeps the union.
-func allGroupsClause(primaryMap string, groups []string, args [][]any, requireAll bool, from, to time.Time) (string, []any) {
-	if !requireAll || len(groups) < 2 || primaryMap == "MetricAttributes" || from.IsZero() || to.IsZero() {
+func allGroupsClause(primaryMap string, groups []string, args [][]any, members []int, requireAll bool, from, to time.Time) (string, []any) {
+	order := make([]int, 0, len(groups))
+	byMember := map[int][]int{}
+	for i, m := range members {
+		if _, ok := byMember[m]; !ok {
+			order = append(order, m)
+		}
+		byMember[m] = append(byMember[m], i)
+	}
+	if !requireAll || len(order) < 2 || primaryMap == "MetricAttributes" || from.IsZero() || to.IsZero() {
 		return "", nil
 	}
-	having := make([]string, 0, len(groups))
-	for _, g := range groups {
-		having = append(having, "countIf("+g+") > 0")
+	having := make([]string, 0, len(order))
+	var havingArgs []any
+	for _, m := range order {
+		alts := make([]string, 0, len(byMember[m]))
+		for _, i := range byMember[m] {
+			alts = append(alts, "countIf("+groups[i]+") > 0")
+			havingArgs = append(havingArgs, args[i]...)
+		}
+		if len(alts) == 1 {
+			// A member of one group renders exactly as before members
+			// existed, so an integration stored that way reads the same.
+			having = append(having, alts[0])
+			continue
+		}
+		having = append(having, "("+strings.Join(alts, " OR ")+")")
 	}
 	// The WHERE narrows to the spans that satisfy SOME group before the
 	// grouping, so the pass reads the integration's own traffic rather
@@ -3107,9 +3153,7 @@ func allGroupsClause(primaryMap string, groups []string, args [][]any, requireAl
 	for _, a := range args {
 		out = append(out, a...)
 	}
-	for _, a := range args {
-		out = append(out, a...)
-	}
+	out = append(out, havingArgs...)
 	return sql, out
 }
 

@@ -779,6 +779,9 @@ export interface Matcher {
   // The group this matcher belongs to selects its matching spans plus
   // every span below them in the trace. Read per match_group.
   include_descendants?: boolean;
+  /** The member (one entry on the Services tab) the group belongs to.
+   *  "One trace through every service" requires one group per member. */
+  member?: number;
   created_at: string;
 }
 
@@ -915,6 +918,7 @@ export interface CreateIntegrationRequest {
     value: string;
     match_group?: number;
     include_descendants?: boolean;
+    member?: number;
   }[];
   rule_match?: RuleMatch;
 }

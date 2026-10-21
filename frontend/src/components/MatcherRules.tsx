@@ -16,8 +16,9 @@
 // normal condition inside a group — the backend compiles it against the
 // ServiceName column, which is what makes per-service scoping work. The
 // rule⇄DNF translation lives here so both surfaces stay consistent:
-//   rulesToMatchers  — expand rules into match_group-tagged matcher rows
-//   matchersToRules  — bucket matcher rows back into rules by their service
+//   rulesToMatchers  — expand rules into match_group-tagged matcher rows,
+//                      each carrying its rule's member id
+//   matchersToRules  — bucket matcher rows back into rules by member
 //   rulesPreview     — render the full boolean expression for the live preview
 
 import { useState } from "react";
@@ -87,6 +88,10 @@ export type MatcherInput = {
   value: string;
   match_group: number;
   include_descendants?: boolean;
+  /** Which rule (member) the row's group came from (#39). One rule whose
+   *  conditions are joined with "or" is several groups with one member;
+   *  "one trace through every service" requires one group per member. */
+  member?: number;
 };
 
 export const blankAttr = (): AttrCond => ({ attribute: "", operator: "equals", value: "" });
@@ -152,12 +157,15 @@ const validAttrs = (r: Rule): AttrCond[] =>
 export function rulesToMatchers(rules: Rule[]): MatcherInput[] {
   const out: MatcherInput[] = [];
   let group = 0;
+  let member = 0;
   for (const r of rules) {
     const service = r.service.trim();
     if (!service) continue; // incomplete rule — skip
-    // Every row of every group the rule expands into carries the flag,
-    // so the rule reads back the same whichever row is looked at.
-    const flag = r.descendants ? { include_descendants: true } : {};
+    // Every row of every group the rule expands into carries the flag and
+    // the rule's member id, so the rule reads back the same whichever row
+    // is looked at - and "all" reads its "or" as one requirement (#39).
+    const flag = { ...(r.descendants ? { include_descendants: true } : {}), member };
+    member++;
     const svc = { attribute: SERVICE_NAME_ATTR, operator: r.serviceOp, value: service, ...flag };
     const attrs = validAttrs(r).map((a) => ({ ...a, ...flag }));
     if (attrs.length === 0) {
@@ -179,11 +187,14 @@ export function rulesToMatchers(rules: Rule[]): MatcherInput[] {
 }
 
 // matchersToRules buckets matcher rows (grouped by match_group) back into
-// rules by their service.name condition. Groups sharing a service combine into
-// one rule: several single-attr groups → an OR rule, one multi-attr group → an
-// AND rule, a service-only group → a bare rule. A group with no service.name
+// rules by MEMBER (#39): the groups of one member combine into one rule -
+// several single-attr groups → an OR rule, one multi-attr group → an AND
+// rule, a service-only group → a bare rule. Bucketing by member rather than
+// by service also lets two members name the same service with different
+// conditions. Rows without a member (from a server that predates them)
+// bucket by service as they always did. A group with no service.name
 // (attribute-only) becomes a rule with an empty service so it stays visible
-// and editable rather than being silently dropped.
+// and editable rather than dropped.
 export function matchersToRules(
   matchers: {
     attribute: string;
@@ -191,6 +202,7 @@ export function matchersToRules(
     value: string;
     match_group: number;
     include_descendants?: boolean;
+    member?: number;
   }[],
 ): Rule[] {
   const byGroup = new Map<number, typeof matchers>();
@@ -223,7 +235,10 @@ export function matchersToRules(
     // file read as binary to grep, ripgrep and GitHub search, which then
     // silently returned no matches for anything in it - including its own
     // exported constants. Same value at runtime.
-    const key = `${svc.operator}\u0000${svc.value}`;
+    // By member when the rows say which (#39); otherwise - rows from a
+    // server that predates members - by service, as before.
+    const member = ms.find((m) => m.member !== undefined)?.member;
+    const key = member !== undefined ? `member\u0000${member}` : `${svc.operator}\u0000${svc.value}`;
     let rule = ruleMap.get(key);
     if (!rule) {
       rule = { serviceOp: svc.operator, service: svc.value, combine: "any", attrs: [] };

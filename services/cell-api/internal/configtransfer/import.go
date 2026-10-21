@@ -758,9 +758,9 @@ func (r *resolver) importIntegrations(integrations []Integration) func() error {
 			}
 			for _, m := range in.Matchers {
 				if _, err := r.tx.Exec(r.ctx, `
-					INSERT INTO integration_matchers (integration_id, attribute, operator, value, match_group, include_descendants)
-					VALUES ($1,$2,$3::matcher_operator,$4,$5,$6)`,
-					id, m.Attribute, m.Operator, m.Value, m.MatchGroup, m.IncludeDescendants); err != nil {
+					INSERT INTO integration_matchers (integration_id, attribute, operator, value, match_group, include_descendants, member)
+					VALUES ($1,$2,$3::matcher_operator,$4,$5,$6,$7)`,
+					id, m.Attribute, m.Operator, m.Value, m.MatchGroup, m.IncludeDescendants, m.Member); err != nil {
 					return err
 				}
 			}

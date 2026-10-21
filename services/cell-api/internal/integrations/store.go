@@ -195,11 +195,11 @@ func (s *Store) Create(ctx context.Context, in IntegrationWithMatchers) (Integra
 		}
 		var created Matcher
 		err := tx.QueryRow(ctx, `
-			INSERT INTO integration_matchers (integration_id, attribute, operator, value, match_group, include_descendants)
-			VALUES ($1, $2, $3, $4, $5, $6)
-			RETURNING id, integration_id, attribute, operator, value, match_group, include_descendants, created_at
-		`, i.ID, m.Attribute, m.Operator, m.Value, m.MatchGroup, m.IncludeDescendants).Scan(
-			&created.ID, &created.IntegrationID, &created.Attribute, &created.Operator, &created.Value, &created.MatchGroup, &created.IncludeDescendants, &created.CreatedAt,
+			INSERT INTO integration_matchers (integration_id, attribute, operator, value, match_group, include_descendants, member)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
+			RETURNING id, integration_id, attribute, operator, value, match_group, include_descendants, member, created_at
+		`, i.ID, m.Attribute, m.Operator, m.Value, m.MatchGroup, m.IncludeDescendants, m.Member).Scan(
+			&created.ID, &created.IntegrationID, &created.Attribute, &created.Operator, &created.Value, &created.MatchGroup, &created.IncludeDescendants, &created.Member, &created.CreatedAt,
 		)
 		if err != nil {
 			return IntegrationWithMatchers{}, fmt.Errorf("insert matcher: %w", err)
@@ -328,13 +328,13 @@ func (s *Store) AddMatcher(ctx context.Context, orgID, integrationID uuid.UUID, 
 	}
 	var created Matcher
 	err := s.pool.QueryRow(ctx, `
-		INSERT INTO integration_matchers (integration_id, attribute, operator, value, match_group, include_descendants)
-		SELECT i.id, $3, $4, $5, $6, $7
+		INSERT INTO integration_matchers (integration_id, attribute, operator, value, match_group, include_descendants, member)
+		SELECT i.id, $3, $4, $5, $6, $7, $8
 		FROM integrations i
 		WHERE i.id = $1 AND i.organization_id = $2
-		RETURNING id, integration_id, attribute, operator, value, match_group, include_descendants, created_at
-	`, integrationID, orgID, m.Attribute, m.Operator, m.Value, m.MatchGroup, m.IncludeDescendants).Scan(
-		&created.ID, &created.IntegrationID, &created.Attribute, &created.Operator, &created.Value, &created.MatchGroup, &created.IncludeDescendants, &created.CreatedAt,
+		RETURNING id, integration_id, attribute, operator, value, match_group, include_descendants, member, created_at
+	`, integrationID, orgID, m.Attribute, m.Operator, m.Value, m.MatchGroup, m.IncludeDescendants, m.Member).Scan(
+		&created.ID, &created.IntegrationID, &created.Attribute, &created.Operator, &created.Value, &created.MatchGroup, &created.IncludeDescendants, &created.Member, &created.CreatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Matcher{}, ErrNotFound
@@ -394,11 +394,11 @@ func (s *Store) ReplaceMatchers(ctx context.Context, orgID, integrationID uuid.U
 	for _, m := range ms {
 		var created Matcher
 		if err := tx.QueryRow(ctx, `
-			INSERT INTO integration_matchers (integration_id, attribute, operator, value, match_group, include_descendants)
-			VALUES ($1, $2, $3, $4, $5, $6)
-			RETURNING id, integration_id, attribute, operator, value, match_group, include_descendants, created_at
-		`, integrationID, m.Attribute, m.Operator, m.Value, m.MatchGroup, m.IncludeDescendants).Scan(
-			&created.ID, &created.IntegrationID, &created.Attribute, &created.Operator, &created.Value, &created.MatchGroup, &created.IncludeDescendants, &created.CreatedAt,
+			INSERT INTO integration_matchers (integration_id, attribute, operator, value, match_group, include_descendants, member)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
+			RETURNING id, integration_id, attribute, operator, value, match_group, include_descendants, member, created_at
+		`, integrationID, m.Attribute, m.Operator, m.Value, m.MatchGroup, m.IncludeDescendants, m.Member).Scan(
+			&created.ID, &created.IntegrationID, &created.Attribute, &created.Operator, &created.Value, &created.MatchGroup, &created.IncludeDescendants, &created.Member, &created.CreatedAt,
 		); err != nil {
 			return nil, 0, fmt.Errorf("insert matcher: %w", err)
 		}
@@ -465,7 +465,7 @@ func (s *Store) RuleMatchForIntegration(ctx context.Context, integrationID uuid.
 // MatchersForIntegration returns all matchers for the given integration.
 func (s *Store) MatchersForIntegration(ctx context.Context, integrationID uuid.UUID) ([]Matcher, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, integration_id, attribute, operator, value, match_group, include_descendants, created_at
+		SELECT id, integration_id, attribute, operator, value, match_group, include_descendants, member, created_at
 		FROM integration_matchers
 		WHERE integration_id = $1
 		ORDER BY match_group, created_at
@@ -478,7 +478,7 @@ func (s *Store) MatchersForIntegration(ctx context.Context, integrationID uuid.U
 	out := make([]Matcher, 0)
 	for rows.Next() {
 		var m Matcher
-		if err := rows.Scan(&m.ID, &m.IntegrationID, &m.Attribute, &m.Operator, &m.Value, &m.MatchGroup, &m.IncludeDescendants, &m.CreatedAt); err != nil {
+		if err := rows.Scan(&m.ID, &m.IntegrationID, &m.Attribute, &m.Operator, &m.Value, &m.MatchGroup, &m.IncludeDescendants, &m.Member, &m.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, m)
@@ -496,7 +496,7 @@ type MatcherWithIntegration struct {
 func (s *Store) AllMatchersWithIntegration(ctx context.Context, orgID uuid.UUID) ([]MatcherWithIntegration, error) {
 	const q = `
 		SELECT
-			m.id, m.integration_id, m.attribute, m.operator, m.value, m.match_group, m.include_descendants, m.created_at,
+			m.id, m.integration_id, m.attribute, m.operator, m.value, m.match_group, m.include_descendants, m.member, m.created_at,
 			i.id, i.organization_id, i.slug, i.name, COALESCE(i.description, ''), i.rule_match,
 			i.created_at, i.updated_at
 		FROM integration_matchers m
@@ -513,7 +513,7 @@ func (s *Store) AllMatchersWithIntegration(ctx context.Context, orgID uuid.UUID)
 	for rows.Next() {
 		var mi MatcherWithIntegration
 		if err := rows.Scan(
-			&mi.Matcher.ID, &mi.Matcher.IntegrationID, &mi.Matcher.Attribute, &mi.Matcher.Operator, &mi.Matcher.Value, &mi.Matcher.MatchGroup, &mi.Matcher.IncludeDescendants, &mi.Matcher.CreatedAt,
+			&mi.Matcher.ID, &mi.Matcher.IntegrationID, &mi.Matcher.Attribute, &mi.Matcher.Operator, &mi.Matcher.Value, &mi.Matcher.MatchGroup, &mi.Matcher.IncludeDescendants, &mi.Matcher.Member, &mi.Matcher.CreatedAt,
 			&mi.Integration.ID, &mi.Integration.OrganizationID, &mi.Integration.Slug, &mi.Integration.Name, &mi.Integration.Description, &mi.Integration.RuleMatch,
 			&mi.Integration.CreatedAt, &mi.Integration.UpdatedAt,
 		); err != nil {

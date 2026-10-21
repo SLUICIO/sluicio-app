@@ -468,7 +468,7 @@ export const api = {
   // the real thing cannot drift.
   previewIntegrationRules: (
     body: {
-      matchers: { attribute?: string; operator: string; value: string; match_group?: number; include_descendants?: boolean }[];
+      matchers: { attribute?: string; operator: string; value: string; match_group?: number; include_descendants?: boolean; member?: number }[];
       rule_match?: RuleMatch;
     },
     window: string = "1h",
@@ -514,7 +514,7 @@ export const api = {
 
   addMatcher: (
     id: string,
-    body: { operator: string; value: string; attribute?: string; match_group?: number; include_descendants?: boolean },
+    body: { operator: string; value: string; attribute?: string; match_group?: number; include_descendants?: boolean; member?: number },
   ) =>
     post<Matcher>(`/integrations/${encodeURIComponent(id)}/matchers`, body),
 
@@ -526,7 +526,7 @@ export const api = {
   replaceMatchers: (
     id: string,
     body: {
-      matchers: { operator: string; value: string; attribute?: string; match_group?: number; include_descendants?: boolean }[];
+      matchers: { operator: string; value: string; attribute?: string; match_group?: number; include_descendants?: boolean; member?: number }[];
       rule_match?: RuleMatch;
     },
   ) => put<{ matchers: Matcher[]; rule_match: RuleMatch }>(`/integrations/${encodeURIComponent(id)}/matchers`, body),

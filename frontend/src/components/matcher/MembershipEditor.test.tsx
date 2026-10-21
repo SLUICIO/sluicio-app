@@ -175,19 +175,20 @@ describe('"or" where members must all appear in one trace', () => {
     ],
   };
 
-  it("refuses to switch into that mode, and names the member in the way", async () => {
+  // #39 fixed: a member's "or" is one requirement in that mode, so the
+  // mode is no longer refused and the member is no longer flagged.
+  it("can switch into that mode with a member that uses \"or\"", async () => {
     const { modes } = view({ rules: [orMember] });
     await userEvent.click(screen.getByRole("button", { name: /Advanced matching/ }));
     const strict = screen.getByRole("radio", { name: /One trace through every service/ }) as HTMLInputElement;
-    expect(strict.disabled).toBe(true);
-    expect(screen.getByText(/Not available while order-gateway joins its conditions/)).toBeTruthy();
+    expect(strict.disabled).toBe(false);
     await userEvent.click(strict);
-    expect(modes).toEqual([]);
+    expect(modes).toEqual(["all"]);
   });
 
-  // Stored before the guard existed: kept, but said.
-  it("flags a member already stored that way", async () => {
+  it("does not flag such a member once stored that way", async () => {
     view({ rules: [orMember], combine: "all" });
-    expect(await screen.findByText(/which this mode reads as every one of them being required/)).toBeTruthy();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryByText(/which this mode reads as every one of them being required/)).toBeNull();
   });
 });

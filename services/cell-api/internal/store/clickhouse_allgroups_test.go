@@ -110,3 +110,31 @@ func TestRequireAllOnLogsAsksAboutSpans(t *testing.T) {
 		t.Errorf("expected the span attribute map in the gate:\n%s", gate)
 	}
 }
+
+// #39: a member whose conditions are joined with "or" is several groups
+// with one member, and "all" requires one of its groups, not each of them.
+// "svc-a where a = 1 or a = 2" and "svc-b where b = 3" is two members:
+// (a=1 OR a=2) AND b=3 in the trace - not a=1 AND a=2 AND b=3.
+func TestRequireAllAsksOneAlternativePerMember(t *testing.T) {
+	m := func(n int) *int { return &n }
+	groups := [][]LogAttrFilter{
+		{{Key: "service.name", Op: AttrOpEq, Value: "svc-a", RequireAllGroups: true, Member: m(0)}, {Key: "a", Op: AttrOpEq, Value: "1", RequireAllGroups: true, Member: m(0)}},
+		{{Key: "service.name", Op: AttrOpEq, Value: "svc-a", RequireAllGroups: true, Member: m(0)}, {Key: "a", Op: AttrOpEq, Value: "2", RequireAllGroups: true, Member: m(0)}},
+		{{Key: "service.name", Op: AttrOpEq, Value: "svc-b", RequireAllGroups: true, Member: m(1)}, {Key: "b", Op: AttrOpEq, Value: "3", RequireAllGroups: true, Member: m(1)}},
+	}
+	sql, args := attrGroupsClause("SpanAttributes", groups, subtreeFrom, subtreeTo)
+	assertBinds(t, sql, args)
+	having := sql[strings.Index(sql, "HAVING"):]
+	if !strings.Contains(having, "(countIf(") || !strings.Contains(having, ") > 0 OR countIf(") {
+		t.Errorf("the alternatives of one member must be OR-ed in the HAVING:\n%s", having)
+	}
+	if strings.Count(having, " AND countIf(") != 1 {
+		t.Errorf("want the two members AND-ed once:\n%s", having)
+	}
+
+	// One member, however many alternatives, is no conjunction at all.
+	one := groups[:2]
+	if sql, _ := attrGroupsClause("SpanAttributes", one, subtreeFrom, subtreeTo); strings.Contains(sql, "countIf") {
+		t.Errorf("one member's alternatives are a union and need no gate:\n%s", sql)
+	}
+}

@@ -140,8 +140,8 @@ func (s *Store) Clone(ctx context.Context, orgID, srcID uuid.UUID, opt CloneOpti
 		run  bool
 	}{
 		{"matchers", `
-			INSERT INTO integration_matchers (integration_id, attribute, operator, value, match_group, include_descendants)
-			SELECT $1, attribute, operator, value, match_group, include_descendants
+			INSERT INTO integration_matchers (integration_id, attribute, operator, value, match_group, include_descendants, member)
+			SELECT $1, attribute, operator, value, match_group, include_descendants, member
 			FROM integration_matchers WHERE integration_id = $2`, true},
 		{"tags", `
 			INSERT INTO integration_tags (integration_id, tag_id)

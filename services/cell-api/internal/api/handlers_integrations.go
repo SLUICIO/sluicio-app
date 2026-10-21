@@ -36,6 +36,9 @@ type matcherInput struct {
 	MatchGroup int                   `json:"match_group"`
 	// IncludeDescendants: see integrations.Matcher.
 	IncludeDescendants bool `json:"include_descendants"`
+	// Member: see integrations.Matcher. Optional; absent means the group
+	// is its own member, so clients that predate it keep their meaning.
+	Member *int `json:"member,omitempty"`
 }
 
 type createIntegrationRequest struct {
@@ -979,6 +982,7 @@ func (h *Handlers) createIntegration(w http.ResponseWriter, r *http.Request) {
 			Value:              m.Value,
 			MatchGroup:         m.MatchGroup,
 			IncludeDescendants: m.IncludeDescendants,
+			Member:             m.Member,
 		})
 	}
 
@@ -1334,6 +1338,7 @@ func (h *Handlers) addMatcher(w http.ResponseWriter, r *http.Request) {
 		Value:              in.Value,
 		MatchGroup:         in.MatchGroup,
 		IncludeDescendants: in.IncludeDescendants,
+		Member:             in.Member,
 	}
 	if ok, why := h.matcherContainmentOK(r, []integrations.Matcher{prospective}); !ok {
 		httpserver.WriteError(w, http.StatusForbidden, why)
@@ -1345,6 +1350,7 @@ func (h *Handlers) addMatcher(w http.ResponseWriter, r *http.Request) {
 		Value:              in.Value,
 		MatchGroup:         in.MatchGroup,
 		IncludeDescendants: in.IncludeDescendants,
+		Member:             in.Member,
 	})
 	if err != nil {
 		if integrations.IsValidationError(err) {
@@ -1408,6 +1414,7 @@ func (h *Handlers) replaceMatchers(w http.ResponseWriter, r *http.Request) {
 			Value:              in.Value,
 			MatchGroup:         in.MatchGroup,
 			IncludeDescendants: in.IncludeDescendants,
+			Member:             in.Member,
 		})
 	}
 	if ok, why := h.matcherContainmentOK(r, ms); !ok {
@@ -2159,6 +2166,7 @@ func (h *Handlers) previewIntegrationRules(w http.ResponseWriter, r *http.Reques
 			Value:              m.Value,
 			MatchGroup:         m.MatchGroup,
 			IncludeDescendants: m.IncludeDescendants,
+			Member:             m.Member,
 		}
 		// An incomplete rule is the normal state of a rule being typed,
 		// so it answers "nothing yet" rather than 400. The editor asks

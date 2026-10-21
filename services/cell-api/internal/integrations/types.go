@@ -114,8 +114,23 @@ type Matcher struct {
 	// conditions match plus every span below them in the same trace, so
 	// "abc = 123" on a parent brings its children along although they do
 	// not carry abc. Read per group: one matcher setting it is enough.
-	IncludeDescendants bool      `json:"include_descendants"`
-	CreatedAt          time.Time `json:"created_at"`
+	IncludeDescendants bool `json:"include_descendants"`
+	// Member is which entry on the integration's Services tab this
+	// matcher's group belongs to (#39). A member whose conditions are
+	// joined with "or" is several groups with one member. It matters with
+	// rule_match "all", which requires one satisfied group per MEMBER: one
+	// alternative of each, not every alternative. Optional on input;
+	// absent means the group is its own member (member = match_group).
+	Member    *int      `json:"member,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// MemberID is the member this matcher's group belongs to.
+func (m Matcher) MemberID() int {
+	if m.Member != nil {
+		return *m.Member
+	}
+	return m.MatchGroup
 }
 
 // IntegrationWithMatchers is the full read-model used by the detail API.

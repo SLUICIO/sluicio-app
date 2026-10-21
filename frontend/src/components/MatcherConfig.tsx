@@ -37,7 +37,7 @@ export default function MatcherConfig({
   // re-render that hands over a new-but-equal array must not blow away
   // unsaved edits.
   const matchersSig = useMemo(
-    () => JSON.stringify((data.matchers ?? []).map((m) => [m.attribute, m.operator, m.value, m.match_group, !!m.include_descendants])),
+    () => JSON.stringify((data.matchers ?? []).map((m) => [m.attribute, m.operator, m.value, m.match_group, !!m.include_descendants, m.member])),
     [data.matchers],
   );
   const storedMode: RuleMatch = data.integration.rule_match ?? "any";
