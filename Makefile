@@ -79,7 +79,7 @@ docker-build: ## Build all service + frontend images (tag IMAGE_TAG, version $(V
 		$(CONTAINER) build $(VERSION_ARGS) -f services/$$s/Dockerfile -t $(IMAGE_PREFIX)/$$s:$(IMAGE_TAG) . || exit 1; \
 	done
 	@echo "==> image $(IMAGE_PREFIX)/frontend:$(IMAGE_TAG) (version $(VERSION))"; \
-	$(CONTAINER) build --build-arg APP_VERSION=$(VERSION) -f frontend/Dockerfile -t $(IMAGE_PREFIX)/frontend:$(IMAGE_TAG) frontend || exit 1
+	$(CONTAINER) build --build-arg APP_VERSION=$(VERSION) -f frontend/Dockerfile -t $(IMAGE_PREFIX)/frontend:$(IMAGE_TAG) . || exit 1
 
 .PHONY: docker-push
 docker-push: require-registry docker-build ## Build + push all images to $$REGISTRY (set REGISTRY=host:port).

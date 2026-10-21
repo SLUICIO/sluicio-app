@@ -1,43 +1,57 @@
 # SPDX-License-Identifier: FSL-1.1-Apache-2.0
 #
-# Multi-stage build for the Sluicio frontend. Stage 1 builds the Vite
-# bundle; stage 2 serves the static dist/ on nginx with SPA fallback.
+# The Sluicio web app: the Vite bundle, served by a small Go server
+# (services/web) that also passes /api through to cell-api.
 #
-# Build context is the frontend/ directory (not the repo root):
+# Build context is the REPO ROOT (the server is Go, in the workspace):
 #
-#   docker build -f frontend/Dockerfile -t sluicio/frontend ./frontend
+#   docker build -f frontend/Dockerfile -t sluicio/frontend .
 #
-# API requests (/api) are NOT proxied here — the outer reverse proxy
-# (Caddy in deploy/server/) routes /api to cell-api. This image only
-# serves the static SPA.
+# The runtime image is empty apart from the bundle, the server and their
+# third-party notices: no operating system, no shell, no packages. It used
+# to be nginx on Alpine, which delivered busybox and its GPL with every
+# image only to serve static files and proxy one path (issue #41).
 
-# Multi-arch: pinned to the BUILDER's architecture on purpose. The Vite
-# output is plain JS/CSS/HTML with no native code in it, so one build
-# serves every target — running npm under QEMU for arm64 would produce
-# byte-identical output for several times the wall-clock. Only the nginx
-# runtime stage below is per-architecture, and it merely copies files.
-FROM --platform=$BUILDPLATFORM node:24-bookworm-slim AS build
-
+# ── 1. The bundle ──────────────────────────────────────────────────────
+FROM --platform=$BUILDPLATFORM node:24-bookworm-slim AS bundle
 WORKDIR /app
-
-# Install deps against the lockfile first for a cacheable layer.
-COPY package.json package-lock.json ./
+COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
-
-# Then build. `npm run build` runs `tsc --noEmit && vite build`.
-# APP_VERSION (git-derived, scripts/version.sh) is baked into the bundle
-# as __APP_VERSION__ — the footer version. Defaults to package.json when
-# a bare `docker build` doesn't pass it.
+# The git-derived version shown in the app (vite.config.ts).
 ARG APP_VERSION=0.0.0-dev
 ENV APP_VERSION=${APP_VERSION}
-COPY . .
+COPY frontend/ .
+# Also writes dist/third-party.json: the bundle's third-party components,
+# and fails on a licence that is not allowed.
 RUN npm run build
 
-# ── Runtime image ──────────────────────────────────────────────────────
-FROM nginx:1.27-alpine
+# ── 2. The server ──────────────────────────────────────────────────────
+FROM --platform=$BUILDPLATFORM golang:1.26-bookworm AS server
+WORKDIR /src
+COPY go.work go.work.sum go.mod go.sum ./
+COPY plugins ./plugins
+COPY pkg ./pkg
+COPY services/web ./services/web
+COPY scripts/thirdparty ./scripts/thirdparty
+ARG TARGETOS
+ARG TARGETARCH
+ENV CGO_ENABLED=0 GOFLAGS=-trimpath
+RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -ldflags="-s -w" -o /out/web ./services/web/cmd/web
+# The server's own third-party notices (the Go standard library), for
+# the TARGET platform's dependency graph; see the cell-api Dockerfile.
+RUN go build -o /tmp/thirdparty ./scripts/thirdparty && \
+    GOOS=${TARGETOS} GOARCH=${TARGETARCH} /tmp/thirdparty -check -product "Sluicio web server" \
+      -json /out/third-party.json -text /out/THIRD-PARTY-NOTICES.txt \
+      ./services/web/cmd/web
 
-# SPA routing: unknown paths fall back to index.html (React Router).
-COPY nginx.conf /etc/nginx/conf.d/default.conf
-COPY --from=build /app/dist /usr/share/nginx/html
-
+# ── Runtime ────────────────────────────────────────────────────────────
+FROM scratch
+COPY --from=server /out/web /web
+COPY --from=server /out/third-party.json /out/THIRD-PARTY-NOTICES.txt /usr/share/sluicio/
+COPY --from=bundle /app/dist /www
+# :80 by default, the port every deployment maps to. Started as root it
+# binds the port and then drops to uid 65532 before serving anything;
+# set WEB_ADDR to an unprivileged port to run as non-root from the start
+# (the Helm chart does).
 EXPOSE 80
+ENTRYPOINT ["/web"]

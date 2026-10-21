@@ -73,7 +73,7 @@ jobs:
         include:
           - { image: cell-api,     dockerfile: services/cell-api/Dockerfile,     context: . }
           - { image: cell-ingest,  dockerfile: services/cell-ingest/Dockerfile,  context: . }
-          - { image: frontend,     dockerfile: frontend/Dockerfile,              context: frontend }
+          - { image: frontend,     dockerfile: frontend/Dockerfile,              context: . }
           - { image: demo-seeder,  dockerfile: deploy/demo/Dockerfile.seeder,    context: . }
     steps:
       - uses: actions/checkout@v5

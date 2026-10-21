@@ -7,7 +7,7 @@ Sluicio ships five images, all built from this repo:
 | `cell-api` | `services/cell-api/Dockerfile` | HTTP API (:8081) |
 | `cell-ingest` | `services/cell-ingest/Dockerfile` | OTLP ingest (:4318) |
 | `cell-alerting` | `services/cell-alerting/Dockerfile` | background worker (no port) |
-| `frontend` | `frontend/Dockerfile` | Vite build → nginx (:80), SPA fallback |
+| `frontend` | `frontend/Dockerfile` (context: repo root) | Vite build + a Go server (`services/web`) on an empty image (:80), SPA fallback, `/api` proxied to cell-api |
 
 The Go images build with **context = repo root** (the Go workspace must be
 visible); the frontend builds with context = `frontend/`. A `.dockerignore`

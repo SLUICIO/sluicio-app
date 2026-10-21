@@ -172,10 +172,9 @@ frontend:
   service:
     type: ClusterIP
     port: 80
-  # The chart mounts its own nginx site config (see templates/frontend.yaml):
-  # listens on an unprivileged port and proxies /api to this release's
-  # cell-api Service, so the pod runs as any non-root UID (OpenShift
-  # restricted SCC included).
+  # The chart points the frontend's server at an unprivileged port and
+  # this release's cell-api Service (see templates/frontend.yaml), so the
+  # pod runs as any non-root UID (OpenShift restricted SCC included).
   containerPort: 8080
   resources:
     requests: { cpu: 50m, memory: 64Mi }
@@ -282,10 +281,10 @@ podSecurityContext:
   seccompProfile:
     type: RuntimeDefault
 
-# Applied to the frontend pod: the nginx image defaults to root, so the
-# chart runs it as the image's nginx user (uid/gid 101) on an unprivileged
-# port; fsGroup makes the chart's emptyDir mounts writable. Same OpenShift
-# note as above — drop the pins there.
+# Applied to the frontend pod: the image starts as root to bind :80 and
+# then drops privileges; the chart instead runs it as non-root from the
+# start (uid/gid 101) on an unprivileged port. Same OpenShift note as
+# above — drop the pins there.
 frontendPodSecurityContext:
   runAsNonRoot: true
   runAsUser: 101

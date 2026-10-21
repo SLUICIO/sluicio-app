@@ -165,8 +165,8 @@ setting that needs to differ.
   hostname (`/` and `/api`), one more serves OTLP ingest.
 - The application pods (cell-api, cell-ingest, frontend) run under the
   **restricted / restricted-v2 SCC unchanged**: the Go images are distroless
-  non-root, and the chart runs the frontend's nginx on an unprivileged port
-  with chart-provided writable dirs — any assigned UID works.
+  non-root, and the chart runs the frontend's server on an unprivileged port
+  with nothing to write — any assigned UID works.
 - The **bundled databases also run under restricted-v2** — `values-openshift.yaml`
   nulls their `podSecurityContext`, and that's the whole trick. The chart pins
   `fsGroup` 70/101 for plain Kubernetes; the restricted SCC allocates fsGroup

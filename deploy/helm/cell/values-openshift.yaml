@@ -16,8 +16,8 @@
 # under restricted-v2 with the stock postgres/clickhouse images.
 #
 # The cell-api / cell-ingest / frontend pods pass restricted-v2 as-is:
-# distroless non-root Go images, and nginx on an unprivileged port with
-# chart-provided writable dirs — no SCC changes needed for them.
+# distroless non-root Go images, and the frontend's server on an
+# unprivileged port with nothing to write — no SCC changes needed for them.
 
 route:
   enabled: true
