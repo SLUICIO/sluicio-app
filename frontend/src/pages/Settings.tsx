@@ -2290,16 +2290,96 @@ function emptyLeaf(): PolicyExpr {
   return { match: "equals", value: "" };
 }
 
+const parseList = (text: string) => text.split(",").map((s) => s.trim()).filter(Boolean);
+
+// ListValueInput edits an "is one of" list.
+//
+// The text is kept as typed and parsed alongside. Rendering the parsed
+// list back into the field instead dropped the comma the moment it was
+// typed ("a," parses to ["a"] and redraws as "a"), and a trailing space
+// the same way, so a second value - or any name with a space in it -
+// could not be typed at all; only a pasted list got through.
+//
+// With options (integration and system names, which a policy matches
+// exactly) it offers the existing names to pick instead: choosing two of
+// three integrations should not depend on spelling their names.
+export function ListValueInput({
+  values,
+  onChange,
+  options,
+}: {
+  values: string[];
+  onChange: (next: string[]) => void;
+  options?: string[];
+}) {
+  const [text, setText] = useState(values.join(", "));
+  // Follow a change made elsewhere (switching the operator, a picked
+  // name), but never rewrite what is being typed: it already parses to
+  // the same list.
+  useEffect(() => {
+    if (parseList(text).join("\u0000") !== values.join("\u0000")) setText(values.join(", "));
+  }, [values, text]);
+
+  if (options) {
+    const remaining = options.filter((o) => !values.includes(o));
+    return (
+      <span style={{ display: "inline-flex", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
+        {values.map((v) => (
+          <span key={v} className="pill" style={{ display: "inline-flex", gap: 4, alignItems: "center" }}>
+            {v}
+            <button
+              type="button"
+              className="btn btn--sm"
+              style={{ padding: "0 4px", lineHeight: 1 }}
+              aria-label={`Remove ${v}`}
+              onClick={() => onChange(values.filter((x) => x !== v))}
+            >
+              ×
+            </button>
+          </span>
+        ))}
+        {remaining.length > 0 && (
+          <SearchableSelect
+            value=""
+            onChange={(v) => {
+              if (v) onChange([...values, v]);
+            }}
+            options={remaining}
+            allLabel={values.length ? "Add another…" : "Pick…"}
+            placeholder="Search…"
+          />
+        )}
+      </span>
+    );
+  }
+  return (
+    <input
+      className="search__input mono"
+      style={{ width: 200 }}
+      value={text}
+      placeholder="a, b, c"
+      onChange={(e) => {
+        setText(e.target.value);
+        onChange(parseList(e.target.value));
+      }}
+    />
+  );
+}
+
 function ExprNodeEditor({
   node,
   onChange,
   onRemove,
   depth,
   subject = "service",
+  nameOptions,
 }: {
   node: PolicyExpr;
   onChange: (next: PolicyExpr) => void;
   onRemove?: () => void;
+  /** The existing names a name leaf can pick from with "is one of"
+   *  (integrations, systems). Absent for services, which are typed. */
+  nameOptions?: string[];
   /** What the name leaves match. Integration and system policies
    *  evaluate against a universe of NAMES with no attributes behind it,
    *  so the attribute leaf is not merely unhelpful there - the server
@@ -2396,14 +2476,10 @@ function ExprNodeEditor({
           />
         )}
         {current?.list && (
-          <input
-            className="search__input mono"
-            style={{ width: 200 }}
-            value={(node.values ?? []).join(", ")}
-            placeholder="a, b, c"
-            onChange={(e) =>
-              onChange({ ...node, values: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })
-            }
+          <ListValueInput
+            values={node.values ?? []}
+            onChange={(values) => onChange({ ...node, values })}
+            options={attrLeaf ? undefined : nameOptions}
           />
         )}
         <TypeSwitch value={nodeType} onChange={setType} />
@@ -2446,6 +2522,7 @@ function ExprNodeEditor({
       {children.map((c, i) => (
         <ExprNodeEditor
           subject={subject}
+          nameOptions={nameOptions}
           key={i}
           node={c}
           depth={depth + 1}
@@ -2580,6 +2657,22 @@ function CreatePolicyForm({
   const patternable = kind === "integration" || kind === "system";
   const exprSubject: "service" | "integration" | "system" =
     kind === "integration" ? "integration" : kind === "system" ? "system" : "service";
+  // Names an "is one of" leaf can pick from. Systems are loaded only when
+  // a system policy is being written; integrations are already here.
+  const [systemNames, setSystemNames] = useState<string[] | undefined>(undefined);
+  useEffect(() => {
+    if (kind !== "system" || systemNames) return;
+    api
+      .listSystems()
+      .then((r) => setSystemNames((r.systems ?? []).map((sy) => sy.name).sort()))
+      .catch(() => setSystemNames([]));
+  }, [kind, systemNames]);
+  const exprNameOptions =
+    exprSubject === "integration"
+      ? integrationOptions.map((i) => i.name).sort()
+      : exprSubject === "system"
+        ? systemNames
+        : undefined;
   const usePattern = patternable && byPattern;
   const wantsIntegration = (kind === "integration" && !usePattern) || kind === "compound";
   const wantsAttrs = kind === "attributes" || kind === "compound";
@@ -2796,7 +2889,7 @@ function CreatePolicyForm({
               background: "var(--surface-2)",
             }}
           >
-            <ExprNodeEditor node={expr} depth={0} onChange={setExpr} subject={exprSubject} />
+            <ExprNodeEditor node={expr} depth={0} onChange={setExpr} subject={exprSubject} nameOptions={exprNameOptions} />
           </div>
           <span className="form__hint" style={{ marginTop: 6 }}>
             {usePattern ? (
