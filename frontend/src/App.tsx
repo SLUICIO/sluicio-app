@@ -41,6 +41,7 @@ import Tags from "./pages/Tags";
 import Topology from "./pages/Topology";
 import TraceDetail from "./pages/TraceDetail";
 import Usage from "./pages/Usage";
+import ThirdPartyLicences from "./pages/ThirdPartyLicences";
 
 // Routes behind org-admin. Viewers/operators/contributors lack
 // "org.manage", so they're bounced to /health instead of seeing Settings.
@@ -57,6 +58,17 @@ function RequireOperator({ children }: { children: ReactElement }) {
 }
 
 export default function App() {
+  // The third-party licence page is in front of the sign-in gate: it is
+  // owed to whoever has the software, signed in or not (issue #41).
+  return (
+    <Routes>
+      <Route path="/third-party-licences" element={<ThirdPartyLicences />} />
+      <Route path="*" element={<SignedInApp />} />
+    </Routes>
+  );
+}
+
+function SignedInApp() {
   // UserProvider gates everything below — on a 401 from /api/v1/me
   // it renders the Login page instead of these routes.
   return (

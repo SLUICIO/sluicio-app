@@ -6,6 +6,7 @@ import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import path from "node:path";
 import { createRequire } from "node:module";
+import license from "rollup-plugin-license";
 
 // Surface the build version to the bundle as __APP_VERSION__ so the
 // chrome can show it. The git-derived version (scripts/version.sh) is
@@ -16,8 +17,61 @@ const pkg = createRequire(import.meta.url)("./package.json") as {
 };
 const appVersion = process.env.APP_VERSION || pkg.version;
 
+// Licences a component bundled into the app may carry (issue #41): the
+// same allowlist as the server components (scripts/thirdparty), plus
+// Python-2.0 (argparse, permissive).
+const ALLOWED_LICENSES = new Set([
+  "MIT", "MIT-0", "ISC", "0BSD", "Zlib", "BSD-2-Clause", "BSD-3-Clause",
+  "Apache-2.0", "MPL-2.0", "Unlicense", "CC0-1.0", "Python-2.0", "BlueOak-1.0.0",
+]);
+
+// An SPDX expression is allowed when one of its OR alternatives is made
+// only of allowed licences: "(MIT OR GPL-3.0)" may be taken as MIT.
+function licenseAllowed(expr: string | null): boolean {
+  if (!expr) return false;
+  return expr
+    .replace(/[()]/g, " ")
+    .split(/\s+OR\s+/i)
+    .some((alt) => alt.split(/\s+AND\s+/i).every((id) => ALLOWED_LICENSES.has(id.trim())));
+}
+
+type Dep = { name: string | null; version: string | null; license: string | null; licenseText: string | null; noticeText: string | null };
+
+// The bundle's third-party components, written next to it as
+// third-party.json in the same shape as the server components' list, so
+// the app's licence page reads both the same way. Only what the bundle
+// actually contains: the plugin sees the modules Rollup included, not
+// package.json. A licence outside the allowlist fails the build.
+const thirdParty = license({
+  thirdParty: {
+    includePrivate: false,
+    allow: {
+      test: (dep) => licenseAllowed(dep.license),
+      failOnUnlicensed: true,
+      failOnViolation: true,
+    },
+    output: {
+      file: path.resolve(__dirname, "dist/third-party.json"),
+      template(deps: Dep[]) {
+        const components = deps
+          .map((d) => ({
+            name: d.name ?? "",
+            version: d.version ?? "",
+            licenses: d.license ? [d.license] : [],
+            files: [
+              ...(d.licenseText ? [{ name: "LICENSE", text: d.licenseText }] : []),
+              ...(d.noticeText ? [{ name: "NOTICE", text: d.noticeText }] : []),
+            ],
+          }))
+          .sort((a, b) => a.name.localeCompare(b.name));
+        return JSON.stringify({ product: "Sluicio web app", components }, null, 2) + "\n";
+      },
+    },
+  },
+});
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), thirdParty],
   define: {
     __APP_VERSION__: JSON.stringify(appVersion),
   },

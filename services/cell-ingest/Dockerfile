@@ -23,6 +23,7 @@ COPY plugins/go.mod ./plugins/
 COPY pkg ./pkg
 COPY services ./services
 COPY plugins ./plugins
+COPY scripts/thirdparty ./scripts/thirdparty
 
 # Build metadata stamped into pkg/version (see scripts/version.sh).
 ARG VERSION=0.0.0-dev
@@ -44,9 +45,21 @@ RUN go build -ldflags="-s -w \
       -X github.com/sluicio/sluicio-app/pkg/version.BuildDate=${BUILD_DATE}" \
       -o /out/cell-ingest ./services/cell-ingest/cmd/cell-ingest
 
+# Third-party notices (issue #41): the components linked into the binary,
+# with their licence and notice texts, generated from the module graph of
+# what was just built. The generator is built for the BUILD machine (GOOS
+# and GOARCH emptied) and then asks `go list` about the TARGET, so a
+# cross-compiled arm64 image lists arm64's dependencies. -check fails the
+# build on a licence that is not allowed.
+RUN GOOS= GOARCH= go build -o /tmp/thirdparty ./scripts/thirdparty && \
+    /tmp/thirdparty -check -product "Sluicio cell-ingest" \
+      -json /out/third-party.json -text /out/THIRD-PARTY-NOTICES.txt \
+      ./services/cell-ingest/cmd/cell-ingest
+
 FROM gcr.io/distroless/static-debian12:nonroot
 
 COPY --from=build /out/cell-ingest /cell-ingest
+COPY --from=build /out/third-party.json /out/THIRD-PARTY-NOTICES.txt /usr/share/sluicio/
 
 # 4318 is the OTLP/HTTP convention port (4317 is gRPC, which we don't
 # expose). 4318 maps to the public ingest endpoint in deploy/server/.

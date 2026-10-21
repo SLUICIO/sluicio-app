@@ -510,6 +510,9 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 - PATCH /api/v1/tags/{id} — Update tag
 - DELETE /api/v1/tags/{id} — Delete tag
 
+## third-party
+- GET /api/v1/third-party — List third-party
+
 ## topology
 - GET /api/v1/topology — List topology
 

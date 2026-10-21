@@ -1143,6 +1143,10 @@ function SidebarFooter() {
             v{String(__APP_VERSION__).replace(/^v/i, "")} · {channel}
           </a>
         )}
+        {" · "}
+        <a href="/third-party-licences" className="hover:underline" style={{ color: "inherit" }}>
+          Licences
+        </a>
       </div>
     </div>
   );

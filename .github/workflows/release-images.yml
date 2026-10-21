@@ -177,6 +177,57 @@ jobs:
             --title "Sluicio $TAG" --notes-file notes.md
           echo "draft release created for $TAG — polish the notes and publish"
 
+  # Third-party components and SBOMs, attached to the release (issue #41).
+  # The notices are also inside every image and shown in the app; these
+  # copies are for whoever needs them without running the software. The
+  # SBOMs (CycloneDX) cover what the notices do not: the operating-system
+  # packages of each image's base.
+  third-party:
+    name: Third-party notices + SBOMs
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [prep, draft-release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.work
+          cache: true
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - name: Server components
+        run: |
+          mkdir -p out
+          go run ./scripts/thirdparty -check -product "Sluicio server components" \
+            -json out/third-party-server.json -text out/THIRD-PARTY-NOTICES-server.txt \
+            ./services/cell-api/cmd/cell-api ./services/cell-ingest/cmd/cell-ingest
+      - name: Web app components
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+          cp dist/third-party.json ../out/third-party-web.json
+      - name: SBOMs (CycloneDX)
+        env:
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+          for image in cell-api cell-ingest frontend; do
+            trivy image --quiet --format cyclonedx \
+              --output "out/sbom-${image}.cdx.json" \
+              "${{ env.REGISTRY }}/${{ needs.prep.outputs.ns }}/${image}:${{ needs.prep.outputs.commit }}"
+          done
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: gh release upload "$TAG" out/* --repo "$GITHUB_REPOSITORY" --clobber
+
   # Image vulnerability scan — report-only, and in its OWN job so a scanner
   # problem can never block publishing again. (A bad action pin inside the
   # build+push job previously failed job setup and took the whole publish down.)

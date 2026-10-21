@@ -35,6 +35,7 @@ COPY plugins ./plugins
 # ee/ holds the Enterprise packages cell-api imports (license, audit) and the
 # embedded license public key — it must be in the build context.
 COPY ee ./ee
+COPY scripts/thirdparty ./scripts/thirdparty
 
 # Static build: CGO disabled, no dynamic linking, stripped symbols.
 # The clickhouse-go driver is pure Go, and pgx/v5 is too, so we don't
@@ -63,6 +64,17 @@ RUN go build -ldflags="-s -w \
       -X github.com/sluicio/sluicio-app/pkg/version.BuildDate=${BUILD_DATE}" \
       -o /out/cell-api ./services/cell-api/cmd/cell-api
 
+# Third-party notices (issue #41): the components linked into the binary,
+# with their licence and notice texts, generated from the module graph of
+# what was just built. The generator is built for the BUILD machine (GOOS
+# and GOARCH emptied) and then asks `go list` about the TARGET, so a
+# cross-compiled arm64 image lists arm64's dependencies. -check fails the
+# build on a licence that is not allowed.
+RUN GOOS= GOARCH= go build -o /tmp/thirdparty ./scripts/thirdparty && \
+    /tmp/thirdparty -check -product "Sluicio server components" \
+      -json /out/third-party.json -text /out/THIRD-PARTY-NOTICES.txt \
+      ./services/cell-api/cmd/cell-api ./services/cell-ingest/cmd/cell-ingest
+
 # ── Runtime image ──────────────────────────────────────────────────────
 # distroless/static-debian12 is ~2 MB and has no shell. Smaller blast
 # radius than scratch (which has zero CA certs, breaking TLS).
@@ -70,6 +82,9 @@ RUN go build -ldflags="-s -w \
 FROM gcr.io/distroless/static-debian12:nonroot
 
 COPY --from=build /out/cell-api /cell-api
+# Served at /api/v1/third-party for the app's licence page; covers both
+# server components (cell-api and cell-ingest).
+COPY --from=build /out/third-party.json /out/THIRD-PARTY-NOTICES.txt /usr/share/sluicio/
 
 # 8081 is the documented cell-api port.
 EXPOSE 8081

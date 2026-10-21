@@ -536,6 +536,12 @@ export default function Login({ onSuccess }: Props) {
           </p>
         )}
 
+        <p style={{ fontSize: 11.5, marginTop: 22, textAlign: "center" }}>
+          <a href="/third-party-licences" className="muted">
+            Third-party licences
+          </a>
+        </p>
+
         {showFreshHint && !managed && mode === "login" && (
           <p className="muted" style={{ fontSize: 12, marginTop: 18, lineHeight: 1.5 }}>
             {productName} ships with a default admin account on first boot:{" "}

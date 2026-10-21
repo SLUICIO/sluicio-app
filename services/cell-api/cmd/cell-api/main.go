@@ -913,6 +913,9 @@ func main() {
 		// checked inside the handler (SLUICIO_DEPLOYMENT_TOKEN), never a
 		// session. 404 when no token is set.
 		"/api/v1/deployment/usage",
+		// Third-party components and their licences: owed to whoever has
+		// the software, signed in or not. Describes the software, not data.
+		"/api/v1/third-party",
 		"/api/v1/auth/login",
 		"/api/v1/auth/logout",
 		"/api/v1/auth/install-state",

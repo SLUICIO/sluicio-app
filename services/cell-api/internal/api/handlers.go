@@ -1652,6 +1652,8 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 		// poll with its own token (handlers_deployment_limits.go). Not a
 		// session route; skipped by the auth wrap in main.go.
 		mux.HandleFunc("GET /api/v1/deployment/usage", h.deploymentUsage)
+		// Third-party components and their licences (issue #41). Public.
+		mux.HandleFunc("GET /api/v1/third-party", h.getThirdParty)
 		// The deployment's limits for the in-app banner: any member.
 		mux.HandleFunc("GET /api/v1/limits", h.getLimitsStatus)
 		mux.HandleFunc("GET /api/v1/cell-health", func(w http.ResponseWriter, r *http.Request) {

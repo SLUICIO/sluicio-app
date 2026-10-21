@@ -104,6 +104,23 @@ jobs:
             exit 1
           fi
 
+  third-party:
+    name: Third-party licences
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.work
+          cache: true
+      # Every component linked into the shipped binaries must carry an
+      # allowed licence (issue #41), checked on every change so a
+      # dependency that could not ship is caught where it is added, not at
+      # release. The web app's bundle is checked by its build (vite.config.ts),
+      # which the Frontend job runs.
+      - name: Check the server components' licences
+        run: go run ./scripts/thirdparty -check ./services/... ./pkg/...
+
   integration:
     name: Integration (testcontainers)
     runs-on: ubuntu-latest
