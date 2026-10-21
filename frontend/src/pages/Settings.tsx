@@ -2637,7 +2637,7 @@ function CreatePolicyForm({
           Kind
           <select className="toolbar__select" value={kind} onChange={(e) => setKind(e.target.value as PolicyKind)}>
             <option value="service">service — pick one service explicitly</option>
-            <option value="integration">integration — all services in an integration</option>
+            <option value="integration">integration — one integration (its services optional)</option>
             <option value="attributes">attributes — match resource attributes</option>
             <option value="compound">compound — integration / service AND attributes</option>
             <option value="system">system — all flagged systems (optionally one kind)</option>
