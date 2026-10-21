@@ -127,7 +127,7 @@ jobs:
           fetch-depth: 0 # full history so gitleaks scans every commit
       - uses: actions/setup-go@v6
         with:
-          # Installs the toolchain pinned in go.work (>= go1.26.9), so
+          # Installs the toolchain pinned in go.work (>= go1.26.10), so
           # govulncheck evaluates the patched standard library — the same
           # one the golang:1.26 Docker builders ship.
           go-version-file: go.work

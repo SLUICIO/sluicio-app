@@ -3,10 +3,12 @@ go 1.26.0
 
 // Require at least this patch toolchain to build: it carries the standard
 // library's security fixes (html/template, net/http, net/textproto,
-// crypto/tls - GO-2026-6599 to -6611). Go 1.25 is out of support and got
-// none of them, so the floor is a 1.26 patch. The Docker builders use the
-// floating golang:1.26 tag, which tracks the latest patch.
-toolchain go1.26.9
+// crypto/tls - GO-2026-6599 to -6611; crypto/x509 - GO-2026-6809). Go
+// 1.25 is out of support and got none of them, so the floor is a 1.26
+// patch. The Docker builders use the floating golang:1.26 tag, which
+// tracks the latest patch - so images pick up a new patch on their own,
+// and this pin is what CI's vulnerability scan runs with: keep it there.
+toolchain go1.26.10
 
 use (
 	.
