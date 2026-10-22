@@ -15,10 +15,12 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -227,41 +229,10 @@ func (h *Handlers) validateWindow(r *http.Request, body windowBody) (maintenance
 	if ends.Sub(starts) > maintenance.MaxWindowDuration {
 		return maintenance.Window{}, fmt.Errorf("a window may last at most %d days — extend it later if needed", int(maintenance.MaxWindowDuration.Hours()/24))
 	}
-	scope := body.Scope
 	orgID := middleware.OrgID(r)
-	switch scope.Kind {
-	case "all_org":
-		// no selectors
-		scope = maintenance.WindowScope{Kind: "all_org"}
-	case "group":
-		if scope.GroupID == nil {
-			return maintenance.Window{}, errors.New("scope.group_id is required for a team window")
-		}
-		scope = maintenance.WindowScope{Kind: "group", GroupID: scope.GroupID}
-	case "entities":
-		if len(scope.IntegrationIDs) == 0 && len(scope.SystemIDs) == 0 && len(scope.ServiceNames) == 0 {
-			return maintenance.Window{}, errors.New("an entities scope needs at least one integration, system, or service")
-		}
-		// Snapshot system membership to concrete service names at write
-		// time. Windows are short-lived; a snapshot fails toward less
-		// silence (same posture as scoped manage).
-		expanded := map[string]struct{}{}
-		for _, sid := range scope.SystemIDs {
-			id := sid
-			names, err := h.systemExpander(r.Context(), orgID, "", &id)
-			if err != nil {
-				return maintenance.Window{}, fmt.Errorf("resolving system members: %w", err)
-			}
-			for _, n := range names {
-				expanded[n] = struct{}{}
-			}
-		}
-		scope.ServiceNamesExpanded = scope.ServiceNamesExpanded[:0]
-		for n := range expanded {
-			scope.ServiceNamesExpanded = append(scope.ServiceNamesExpanded, n)
-		}
-	default:
-		return maintenance.Window{}, errors.New("scope.kind must be all_org, entities, or group")
+	scope, err := h.normalizeWindowScope(r.Context(), orgID, body.Scope)
+	if err != nil {
+		return maintenance.Window{}, err
 	}
 	return maintenance.Window{
 		OrgID:    orgID,
@@ -271,6 +242,47 @@ func (h *Handlers) validateWindow(r *http.Request, body windowBody) (maintenance
 		EndsAt:   ends,
 		Scope:    scope,
 	}, nil
+}
+
+// normalizeWindowScope checks a window's scope and keeps only the fields
+// its kind uses. For an entities scope it snapshots system membership to
+// concrete service names: windows are short-lived, and a snapshot fails
+// toward less silence (same posture as scoped manage). A recurring
+// series takes its snapshot per occurrence, when the occurrence is
+// created.
+func (h *Handlers) normalizeWindowScope(ctx context.Context, orgID uuid.UUID, scope maintenance.WindowScope) (maintenance.WindowScope, error) {
+	switch scope.Kind {
+	case "all_org":
+		return maintenance.WindowScope{Kind: "all_org"}, nil
+	case "group":
+		if scope.GroupID == nil {
+			return maintenance.WindowScope{}, errors.New("scope.group_id is required for a team window")
+		}
+		return maintenance.WindowScope{Kind: "group", GroupID: scope.GroupID}, nil
+	case "entities":
+		if len(scope.IntegrationIDs) == 0 && len(scope.SystemIDs) == 0 && len(scope.ServiceNames) == 0 {
+			return maintenance.WindowScope{}, errors.New("an entities scope needs at least one integration, system, or service")
+		}
+		expanded := map[string]struct{}{}
+		for _, sid := range scope.SystemIDs {
+			id := sid
+			names, err := h.systemExpander(ctx, orgID, "", &id)
+			if err != nil {
+				return maintenance.WindowScope{}, fmt.Errorf("resolving system members: %w", err)
+			}
+			for _, n := range names {
+				expanded[n] = struct{}{}
+			}
+		}
+		scope.ServiceNamesExpanded = []string{}
+		for n := range expanded {
+			scope.ServiceNamesExpanded = append(scope.ServiceNamesExpanded, n)
+		}
+		sort.Strings(scope.ServiceNamesExpanded)
+		scope.GroupID = nil
+		return scope, nil
+	}
+	return maintenance.WindowScope{}, errors.New("scope.kind must be all_org, entities, or group")
 }
 
 // listMaintenanceWindows: GET /api/v1/maintenance-windows  (viewer+)
@@ -322,6 +334,10 @@ func (h *Handlers) createMaintenanceWindow(w http.ResponseWriter, r *http.Reques
 // it — no cleanup job needed. Best-effort: a failed banner never fails
 // the window.
 func (h *Handlers) attachWindowAnnouncement(r *http.Request, win maintenance.Window) maintenance.Window {
+	return h.attachWindowAnnouncementCtx(r.Context(), win)
+}
+
+func (h *Handlers) attachWindowAnnouncementCtx(ctx context.Context, win maintenance.Window) maintenance.Window {
 	msg := fmt.Sprintf("Maintenance: %s — alerts are silenced until %s.",
 		win.Name, win.EndsAt.UTC().Format("2006-01-02 15:04 MST"))
 	if win.Reason != "" {
@@ -330,7 +346,7 @@ func (h *Handlers) attachWindowAnnouncement(r *http.Request, win maintenance.Win
 	}
 	orgID := win.OrgID
 	ends := win.EndsAt
-	ann, err := h.Maintenance.CreateAnnouncement(r.Context(), maintenance.Announcement{
+	ann, err := h.Maintenance.CreateAnnouncement(ctx, maintenance.Announcement{
 		OrgID: &orgID, Message: msg, Severity: "warning",
 		StartsAt: win.StartsAt, EndsAt: &ends, Dismissible: true,
 		CreatedBy: win.CreatedBy,
@@ -339,7 +355,7 @@ func (h *Handlers) attachWindowAnnouncement(r *http.Request, win maintenance.Win
 		h.Logger.Warn("window announcement create failed", "window", win.ID, "err", err)
 		return win
 	}
-	if err := h.Maintenance.SetWindowAnnouncement(r.Context(), win.OrgID, win.ID, &ann.ID); err != nil {
+	if err := h.Maintenance.SetWindowAnnouncement(ctx, win.OrgID, win.ID, &ann.ID); err != nil {
 		h.Logger.Warn("window announcement link failed", "window", win.ID, "err", err)
 		return win
 	}

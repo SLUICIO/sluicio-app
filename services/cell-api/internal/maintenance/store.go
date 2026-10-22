@@ -76,9 +76,12 @@ type Window struct {
 	EndsAt         time.Time   `json:"ends_at"`
 	Scope          WindowScope `json:"scope"`
 	AnnouncementID *uuid.UUID  `json:"announcement_id,omitempty"`
-	CreatedBy      *uuid.UUID  `json:"created_by,omitempty"`
-	CreatedAt      time.Time   `json:"created_at"`
-	Active         bool        `json:"active"`
+	// ScheduleID is the recurring series this window is an occurrence
+	// of (#9); nil for a one-shot window.
+	ScheduleID *uuid.UUID `json:"schedule_id,omitempty"`
+	CreatedBy  *uuid.UUID `json:"created_by,omitempty"`
+	CreatedAt  time.Time  `json:"created_at"`
+	Active     bool       `json:"active"`
 }
 
 // Store is the Postgres CRUD layer for both tables.
@@ -252,13 +255,13 @@ func nilIfZero(t time.Time) *time.Time {
 
 // ── maintenance windows ──────────────────────────────────────────────
 
-const winCols = `id, org_id, name, reason, starts_at, ends_at, scope, announcement_id, created_by, created_at`
+const winCols = `id, org_id, name, reason, starts_at, ends_at, scope, announcement_id, schedule_id, created_by, created_at`
 
 func scanWindow(row pgx.Row) (Window, error) {
 	var w Window
 	var scopeJSON []byte
 	err := row.Scan(&w.ID, &w.OrgID, &w.Name, &w.Reason, &w.StartsAt, &w.EndsAt,
-		&scopeJSON, &w.AnnouncementID, &w.CreatedBy, &w.CreatedAt)
+		&scopeJSON, &w.AnnouncementID, &w.ScheduleID, &w.CreatedBy, &w.CreatedAt)
 	if err != nil {
 		return Window{}, err
 	}
@@ -308,10 +311,10 @@ func (s *Store) CreateWindow(ctx context.Context, w Window) (Window, error) {
 		return Window{}, err
 	}
 	row := s.pool.QueryRow(ctx, `
-		INSERT INTO maintenance_windows (org_id, name, reason, starts_at, ends_at, scope, created_by)
-		VALUES ($1, $2, $3, COALESCE($4, now()), $5, $6, $7)
+		INSERT INTO maintenance_windows (org_id, name, reason, starts_at, ends_at, scope, schedule_id, created_by)
+		VALUES ($1, $2, $3, COALESCE($4, now()), $5, $6, $7, $8)
 		RETURNING `+winCols,
-		w.OrgID, w.Name, w.Reason, nilIfZero(w.StartsAt), w.EndsAt, scopeJSON, w.CreatedBy)
+		w.OrgID, w.Name, w.Reason, nilIfZero(w.StartsAt), w.EndsAt, scopeJSON, w.ScheduleID, w.CreatedBy)
 	created, err := scanWindow(row)
 	if err != nil {
 		return Window{}, fmt.Errorf("maintenance: create window: %w", err)
@@ -344,15 +347,35 @@ func (s *Store) UpdateWindow(ctx context.Context, orgID uuid.UUID, w Window) (Wi
 // EndWindow ends an active window now, or deletes it outright if it never
 // started (a scheduled window being cancelled). Ended-early windows stay
 // as rows so suppressed instances keep their linkage.
+//
+// Cancelling an occurrence of a recurring series before it starts skips
+// that occurrence: the start is recorded on the series in the same
+// transaction, so the occurrence is not simply created again.
 func (s *Store) EndWindow(ctx context.Context, orgID, id uuid.UUID) (Window, error) {
 	w, err := s.GetWindow(ctx, orgID, id)
 	if err != nil {
 		return Window{}, err
 	}
 	if time.Now().Before(w.StartsAt) {
-		_, err := s.pool.Exec(ctx,
-			`DELETE FROM maintenance_windows WHERE org_id = $1 AND id = $2`, orgID, id)
+		tx, err := s.pool.Begin(ctx)
 		if err != nil {
+			return Window{}, fmt.Errorf("maintenance: cancel window: %w", err)
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
+		if w.ScheduleID != nil {
+			if _, err := tx.Exec(ctx, `
+				UPDATE maintenance_schedules
+				SET skipped_starts = array_append(
+				        array(SELECT s FROM unnest(skipped_starts) AS s WHERE s > now() - interval '30 days'), $3)
+				WHERE org_id = $1 AND id = $2`, orgID, *w.ScheduleID, w.StartsAt); err != nil {
+				return Window{}, fmt.Errorf("maintenance: skip occurrence: %w", err)
+			}
+		}
+		if _, err := tx.Exec(ctx,
+			`DELETE FROM maintenance_windows WHERE org_id = $1 AND id = $2`, orgID, id); err != nil {
+			return Window{}, fmt.Errorf("maintenance: cancel window: %w", err)
+		}
+		if err := tx.Commit(ctx); err != nil {
 			return Window{}, fmt.Errorf("maintenance: cancel window: %w", err)
 		}
 		w.Active = false

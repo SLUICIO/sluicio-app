@@ -111,7 +111,7 @@ purpose.
 | **Case 14.2** | `GET /readyz` returns 200 and an empty `unavailable` list on a healthy cell. |
 | **Case 14.3** | Stop ClickHouse. `/readyz` returns **503** and names it; `/api/v1/cell-health` reports it down with the driver's error. Restart and confirm both recover. |
 | **Case 14.4** | `GET /api/v1/cell-health` without `SLUICIO_HEALTH_TOKEN` set returns 401 even with a correct-looking bearer token. |
-| **Case 14.5** | With the token set, the report lists ten loops. After the cell has run a few minutes, the frequent ones (`alerting`, `demand-writer`, `event-subscriptions`) read `ok`. |
+| **Case 14.5** | With the token set, the report lists the background loops (`maintenance-schedules` among them since #9). After the cell has run a few minutes, the frequent ones (`alerting`, `demand-writer`, `event-subscriptions`) read `ok`. |
 | **Case 14.6** | A response contains **no organisation names and no per-org figures**. This is a privacy boundary, not a formatting preference: a cell operator and a tenant's admins can be different parties. |
 | **Case 14.7** | Capacity never moves `status`: with a cell whose disk is well used, `/api/v1/cell-health` still reads `ok`, and `/api/v1/cell-capacity` has no status, threshold or projection field at all. |
 | **Case 14.8** | `/api/v1/cell-capacity` with the health token returns disks, `telemetry_bytes`, `postgres.database_bytes` and a `signals` entry for traces, logs and metrics; `last_full_day.day` is yesterday in UTC and a signal with nothing yesterday reads zeros rather than vanishing. Like 14.6: no organisation names, no per-org figures. |

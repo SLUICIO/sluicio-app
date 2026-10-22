@@ -19,6 +19,8 @@ import type {
   AnnouncementInput,
   MaintenanceWindow,
   MaintenanceWindowInput,
+  MaintenanceSchedule,
+  MaintenanceScheduleInput,
   MessageColumn,
   CreateDashboardRequest,
   CreateIntegrationRequest,
@@ -989,6 +991,14 @@ export const api = {
   updateMaintenanceWindow: (id: string, body: MaintenanceWindowInput) =>
     patch<MaintenanceWindow>(`/maintenance-windows/${encodeURIComponent(id)}`, body),
   endMaintenanceWindow: (id: string) => del(`/maintenance-windows/${encodeURIComponent(id)}`),
+  // Recurring maintenance windows (issue #9). DELETE ends the series: an
+  // occurrence in progress ends now, the next one is removed.
+  listMaintenanceSchedules: () => get<{ schedules: MaintenanceSchedule[] }>(`/maintenance-schedules`),
+  createMaintenanceSchedule: (body: MaintenanceScheduleInput) =>
+    post<MaintenanceSchedule>(`/maintenance-schedules`, body),
+  updateMaintenanceSchedule: (id: string, body: MaintenanceScheduleInput) =>
+    patch<MaintenanceSchedule>(`/maintenance-schedules/${encodeURIComponent(id)}`, body),
+  deleteMaintenanceSchedule: (id: string) => del(`/maintenance-schedules/${encodeURIComponent(id)}`),
 
   // Delivery history — what notifications have been sent, to which
   // channel, and whether they succeeded. Server-side filtered by the time

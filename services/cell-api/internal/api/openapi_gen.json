@@ -2803,6 +2803,90 @@
         ]
       }
     },
+    "/api/v1/maintenance-schedules": {
+      "get": {
+        "operationId": "get_api_v1_maintenance_schedules",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "List maintenance-schedules",
+        "tags": [
+          "maintenance-schedules"
+        ]
+      },
+      "post": {
+        "operationId": "post_api_v1_maintenance_schedules",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Create maintenance-schedule",
+        "tags": [
+          "maintenance-schedules"
+        ]
+      }
+    },
+    "/api/v1/maintenance-schedules/{id}": {
+      "delete": {
+        "operationId": "delete_api_v1_maintenance_schedules_id_",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Delete maintenance-schedule",
+        "tags": [
+          "maintenance-schedules"
+        ]
+      },
+      "patch": {
+        "operationId": "patch_api_v1_maintenance_schedules_id_",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Update maintenance-schedule",
+        "tags": [
+          "maintenance-schedules"
+        ]
+      }
+    },
     "/api/v1/maintenance-windows": {
       "get": {
         "operationId": "get_api_v1_maintenance_windows",
@@ -7685,6 +7769,9 @@
     },
     {
       "name": "logs"
+    },
+    {
+      "name": "maintenance-schedules"
     },
     {
       "name": "maintenance-windows"

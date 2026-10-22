@@ -757,6 +757,10 @@ func main() {
 	)
 	handlers.TraceCompletionEvaluator = traceEvaluator
 	go traceEvaluator.Run(bgCtx)
+
+	// Recurring maintenance windows (issue #9): creates each series'
+	// next occurrence as an ordinary window.
+	go handlers.RunMaintenanceSchedules(bgCtx)
 	logger.Info("trace-completion evaluator started")
 
 	// Demand ledger (docs/telemetry-advisor-design.md §2): records which

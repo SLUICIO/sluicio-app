@@ -2131,8 +2131,60 @@ export interface MaintenanceWindow {
   ends_at: string;
   scope: MaintenanceWindowScope;
   announcement_id?: string;
+  /** Set when this window is one occurrence of a recurring series. */
+  schedule_id?: string;
   created_at: string;
   active: boolean;
+}
+
+/** When a recurring maintenance window happens (issue #9). Wall-clock
+ *  start time in a named timezone; the duration applies to each
+ *  occurrence (at most 7 days). */
+export interface MaintenanceRecurrence {
+  frequency: "weekly" | "monthly";
+  /** weekly: 0 = Sunday … 6 = Saturday */
+  weekdays?: number[];
+  /** monthly: 1-4, or -1 for the last */
+  month_week?: number;
+  /** monthly: 0 = Sunday … 6 = Saturday */
+  month_weekday?: number;
+  /** "HH:MM", 24-hour, in `timezone` */
+  start_time: string;
+  duration_minutes: number;
+  timezone: string;
+  /** Last local date ("YYYY-MM-DD") an occurrence may start on. */
+  ends_on?: string;
+}
+
+export interface MaintenanceOccurrence {
+  starts_at: string;
+  ends_at: string;
+}
+
+/** A recurring maintenance window: the series. Each occurrence appears
+ *  among the windows (with schedule_id) when it is next. */
+export interface MaintenanceSchedule {
+  id: string;
+  org_id: string;
+  name: string;
+  reason?: string;
+  scope: MaintenanceWindowScope;
+  recurrence: MaintenanceRecurrence;
+  announce: boolean;
+  skipped_starts: string[];
+  created_at: string;
+  updated_at: string;
+  /** The next few occurrences, skipped ones left out; the first may be
+   *  in progress. */
+  next: MaintenanceOccurrence[];
+}
+
+export interface MaintenanceScheduleInput {
+  name: string;
+  reason?: string;
+  scope: MaintenanceWindowScope;
+  recurrence: MaintenanceRecurrence;
+  announce?: boolean;
 }
 
 export interface MaintenanceWindowInput {

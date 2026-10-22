@@ -231,6 +231,12 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 - GET /api/v1/logs/groups — List logs
 - GET /api/v1/logs/{id} — Get log
 
+## maintenance-schedules
+- GET /api/v1/maintenance-schedules — List maintenance-schedules
+- POST /api/v1/maintenance-schedules — Create maintenance-schedule
+- PATCH /api/v1/maintenance-schedules/{id} — Update maintenance-schedule
+- DELETE /api/v1/maintenance-schedules/{id} — Delete maintenance-schedule
+
 ## maintenance-windows
 - GET /api/v1/maintenance-windows — List maintenance-windows
 - POST /api/v1/maintenance-windows — Create maintenance-window

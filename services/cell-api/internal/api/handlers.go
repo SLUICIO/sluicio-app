@@ -1825,6 +1825,11 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 		mux.HandleFunc("POST /api/v1/maintenance-windows", editor(h.createMaintenanceWindow))
 		mux.HandleFunc("PATCH /api/v1/maintenance-windows/{id}", editor(h.updateMaintenanceWindow))
 		mux.HandleFunc("DELETE /api/v1/maintenance-windows/{id}", editor(h.endMaintenanceWindow))
+		// Recurring windows (issue #9): the series; occurrences are windows.
+		mux.HandleFunc("GET /api/v1/maintenance-schedules", h.listMaintenanceSchedules)
+		mux.HandleFunc("POST /api/v1/maintenance-schedules", editor(h.createMaintenanceSchedule))
+		mux.HandleFunc("PATCH /api/v1/maintenance-schedules/{id}", editor(h.updateMaintenanceSchedule))
+		mux.HandleFunc("DELETE /api/v1/maintenance-schedules/{id}", editor(h.deleteMaintenanceSchedule))
 	}
 
 	// Settings → Groups. Listing + getting + per-group membership is

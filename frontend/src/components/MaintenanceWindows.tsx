@@ -5,11 +5,24 @@
 // engine keeps evaluating and recording; see
 // docs/maintenance-and-announcements-design.md). Editors schedule
 // windows for entities/team scopes; org-wide silence needs an admin.
+//
+// A window can also repeat (issue #9): the series is a schedule, and each
+// occurrence shows up among the windows when it is next. Cancelling an
+// occurrence before it starts skips it; deleting the series ends it.
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
-import type { Group, Integration, MaintenanceWindow, MaintenanceWindowScope, System } from "../api/types";
+import type {
+  Group,
+  Integration,
+  MaintenanceRecurrence,
+  MaintenanceSchedule,
+  MaintenanceWindow,
+  MaintenanceWindowScope,
+  System,
+} from "../api/types";
 import { formatRelative } from "../lib/format";
+import { WEEKDAYS, browserTimezone, knownTimezones, summarizeRecurrence } from "../lib/maintenanceRecurrence";
 import { announcementsChanged } from "./AnnouncementsBanner";
 import SearchableSelect from "./SearchableSelect";
 
@@ -35,6 +48,19 @@ export default function MaintenanceWindows({
   windows, integrations, systems, groups, canWrite, isAdmin, onChanged, onError,
 }: Props) {
   const [creating, setCreating] = useState(false);
+  const [schedules, setSchedules] = useState<MaintenanceSchedule[]>([]);
+  const loadSchedules = useCallback(() => {
+    api
+      .listMaintenanceSchedules()
+      .then((r) => setSchedules(r.schedules ?? []))
+      .catch(() => setSchedules([]));
+  }, []);
+  useEffect(loadSchedules, [loadSchedules]);
+  const changed = () => {
+    loadSchedules();
+    onChanged();
+  };
+  const scheduleByID = useMemo(() => new Map(schedules.map((s) => [s.id, s])), [schedules]);
 
   const integrationName = useMemo(() => {
     const m = new Map(integrations.map((i) => [i.id, i.name]));
@@ -68,12 +94,27 @@ export default function MaintenanceWindows({
   };
 
   const endWindow = async (w: MaintenanceWindow) => {
-    const verb = w.active ? "End" : "Cancel";
-    if (!window.confirm(`${verb} "${w.name}"? Alert delivery for its scope resumes immediately.`)) return;
+    const question = w.active
+      ? `End "${w.name}"? Alert delivery for its scope resumes immediately.`
+      : w.schedule_id
+        ? `Skip this occurrence of "${w.name}" (${new Date(w.starts_at).toLocaleString()})? The series continues with the next one.`
+        : `Cancel "${w.name}"?`;
+    if (!window.confirm(question)) return;
     try {
       await api.endMaintenanceWindow(w.id);
       announcementsChanged(); // linked banner goes with the window
-      onChanged();
+      changed();
+    } catch (e) {
+      onError(String((e as Error).message ?? e));
+    }
+  };
+
+  const deleteSchedule = async (s: MaintenanceSchedule) => {
+    if (!window.confirm(`Stop repeating "${s.name}"? An occurrence in progress ends now and no further ones are scheduled.`)) return;
+    try {
+      await api.deleteMaintenanceSchedule(s.id);
+      announcementsChanged();
+      changed();
     } catch (e) {
       onError(String((e as Error).message ?? e));
     }
@@ -102,13 +143,13 @@ export default function MaintenanceWindows({
           systems={systems}
           groups={groups}
           isAdmin={isAdmin}
-          onDone={() => { setCreating(false); onChanged(); }}
+          onDone={() => { setCreating(false); changed(); }}
           onCancel={() => setCreating(false)}
           onError={onError}
         />
       )}
 
-      {upcoming.length === 0 && past.length === 0 && (
+      {upcoming.length === 0 && past.length === 0 && schedules.length === 0 && (
         <p className="muted" style={{ fontSize: 13 }}>No maintenance windows yet.</p>
       )}
 
@@ -123,6 +164,11 @@ export default function MaintenanceWindows({
                 <td>
                   <div className="font-medium">{w.name}</div>
                   {w.reason && <div className="muted" style={{ fontSize: 12 }}>{w.reason}</div>}
+                  {w.schedule_id && (
+                    <div className="muted" style={{ fontSize: 12 }}>
+                      Repeats{scheduleByID.get(w.schedule_id) ? `: ${summarizeRecurrence(scheduleByID.get(w.schedule_id)!.recurrence)}` : ""}
+                    </div>
+                  )}
                 </td>
                 <td style={{ fontSize: 13 }}>{scopeSummary(w.scope)}</td>
                 <td style={{ fontSize: 13 }} title={`${new Date(w.starts_at).toLocaleString()} → ${new Date(w.ends_at).toLocaleString()}`}>
@@ -146,7 +192,7 @@ export default function MaintenanceWindows({
                 <td className="num">
                   {canWrite && (
                     <button type="button" className="btn btn--link" onClick={() => endWindow(w)}>
-                      {w.active ? "End now" : "Cancel"}
+                      {w.active ? "End now" : w.schedule_id ? "Skip" : "Cancel"}
                     </button>
                   )}
                 </td>
@@ -154,6 +200,42 @@ export default function MaintenanceWindows({
             ))}
           </tbody>
         </table>
+      )}
+
+      {schedules.length > 0 && (
+        <>
+          <h3 style={{ fontSize: 13, fontWeight: 600, margin: "0 0 8px" }}>Recurring</h3>
+          <table className="table" style={{ marginBottom: 20 }} data-testid="maintenance-schedules">
+            <thead>
+              <tr><th>Window</th><th>Scope</th><th>Repeats</th><th>Next</th><th></th></tr>
+            </thead>
+            <tbody>
+              {schedules.map((s) => {
+                const next = s.next.find((o) => new Date(o.starts_at) > new Date()) ?? s.next[0];
+                return (
+                  <tr key={s.id}>
+                    <td>
+                      <div className="font-medium">{s.name}</div>
+                      {s.reason && <div className="muted" style={{ fontSize: 12 }}>{s.reason}</div>}
+                    </td>
+                    <td style={{ fontSize: 13 }}>{scopeSummary(s.scope)}</td>
+                    <td style={{ fontSize: 13 }}>{summarizeRecurrence(s.recurrence)}</td>
+                    <td style={{ fontSize: 13 }}>
+                      {next ? new Date(next.starts_at).toLocaleString() : <span className="muted">no further occurrences</span>}
+                    </td>
+                    <td className="num">
+                      {canWrite && (s.scope.kind !== "all_org" || isAdmin) && (
+                        <button type="button" className="btn btn--link" onClick={() => deleteSchedule(s)}>
+                          Stop repeating
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </>
       )}
 
       {past.length > 0 && (
@@ -202,6 +284,17 @@ function WindowForm({
   const [customEnd, setCustomEnd] = useState(""); // datetime-local, "" = use duration
   const [announce, setAnnounce] = useState(false);
   const [busy, setBusy] = useState(false);
+  // "now": a one-shot window starting immediately. "repeats": a series.
+  const [when, setWhen] = useState<"now" | "repeats">("now");
+  const [frequency, setFrequency] = useState<MaintenanceRecurrence["frequency"]>("weekly");
+  const [weekdays, setWeekdays] = useState<number[]>([0]);
+  const [monthWeek, setMonthWeek] = useState(1);
+  const [monthWeekday, setMonthWeekday] = useState(0);
+  const [startTime, setStartTime] = useState("02:00");
+  const [repeatHours, setRepeatHours] = useState(2);
+  const [timezone, setTimezone] = useState(browserTimezone);
+  const [endsOn, setEndsOn] = useState("");
+  const timezones = useMemo(knownTimezones, []);
 
   const integrationName = (id: string) => integrations.find((i) => i.id === id)?.name ?? id;
   const systemName = (id: string) => systems.find((s) => s.id === id)?.name ?? id;
@@ -226,13 +319,30 @@ function WindowForm({
       : new Date(Date.now() + durationH * 3600_000);
     setBusy(true);
     try {
-      await api.createMaintenanceWindow({
-        name: name.trim(),
-        reason: reason.trim(),
-        ends_at: ends.toISOString(),
-        scope,
-        announce,
-      });
+      if (when === "repeats") {
+        await api.createMaintenanceSchedule({
+          name: name.trim(),
+          reason: reason.trim(),
+          scope,
+          announce,
+          recurrence: {
+            frequency,
+            ...(frequency === "weekly" ? { weekdays } : { month_week: monthWeek, month_weekday: monthWeekday }),
+            start_time: startTime,
+            duration_minutes: Math.round(repeatHours * 60),
+            timezone: timezone.trim(),
+            ...(endsOn ? { ends_on: endsOn } : {}),
+          },
+        });
+      } else {
+        await api.createMaintenanceWindow({
+          name: name.trim(),
+          reason: reason.trim(),
+          ends_at: ends.toISOString(),
+          scope,
+          announce,
+        });
+      }
       if (announce) announcementsChanged();
       onDone();
     } catch (err) {
@@ -245,6 +355,13 @@ function WindowForm({
     kind === "all_org" ||
     (kind === "group" && !!groupID) ||
     (kind === "entities" && (integrationIDs.length > 0 || systemIDs.length > 0));
+  const repeatReady =
+    when === "now" ||
+    ((frequency === "monthly" || weekdays.length > 0) &&
+      !!startTime &&
+      repeatHours > 0 &&
+      repeatHours <= 7 * 24 &&
+      !!timezone.trim());
 
   return (
     <form
@@ -332,7 +449,100 @@ function WindowForm({
         </div>
       )}
 
+      <div>
+        <div className="form__label" style={{ marginBottom: 6 }}>When</div>
+        <div style={{ display: "flex", gap: 16 }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5 }}>
+            <input type="radio" name="mw-when" checked={when === "now"} onChange={() => setWhen("now")} />
+            Now
+          </label>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5 }}>
+            <input type="radio" name="mw-when" checked={when === "repeats"} onChange={() => setWhen("repeats")} />
+            Repeats
+          </label>
+        </div>
+      </div>
+
+      {when === "repeats" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }} data-testid="maintenance-repeats">
+          <div style={{ display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap" }}>
+            <label className="form__label">
+              Every
+              <select className="search__input" value={frequency}
+                onChange={(e) => setFrequency(e.target.value as MaintenanceRecurrence["frequency"])}>
+                <option value="weekly">week</option>
+                <option value="monthly">month</option>
+              </select>
+            </label>
+            {frequency === "monthly" && (
+              <>
+                <label className="form__label">
+                  On the
+                  <select className="search__input" value={monthWeek} onChange={(e) => setMonthWeek(Number(e.target.value))}>
+                    <option value={1}>first</option>
+                    <option value={2}>second</option>
+                    <option value={3}>third</option>
+                    <option value={4}>fourth</option>
+                    <option value={-1}>last</option>
+                  </select>
+                </label>
+                <label className="form__label">
+                  Weekday
+                  <select className="search__input" value={monthWeekday} onChange={(e) => setMonthWeekday(Number(e.target.value))}>
+                    {WEEKDAYS.map((d, i) => <option key={d} value={i}>{d}</option>)}
+                  </select>
+                </label>
+              </>
+            )}
+          </div>
+          {frequency === "weekly" && (
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              {[1, 2, 3, 4, 5, 6, 0].map((d) => (
+                <label key={d} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 13.5 }}>
+                  <input
+                    type="checkbox"
+                    checked={weekdays.includes(d)}
+                    onChange={(e) =>
+                      setWeekdays((cur) => (e.target.checked ? [...cur, d] : cur.filter((x) => x !== d)))
+                    }
+                  />
+                  {WEEKDAYS[d].slice(0, 3)}
+                </label>
+              ))}
+            </div>
+          )}
+          <div style={{ display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap" }}>
+            <label className="form__label">
+              Starts at
+              <input type="time" className="search__input" value={startTime} onChange={(e) => setStartTime(e.target.value)} required />
+            </label>
+            <label className="form__label">
+              Lasts (hours)
+              <input type="number" className="search__input" min={0.25} max={168} step={0.25} value={repeatHours}
+                onChange={(e) => setRepeatHours(Number(e.target.value))} style={{ width: 100 }} required />
+            </label>
+            <label className="form__label">
+              Timezone
+              <input className="search__input" list="mw-timezones" value={timezone}
+                onChange={(e) => setTimezone(e.target.value)} required style={{ width: 200 }} />
+              <datalist id="mw-timezones">
+                {timezones.map((z) => <option key={z} value={z} />)}
+              </datalist>
+            </label>
+            <label className="form__label">
+              Until <span className="muted">(optional)</span>
+              <input type="date" className="search__input" value={endsOn} onChange={(e) => setEndsOn(e.target.value)} />
+            </label>
+          </div>
+          <p className="muted" style={{ fontSize: 12, margin: 0 }}>
+            Each occurrence silences alerts like a window of its own, at the same wall-clock time across
+            daylight-saving changes. The next one shows in the list above, where it can be skipped.
+          </p>
+        </div>
+      )}
+
       <div style={{ display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap" }}>
+        {when === "now" && (
         <label className="form__label">
           Duration
           <select
@@ -355,7 +565,8 @@ function WindowForm({
             <option value="custom">Until a specific time…</option>
           </select>
         </label>
-        {customEnd && (
+        )}
+        {when === "now" && customEnd && (
           <label className="form__label">
             Ends at
             <input type="datetime-local" className="search__input" value={customEnd}
@@ -369,8 +580,8 @@ function WindowForm({
       </div>
 
       <div style={{ display: "flex", gap: 8 }}>
-        <button type="submit" className="btn btn--primary" disabled={busy || !name.trim() || !scopeReady}>
-          {busy ? "Scheduling…" : "Start maintenance"}
+        <button type="submit" className="btn btn--primary" disabled={busy || !name.trim() || !scopeReady || !repeatReady}>
+          {busy ? "Scheduling…" : when === "repeats" ? "Create recurring window" : "Start maintenance"}
         </button>
         <button type="button" className="btn" onClick={onCancel}>Cancel</button>
       </div>
