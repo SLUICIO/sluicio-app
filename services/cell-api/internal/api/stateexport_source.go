@@ -40,6 +40,9 @@ type EntityState struct {
 	// Messages is how many messages the integration carried in the count
 	// window. Zero for a system: a system is not a flow and carries none.
 	Messages uint64
+	// Environments is an integration's status per environment (#40), the
+	// list's chips; nil when it has none other than "(no environment)".
+	Environments map[string]string
 }
 
 // IntegrationStates returns every integration's state over the health
@@ -106,8 +109,37 @@ func (h *Handlers) IntegrationStates(ctx context.Context, orgID uuid.UUID, healt
 			slices = append(slices, integrationSlice(integ.ID, names, matchersByIntegration[integ.ID], integ.RuleMatch))
 		}
 	}
-	health := h.sliceStats(ctx, slices, healthFrom, healthTo, h.errorAcks(ctx, orgID), false)
+	acks := h.errorAcks(ctx, orgID)
+	health := h.sliceStats(ctx, slices, healthFrom, healthTo, acks, false)
 	counts := h.sliceStats(ctx, slices, countFrom, countTo, nil, false)
+
+	// Per environment (#40), by the same fold as the list's chips.
+	envSummaries := make([]IntegrationSummary, 0, len(rows))
+	sliceBy := map[uuid.UUID]bool{}
+	memberFiringBy := map[uuid.UUID]alerting.ServiceFiring{}
+	for _, integ := range rows {
+		envSummaries = append(envSummaries, IntegrationSummary{Integration: integ})
+		sliceBy[integ.ID] = integrations.SelectsSlice(matchersByIntegration[integ.ID], integ.RuleMatch)
+		memberFiringBy[integ.ID] = memberFiring(members[integ.ID], firingScopes)
+	}
+	firingByEnv, feErr := h.Alerts.FiringHealthIntegrationEnvironments(ctx, orgID)
+	if feErr != nil {
+		h.Logger.Warn("state export: firing by environment failed", "err", feErr)
+		firingByEnv = map[uuid.UUID]map[string]bool{}
+	}
+	h.fillEnvironmentStatuses(ctx, envSummaries, slices, firingByEnv, memberFiringBy, sliceBy,
+		TimeRange{From: healthFrom, To: healthTo}, acks)
+	envStatus := map[uuid.UUID]map[string]string{}
+	for _, s := range envSummaries {
+		if len(s.Environments) == 0 || (len(s.Environments) == 1 && s.Environments[0].Environment == "") {
+			continue
+		}
+		m := map[string]string{}
+		for _, e := range s.Environments {
+			m[e.Environment] = e.Status
+		}
+		envStatus[s.ID] = m
+	}
 
 	out := make([]EntityState, 0, len(rows))
 	for _, integ := range rows {
@@ -151,7 +183,8 @@ func (h *Handlers) IntegrationStates(ctx context.Context, orgID uuid.UUID, healt
 				IntegrationFiring: firingIntegrations[integ.ID],
 				Delayed:           delayed,
 			}),
-			Messages: counts[integ.ID.String()].Traces,
+			Messages:     counts[integ.ID.String()].Traces,
+			Environments: envStatus[integ.ID],
 		})
 	}
 	return out, nil

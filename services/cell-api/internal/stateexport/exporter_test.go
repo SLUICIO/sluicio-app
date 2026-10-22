@@ -318,3 +318,35 @@ func TestPointsAtSelf(t *testing.T) {
 		}
 	}
 }
+
+// Per environment (#40): one point per environment, told apart by its own
+// attribute, and nothing for an integration without environments.
+func TestPayloadCarriesStatePerEnvironment(t *testing.T) {
+	src := &fakeSource{integrations: []Entity{
+		{ID: uuid.New(), Name: "Order sync", Status: "unhealthy", Environments: map[string]string{"production": "ok", "test": "unhealthy"}},
+		{ID: uuid.New(), Name: "Plain", Status: "ok"},
+	}}
+	e, got, _ := newTestExporter(t, src, Config{})
+	if err := e.ExportOnce(context.Background(), time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	ms := metricsIn(t, (*got)[0])
+	g := ms[MetricIntegrationEnvironmentState]
+	if g == nil {
+		t.Fatal("missing per-environment state")
+	}
+	byEnv := map[string]int64{}
+	for _, dp := range g.GetGauge().DataPoints {
+		attrs := map[string]string{}
+		for _, kv := range dp.Attributes {
+			attrs[kv.Key] = kv.Value.GetStringValue()
+		}
+		if attrs["sluicio.integration.name"] != "Order sync" {
+			t.Errorf("a point for an integration without environments: %v", attrs)
+		}
+		byEnv[attrs["sluicio.integration.environment"]] = dp.GetAsInt()
+	}
+	if len(byEnv) != 2 || byEnv["production"] != StateOK || byEnv["test"] != StateUnhealthy {
+		t.Errorf("per environment: %v", byEnv)
+	}
+}

@@ -11,9 +11,10 @@
 //
 // What travels:
 //
-//	sluicio.integration.state     gauge, int   -1 quiet, 0 ok, 1 errors, 2 unhealthy
-//	sluicio.integration.messages  sum, delta   messages since the previous export
-//	sluicio.system.state          gauge, int   the same scale
+//	sluicio.integration.state              gauge, int   -1 quiet, 0 ok, 1 errors, 2 unhealthy
+//	sluicio.integration.environment.state  gauge, int   the same scale, per environment (#40)
+//	sluicio.integration.messages           sum, delta   messages since the previous export
+//	sluicio.system.state                   gauge, int   the same scale
 //
 // The numbering is deliberate: `>= 1` is the alert condition, and quiet
 // sits below ok so an integration with nothing in its window does not
@@ -27,6 +28,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -44,9 +46,13 @@ import (
 // configuring the receiving end needs them, and because the test that
 // pins them is the contract.
 const (
-	MetricIntegrationState    = "sluicio.integration.state"
-	MetricIntegrationMessages = "sluicio.integration.messages"
-	MetricSystemState         = "sluicio.system.state"
+	MetricIntegrationState = "sluicio.integration.state"
+	// MetricIntegrationEnvironmentState is an integration's state in each
+	// of its environments (#40), attribute sluicio.integration.environment.
+	// Only for integrations that have environments.
+	MetricIntegrationEnvironmentState = "sluicio.integration.environment.state"
+	MetricIntegrationMessages         = "sluicio.integration.messages"
+	MetricSystemState                 = "sluicio.system.state"
 
 	StateQuiet     int64 = -1
 	StateOK        int64 = 0
@@ -80,6 +86,10 @@ type Entity struct {
 	Kind     string
 	Status   string
 	Messages uint64
+	// Environments is an integration's status per environment (#40),
+	// keyed by environment ("" is no environment). Nil when it has no
+	// environments to speak of.
+	Environments map[string]string
 }
 
 // Source is where the states come from. The api package implements it,
@@ -274,6 +284,7 @@ func (e *Exporter) buildRequest(integrations, systems []Entity, countFrom, count
 
 	intState := make([]*metricspb.NumberDataPoint, 0, len(integrations))
 	intMsgs := make([]*metricspb.NumberDataPoint, 0, len(integrations))
+	var intEnvState []*metricspb.NumberDataPoint
 	for _, it := range integrations {
 		attrs := []*commonpb.KeyValue{
 			str("sluicio.integration.id", it.ID.String()),
@@ -293,6 +304,22 @@ func (e *Exporter) buildRequest(integrations, systems []Entity, countFrom, count
 			TimeUnixNano:      end,
 			Value:             &metricspb.NumberDataPoint_AsInt{AsInt: int64(it.Messages)},
 		})
+		envs := make([]string, 0, len(it.Environments))
+		for env := range it.Environments {
+			envs = append(envs, env)
+		}
+		sort.Strings(envs)
+		for _, env := range envs {
+			// Its own attribute, not deployment.environment.name: on this
+			// export that resource attribute names the CELL, and a point
+			// attribute of the same name would read as a contradiction.
+			envAttrs := append(append([]*commonpb.KeyValue{}, attrs...), str("sluicio.integration.environment", env))
+			intEnvState = append(intEnvState, &metricspb.NumberDataPoint{
+				Attributes:   envAttrs,
+				TimeUnixNano: end,
+				Value:        &metricspb.NumberDataPoint_AsInt{AsInt: StateValue(it.Environments[env])},
+			})
+		}
 	}
 
 	sysState := make([]*metricspb.NumberDataPoint, 0, len(systems))
@@ -311,7 +338,14 @@ func (e *Exporter) buildRequest(integrations, systems []Entity, countFrom, count
 		})
 	}
 
-	metrics := make([]*metricspb.Metric, 0, 3)
+	metrics := make([]*metricspb.Metric, 0, 4)
+	if len(intEnvState) > 0 {
+		metrics = append(metrics, &metricspb.Metric{
+			Name:        MetricIntegrationEnvironmentState,
+			Description: "-1 quiet, 0 ok, 1 errors, 2 unhealthy, per environment",
+			Data:        &metricspb.Metric_Gauge{Gauge: &metricspb.Gauge{DataPoints: intEnvState}},
+		})
+	}
 	if len(intState) > 0 {
 		metrics = append(metrics,
 			&metricspb.Metric{

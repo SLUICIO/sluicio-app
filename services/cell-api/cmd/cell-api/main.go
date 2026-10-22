@@ -1588,6 +1588,7 @@ func toExportEntities(rows []api.EntityState) []stateexport.Entity {
 	for _, r := range rows {
 		out = append(out, stateexport.Entity{
 			ID: r.ID, Name: r.Name, Slug: r.Slug, Kind: r.Kind, Status: r.Status, Messages: r.Messages,
+			Environments: r.Environments,
 		})
 	}
 	return out
