@@ -5,6 +5,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"sync/atomic"
@@ -127,6 +128,28 @@ func WithEnvironment(groups [][]LogAttrFilter, env string) [][]LogAttrFilter {
 			f.Member = g[0].Member
 		}
 		out[i] = append(ng, f)
+	}
+	return out
+}
+
+// WithEnvironments is WithEnvironment for a set of environments: a
+// dashboard reading production and test together. One environment is an
+// equality, several a match of the whole canonical name.
+func WithEnvironments(groups [][]LogAttrFilter, envs []string) [][]LogAttrFilter {
+	if len(envs) == 0 {
+		return groups
+	}
+	if len(envs) == 1 {
+		return WithEnvironment(groups, envs[0])
+	}
+	quoted := make([]string, len(envs))
+	for i, e := range envs {
+		quoted[i] = regexp.QuoteMeta(e)
+	}
+	out := WithEnvironment(groups, "")
+	for _, g := range out {
+		f := &g[len(g)-1]
+		f.Op, f.Value = AttrOpMatches, "^(?:"+strings.Join(quoted, "|")+")$"
 	}
 	return out
 }

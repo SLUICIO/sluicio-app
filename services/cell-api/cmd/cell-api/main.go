@@ -1018,8 +1018,8 @@ func integrationCheckScope(ctx context.Context, cat *catalog.Store, integs *inte
 // contextEnvironmentGroups narrows an integration's groups to the
 // environment the evaluation is about (#40), when it is about one.
 func contextEnvironmentGroups(ctx context.Context, groups [][]store.LogAttrFilter) [][]store.LogAttrFilter {
-	if env, ok := envctx.From(ctx); ok {
-		return store.WithEnvironment(groups, env)
+	if envs, ok := envctx.Set(ctx); ok {
+		return store.WithEnvironments(groups, envs)
 	}
 	return groups
 }

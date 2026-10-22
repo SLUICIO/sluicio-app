@@ -12,6 +12,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/envctx"
 )
 
 // Instance/job persistence used by the evaluator + delivery worker. The
@@ -302,8 +304,8 @@ func (s *Store) MarkInstanceNotified(ctx context.Context, instanceID uuid.UUID) 
 // loop considers for re-notification / per-integration coalescing, plus
 // the rule id needed to resolve its channels + delivery behaviour.
 type FiringUnackedInstance struct {
-	InstanceID     uuid.UUID
-	RuleID         uuid.UUID
+	InstanceID uuid.UUID
+	RuleID     uuid.UUID
 	// Environment is the environment a per-environment instance is about
 	// (#40); HasEnvironment is false for one about all of them.
 	Environment    string
@@ -483,8 +485,8 @@ type DeliveryJob struct {
 	// than a number of attempts, because "we try for six hours" is a
 	// sentence an operator can act on.
 	ExpiresAt time.Time
-	Summary         string
-	Labels          map[string]string
+	Summary   string
+	Labels    map[string]string
 	// TitleTemplate + BodyTemplate are the owning rule's optional Go
 	// text/template strings. Rendered against the firing context at
 	// send time (messageFromJob); empty = fall back to Summary.
@@ -731,6 +733,13 @@ type FiringInstance struct {
 // that environment, or about every environment of its scope.
 func (f FiringInstance) InEnvironment(env string) bool {
 	return f.Environment == nil || *f.Environment == env
+}
+
+// InEnvironmentOf is InEnvironment for the environments a read is
+// narrowed to: true when it is narrowed to none, or the instance is
+// about every environment or one of them.
+func (f FiringInstance) InEnvironmentOf(ctx context.Context) bool {
+	return f.Environment == nil || envctx.In(ctx, *f.Environment)
 }
 
 // FiringInstances returns every currently-firing alert instance in the

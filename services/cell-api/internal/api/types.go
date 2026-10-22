@@ -51,6 +51,10 @@ type IntegrationSummary struct {
 	// the caller passes ?series=1 (the dashboard); omitted otherwise. A
 	// quiet integration returns all-zeros (a flat line), never fake data.
 	TrafficSeries []int `json:"traffic_series,omitempty"`
+	// P95DurationMs is the integration's 95th-percentile span duration in
+	// the window, alongside the series (?series=1). Absent when no span
+	// was timed.
+	P95DurationMs *float64 `json:"p95_duration_ms,omitempty"`
 	// Environments is the integration's status per environment (#40), worst
 	// first: every environment its traffic came from in the window, plus
 	// the ones it declares. Only when asked for (?environments=1).

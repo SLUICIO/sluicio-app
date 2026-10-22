@@ -63,3 +63,21 @@ func TestWithEnvironment(t *testing.T) {
 		t.Errorf("not exists: %s", sql)
 	}
 }
+
+// A dashboard reading production and test together (#40).
+func TestWithEnvironments(t *testing.T) {
+	groups := [][]LogAttrFilter{{{Key: "flow", Op: AttrOpEq, Value: "x"}}}
+	if one := WithEnvironments(groups, []string{"test"}); one[0][1].Op != AttrOpEq || one[0][1].Value != "test" {
+		t.Errorf("one environment is an equality: %+v", one)
+	}
+	two := WithEnvironments(groups, []string{"production", "a.b", NoEnvironment})
+	if e := two[0][1]; e.Key != EnvironmentAttrKey || e.Op != AttrOpMatches || e.Value != `^(?:production|a\.b|)$` {
+		t.Errorf("several: %+v", e)
+	}
+	if len(groups[0]) != 1 {
+		t.Error("input modified")
+	}
+	if got := WithEnvironments(groups, nil); len(got[0]) != 1 {
+		t.Errorf("none narrows nothing: %+v", got)
+	}
+}

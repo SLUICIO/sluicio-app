@@ -266,7 +266,7 @@ func (h *Handlers) buildIntegrationSummaries(
 	// Environments (#40): a list read for one environment takes each
 	// integration's status from that environment alone, and the
 	// per-environment chips need the same split of the firing checks.
-	reqEnv, hasEnv := envctx.From(r.Context())
+	_, hasEnv := envctx.Set(r.Context())
 	firingByEnv := map[uuid.UUID]map[string]bool{}
 	if hasEnv || opts.WithEnvironments {
 		if fe, feErr := h.Alerts.FiringHealthIntegrationEnvironments(r.Context(), middleware.OrgID(r)); feErr != nil {
@@ -473,12 +473,24 @@ func (h *Handlers) buildIntegrationSummaries(
 		// Per-integration traffic sparkline (opt-in): distinct traces
 		// bucketed across the window over the integration's services.
 		var trafficSeries []int
+		var p95 *float64
 		if wantSeries {
-			s, sErr := h.Store.IntegrationTrafficSeries(r.Context(), matchedNames, tr.From, tr.To, 24)
+			// The integration's own slice (and environment, when the
+			// read is narrowed to one), not its members' whole traffic.
+			s, sErr := h.Store.IntegrationTrafficSeries(r.Context(), matchedNames, tr.From, tr.To, 24, integAttrs)
 			if sErr != nil {
 				h.Logger.Warn("integration traffic series failed", "integration", integ.ID, "err", sErr)
 			}
 			trafficSeries = s
+			// The dashboard's p95 card. Absent when no span was timed,
+			// rather than a zero that reads as "instant".
+			if len(matchedNames) > 0 {
+				if ms, samples, lErr := h.Store.LatencyMsForServices(r.Context(), matchedNames, 0.95, tr.From, tr.To, integAttrs); lErr != nil {
+					h.Logger.Warn("integration p95 failed", "integration", integ.ID, "err", lErr)
+				} else if samples > 0 {
+					p95 = &ms
+				}
+			}
 		}
 		integTags := integTagsFor(tagsByIntegration, integ.ID)
 		valuesByKey := metadataValuesFor(bulkValues, keyByFieldID, integ.ID)
@@ -500,7 +512,7 @@ func (h *Handlers) buildIntegrationSummaries(
 			Delayed:           delayed,
 		}
 		if hasEnv {
-			health.IntegrationFiring = alerting.FiringIn(firingByEnv, integ.ID, reqEnv)
+			health.IntegrationFiring = firingInRequest(r.Context(), firingByEnv, integ.ID)
 		}
 		memberFiringByIntegration[integ.ID] = health.MemberFiring
 		sliceByIntegration[integ.ID] = health.Slice
@@ -526,6 +538,7 @@ func (h *Handlers) buildIntegrationSummaries(
 			ErrorTraceCount:   errors,
 			DelayedTraceCount: delayed,
 			TrafficSeries:     trafficSeries,
+			P95DurationMs:     p95,
 			Tags:              integTags,
 			MetadataValues:    valuesByKey,
 		})
@@ -1179,7 +1192,7 @@ func (h *Handlers) getIntegration(w http.ResponseWriter, r *http.Request) {
 	// The member rows above keep their own statuses: a row is a statement
 	// about the service, and a check firing on it is true of it even when
 	// it does not speak for this integration.
-	reqEnv, hasEnv := envctx.From(r.Context())
+	_, hasEnv := envctx.Set(r.Context())
 	health := integrationHealth{
 		Slice:             integrations.SelectsSlice(full.Matchers, full.Integration.RuleMatch),
 		MemberFiring:      memberFiring(memberNames, firingScopes),
@@ -1190,7 +1203,7 @@ func (h *Handlers) getIntegration(w http.ResponseWriter, r *http.Request) {
 		if fe, feErr := h.Alerts.FiringHealthIntegrationEnvironments(r.Context(), middleware.OrgID(r)); feErr != nil {
 			h.Logger.Warn("firing health integration environments failed", "err", feErr)
 		} else {
-			health.IntegrationFiring = alerting.FiringIn(fe, id, reqEnv)
+			health.IntegrationFiring = firingInRequest(r.Context(), fe, id)
 		}
 	}
 	for _, s := range matched {
@@ -1254,7 +1267,7 @@ func (h *Handlers) getIntegration(w http.ResponseWriter, r *http.Request) {
 		for _, fi := range firing {
 			// Read for one environment (#40), another environment's
 			// alert is not this page's problem.
-			if hasEnv && !fi.InEnvironment(reqEnv) {
+			if !fi.InEnvironmentOf(r.Context()) {
 				continue
 			}
 			if fi.IntegrationID != nil && *fi.IntegrationID == id {
@@ -2195,6 +2208,7 @@ func (h *Handlers) integrationStats(w http.ResponseWriter, r *http.Request) {
 			"error_trace_count":   s.ErrorTraceCount,
 			"delayed_trace_count": s.DelayedTraceCount,
 			"traffic_series":      s.TrafficSeries,
+			"p95_duration_ms":     s.P95DurationMs,
 			"environments":        s.Environments,
 		})
 	}

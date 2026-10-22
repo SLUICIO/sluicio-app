@@ -11,7 +11,6 @@ import (
 	"github.com/sluicio/sluicio-app/pkg/httpserver"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/alerting"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/api/middleware"
-	"github.com/sluicio/sluicio-app/services/cell-api/internal/envctx"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/store"
 )
 
@@ -146,7 +145,7 @@ func (h *Handlers) failingChecks(r *http.Request) ([]FailingCheck, error) {
 		}
 		// Read for one environment (#40): another environment's alert
 		// is left out, an alert about every environment stays.
-		if env, ok := envctx.From(r.Context()); ok && !fi.InEnvironment(env) {
+		if !fi.InEnvironmentOf(r.Context()) {
 			continue
 		}
 		fc := FailingCheck{

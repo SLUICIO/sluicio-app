@@ -821,7 +821,8 @@ func exportAlertRules(ctx context.Context, tx pgx.Tx, org string, b *Bundle, int
 
 func exportDashboards(ctx context.Context, tx pgx.Tx, org string, b *Bundle, groupSlug, integSlug map[string]string) error {
 	rows, err := tx.Query(ctx, `
-		SELECT id, name, is_default, auto_include_all, COALESCE(default_widget_type,''), COALESCE(position,0), group_id
+		SELECT id, name, is_default, auto_include_all, COALESCE(default_widget_type,''), COALESCE(position,0), group_id,
+		       environments, COALESCE(include_rule::text, '')
 		FROM dashboards WHERE organization_id=$1 ORDER BY name`, org)
 	if err != nil {
 		return err
@@ -831,9 +832,13 @@ func exportDashboards(ctx context.Context, tx pgx.Tx, org string, b *Bundle, gro
 		var id string
 		var gid *string
 		var d Dashboard
-		if err := rows.Scan(&id, &d.Name, &d.IsDefault, &d.AutoIncludeAll, &d.DefaultWidgetType, &d.Position, &gid); err != nil {
+		var rule string
+		if err := rows.Scan(&id, &d.Name, &d.IsDefault, &d.AutoIncludeAll, &d.DefaultWidgetType, &d.Position, &gid, &d.Environments, &rule); err != nil {
 			rows.Close()
 			return err
+		}
+		if rule != "" {
+			d.IncludeRule = json.RawMessage(rule)
 		}
 		if gid != nil {
 			if s, ok := groupSlug[*gid]; ok {

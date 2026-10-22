@@ -15,6 +15,7 @@
 // every one keeps its own kind.
 
 import type {
+  DashboardIncludeRule,
   Dashboard,
   DashboardItem,
   DashboardItemRequest,
@@ -96,4 +97,20 @@ export function toItemRequest(i: DashboardItem, idx: number): DashboardItemReque
     widgetType: i.widgetType,
     position: i.position ?? idx,
   };
+}
+
+/** Whether an integration matches a dashboard's include rule (issue
+ *  #40): a metadata field's value, or a tag. No rule matches all. */
+export function matchesIncludeRule(it: Integration, rule: DashboardIncludeRule | null | undefined): boolean {
+  if (!rule) return true;
+  if (rule.kind === "tag") return (it.tags ?? []).some((t) => t.slug === rule.value);
+  return (it.metadata_values ?? {})[rule.key ?? ""] === rule.value;
+}
+
+/** The integrations an auto-include dashboard shows: all of them, or the
+ *  ones its rule picks. */
+export function ruleIntegrations(dashboard: Dashboard, integrations: Integration[]): Integration[] {
+  return dashboard.autoIncludeAll && dashboard.includeRule
+    ? integrations.filter((i) => matchesIncludeRule(i, dashboard.includeRule))
+    : integrations;
 }

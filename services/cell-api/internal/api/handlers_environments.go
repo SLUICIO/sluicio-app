@@ -7,6 +7,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -127,7 +128,22 @@ func (h *Handlers) integrationEnvironments(w http.ResponseWriter, r *http.Reques
 		"window":       tr.Window(),
 		"environments": out,
 		"declared":     nonNilStrings(full.Integration.DeclaredEnvironments),
+		"default":      h.defaultEnvironment(ctx),
 	})
+}
+
+// defaultEnvironment is the environment pages open on when they have it
+// (the cell setting, production unless changed), "" for none. Canonical,
+// so an alias names the same environment the data does.
+func (h *Handlers) defaultEnvironment(ctx context.Context) string {
+	v, err := h.Settings.GetTelemetryEnvironment(ctx)
+	if err != nil {
+		h.Logger.Warn("telemetry environment setting failed", "err", err)
+	}
+	if d := v.DefaultOrBuiltIn(); d != "" {
+		return store.CanonicalEnvironment(d)
+	}
+	return ""
 }
 
 // putDeclaredEnvironments: PUT /api/v1/integrations/{id}/declared-environments
@@ -213,6 +229,7 @@ func (h *Handlers) listEnvironments(w http.ResponseWriter, r *http.Request) {
 		"environments": out,
 		"none_param":   NoEnvironmentParam,
 		"window":       tr.Window(),
+		"default":      h.defaultEnvironment(ctx),
 	})
 }
 
@@ -233,6 +250,7 @@ func (h *Handlers) getTelemetryEnvironment(w http.ResponseWriter, r *http.Reques
 	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
 		"key":          v.Key,
 		"aliases":      v.Aliases,
+		"default":      v.DefaultOrBuiltIn(),
 		"default_keys": []string{"deployment.environment.name", "deployment.environment"},
 	})
 }
@@ -265,14 +283,22 @@ func (h *Handlers) putTelemetryEnvironment(w http.ResponseWriter, r *http.Reques
 		clean[from] = to
 	}
 	body.Aliases = clean
+	if body.Default != nil {
+		d := strings.TrimSpace(*body.Default)
+		if len(d) > 128 {
+			httpserver.WriteError(w, http.StatusBadRequest, "the default environment is at most 128 characters")
+			return
+		}
+		body.Default = &d
+	}
 	if err := h.Settings.SetTelemetryEnvironment(r.Context(), body); err != nil {
 		httpserver.WriteError(w, http.StatusInternalServerError, "could not save setting")
 		return
 	}
 	store.SetEnvironmentConfig(store.EnvironmentConfig{Key: body.Key, Aliases: body.Aliases})
 	h.recordAudit(r, "cell_settings.telemetry_environment_updated", "cell_settings", "telemetry_environment",
-		map[string]any{"key": body.Key, "aliases": len(body.Aliases)})
-	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"key": body.Key, "aliases": body.Aliases})
+		map[string]any{"key": body.Key, "aliases": len(body.Aliases), "default": body.DefaultOrBuiltIn()})
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"key": body.Key, "aliases": body.Aliases, "default": body.DefaultOrBuiltIn()})
 }
 
 func nonNilStrings(s []string) []string {

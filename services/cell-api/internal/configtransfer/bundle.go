@@ -302,6 +302,10 @@ type Dashboard struct {
 	Position          int             `json:"position"`
 	Group             *string         `json:"group,omitempty"` // slug
 	Items             []DashboardItem `json:"items,omitempty"`
+	// Environments and IncludeRule (#40); omitted when unset, so older
+	// bundles stay byte-identical.
+	Environments []string        `json:"environments,omitempty"`
+	IncludeRule  json.RawMessage `json:"include_rule,omitempty"`
 }
 
 type DashboardItem struct {

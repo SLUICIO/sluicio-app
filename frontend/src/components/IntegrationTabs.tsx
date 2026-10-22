@@ -55,7 +55,7 @@ export default function IntegrationTabs({ integrationId, messagesCount, errorsCo
   // reads as "offer everything".
   const reach = useNavigationReach();
   const loc = useLocation();
-  const [env] = useEnvironmentParam();
+  const [env, , explicitAll] = useEnvironmentParam();
   const base = `/integrations/${encodeURIComponent(integrationId)}`;
   const tabs: Tab[] = [
     { label: "Overview", path: base, exact: true },
@@ -90,7 +90,7 @@ export default function IntegrationTabs({ integrationId, messagesCount, errorsCo
         key: t.label,
         label: t.label,
         // The environment travels between tabs (issue #40).
-        to: t.path + envQuery(env),
+        to: t.path + envQuery(env, explicitAll),
         active: isActive(t),
         disabled: t.disabled,
         count: t.count,

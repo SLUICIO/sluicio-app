@@ -4,6 +4,7 @@ package dashboards
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -32,7 +33,7 @@ func NewStore(pool *pgxpool.Pool) *Store {
 // Update without scan/column drift.
 const dashboardCols = `id, organization_id, owner_user_id, name,
 	is_default, auto_include_all, default_widget_type, position,
-	group_id, created_at, updated_at`
+	group_id, created_at, updated_at, environments, include_rule`
 
 // itemCols mirrors dashboardCols for the items table.
 const itemCols = `id, dashboard_id, entity_kind, integration_id, system_name, system_id, widget_type, position, created_at`
@@ -118,6 +119,10 @@ func (s *Store) Create(ctx context.Context, orgID uuid.UUID, ownerUserID *uuid.U
 	if defaultWidget == "" {
 		defaultWidget = WidgetTrafficSparkline
 	}
+	envs, err := cleanEnvironments(req.Environments)
+	if err != nil {
+		return Dashboard{}, err
+	}
 
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -134,10 +139,12 @@ func (s *Store) Create(ctx context.Context, orgID uuid.UUID, ownerUserID *uuid.U
 	row := tx.QueryRow(ctx, `
 		INSERT INTO dashboards
 			(organization_id, owner_user_id, name, is_default,
-			 auto_include_all, default_widget_type, position, group_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			 auto_include_all, default_widget_type, position, group_id,
+			 environments, include_rule)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		RETURNING `+dashboardCols, orgID, ownerUserID, req.Name, req.IsDefault,
 		req.AutoIncludeAll, string(defaultWidget), req.Position, req.GroupID,
+		envs, ruleJSON(req.IncludeRule),
 	)
 	d, err := scanDashboard(row, ownerUserID)
 	if err != nil {
@@ -171,6 +178,10 @@ func (s *Store) Update(ctx context.Context, orgID, id uuid.UUID, ownerUserID *uu
 	if defaultWidget == "" {
 		defaultWidget = WidgetTrafficSparkline
 	}
+	envs, err := cleanEnvironments(req.Environments)
+	if err != nil {
+		return Dashboard{}, err
+	}
 
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -188,10 +199,12 @@ func (s *Store) Update(ctx context.Context, orgID, id uuid.UUID, ownerUserID *uu
 		UPDATE dashboards
 		SET name = $3, is_default = $4, auto_include_all = $5,
 		    default_widget_type = $6, position = $7,
+		    environments = $8, include_rule = $9,
 		    updated_at = now()
 		WHERE organization_id = $1 AND id = $2
 		RETURNING `+dashboardCols, orgID, id, req.Name, req.IsDefault,
 		req.AutoIncludeAll, string(defaultWidget), req.Position,
+		envs, ruleJSON(req.IncludeRule),
 	)
 	d, err := scanDashboard(row, ownerUserID)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -411,15 +424,25 @@ func scanDashboard(s scanner, callerID *uuid.UUID) (Dashboard, error) {
 		d                 Dashboard
 		ownerNullable     *uuid.UUID
 		defaultWidgetType string
+		ruleRaw           []byte
 		createdAt         time.Time
 		updatedAt         time.Time
 	)
 	if err := s.Scan(
 		&d.ID, &d.OrganizationID, &ownerNullable, &d.Name,
 		&d.IsDefault, &d.AutoIncludeAll, &defaultWidgetType, &d.Position,
-		&d.GroupID, &createdAt, &updatedAt,
+		&d.GroupID, &createdAt, &updatedAt, &d.Environments, &ruleRaw,
 	); err != nil {
 		return Dashboard{}, err
+	}
+	if d.Environments == nil {
+		d.Environments = []string{}
+	}
+	if len(ruleRaw) > 0 {
+		var r IncludeRule
+		if json.Unmarshal(ruleRaw, &r) == nil && r.Kind != "" {
+			d.IncludeRule = &r
+		}
 	}
 	d.OwnerUserID = ownerNullable
 	d.DefaultWidgetType = WidgetType(defaultWidgetType)
@@ -456,4 +479,16 @@ func scanItem(s scanner) (Item, error) {
 	it.WidgetType = WidgetType(widgetType)
 	it.CreatedAt = createdAt
 	return it, nil
+}
+
+// ruleJSON encodes an include rule for the jsonb column; nil is NULL.
+func ruleJSON(r *IncludeRule) any {
+	if r == nil {
+		return nil
+	}
+	b, err := json.Marshal(r)
+	if err != nil {
+		return nil
+	}
+	return b
 }

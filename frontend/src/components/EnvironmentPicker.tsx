@@ -1,17 +1,32 @@
 // SPDX-License-Identifier: FSL-1.1-Apache-2.0
 //
 // Environments on an integration (issue #40): the picker beside the
-// integration's name, and the strip of per-environment tiles on its
-// Overview. Both read the integration across ALL its environments,
-// whatever the page is narrowed to, so they can always offer the others.
+// integration's name. It reads the integration across ALL its
+// environments, whatever the page is narrowed to, so it can always offer
+// the others.
 
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { IntegrationEnvironment, ServiceStatus } from "../api/types";
 import { environmentLabel, useEnvironmentParam } from "../lib/activeEnvironment";
-import { formatNumber, statusLabel } from "../lib/format";
+import { statusLabel } from "../lib/format";
 import { useTimeWindow } from "../lib/useTimeWindow";
-import { StatusPip, pipForStatus } from "./primitives";
+
+type EnvironmentsReply = Awaited<ReturnType<typeof api.integrationEnvironments>>;
+const recent = new Map<string, { at: number; reply: Promise<EnvironmentsReply> }>();
+
+/** One read of an integration's environments shared by the scope that
+ *  picks the default and the picker that lists them, which mount
+ *  together. Kept briefly, and dropped if it failed. */
+export function integrationEnvironmentsOnce(id: string, window: string): Promise<EnvironmentsReply> {
+  const key = `${id}\u0000${window}`;
+  const hit = recent.get(key);
+  if (hit && Date.now() - hit.at < 15_000) return hit.reply;
+  const reply = api.integrationEnvironments(id, window);
+  recent.set(key, { at: Date.now(), reply });
+  reply.catch(() => recent.delete(key));
+  return reply;
+}
 
 /** The integration's environments with their status, all of them. */
 export function useIntegrationEnvironments(integrationId: string | undefined) {
@@ -20,8 +35,7 @@ export function useIntegrationEnvironments(integrationId: string | undefined) {
   useEffect(() => {
     if (!integrationId) return;
     let cancelled = false;
-    api
-      .integrationEnvironments(integrationId, window)
+    integrationEnvironmentsOnce(integrationId, window)
       .then((r) => !cancelled && setEnvs(r.environments ?? []))
       .catch(() => !cancelled && setEnvs([]));
     return () => {
@@ -42,6 +56,8 @@ export default function EnvironmentPicker({ integrationId }: { integrationId: st
   const envs = useIntegrationEnvironments(integrationId);
   const [env, setEnv] = useEnvironmentParam();
   if (envs === null) return null;
+  // "All environments" is written out (?env=*): without it the page
+  // would open on the default environment again.
   const names = envs.map((e) => e.environment);
   // A link can name an environment that is not in this window.
   if (env !== null && !names.includes(env)) names.push(env);
@@ -53,7 +69,7 @@ export default function EnvironmentPicker({ integrationId }: { integrationId: st
         className="search__input"
         style={{ minWidth: 180 }}
         value={env === null ? "\u0000all" : env}
-        onChange={(e) => setEnv(e.target.value === "\u0000all" ? null : e.target.value)}
+        onChange={(e) => setEnv(e.target.value === "\u0000all" ? null : e.target.value, true)}
         aria-label="Environment"
       >
         <option value={"\u0000all"}>All environments</option>
@@ -68,58 +84,5 @@ export default function EnvironmentPicker({ integrationId }: { integrationId: st
         })}
       </select>
     </label>
-  );
-}
-
-/** One tile per environment, worst first, so "test is failing,
- *  production is fine" is visible without switching. Clicking one reads
- *  the page in it. */
-export function EnvironmentStrip({ integrationId }: { integrationId: string | undefined }) {
-  const envs = useIntegrationEnvironments(integrationId);
-  const [env, setEnv] = useEnvironmentParam();
-  if (envs === null || !worthPicking(envs)) return null;
-  return (
-    <section className="mt-4" data-testid="environment-strip">
-      <div className="mb-2 text-xs uppercase tracking-wide text-muted">Environments</div>
-      <div className="flex flex-wrap gap-2">
-        {envs.map((e) => {
-          const selected = env === e.environment;
-          return (
-            <button
-              key={e.environment}
-              type="button"
-              onClick={() => setEnv(selected ? null : e.environment)}
-              className="rounded-lg border px-3 py-2 text-left text-sm transition-colors hover:bg-surface-elevated"
-              style={{
-                borderColor: selected ? "var(--primary)" : "var(--border)",
-                background: "var(--surface-2)",
-                minWidth: 150,
-              }}
-              title={selected ? "Show all environments" : `Read this integration in ${environmentLabel(e.environment)}`}
-              aria-pressed={selected}
-            >
-              <div className="flex items-center gap-2">
-                <StatusPip kind={pipForStatus(e.status)} label={statusLabel(e.status as ServiceStatus)} />
-                <span className="font-medium">{environmentLabel(e.environment)}</span>
-              </div>
-              <div className="mt-1 text-xs text-muted">
-                {e.trace_count > 0 ? (
-                  <>
-                    {formatNumber(e.trace_count)} message{e.trace_count === 1 ? "" : "s"}
-                    {e.error_trace_count > 0 && <> · {formatNumber(e.error_trace_count)} failed</>}
-                  </>
-                ) : e.metric_rows > 0 || e.log_records > 0 ? (
-                  "metrics or logs only"
-                ) : e.declared ? (
-                  "declared, no traffic"
-                ) : (
-                  "no traffic"
-                )}
-              </div>
-            </button>
-          );
-        })}
-      </div>
-    </section>
   );
 }

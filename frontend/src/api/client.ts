@@ -453,7 +453,10 @@ export const api = {
   // integrations renders at once instead of after every count is in.
   listIntegrations: (
     window: string = "1h",
-    opts: { series?: boolean; stats?: "defer" } = {},
+    // env reads every integration in one environment or a set of them
+    // (issue #40; null = all), environments adds each row's status per
+    // environment.
+    opts: { series?: boolean; stats?: "defer"; env?: string | string[] | null; environments?: boolean } = {},
   ) =>
     get<{
       integrations: Integration[];
@@ -462,6 +465,10 @@ export const api = {
     }>(
       `/integrations?range=${encodeURIComponent(window)}${opts.series ? "&series=1" : ""}${
         opts.stats === "defer" ? "&stats=defer" : ""
+      }${(opts.env === undefined || opts.env === null ? [] : Array.isArray(opts.env) ? opts.env : [opts.env])
+        .map((e) => `&env=${encodeURIComponent(envToParam(e))}`)
+        .join("")}${
+        opts.environments ? "&environments=1" : ""
       }`
     ),
 
@@ -475,11 +482,11 @@ export const api = {
     ),
 
   // Environments (issue #40).
-  // The integration's environments with their status, for the picker and
-  // the Overview strip. Read across all environments whatever the page
-  // is narrowed to, hence the explicit empty env.
+  // The integration's environments with their status, for the picker,
+  // and the environment its pages open on. Read across all environments
+  // whatever the page is narrowed to, hence the explicit empty env.
   integrationEnvironments: (id: string, window: string = "1h") =>
-    get<{ environments: IntegrationEnvironment[]; declared: string[] }>(
+    get<{ environments: IntegrationEnvironment[]; declared: string[]; default: string }>(
       `/integrations/${encodeURIComponent(id)}/environments?range=${encodeURIComponent(window)}&env=`
     ),
   setDeclaredEnvironments: (id: string, environments: string[]) =>
@@ -487,11 +494,14 @@ export const api = {
   // Every environment seen across what the caller can see, for the
   // list-wide picker.
   listEnvironments: (window: string = "24h") =>
-    get<{ environments: string[] }>(`/environments?range=${encodeURIComponent(window)}`),
+    get<{ environments: string[]; default: string }>(`/environments?range=${encodeURIComponent(window)}`),
+  // default: the environment integration pages open on ("" = none).
   getTelemetryEnvironment: () =>
-    get<{ key: string; aliases: Record<string, string>; default_keys: string[] }>(`/cell-settings/telemetry-environment`),
-  setTelemetryEnvironment: (body: { key: string; aliases: Record<string, string> }) =>
-    put<{ key: string; aliases: Record<string, string> }>(`/cell-settings/telemetry-environment`, body),
+    get<{ key: string; aliases: Record<string, string>; default: string; default_keys: string[] }>(
+      `/cell-settings/telemetry-environment`,
+    ),
+  setTelemetryEnvironment: (body: { key: string; aliases: Record<string, string>; default: string }) =>
+    put<{ key: string; aliases: Record<string, string>; default: string }>(`/cell-settings/telemetry-environment`, body),
 
   // What a draft rule would match right now, for the matcher editor's
   // live line. Same shape the create call takes, so the rehearsal and

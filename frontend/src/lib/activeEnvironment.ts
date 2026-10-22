@@ -4,14 +4,21 @@
 // integration, read for all environments or for one. It lives in the URL
 // (?env=production) so a shared link opens on the same environment, and
 // the API client stamps it onto every read of integration data while an
-// integration page is on screen (EnvironmentScope sets it). "All
-// environments" is the absence of the parameter.
+// integration page is on screen (EnvironmentScope sets it). An
+// integration page with no ?env opens on the default environment
+// (production unless an operator changed it) when the integration has
+// it; "All environments" chosen there is ?env=*. Elsewhere the absence of
+// the parameter is all environments.
 
 import { useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
 
 /** How ?env= asks for telemetry that carries no environment. */
 export const NO_ENVIRONMENT_PARAM = "(none)";
+
+/** How ?env= says "all environments" where its absence would mean the
+ *  default one. */
+export const ALL_ENVIRONMENTS_PARAM = "*";
 
 let current: string | null = null;
 
@@ -36,21 +43,24 @@ export function envToParam(env: string): string {
 
 export function envFromParam(p: string | null): string | null {
   if (p === null || p === undefined) return null;
-  if (p === "") return null;
+  if (p === "" || p === ALL_ENVIRONMENTS_PARAM) return null;
   return p === NO_ENVIRONMENT_PARAM ? "" : p;
 }
 
-/** ?env=, as [environment, set]. set(null) returns to all environments. */
-export function useEnvironmentParam(): [string | null, (env: string | null) => void] {
+/** ?env=, as [environment, set, explicitAll]. set(null) returns to all
+ *  environments by dropping the parameter; set(null, true) writes ?env=*,
+ *  which an integration page needs so it does not open on the default. */
+export function useEnvironmentParam(): [string | null, (env: string | null, explicitAll?: boolean) => void, boolean] {
   const [params, setParams] = useSearchParams();
   const env = envFromParam(params.get("env"));
   const set = useCallback(
-    (next: string | null) => {
+    (next: string | null, explicitAll = false) => {
       setParams(
         (prev) => {
           const p = new URLSearchParams(prev);
-          if (next === null) p.delete("env");
-          else p.set("env", envToParam(next));
+          if (next !== null) p.set("env", envToParam(next));
+          else if (explicitAll) p.set("env", ALL_ENVIRONMENTS_PARAM);
+          else p.delete("env");
           return p;
         },
         { replace: false },
@@ -58,13 +68,16 @@ export function useEnvironmentParam(): [string | null, (env: string | null) => v
     },
     [setParams],
   );
-  return [env, set];
+  return [env, set, params.get("env") === ALL_ENVIRONMENTS_PARAM];
 }
 
 /** The ?env= part of a link, so moving between an integration's tabs or
- *  back to the list keeps the environment. "" when reading all. */
-export function envQuery(env: string | null): string {
-  return env === null ? "" : `?env=${encodeURIComponent(envToParam(env))}`;
+ *  back to the list keeps the environment. "" when reading all, unless
+ *  all was chosen explicitly (then ?env=*, so the next page does not open
+ *  on the default). */
+export function envQuery(env: string | null, explicitAll = false): string {
+  if (env === null) return explicitAll ? `?env=${ALL_ENVIRONMENTS_PARAM}` : "";
+  return `?env=${encodeURIComponent(envToParam(env))}`;
 }
 
 /** Whether a request reads integration data and so follows the active

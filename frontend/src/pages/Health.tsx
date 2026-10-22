@@ -26,7 +26,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigationReach } from "../lib/useNavigationReach";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
-import { materializeItems, toItemRequest } from "../lib/dashboardItems";
+import { materializeItems, ruleIntegrations, toItemRequest } from "../lib/dashboardItems";
+import { environmentLabel, useEnvironmentParam } from "../lib/activeEnvironment";
 import { orderDashboards, pickActiveDashboard } from "../lib/dashboardPick";
 import { byHealthThenName } from "../lib/healthOrder";
 import { useAccess } from "../lib/useAccess";
@@ -41,6 +42,7 @@ import {
 import type { PipKind } from "../components/primitives";
 import type {
   Dashboard,
+  DashboardIncludeRule,
   DashboardItem,
   DashboardItemRequest,
   DashboardWidgetType,
@@ -51,7 +53,7 @@ import type {
 import { DASHBOARD_WIDGET_LABELS, DASHBOARD_WIDGET_PICKER } from "../api/types";
 import SearchableSelect from "../components/SearchableSelect";
 import OnboardingGuide from "../components/OnboardingGuide";
-import { formatNumber } from "../lib/format";
+import { formatNumber, statusLabel } from "../lib/format";
 import { pickAttentionTarget } from "../lib/needsAttention";
 import { usePageTitle } from "../lib/usePageTitle";
 import { useTimeWindow } from "../lib/useTimeWindow";
@@ -128,15 +130,35 @@ export default function Health() {
 
   // ── data loading ────────────────────────────────────────────────
 
+  // Environments (issue #40): the dashboard's own, unless the reader
+  // switched to another for a moment (?env=, never saved). One
+  // environment narrows every card to it; several add a row per
+  // environment to each card.
+  const [viewEnv, setViewEnv] = useEnvironmentParam();
+  const [envDashSource, setEnvDashSource] = useState<string[]>([]);
+  const effectiveEnvs = viewEnv !== null ? [viewEnv] : envDashSource;
+  const envKey = effectiveEnvs.join("\u0000");
+  const [metadataFields, setMetadataFields] = useState<{ key: string; label: string; options?: string[] }[]>([]);
+
   useEffect(() => {
     setIntLoading(true);
     setIntError(null);
     api
-      .listIntegrations(windowVal, { series: true })
-      .then((r) => setIntegrations(r.integrations ?? []))
+      .listIntegrations(windowVal, {
+        series: true,
+        // Every number on a card is read in the dashboard's
+        // environments, and several add a row per environment.
+        env: effectiveEnvs.length > 0 ? effectiveEnvs : null,
+        environments: effectiveEnvs.length > 1,
+      })
+      .then((r) => {
+        setIntegrations(r.integrations ?? []);
+        setMetadataFields((r.metadata_fields ?? []).map((f) => ({ key: f.key, label: f.label, options: f.options })));
+      })
       .catch((e) => setIntError(String(e.message ?? e)))
       .finally(() => setIntLoading(false));
-  }, [windowVal]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [windowVal, envKey]);
 
   // Dashboards load once — they don't depend on the time window. The
   // editor reloads from the server after save/delete so any new
@@ -202,6 +224,14 @@ export default function Health() {
   // the draft while editing, the saved copy otherwise. Keeping it as
   // one variable means the renderer below is identical for both modes.
   const visibleSource: Dashboard | null = editing ? draft : active;
+  // The fetch above reads the dashboard's environments; kept in sync
+  // here rather than derived there, so the effect does not refire on
+  // every unrelated draft edit.
+  const sourceEnvKey = (visibleSource?.environments ?? []).join("\u0000");
+  useEffect(() => {
+    setEnvDashSource(visibleSource?.environments ?? []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sourceEnvKey]);
 
   const cards = useMemo(
     () => composeCards(integrations ?? [], visibleSource),
@@ -387,7 +417,7 @@ export default function Health() {
       // dashboard keeps every other card after the flip to manual.
       // Without this the saved items[] would only contain the previous
       // explicit overrides and every other card would disappear.
-      const materialized = materializeItems(target, integrations ?? []);
+      const materialized = materializeItems(target, ruleIntegrations(target, integrations ?? []));
       const remaining = materialized.filter(
         (i) => i.integrationId !== integrationId,
       );
@@ -402,6 +432,10 @@ export default function Health() {
           defaultWidgetType: target.defaultWidgetType,
           position: target.position,
           items: remaining.map<DashboardItemRequest>(toItemRequest),
+          // A full replace: carry the settings this action does not
+          // touch, or removing one card would drop them.
+          environments: target.environments ?? [],
+          includeRule: null,
         });
         setDashboards((all) =>
           (all ?? []).map((d) => (d.id === saved.id ? saved : d)),
@@ -429,6 +463,8 @@ export default function Health() {
         defaultWidgetType: draft.defaultWidgetType,
         position: draft.position,
         items: draft.items.map<DashboardItemRequest>(toItemRequest),
+        environments: draft.environments ?? [],
+        includeRule: draft.autoIncludeAll ? (draft.includeRule ?? null) : null,
       });
       setDashboards((all) =>
         (all ?? []).map((d) => (d.id === saved.id ? saved : d)),
@@ -480,10 +516,15 @@ export default function Health() {
       setSaving(true);
       setDashError(null);
       try {
+        // A new dashboard starts on the default environment when the
+        // telemetry has it; untick it in the editor to read them all.
+        const known = await api.listEnvironments().catch(() => null);
+        const startEnvs = known && known.default && known.environments.includes(known.default) ? [known.default] : [];
         const created = await api.createDashboard({
           name,
           autoIncludeAll: start_with_all,
           defaultWidgetType: "traffic_sparkline",
+          environments: startEnvs,
           ...(groupId ? { groupId } : {}),
         });
         setDashboards((all) => [...(all ?? []), created]);
@@ -733,6 +774,12 @@ export default function Health() {
               onNew={access.writeAnywhere ? () => setNewOpen(true) : undefined}
             />
             <div className="flex items-center gap-2 text-xs text-muted">
+              <EnvironmentSwitch
+                dashboardEnvs={visibleSource?.environments ?? []}
+                viewEnv={viewEnv}
+                setViewEnv={setViewEnv}
+                window={windowVal}
+              />
               {!editing && active && (active.canManage ?? true) && (
                 <button
                   type="button"
@@ -788,6 +835,8 @@ export default function Health() {
               onChange={updateDraft}
               onAddCard={addCard}
               onAddSystemEntity={addSystemEntity}
+              metadataFields={metadataFields}
+              window={windowVal}
             />
           )}
 
@@ -826,6 +875,7 @@ export default function Health() {
                       key={c.integration.id}
                       it={c.integration}
                       widget={c.widget}
+                      envs={effectiveEnvs.length > 1 ? effectiveEnvs : undefined}
                       editing={editing}
                       onWidgetChange={(w) => setCardWidget(c.integration.id, w)}
                       onRemove={() => removeCard(c.integration.id)}
@@ -951,6 +1001,8 @@ interface EditorBarProps {
   onChange: (patch: Partial<Dashboard>) => void;
   onAddCard: (integrationId: string) => void;
   onAddSystemEntity: (id: string) => void;
+  metadataFields: { key: string; label: string; options?: string[] }[];
+  window: string;
 }
 
 function DashboardEditorBar({
@@ -962,6 +1014,8 @@ function DashboardEditorBar({
   onChange,
   onAddCard,
   onAddSystemEntity,
+  metadataFields,
+  window: windowVal,
 }: EditorBarProps) {
   // Integrations not already in the visible card list — candidates for
   // the "+ add integration" picker. In auto mode this is empty (every
@@ -1001,6 +1055,21 @@ function DashboardEditorBar({
         />
         show every integration
       </label>
+
+      {draft.autoIncludeAll && (
+        <IncludeRuleEditor
+          rule={draft.includeRule ?? null}
+          integrations={integrations}
+          metadataFields={metadataFields}
+          onChange={(includeRule) => onChange({ includeRule })}
+        />
+      )}
+
+      <DashboardEnvironmentsEditor
+        value={draft.environments ?? []}
+        window={windowVal}
+        onChange={(environments) => onChange({ environments })}
+      />
 
       <label className="flex items-center gap-2 text-sm text-muted">
         <input
@@ -1155,6 +1224,9 @@ function NewDashboardDialog({ saving, onCreate, onCancel, editorGroups, orgWide 
 interface CardProps {
   it: Integration;
   widget: DashboardWidgetType;
+  // The environments the dashboard reads, when it reads several: one
+  // status row each.
+  envs?: string[];
   editing: boolean;
   busy: boolean;
   onWidgetChange: (w: DashboardWidgetType) => void;
@@ -1169,6 +1241,7 @@ interface CardProps {
 function IntegrationCard({
   it,
   widget,
+  envs,
   editing,
   busy,
   onWidgetChange,
@@ -1253,6 +1326,10 @@ function IntegrationCard({
           </div>
         )}
       </div>
+
+      {/* One row per environment the dashboard reads (issue #40), so
+          "production ok, test failing" reads off the card. */}
+      {envs && <CardEnvironmentRows it={it} envs={envs} />}
 
       {editing && (
         <div
@@ -1583,11 +1660,18 @@ function ErrorWidget({ it }: { it: Integration }) {
 }
 
 function LatencyWidget({ it }: { it: Integration }) {
-  // The cell-api doesn't yet expose per-integration p95 in the list
-  // response, so we surface a deterministic placeholder seeded from the
-  // integration id (same pattern the v1 sparkline used). When the API
-  // adds it.p95_duration_ms, replace this block with the real value.
-  const p95 = Math.max(20, Math.round((Math.abs(hashString(it.id)) % 480) + 20));
+  // The real p95 from the list response (it was a placeholder seeded
+  // from the integration id until the list carried it). A dash when no
+  // span was timed in the window, never an invented number.
+  if (it.p95_duration_ms === undefined || it.p95_duration_ms === null) {
+    return (
+      <div className="flex items-baseline gap-3">
+        <div className="text-3xl font-semibold tabular-nums leading-none text-muted">—</div>
+        <div className="text-xs text-muted">p95 latency · no timed spans</div>
+      </div>
+    );
+  }
+  const p95 = Math.round(it.p95_duration_ms);
   const tone =
     p95 < 200 ? "var(--ok)" : p95 < 800 ? "var(--warn)" : "var(--err)";
   return (
@@ -1669,11 +1753,12 @@ function composeCards(
   );
 
   if (dashboard.autoIncludeAll) {
-    // Every integration in the org; items[] only says which widget each
-    // one uses. There is no "pinned" affordance in this mode, so the old
+    // Every integration in the org, or the ones its rule picks (issue
+    // #40: "Country = Sweden"); items[] only says which widget each one
+    // uses. There is no "pinned" affordance in this mode, so the old
     // items-first split was invisible to the reader — health decides.
     return ordered(
-      integrations.map((i) => ({
+      ruleIntegrations(dashboard, integrations).map((i) => ({
         integration: i,
         widget: itemByIntegration.get(i.id)?.widgetType ?? dashboard.defaultWidgetType,
       })),
@@ -1808,4 +1893,208 @@ function hashString(s: string): number {
     h |= 0;
   }
   return h;
+}
+
+// ── Environments and rules (issue #40) ──────────────────────────────
+
+/** The environments seen in the window, for the dashboard pickers. */
+function useKnownEnvironments(windowVal: string): string[] {
+  const [envs, setEnvs] = useState<string[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .listEnvironments(windowVal)
+      .then((r) => !cancelled && setEnvs(r.environments ?? []))
+      .catch(() => !cancelled && setEnvs([]));
+    return () => {
+      cancelled = true;
+    };
+  }, [windowVal]);
+  return envs;
+}
+
+/** Which environments the dashboard reads: none ticked is all of them. */
+function DashboardEnvironmentsEditor({
+  value,
+  window: windowVal,
+  onChange,
+}: {
+  value: string[];
+  window: string;
+  onChange: (envs: string[]) => void;
+}) {
+  const known = useKnownEnvironments(windowVal);
+  const names = [...known];
+  for (const e of value) if (!names.includes(e)) names.push(e);
+  if (names.length === 0) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-sm text-muted" data-testid="dashboard-environments">
+      environments
+      {names.map((e) => (
+        <label key={e} className="flex items-center gap-1">
+          <input
+            type="checkbox"
+            checked={value.includes(e)}
+            onChange={(ev) => onChange(ev.target.checked ? [...value, e] : value.filter((x) => x !== e))}
+          />
+          {environmentLabel(e)}
+        </label>
+      ))}
+      <span className="text-xs">{value.length === 0 ? "(none ticked: all)" : ""}</span>
+    </div>
+  );
+}
+
+/** "Only integrations where Country = Sweden" or "tagged payments". */
+function IncludeRuleEditor({
+  rule,
+  integrations,
+  metadataFields,
+  onChange,
+}: {
+  rule: DashboardIncludeRule | null;
+  integrations: Integration[];
+  metadataFields: { key: string; label: string; options?: string[] }[];
+  onChange: (rule: DashboardIncludeRule | null) => void;
+}) {
+  const tags = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const i of integrations) for (const t of i.tags ?? []) m.set(t.slug, t.name);
+    return [...m.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  }, [integrations]);
+  // The selector: "" = every integration, "tag" or "meta:<key>".
+  const selector = !rule ? "" : rule.kind === "tag" ? "tag" : `meta:${rule.key ?? ""}`;
+  const field = rule?.kind === "metadata" ? metadataFields.find((f) => f.key === rule.key) : undefined;
+  const valuesForField = (key: string) => {
+    const f = metadataFields.find((x) => x.key === key);
+    const seen = new Set<string>(f?.options ?? []);
+    for (const i of integrations) {
+      const v = (i.metadata_values ?? {})[key];
+      if (v) seen.add(v);
+    }
+    return [...seen].sort();
+  };
+  if (metadataFields.length === 0 && tags.length === 0) return null;
+  return (
+    <span className="flex flex-wrap items-center gap-2 text-sm text-muted" data-testid="dashboard-include-rule">
+      where
+      <select
+        className="rounded-md border bg-transparent px-1 py-0.5 text-sm"
+        style={{ borderColor: "var(--border)", color: "var(--ink)" }}
+        value={selector}
+        onChange={(e) => {
+          const v = e.target.value;
+          if (v === "") onChange(null);
+          else if (v === "tag") onChange({ kind: "tag", value: tags[0]?.[0] ?? "" });
+          else {
+            const key = v.slice(5);
+            onChange({ kind: "metadata", key, value: valuesForField(key)[0] ?? "" });
+          }
+        }}
+      >
+        <option value="">(any)</option>
+        {metadataFields.map((f) => (
+          <option key={f.key} value={`meta:${f.key}`}>
+            {f.label}
+          </option>
+        ))}
+        {tags.length > 0 && <option value="tag">tag</option>}
+      </select>
+      {rule?.kind === "metadata" && (
+        <>
+          =
+          <select
+            className="rounded-md border bg-transparent px-1 py-0.5 text-sm"
+            style={{ borderColor: "var(--border)", color: "var(--ink)" }}
+            value={rule.value}
+            onChange={(e) => onChange({ ...rule, value: e.target.value })}
+            aria-label={`${field?.label ?? "field"} value`}
+          >
+            {valuesForField(rule.key ?? "").map((v) => (
+              <option key={v} value={v}>
+                {v}
+              </option>
+            ))}
+          </select>
+        </>
+      )}
+      {rule?.kind === "tag" && (
+        <select
+          className="rounded-md border bg-transparent px-1 py-0.5 text-sm"
+          style={{ borderColor: "var(--border)", color: "var(--ink)" }}
+          value={rule.value}
+          onChange={(e) => onChange({ ...rule, value: e.target.value })}
+          aria-label="tag"
+        >
+          {tags.map(([slug, name]) => (
+            <option key={slug} value={slug}>
+              {name}
+            </option>
+          ))}
+        </select>
+      )}
+    </span>
+  );
+}
+
+/** Reading the dashboard in another environment for a moment, without
+ *  changing what it is saved with. */
+function EnvironmentSwitch({
+  dashboardEnvs,
+  viewEnv,
+  setViewEnv,
+  window: windowVal,
+}: {
+  dashboardEnvs: string[];
+  viewEnv: string | null;
+  setViewEnv: (e: string | null) => void;
+  window: string;
+}) {
+  const known = useKnownEnvironments(windowVal);
+  const names = [...known];
+  for (const e of [...dashboardEnvs, ...(viewEnv !== null ? [viewEnv] : [])]) if (!names.includes(e)) names.push(e);
+  if (names.length === 0 || (names.length === 1 && names[0] === "")) return null;
+  const own =
+    dashboardEnvs.length === 0 ? "all environments" : dashboardEnvs.map(environmentLabel).join(", ");
+  return (
+    <select
+      className="rounded-md border bg-transparent px-2 py-1 text-xs"
+      style={{ borderColor: viewEnv !== null ? "var(--primary)" : "var(--border)", color: "var(--ink)" }}
+      value={viewEnv === null ? "\u0000own" : viewEnv}
+      onChange={(e) => setViewEnv(e.target.value === "\u0000own" ? null : e.target.value)}
+      aria-label="Environment"
+      title="Read this dashboard in another environment for now; the saved dashboard is not changed"
+      data-testid="dashboard-environment-switch"
+    >
+      <option value={"\u0000own"}>Environment: {own}</option>
+      {names.map((n) => (
+        <option key={n} value={n}>
+          Only {environmentLabel(n)} (for now)
+        </option>
+      ))}
+    </select>
+  );
+}
+
+/** One row per environment on a card: its status and traffic. */
+function CardEnvironmentRows({ it, envs }: { it: Integration; envs: string[] }) {
+  const byEnv = new Map((it.environments ?? []).map((e) => [e.environment, e] as const));
+  return (
+    <div className="mt-2 flex flex-col gap-1 border-t pt-2 text-xs" style={{ borderColor: "var(--border)" }} data-testid="card-environments">
+      {envs.map((env) => {
+        const e = byEnv.get(env);
+        return (
+          <div key={env} className="flex items-center gap-2">
+            <StatusPip kind={pipForStatus(e?.status ?? "quiet")} />
+            <span className="font-medium">{environmentLabel(env)}</span>
+            <span className="text-muted">
+              {e ? statusLabel(e.status) : "no traffic"}
+              {e && e.trace_count > 0 && <> · {formatNumber(e.trace_count)} msgs</>}
+              {e && e.error_trace_count > 0 && <> · {formatNumber(e.error_trace_count)} failed</>}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
 }

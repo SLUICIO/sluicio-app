@@ -3,7 +3,7 @@
 // Where a row's environment is read from (issue #40): the resource
 // attribute, and aliases folding several spellings into one name. Read
 // at query time, so a change applies to everything at once and rewrites
-// nothing.
+// nothing. And the environment integration pages open on.
 
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
@@ -31,8 +31,14 @@ function textToAliases(t: string): { aliases: Record<string, string>; bad: strin
 }
 
 export default function TelemetryEnvironmentSettings() {
-  const [loaded, setLoaded] = useState<{ key: string; aliases: Record<string, string>; default_keys: string[] } | null>(null);
+  const [loaded, setLoaded] = useState<{
+    key: string;
+    aliases: Record<string, string>;
+    default: string;
+    default_keys: string[];
+  } | null>(null);
   const [key, setKey] = useState("");
+  const [dflt, setDflt] = useState("");
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -44,6 +50,7 @@ export default function TelemetryEnvironmentSettings() {
       .then((d) => {
         setLoaded(d);
         setKey(d.key);
+        setDflt(d.default ?? "");
         setText(aliasesToText(d.aliases ?? {}));
       })
       .catch((e) => setError(String((e as Error).message ?? e)));
@@ -51,14 +58,18 @@ export default function TelemetryEnvironmentSettings() {
 
   if (!loaded) return error ? <div className="alert alert--error">{error}</div> : null;
   const parsed = textToAliases(text);
-  const dirty = key.trim() !== loaded.key || aliasesToText(parsed.aliases) !== aliasesToText(loaded.aliases ?? {});
+  const dirty =
+    key.trim() !== loaded.key ||
+    dflt.trim() !== loaded.default ||
+    aliasesToText(parsed.aliases) !== aliasesToText(loaded.aliases ?? {});
 
   const save = async () => {
     setSaving(true);
     setError(null);
     try {
-      const r = await api.setTelemetryEnvironment({ key: key.trim(), aliases: parsed.aliases });
-      setLoaded({ ...loaded, key: r.key, aliases: r.aliases });
+      const r = await api.setTelemetryEnvironment({ key: key.trim(), aliases: parsed.aliases, default: dflt.trim() });
+      setLoaded({ ...loaded, key: r.key, aliases: r.aliases, default: r.default });
+      setDflt(r.default);
       setText(aliasesToText(r.aliases));
       setSaved(true);
     } catch (e) {
@@ -102,6 +113,24 @@ export default function TelemetryEnvironmentSettings() {
           placeholder={"prd = production\nprod = production"}
           style={{ display: "block", width: 360, minHeight: 90, marginTop: 4, fontFamily: "var(--font-mono, monospace)" }}
         />
+      </label>
+      <label className="form__label" style={{ display: "block", marginTop: 12 }}>
+        Open integrations on <span className="muted">(empty: all environments)</span>
+        <input
+          className="search__input"
+          value={dflt}
+          onChange={(e) => {
+            setDflt(e.target.value);
+            setSaved(false);
+          }}
+          placeholder="all environments"
+          style={{ display: "block", width: 360, marginTop: 4 }}
+          data-testid="default-environment"
+        />
+        <span className="muted" style={{ display: "block", fontSize: 12, marginTop: 4, lineHeight: 1.5 }}>
+          An integration's page opens on this environment when the integration has it, and a new dashboard
+          starts on it. Anyone can still pick another, or all.
+        </span>
       </label>
       {parsed.bad.length > 0 && (
         <p className="muted" style={{ fontSize: 12, color: "var(--err-ink)" }}>

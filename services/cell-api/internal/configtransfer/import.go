@@ -1111,15 +1111,18 @@ func (r *resolver) importDashboards(dashboards []Dashboard) func() error {
 				func() (string, error) {
 					var id string
 					err := r.tx.QueryRow(r.ctx, `
-						INSERT INTO dashboards (organization_id, owner_user_id, name, is_default, auto_include_all, default_widget_type, position, group_id)
-						VALUES ($1,$2,$3,$4,$5,NULLIF($6,''),$7,$8) RETURNING id`,
-						r.org, r.opts.ActorUserID, d.Name, d.IsDefault, d.AutoIncludeAll, d.DefaultWidgetType, d.Position, gid).Scan(&id)
+						INSERT INTO dashboards (organization_id, owner_user_id, name, is_default, auto_include_all, default_widget_type, position, group_id,
+						  environments, include_rule)
+						VALUES ($1,$2,$3,$4,$5,NULLIF($6,''),$7,$8,COALESCE($9::text[],'{}'),NULLIF($10,'')::jsonb) RETURNING id`,
+						r.org, r.opts.ActorUserID, d.Name, d.IsDefault, d.AutoIncludeAll, d.DefaultWidgetType, d.Position, gid,
+						d.Environments, string(d.IncludeRule)).Scan(&id)
 					return id, err
 				},
 				func(id string) error {
 					_, err := r.tx.Exec(r.ctx, `
-						UPDATE dashboards SET is_default=$2, auto_include_all=$3, default_widget_type=NULLIF($4,''), position=$5, group_id=$6, updated_at=now() WHERE id=$1`,
-						id, d.IsDefault, d.AutoIncludeAll, d.DefaultWidgetType, d.Position, gid)
+						UPDATE dashboards SET is_default=$2, auto_include_all=$3, default_widget_type=NULLIF($4,''), position=$5, group_id=$6,
+						  environments=COALESCE($7::text[],'{}'), include_rule=NULLIF($8,'')::jsonb, updated_at=now() WHERE id=$1`,
+						id, d.IsDefault, d.AutoIncludeAll, d.DefaultWidgetType, d.Position, gid, d.Environments, string(d.IncludeRule))
 					return err
 				})
 			if err != nil {

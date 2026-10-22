@@ -24,7 +24,6 @@ import { api } from "../api/client";
 import ErrorBreakdown from "../components/ErrorBreakdown";
 import IntegrationFlow from "../components/IntegrationFlow";
 import IntegrationPageHeader from "../components/IntegrationPageHeader";
-import { EnvironmentStrip } from "../components/EnvironmentPicker";
 import IntegrationServicesGuide from "../components/IntegrationServicesGuide";
 import IntegrationTabs from "../components/IntegrationTabs";
 import { integrationProblemCount } from "../lib/integrationHealth";
@@ -402,9 +401,6 @@ export default function IntegrationDetailPage() {
           )
         }
       />
-      {/* One tile per environment (issue #40). */}
-      <EnvironmentStrip integrationId={data?.integration.id} />
-
       {/* Sub-tab strip — Overview is the active tab on this page; the
           Messages tab routes to /integrations/:id/messages. The count
           suffix on Messages reflects total in-window traffic across

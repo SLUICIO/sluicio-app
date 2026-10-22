@@ -98,6 +98,14 @@ type Dashboard struct {
 	// never sets it.
 	CanManage bool `json:"canManage"`
 	Mine      bool `json:"mine"`
+	// Environments are the environments the dashboard reads: empty is
+	// all of them, one narrows every card to it, several give each card a
+	// row per environment. "" is "(no environment)".
+	Environments []string `json:"environments"`
+	// IncludeRule narrows "show every integration" to the integrations
+	// matching it ("Country = Sweden", "tag payments"), so new ones join
+	// the dashboard on their own. Nil = every integration.
+	IncludeRule *IncludeRule `json:"includeRule,omitempty"`
 	// Items is always emitted (possibly empty) so the frontend never
 	// has to distinguish "field absent" from "no overrides".
 	Items     []Item    `json:"items"`
@@ -120,13 +128,69 @@ type Item struct {
 	CreatedAt     time.Time  `json:"createdAt"`
 }
 
+// IncludeRule picks a dashboard's integrations by what they are rather
+// than by name: a metadata field's value, or a tag.
+type IncludeRule struct {
+	Kind  string `json:"kind"`          // "metadata" | "tag"
+	Key   string `json:"key,omitempty"` // metadata field key
+	Value string `json:"value"`         // the field's value, or the tag slug
+}
+
+// Validate checks the rule is complete.
+func (r *IncludeRule) Validate() error {
+	if r == nil {
+		return nil
+	}
+	r.Key, r.Value = strings.TrimSpace(r.Key), strings.TrimSpace(r.Value)
+	switch r.Kind {
+	case "metadata":
+		if r.Key == "" || r.Value == "" {
+			return errInvalid("a metadata rule needs a field and a value")
+		}
+	case "tag":
+		if r.Value == "" {
+			return errInvalid("a tag rule needs a tag")
+		}
+		r.Key = ""
+	default:
+		return errInvalid(`includeRule.kind must be "metadata" or "tag"`)
+	}
+	if len(r.Key) > 200 || len(r.Value) > 200 {
+		return errInvalid("includeRule values must be 200 characters or fewer")
+	}
+	return nil
+}
+
+// cleanEnvironments trims, de-duplicates and bounds a dashboard's
+// environments; "" ("(no environment)") is kept.
+func cleanEnvironments(in []string) ([]string, error) {
+	if len(in) > 20 {
+		return nil, errInvalid("at most 20 environments per dashboard")
+	}
+	seen := map[string]bool{}
+	out := []string{}
+	for _, e := range in {
+		e = strings.TrimSpace(e)
+		if len(e) > 128 {
+			return nil, errInvalid("environment name must be 128 characters or fewer")
+		}
+		if !seen[e] {
+			seen[e] = true
+			out = append(out, e)
+		}
+	}
+	return out, nil
+}
+
 // CreateRequest is the body of POST /api/v1/dashboards.
 type CreateRequest struct {
-	Name              string     `json:"name"`
-	IsDefault         bool       `json:"isDefault,omitempty"`
-	AutoIncludeAll    bool       `json:"autoIncludeAll,omitempty"`
-	DefaultWidgetType WidgetType `json:"defaultWidgetType,omitempty"`
-	Position          int        `json:"position,omitempty"`
+	Name              string       `json:"name"`
+	IsDefault         bool         `json:"isDefault,omitempty"`
+	AutoIncludeAll    bool         `json:"autoIncludeAll,omitempty"`
+	DefaultWidgetType WidgetType   `json:"defaultWidgetType,omitempty"`
+	Position          int          `json:"position,omitempty"`
+	Environments      []string     `json:"environments,omitempty"`
+	IncludeRule       *IncludeRule `json:"includeRule,omitempty"`
 	// GroupID scopes the new dashboard to a team; nil = org-wide.
 	GroupID *uuid.UUID    `json:"groupId,omitempty"`
 	Items   []ItemRequest `json:"items,omitempty"`
@@ -138,11 +202,13 @@ type CreateRequest struct {
 // replaced atomically: any row not in the new list is dropped, rows
 // present are upserted by (dashboard, integration).
 type UpdateRequest struct {
-	Name              string     `json:"name"`
-	IsDefault         bool       `json:"isDefault"`
-	AutoIncludeAll    bool       `json:"autoIncludeAll"`
-	DefaultWidgetType WidgetType `json:"defaultWidgetType"`
-	Position          int        `json:"position"`
+	Name              string       `json:"name"`
+	IsDefault         bool         `json:"isDefault"`
+	AutoIncludeAll    bool         `json:"autoIncludeAll"`
+	DefaultWidgetType WidgetType   `json:"defaultWidgetType"`
+	Position          int          `json:"position"`
+	Environments      []string     `json:"environments"`
+	IncludeRule       *IncludeRule `json:"includeRule,omitempty"`
 	// GroupID is accepted for shape parity with CreateRequest but
 	// IGNORED on update — a dashboard's team is immutable (see
 	// Dashboard.GroupID).
@@ -183,7 +249,10 @@ func (r CreateRequest) Validate() error {
 			return fmt.Errorf("items[%d]: %w", i, err)
 		}
 	}
-	return nil
+	if _, err := cleanEnvironments(r.Environments); err != nil {
+		return err
+	}
+	return r.IncludeRule.Validate()
 }
 
 // Validate enforces the same rules as CreateRequest.Validate (update is

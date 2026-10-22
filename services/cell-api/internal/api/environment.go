@@ -27,32 +27,51 @@ import (
 // actually named "none".
 const NoEnvironmentParam = "(none)"
 
-// requestEnvironment returns the environment a request reads, if it
-// chose one. ok is false for "all environments".
-func requestEnvironment(ctx context.Context) (string, bool) { return envctx.From(ctx) }
+// AllEnvironmentsParam is how ?env= says "all environments" explicitly,
+// where its absence would mean the default environment to a page.
+const AllEnvironmentsParam = "*"
 
 // withRequestEnvironment narrows an integration's groups to the
-// environment the context reads, if any. For the places that build
+// environments the context reads, if any. For the places that build
 // groups from matchers they already hold rather than through
 // integrationGroups.
 func withRequestEnvironment(ctx context.Context, groups [][]store.LogAttrFilter) [][]store.LogAttrFilter {
-	if env, ok := envctx.From(ctx); ok {
-		return store.WithEnvironment(groups, env)
+	if envs, ok := envctx.Set(ctx); ok {
+		return store.WithEnvironments(groups, envs)
 	}
 	return groups
 }
 
-// parseEnvironmentParam reads ?env=. Absent or empty means all
-// environments.
-func parseEnvironmentParam(r *http.Request) (string, bool) {
-	raw := r.URL.Query().Get("env")
-	switch raw {
-	case "":
-		return "", false
-	case NoEnvironmentParam:
-		return store.NoEnvironment, true
+// firingInRequest reports whether a check bound to integration id fires
+// in any environment the request reads.
+func firingInRequest(ctx context.Context, byEnv map[uuid.UUID]map[string]bool, id uuid.UUID) bool {
+	envs, _ := envctx.Set(ctx)
+	for _, env := range envs {
+		if alerting.FiringIn(byEnv, id, env) {
+			return true
+		}
 	}
-	return raw, true
+	return false
+}
+
+// parseEnvironmentParam reads ?env=, repeated for several environments
+// (a dashboard reading production and test). Absent, empty or * means
+// all environments.
+func parseEnvironmentParam(r *http.Request) ([]string, bool) {
+	var envs []string
+	for _, raw := range r.URL.Query()["env"] {
+		switch raw {
+		case "", AllEnvironmentsParam:
+			return nil, false
+		case NoEnvironmentParam:
+			raw = store.NoEnvironment
+		}
+		envs = append(envs, raw)
+	}
+	if len(envs) > 20 {
+		envs = envs[:20]
+	}
+	return envs, len(envs) > 0
 }
 
 // WithEnvironmentParam puts ?env= into the request context. Wraps the
@@ -60,8 +79,8 @@ func parseEnvironmentParam(r *http.Request) (string, bool) {
 // slice is read, and everywhere else it is ignored.
 func WithEnvironmentParam(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if env, ok := parseEnvironmentParam(r); ok {
-			r = r.WithContext(envctx.With(r.Context(), env))
+		if envs, ok := parseEnvironmentParam(r); ok {
+			r = r.WithContext(envctx.WithSet(r.Context(), envs))
 		}
 		next.ServeHTTP(w, r)
 	})

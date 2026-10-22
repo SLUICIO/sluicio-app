@@ -83,3 +83,35 @@ func TestValidateKeepsTargetFieldsApart(t *testing.T) {
 		}
 	}
 }
+
+func TestIncludeRuleAndEnvironmentsValidation(t *testing.T) {
+	ok := CreateRequest{Name: "Sweden prod", Environments: []string{"production", "production", ""},
+		IncludeRule: &IncludeRule{Kind: "metadata", Key: "country", Value: " Sweden "}}
+	if err := ok.Validate(); err != nil {
+		t.Fatalf("valid request refused: %v", err)
+	}
+	if ok.IncludeRule.Value != "Sweden" {
+		t.Errorf("rule value not trimmed: %q", ok.IncludeRule.Value)
+	}
+	envs, _ := cleanEnvironments(ok.Environments)
+	if len(envs) != 2 || envs[0] != "production" || envs[1] != "" {
+		t.Errorf("environments: %q", envs)
+	}
+	for name, r := range map[string]*IncludeRule{
+		"metadata without key":   {Kind: "metadata", Value: "Sweden"},
+		"metadata without value": {Kind: "metadata", Key: "country"},
+		"tag without value":      {Kind: "tag"},
+		"unknown kind":           {Kind: "region", Value: "x"},
+	} {
+		if err := (CreateRequest{Name: "x", IncludeRule: r}).Validate(); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	many := make([]string, 21)
+	for i := range many {
+		many[i] = string(rune('a' + i))
+	}
+	if err := (CreateRequest{Name: "x", Environments: many}).Validate(); err == nil {
+		t.Error("21 environments accepted")
+	}
+}

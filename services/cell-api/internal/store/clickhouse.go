@@ -321,7 +321,11 @@ func (s *Store) DistinctTraceCounts(ctx context.Context, serviceNames []string, 
 // centrally via ctx (Phase-2 additional_table_filters), same as the other
 // trace reads. Returns a zero-filled series (never nil) on empty input or
 // error so the caller can render honestly regardless.
-func (s *Store) IntegrationTrafficSeries(ctx context.Context, serviceNames []string, from, to time.Time, buckets int) ([]int, error) {
+//
+// groups is the integration's conditions (nil for none): the series counts
+// its own slice, and so follows an environment the read is narrowed to,
+// rather than every trace its member services carried.
+func (s *Store) IntegrationTrafficSeries(ctx context.Context, serviceNames []string, from, to time.Time, buckets int, groups [][]LogAttrFilter) ([]int, error) {
 	if buckets <= 0 {
 		buckets = 24
 	}
@@ -347,14 +351,16 @@ func (s *Store) IntegrationTrafficSeries(ctx context.Context, serviceNames []str
 		placeholders[i] = "?"
 		args = append(args, name)
 	}
+	sliceSQL, sliceArgs := checkSliceClause(groups, from, to)
+	args = append(args, sliceArgs...)
 	q := fmt.Sprintf(`
 		SELECT toStartOfInterval(Timestamp, INTERVAL %d SECOND) AS bucket,
 		       toUInt64(uniqExact(TraceId)) AS cnt
 		FROM traces
 		WHERE Timestamp >= ? AND Timestamp <= ?
-		  AND ServiceName IN (%s)
+		  AND ServiceName IN (%s)%s
 		GROUP BY bucket
-		ORDER BY bucket ASC`, step, strings.Join(placeholders, ","))
+		ORDER BY bucket ASC`, step, strings.Join(placeholders, ","), sliceSQL)
 	rows, err := s.conn.Query(ctx, q, args...)
 	if err != nil {
 		return series, fmt.Errorf("integration traffic series: %w", err)

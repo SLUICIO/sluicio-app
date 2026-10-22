@@ -345,6 +345,22 @@ type alertEmailTemplateSetting struct {
 type TelemetryEnvironment struct {
 	Key     string            `json:"key,omitempty"`
 	Aliases map[string]string `json:"aliases,omitempty"`
+	// Default is the environment an integration page opens on when the
+	// integration has it. Unset means DefaultTelemetryEnvironment; "" means none,
+	// so pages open on all environments.
+	Default *string `json:"default,omitempty"`
+}
+
+// DefaultTelemetryEnvironment is the default environment when none is set: what
+// people look at first is production.
+const DefaultTelemetryEnvironment = "production"
+
+// DefaultOrBuiltIn returns the environment pages open on, "" for none.
+func (t TelemetryEnvironment) DefaultOrBuiltIn() string {
+	if t.Default == nil {
+		return DefaultTelemetryEnvironment
+	}
+	return *t.Default
 }
 
 // GetTelemetryEnvironment returns the setting, zero when none is stored.

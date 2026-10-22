@@ -777,6 +777,9 @@ export interface Integration {
   // across the window. Only present when the list is requested with
   // ?series=1 (the dashboard). All-zeros for a quiet integration.
   traffic_series?: number[];
+  /** 95th-percentile span duration in the window, with ?series=1.
+   *  Absent when no span was timed. */
+  p95_duration_ms?: number;
   // User-defined metadata values for this integration on the list
   // endpoint, keyed by field key. Only includes saved values; the
   // schema lives at the top-level metadata_fields on the response
@@ -1553,6 +1556,12 @@ export interface Dashboard {
   defaultWidgetType: DashboardWidgetType;
   position: number;
   mine: boolean;
+  /** Environments the dashboard reads (issue #40): empty = all, one
+   *  narrows every card to it, several give each card a row per
+   *  environment. "" is "(no environment)". */
+  environments?: string[];
+  /** Narrows "show every integration" to the ones matching a rule. */
+  includeRule?: DashboardIncludeRule | null;
   // Always emitted (possibly empty) so callers never have to check
   // for presence.
   items: DashboardItem[];
@@ -1573,6 +1582,16 @@ export interface DashboardItemRequest {
   position: number;
 }
 
+/** Picks a dashboard's integrations by what they are: a metadata
+ *  field's value (Country = Sweden) or a tag. */
+export interface DashboardIncludeRule {
+  kind: "metadata" | "tag";
+  /** Metadata field key; absent for a tag rule. */
+  key?: string;
+  /** The field's value, or the tag slug. */
+  value: string;
+}
+
 export interface CreateDashboardRequest {
   groupId?: string | null;
   name: string;
@@ -1581,6 +1600,8 @@ export interface CreateDashboardRequest {
   defaultWidgetType?: DashboardWidgetType;
   position?: number;
   items?: DashboardItemRequest[];
+  environments?: string[];
+  includeRule?: DashboardIncludeRule | null;
 }
 
 export interface UpdateDashboardRequest {
@@ -1590,6 +1611,8 @@ export interface UpdateDashboardRequest {
   defaultWidgetType: DashboardWidgetType;
   position: number;
   items: DashboardItemRequest[];
+  environments: string[];
+  includeRule?: DashboardIncludeRule | null;
 }
 
 // Ingested OTLP logs --------------------------------------------------
