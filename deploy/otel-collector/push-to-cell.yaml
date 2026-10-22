@@ -22,7 +22,7 @@ processors:
     limit_mib: 512
   resource:
     attributes:
-      - key: deployment.environment
+      - key: deployment.environment.name
         value: ${env:DEPLOYMENT_ENVIRONMENT}
         action: upsert
 

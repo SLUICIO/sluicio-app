@@ -97,6 +97,8 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 - GET /api/v1/cell-settings/branding — List cell-settings
 - PATCH /api/v1/cell-settings/retention — Update cell-setting
 - PATCH /api/v1/cell-settings/system — Update cell-setting
+- GET /api/v1/cell-settings/telemetry-environment — List cell-settings
+- PUT /api/v1/cell-settings/telemetry-environment — Update cell-setting
 - GET /api/v1/cell-settings/smtp — List cell-settings
 - PATCH /api/v1/cell-settings/smtp — Update cell-setting
 - POST /api/v1/cell-settings/smtp/test — Create cell-setting
@@ -125,6 +127,9 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 ## docs
 - GET /api/docs — List docs (no auth)
 - GET /api/docs/scalar.js — List docs (no auth)
+
+## environments
+- GET /api/v1/environments — List environments
 
 ## errors
 - GET /api/v1/errors — List errors
@@ -164,6 +169,8 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 - PUT /api/v1/integrations/{id}/badge — Update integration
 - PUT /api/v1/integrations/{id}/message-columns — Update integration
 - PUT /api/v1/integrations/{id}/message-filters — Update integration
+- GET /api/v1/integrations/{id}/environments — List integrations
+- PUT /api/v1/integrations/{id}/declared-environments — Update integration
 - GET /api/v1/integrations — List integrations
 - GET /api/v1/integrations/stats — List integrations
 - GET /api/v1/integrations/{id} — Get integration

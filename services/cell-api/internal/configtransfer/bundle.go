@@ -178,6 +178,9 @@ type Integration struct {
 	Matchers  []Matcher         `json:"matchers,omitempty"`
 	Tags      []string          `json:"tags,omitempty"`     // tag slugs
 	Metadata  map[string]string `json:"metadata,omitempty"` // field key → value
+	// DeclaredEnvironments (#40); omitted when none, so older bundles
+	// stay byte-identical.
+	DeclaredEnvironments []string `json:"declared_environments,omitempty"`
 }
 
 type Matcher struct {
@@ -262,6 +265,9 @@ type Profile struct {
 	RenotifyMinutes int      `json:"renotify_minutes"`
 	IsDefault       bool     `json:"is_default"`
 	Channels        []string `json:"channels,omitempty"` // channel names
+	// Environment filter (#40); omitted for "any".
+	EnvironmentMode string   `json:"environment_mode,omitempty"`
+	Environments    []string `json:"environments,omitempty"`
 }
 
 type AlertRule struct {
@@ -283,6 +289,9 @@ type AlertRule struct {
 	ResolveMode        string          `json:"resolve_mode,omitempty"`
 	NotificationConfig json.RawMessage `json:"notification_config,omitempty"`
 	Channels           []string        `json:"channels,omitempty"` // channel names (alert_rule_routes)
+	// Environment scope (#40); omitted for the default, each environment.
+	EnvironmentMode string   `json:"environment_mode,omitempty"`
+	Environments    []string `json:"environments,omitempty"`
 }
 
 type Dashboard struct {

@@ -84,6 +84,31 @@ func (s *Store) ActiveInstanceByFingerprint(ctx context.Context, ruleID uuid.UUI
 	return &a, nil
 }
 
+// FiringEnvironments returns the environments a rule has a firing
+// per-environment instance for (#40): their fingerprints are
+// EnvironmentFingerprint(env). Evaluated alongside the environments the
+// integration currently has, so an instance can resolve after its
+// environment went quiet.
+func (s *Store) FiringEnvironments(ctx context.Context, ruleID uuid.UUID) ([]string, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT DISTINCT substring(fingerprint from `+fmt.Sprintf("%d", len(envFingerprintPrefix)+1)+`)
+		FROM alert_instances
+		WHERE alert_rule_id = $1 AND state = 'firing' AND starts_with(fingerprint, $2)`, ruleID, envFingerprintPrefix)
+	if err != nil {
+		return nil, fmt.Errorf("firing environments: %w", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var env string
+		if err := rows.Scan(&env); err != nil {
+			return nil, err
+		}
+		out = append(out, env)
+	}
+	return out, rows.Err()
+}
+
 // AcknowledgeInstance marks a firing instance as being worked on (sets
 // handled_at). Org-scoped via the rule join so a caller can't ack another
 // org's instance. No-op if the instance isn't firing or isn't theirs.
@@ -279,6 +304,10 @@ func (s *Store) MarkInstanceNotified(ctx context.Context, instanceID uuid.UUID) 
 type FiringUnackedInstance struct {
 	InstanceID     uuid.UUID
 	RuleID         uuid.UUID
+	// Environment is the environment a per-environment instance is about
+	// (#40); HasEnvironment is false for one about all of them.
+	Environment    string
+	HasEnvironment bool
 	StartedAt      time.Time
 	LastNotifiedAt *time.Time
 	// SuppressedBy set = this instance fired inside a maintenance window
@@ -293,7 +322,8 @@ type FiringUnackedInstance struct {
 // instances are excluded because an operator is already on them.
 func (s *Store) FiringUnackedInstances(ctx context.Context, orgID uuid.UUID) ([]FiringUnackedInstance, error) {
 	const q = `
-		SELECT i.id, i.alert_rule_id, i.started_at, i.last_notified_at, i.suppressed_by
+		SELECT i.id, i.alert_rule_id, i.started_at, i.last_notified_at, i.suppressed_by,
+		       i.labels->>'environment'
 		FROM alert_instances i
 		JOIN alert_rules r ON r.id = i.alert_rule_id
 		WHERE r.organization_id = $1 AND i.state = 'firing' AND i.handled_at IS NULL`
@@ -305,8 +335,12 @@ func (s *Store) FiringUnackedInstances(ctx context.Context, orgID uuid.UUID) ([]
 	var out []FiringUnackedInstance
 	for rows.Next() {
 		var fi FiringUnackedInstance
-		if err := rows.Scan(&fi.InstanceID, &fi.RuleID, &fi.StartedAt, &fi.LastNotifiedAt, &fi.SuppressedBy); err != nil {
+		var env *string
+		if err := rows.Scan(&fi.InstanceID, &fi.RuleID, &fi.StartedAt, &fi.LastNotifiedAt, &fi.SuppressedBy, &env); err != nil {
 			return nil, err
+		}
+		if env != nil {
+			fi.Environment, fi.HasEnvironment = *env, true
 		}
 		out = append(out, fi)
 	}

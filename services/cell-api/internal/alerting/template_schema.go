@@ -50,6 +50,7 @@ var templateVariableDocs = map[string]varDoc{
 	"alert.summary":     {"the built-in human summary line", "always"},
 	"alert.started_at":  {"when the alert started firing (RFC 3339)", "always"},
 	"alert.link":        {"deep link into Sluicio", "when a public base URL is configured"},
+	"alert.environment": {"the environment the alert is about, e.g. production (the telemetry's, not the instance's: that is org.environment)", "checks bound to an integration with environments"},
 	"alert.state_emoji": {"Slack colon code for the state (🔴/🟡/🔵 firing by severity, 🟢 resolved)", "always"},
 
 	"rule.name":        {"the alert rule's name", "always"},

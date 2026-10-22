@@ -941,7 +941,7 @@ func (h *Handlers) integrationSliceScope(r *http.Request, service string, sig id
 		h.Logger.Warn("integration slice: rule match failed", "err", err, "integration", id)
 		return empty, nil, true
 	}
-	return applyAllowlist(service, members, members, true), AttrGroupsFromMatchers(matchers, mode), true
+	return applyAllowlist(service, members, members, true), withRequestEnvironment(r.Context(), AttrGroupsFromMatchers(matchers, mode)), true
 }
 
 // resolveSignalRead is the access decision for a metrics or logs read:
@@ -1138,7 +1138,10 @@ func (h *Handlers) integrationGroups(ctx context.Context, integrationID uuid.UUI
 		// here is a wider slice, not an empty page.
 		h.Logger.Warn("integration groups: load rule match failed", "err", err, "integration", integrationID)
 	}
-	return AttrGroupsFromMatchers(matchers, mode)
+	// A request reading one environment (#40) narrows every group to it.
+	// Here, so every read that already honours the integration's slice
+	// follows the environment without being taught about it.
+	return withRequestEnvironment(ctx, AttrGroupsFromMatchers(matchers, mode))
 }
 
 // resolveFacets applies a service's manual overrides to its
@@ -1255,6 +1258,10 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/v1/integrations/{id}/badge", h.writeService(h.putIntegrationBadge))
 	mux.HandleFunc("PUT /api/v1/integrations/{id}/message-columns", h.writeService(h.putIntegrationMessageColumns))
 	mux.HandleFunc("PUT /api/v1/integrations/{id}/message-filters", h.writeService(h.putIntegrationMessageFilters))
+	// Environments (issue #40).
+	mux.HandleFunc("GET /api/v1/integrations/{id}/environments", h.integrationEnvironments)
+	mux.HandleFunc("PUT /api/v1/integrations/{id}/declared-environments", h.writeService(h.putDeclaredEnvironments))
+	mux.HandleFunc("GET /api/v1/environments", h.listEnvironments)
 	mux.HandleFunc("PUT /api/v1/systems/{id}/badge", h.writeService(h.putSystemBadge))
 	mux.HandleFunc("PUT /api/v1/services/{name}/badge", h.writeService(h.putServiceBadge))
 	mux.HandleFunc("GET /api/v1/errors", h.errorsFeed)
@@ -1643,6 +1650,10 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 			h.AuthMW.RequireOperator(h.patchRetention))
 		mux.HandleFunc("PATCH /api/v1/cell-settings/system",
 			h.AuthMW.RequireOperator(h.patchSystemSettings))
+		// Where a row's environment is read from (issue #40).
+		mux.HandleFunc("GET /api/v1/cell-settings/telemetry-environment", h.getTelemetryEnvironment)
+		mux.HandleFunc("PUT /api/v1/cell-settings/telemetry-environment",
+			h.AuthMW.RequireOperator(h.putTelemetryEnvironment))
 		// Global SMTP — operator-only. Read masks the password.
 		// Cell health is operator-scoped and cell-wide: it crosses orgs,
 		// so it is not an org-scoped route, and it carries no per-org

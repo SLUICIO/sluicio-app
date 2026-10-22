@@ -54,12 +54,13 @@ func RenderForPreview(ctx context.Context, kind string, content NotificationCont
 func SampleAlertContext() *AlertContext {
 	return &AlertContext{
 		Alert: AlertFacts{
-			State:      "firing",
-			Severity:   "critical",
-			Summary:    "error rate 4.2% over 5m exceeded 1% on checkout-api",
-			StartedAt:  time.Now().UTC().Add(-3 * time.Minute).Format(time.RFC3339),
-			Link:       "https://sluicio.example.com/alerts",
-			StateEmoji: ":red_circle:",
+			State:       "firing",
+			Severity:    "critical",
+			Summary:     "error rate 4.2% over 5m exceeded 1% on checkout-api",
+			StartedAt:   time.Now().UTC().Add(-3 * time.Minute).Format(time.RFC3339),
+			Link:        "https://sluicio.example.com/alerts",
+			StateEmoji:  ":red_circle:",
+			Environment: "production",
 		},
 		Rule: RuleFacts{
 			Name:        "Checkout error rate",

@@ -347,7 +347,7 @@ func (e *Exporter) buildRequest(integrations, systems []Entity, countFrom, count
 		res = append(res, str("sluicio.cell.name", e.cfg.CellName))
 	}
 	if e.env != "" {
-		res = append(res, str("deployment.environment", e.env))
+		res = append(res, str("deployment.environment.name", e.env))
 	}
 	return &colmetricspb.ExportMetricsServiceRequest{
 		ResourceMetrics: []*metricspb.ResourceMetrics{{

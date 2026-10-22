@@ -546,6 +546,14 @@ type AlertRule struct {
 	// (instance, pool_name), and gets the second wrong in the direction
 	// that fails quiet.
 	CheckScope string `json:"check_scope,omitempty"`
+	// EnvironmentMode and Environments scope a check bound to an
+	// integration by environment (#40): "each" (the default) evaluates
+	// every environment of the integration separately, one alert
+	// instance per environment; "only" evaluates just Environments. ""
+	// in Environments is "(no environment)". Ignored on checks not bound
+	// to an integration.
+	EnvironmentMode string   `json:"environment_mode"`
+	Environments    []string `json:"environments"`
 	// Source is where a metric rule's value comes from: "telemetry"
 	// (aggregate OTLP, default) or "pushed" (external value). Log rules
 	// are always telemetry.

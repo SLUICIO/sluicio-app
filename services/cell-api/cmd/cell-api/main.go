@@ -38,7 +38,9 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sort"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -63,6 +65,7 @@ import (
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/dashboards"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/demand"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/deploymentlimits"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/envctx"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/erroracks"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/errornotify"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/eventsubs"
@@ -439,6 +442,12 @@ func main() {
 	// Constructed here rather than beside the retention enforcer below,
 	// because the facet pass needs to read the retention policy.
 	settingsStore := settings.NewStore(pg)
+	// Where a row's environment is read from (#40), applied at read time.
+	if te, err := settingsStore.GetTelemetryEnvironment(ctx); err != nil {
+		logger.Warn("telemetry environment setting not loaded; using the defaults", "err", err)
+	} else {
+		store.SetEnvironmentConfig(store.EnvironmentConfig{Key: te.Key, Aliases: te.Aliases})
+	}
 
 	// Two windows, not one (issue #26). The pass PROFILES fourteen days,
 	// which bounds a ClickHouse read that runs every FacetInterval; a
@@ -493,6 +502,8 @@ func main() {
 	)
 
 	alertEngine.SetChannelResolver(profilesStore)
+	// Checks bound to an integration are evaluated per environment (#40).
+	alertEngine.SetEnvironmentLister(&environmentListerAdapter{s: chStore, catalog: catalogStore, integs: integrationStore})
 	// Trace-latency rules ("response time over X") read the same service set
 	// as trace_error, then ask ClickHouse for the windowed quantile latency.
 	alertEngine.SetLatencyEvaluator(traceLatencyEvaluatorAdapter{chStore, catalogStore, integrationStore, integrations.DefaultOrgID})
@@ -899,7 +910,7 @@ func main() {
 	// inside the auth wrap. It also sits in FRONT of the password-reset
 	// and MFA gates — a caller in a loop should be shed before doing any
 	// per-request work, not after.
-	inner := handlers.RateLimit(handlers.EnforcePasswordReset(handlers.EnforceMFAEnrollment(mux)))
+	inner := handlers.RateLimit(handlers.EnforcePasswordReset(handlers.EnforceMFAEnrollment(api.WithEnvironmentParam(mux))))
 	authed := handlers.AuthMW.Wrap([]string{
 		// Liveness/readiness for orchestrators (Kubernetes probes can't
 		// authenticate). Returns only {"status":"ok"}.
@@ -1001,7 +1012,81 @@ func integrationCheckScope(ctx context.Context, cat *catalog.Store, integs *inte
 	if err != nil {
 		return nil, nil, err
 	}
-	return svcs, api.AttrGroupsFromMatchers(ms, mode), nil
+	return svcs, contextEnvironmentGroups(ctx, api.AttrGroupsFromMatchers(ms, mode)), nil
+}
+
+// contextEnvironmentGroups narrows an integration's groups to the
+// environment the evaluation is about (#40), when it is about one.
+func contextEnvironmentGroups(ctx context.Context, groups [][]store.LogAttrFilter) [][]store.LogAttrFilter {
+	if env, ok := envctx.From(ctx); ok {
+		return store.WithEnvironment(groups, env)
+	}
+	return groups
+}
+
+// environmentListerAdapter tells the alert engine which environments an
+// integration has (#40): the ones its own slice sent telemetry from in
+// the last day, plus the ones it declares. Cached per integration for a
+// few minutes, because every check bound to it asks on every tick and
+// the answer changes when a deployment appears, not every 30 seconds.
+type environmentListerAdapter struct {
+	s       *store.Store
+	catalog *catalog.Store
+	integs  *integrations.Store
+
+	mu    sync.Mutex
+	cache map[uuid.UUID]environmentListing
+}
+
+type environmentListing struct {
+	envs []string
+	at   time.Time
+}
+
+const environmentListingTTL = 5 * time.Minute
+
+func (a *environmentListerAdapter) IntegrationEnvironments(ctx context.Context, id uuid.UUID) ([]string, error) {
+	a.mu.Lock()
+	if c, ok := a.cache[id]; ok && time.Since(c.at) < environmentListingTTL {
+		a.mu.Unlock()
+		return c.envs, nil
+	}
+	a.mu.Unlock()
+
+	set := map[string]bool{}
+	declared, err := a.integs.DeclaredEnvironmentsFor(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	for _, e := range declared {
+		set[e] = true
+	}
+	svcs, groups, err := integrationCheckScope(ctx, a.catalog, a.integs, id)
+	if err != nil {
+		return nil, err
+	}
+	if len(svcs) > 0 {
+		now := time.Now()
+		vols, err := a.s.EnvironmentsIn(ctx, svcs, groups, now.Add(-24*time.Hour), now)
+		if err != nil {
+			return nil, err
+		}
+		for _, v := range vols {
+			set[v.Environment] = true
+		}
+	}
+	envs := make([]string, 0, len(set))
+	for e := range set {
+		envs = append(envs, e)
+	}
+	sort.Strings(envs)
+	a.mu.Lock()
+	if a.cache == nil {
+		a.cache = map[uuid.UUID]environmentListing{}
+	}
+	a.cache[id] = environmentListing{envs: envs, at: time.Now()}
+	a.mu.Unlock()
+	return envs, nil
 }
 
 // metricEvaluatorAdapter lets the alerting engine evaluate metric rules
@@ -1426,7 +1511,7 @@ func (a traceVolumeEvaluatorAdapter) TotalTraces(ctx context.Context, q alerting
 		if err != nil {
 			return 0, false, err
 		}
-		total, _, err := a.s.DistinctTraceCounts(ctx, svcs, q.From, q.To, api.AttrGroupsFromMatchers(ms, mode))
+		total, _, err := a.s.DistinctTraceCounts(ctx, svcs, q.From, q.To, contextEnvironmentGroups(ctx, api.AttrGroupsFromMatchers(ms, mode)))
 		return total, true, err
 	}
 	// A named service is always in scope, even with no traffic — that is

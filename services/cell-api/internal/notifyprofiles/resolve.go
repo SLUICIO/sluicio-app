@@ -10,33 +10,59 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/envctx"
 )
 
 // ResolveProfile returns the profile that governs an alert scoped to the
 // given integration / owning team, most-specific-first: the integration's
 // assigned profile, else the team's default, else the org-wide default.
 // Returns ErrNotFound only if nothing (not even an org default) exists.
+//
+// An alert about one environment (#40, carried in ctx) skips a profile
+// restricted to other environments and tries the next one down, so
+// "production pages, test posts to Slack" is an integration profile for
+// production over a default for the rest.
 func (s *Store) ResolveProfile(ctx context.Context, orgID uuid.UUID, integrationID, groupID *uuid.UUID) (Profile, error) {
+	env, hasEnv := envctx.From(ctx)
 	if integrationID != nil {
 		var pid uuid.NullUUID
 		err := s.pool.QueryRow(ctx,
 			`SELECT notification_profile_id FROM integrations WHERE id = $1 AND organization_id = $2`,
 			*integrationID, orgID).Scan(&pid)
 		if err == nil && pid.Valid {
-			return s.Get(ctx, orgID, pid.UUID)
+			p, err := s.Get(ctx, orgID, pid.UUID)
+			if err != nil {
+				return Profile{}, err
+			}
+			if p.AppliesTo(env, hasEnv) {
+				return p, nil
+			}
 		}
 	}
 	if groupID != nil {
 		if id, ok, err := s.defaultProfileID(ctx, orgID, groupID); err != nil {
 			return Profile{}, err
 		} else if ok {
-			return s.Get(ctx, orgID, id)
+			p, err := s.Get(ctx, orgID, id)
+			if err != nil {
+				return Profile{}, err
+			}
+			if p.AppliesTo(env, hasEnv) {
+				return p, nil
+			}
 		}
 	}
 	if id, ok, err := s.defaultProfileID(ctx, orgID, nil); err != nil {
 		return Profile{}, err
 	} else if ok {
-		return s.Get(ctx, orgID, id)
+		p, err := s.Get(ctx, orgID, id)
+		if err != nil {
+			return Profile{}, err
+		}
+		if p.AppliesTo(env, hasEnv) {
+			return p, nil
+		}
 	}
 	return Profile{}, ErrNotFound
 }

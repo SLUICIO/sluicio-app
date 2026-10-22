@@ -21,6 +21,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/sluicio/sluicio-app/pkg/mail"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/envctx"
 )
 
 // The built-in notifiers register themselves at package init. Adding a
@@ -367,6 +368,11 @@ func contextFromJob(job DeliveryJob, product, env, company, link string) *AlertC
 		},
 		Org:    OrgFacts{Company: company, Environment: env, Product: product},
 		SentAt: time.Now().UTC().Format(time.RFC3339),
+	}
+	// The telemetry environment a per-environment instance is about
+	// (#40), not the cell's own (org.environment).
+	if e, ok := job.Labels[EnvironmentLabel]; ok {
+		c.Alert.Environment = envctx.Display(e)
 	}
 	if m := job.Labels["metric"]; m != "" || job.Labels["value"] != "" || job.Labels["threshold"] != "" {
 		c.Check = &CheckFacts{

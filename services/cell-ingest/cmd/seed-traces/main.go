@@ -235,7 +235,7 @@ func buildRequest(rng *mrand.Rand, batch int) *coltracepb.ExportTraceServiceRequ
 				Attributes: []*commonpb.KeyValue{
 					stringAttr("service.name", svc.name),
 					stringAttr("service.namespace", svc.namespace),
-					stringAttr("deployment.environment", "dev"),
+					stringAttr("deployment.environment.name", "dev"),
 				},
 			},
 			ScopeSpans: []*tracepb.ScopeSpans{{
@@ -279,7 +279,7 @@ func buildRequest(rng *mrand.Rand, batch int) *coltracepb.ExportTraceServiceRequ
 				Attributes: []*commonpb.KeyValue{
 					stringAttr("service.name", serviceName),
 					stringAttr("service.namespace", b.namespace),
-					stringAttr("deployment.environment", "dev"),
+					stringAttr("deployment.environment.name", "dev"),
 				},
 			},
 			ScopeSpans: []*tracepb.ScopeSpans{{

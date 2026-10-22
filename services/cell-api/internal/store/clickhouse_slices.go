@@ -53,6 +53,9 @@ type SliceQuery struct {
 	// ErrorsOnly reads error spans alone. For a long lookback that only
 	// needs the error side, it avoids counting every healthy trace.
 	ErrorsOnly bool
+	// ByEnvironment splits each slice by environment (#40). Used through
+	// SliceTraceStatsByEnvironment.
+	ByEnvironment bool
 }
 
 // sliceBatchSize caps how many slices go into one statement. A slice
@@ -112,6 +115,50 @@ func (s *Store) SliceTraceStats(ctx context.Context, slices []IntegrationSlice, 
 	return out, nil
 }
 
+// SliceTraceStatsByEnvironment is SliceTraceStats split by environment:
+// key -> environment -> stat. One statement per batch, like the
+// unsplit read, so per-environment status on the list costs a column,
+// not a query per environment.
+func (s *Store) SliceTraceStatsByEnvironment(ctx context.Context, slices []IntegrationSlice, q SliceQuery) (map[string]map[string]SliceStat, error) {
+	q.ByEnvironment = true
+	out := make(map[string]map[string]SliceStat, len(slices))
+	for start := 0; start < len(slices); start += sliceBatchSize {
+		end := min(start+sliceBatchSize, len(slices))
+		sql, args := sliceTraceStatsSQL(slices[start:end], q)
+		if sql == "" {
+			continue
+		}
+		rows, err := s.conn.Query(ctx, sql, args...)
+		if err != nil {
+			return nil, fmt.Errorf("slice trace stats by environment: %w", err)
+		}
+		for rows.Next() {
+			var (
+				key, env string
+				st       SliceStat
+			)
+			if err := rows.Scan(&key, &env, &st.Traces, &st.ErrorTraces, &st.OpenErrorTraces,
+				&st.LastErrorAt, &st.LastErrorService, &st.SampleTraceID); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			if st.OpenErrorTraces == 0 {
+				st.LastErrorAt, st.LastErrorService, st.SampleTraceID = time.Time{}, "", ""
+			}
+			if out[key] == nil {
+				out[key] = map[string]SliceStat{}
+			}
+			out[key][env] = st
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return nil, fmt.Errorf("slice trace stats by environment: %w", err)
+		}
+	}
+	return out, nil
+}
+
 // sliceTraceStatsSQL renders the UNION ALL for one batch. Pure, so the
 // placeholder order - the part that goes quietly wrong - is unit-tested.
 func sliceTraceStatsSQL(slices []IntegrationSlice, q SliceQuery) (string, []any) {
@@ -141,8 +188,13 @@ func sliceTraceStatsSQL(slices []IntegrationSlice, q SliceQuery) (string, []any)
 		// The open-error condition appears four times (count, newest
 		// time, its service, its trace), so its args do too, in the
 		// order the placeholders are read: the SELECT list first.
+		envSelect, groupBy := "", ""
+		if q.ByEnvironment {
+			envSelect = "\n\t\t       " + EnvironmentExpr() + " AS env,"
+			groupBy = "\n\t\tGROUP BY env"
+		}
 		branches = append(branches, `
-		SELECT toString(?) AS k,
+		SELECT toString(?) AS k,`+envSelect+`
 		       `+traces+` AS traces,
 		       toUInt64(uniqExactIf(TraceId, StatusCode = 'Error')) AS errored,
 		       toUInt64(uniqExactIf(TraceId, `+open+`)) AS open_errored,
@@ -150,7 +202,7 @@ func sliceTraceStatsSQL(slices []IntegrationSlice, q SliceQuery) (string, []any)
 		       argMaxIf(ServiceName, Timestamp, `+open+`) AS last_error_service,
 		       argMaxIf(TraceId, Timestamp, `+open+`) AS sample
 		FROM traces
-		WHERE `+where)
+		WHERE `+where+groupBy)
 		args = append(args, sl.Key)
 		for range 4 {
 			args = append(args, openArgs...)

@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -29,7 +31,7 @@ func NewStore(pool *pgxpool.Pool) *Store {
 // List returns every integration for the org, ordered by name.
 func (s *Store) List(ctx context.Context, orgID uuid.UUID) ([]Integration, error) {
 	const q = `
-		SELECT id, organization_id, slug, name, COALESCE(description, ''), rule_match, created_at, updated_at
+		SELECT id, organization_id, slug, name, COALESCE(description, ''), rule_match, declared_environments, created_at, updated_at
 		FROM integrations
 		WHERE organization_id = $1
 		ORDER BY name
@@ -43,7 +45,7 @@ func (s *Store) List(ctx context.Context, orgID uuid.UUID) ([]Integration, error
 	var out []Integration
 	for rows.Next() {
 		var i Integration
-		if err := rows.Scan(&i.ID, &i.OrganizationID, &i.Slug, &i.Name, &i.Description, &i.RuleMatch, &i.CreatedAt, &i.UpdatedAt); err != nil {
+		if err := rows.Scan(&i.ID, &i.OrganizationID, &i.Slug, &i.Name, &i.Description, &i.RuleMatch, &i.DeclaredEnvironments, &i.CreatedAt, &i.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, i)
@@ -56,13 +58,13 @@ func (s *Store) Get(ctx context.Context, orgID, id uuid.UUID) (IntegrationWithMa
 	const q = `
 		SELECT id, organization_id, slug, name, COALESCE(description, ''), badge_public, rule_match,
 		       COALESCE(message_columns, '[]'::jsonb), COALESCE(message_filters, '[]'::jsonb),
-		       created_at, updated_at
+		       declared_environments, created_at, updated_at
 		FROM integrations
 		WHERE organization_id = $1 AND id = $2
 	`
 	var i Integration
 	var cols, filters []byte
-	err := s.pool.QueryRow(ctx, q, orgID, id).Scan(&i.ID, &i.OrganizationID, &i.Slug, &i.Name, &i.Description, &i.BadgePublic, &i.RuleMatch, &cols, &filters, &i.CreatedAt, &i.UpdatedAt)
+	err := s.pool.QueryRow(ctx, q, orgID, id).Scan(&i.ID, &i.OrganizationID, &i.Slug, &i.Name, &i.Description, &i.BadgePublic, &i.RuleMatch, &cols, &filters, &i.DeclaredEnvironments, &i.CreatedAt, &i.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return IntegrationWithMatchers{}, ErrNotFound
 	}
@@ -138,6 +140,50 @@ func (s *Store) SetMessageColumns(ctx context.Context, orgID, id uuid.UUID, cols
 		return ErrNotFound
 	}
 	return nil
+}
+
+// SetDeclaredEnvironments replaces the environments an integration is
+// expected to run in (#40). Trimmed, de-duplicated and sorted; the empty
+// string stands for "(no environment)" and is kept.
+func (s *Store) SetDeclaredEnvironments(ctx context.Context, orgID, id uuid.UUID, envs []string) error {
+	seen := map[string]bool{}
+	clean := []string{}
+	for _, e := range envs {
+		e = strings.TrimSpace(e)
+		if seen[e] {
+			continue
+		}
+		if len(e) > 128 {
+			return fmt.Errorf("environment name too long (max 128): %q", e)
+		}
+		seen[e] = true
+		clean = append(clean, e)
+	}
+	sort.Strings(clean)
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE integrations SET declared_environments = $3, updated_at = now()
+		 WHERE organization_id = $1 AND id = $2`, orgID, id, clean)
+	if err != nil {
+		return fmt.Errorf("set declared environments: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// DeclaredEnvironmentsFor returns one integration's declared
+// environments, for the alert engine (which has no org at hand).
+func (s *Store) DeclaredEnvironmentsFor(ctx context.Context, id uuid.UUID) ([]string, error) {
+	var envs []string
+	err := s.pool.QueryRow(ctx, `SELECT declared_environments FROM integrations WHERE id = $1`, id).Scan(&envs)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("declared environments: %w", err)
+	}
+	return envs, nil
 }
 
 // SetMessageFilters replaces the integration's filter-field list.

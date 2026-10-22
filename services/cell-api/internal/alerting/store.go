@@ -29,7 +29,8 @@ const ruleCols = `id, organization_id, integration_id, system_id, COALESCE(servi
 	EXTRACT(EPOCH FROM evaluation_interval)::bigint, enabled,
 	COALESCE(title_template, ''), COALESCE(body_template, ''), created_at, updated_at,
 	COALESCE(source, 'telemetry'), display_on_service, COALESCE(unit, ''), COALESCE(resolve_mode, 'auto'),
-	notification_config, COALESCE(runbook, ''), COALESCE(check_scope, '')`
+	notification_config, COALESCE(runbook, ''), COALESCE(check_scope, ''),
+	environment_mode, environments`
 
 // notifConfigJSON marshals a rule's notification config for the jsonb column;
 // nil → SQL NULL (no per-rule config).
@@ -60,6 +61,7 @@ func scanRule(row pgx.Row) (AlertRule, error) {
 		&r.TitleTemplate, &r.BodyTemplate, &r.CreatedAt, &r.UpdatedAt,
 		&r.Source, &r.DisplayOnService, &r.Unit, &r.ResolveMode,
 		&ncRaw, &r.Runbook, &r.CheckScope,
+		&r.EnvironmentMode, &r.Environments,
 	); err != nil {
 		return AlertRule{}, err
 	}
@@ -284,10 +286,10 @@ func (s *Store) CreateRule(ctx context.Context, r AlertRule) (AlertRule, error) 
 	defer tx.Rollback(ctx)
 
 	row := tx.QueryRow(ctx, `
-		INSERT INTO alert_rules (organization_id, integration_id, system_id, service_name, group_id, name, description, signal, rule_spec, severity, enabled, title_template, body_template, source, display_on_service, unit, resolve_mode, notification_config, runbook, check_scope)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+		INSERT INTO alert_rules (organization_id, integration_id, system_id, service_name, group_id, name, description, signal, rule_spec, severity, enabled, title_template, body_template, source, display_on_service, unit, resolve_mode, notification_config, runbook, check_scope, environment_mode, environments)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
 		RETURNING `+ruleCols,
-		r.OrganizationID, uuidArg(r.IntegrationID), uuidArg(r.SystemID), nilIfEmpty(r.ServiceName), uuidArg(r.GroupID), r.Name, nilIfEmpty(r.Description), ruleSignal(r), spec, string(r.Severity), r.Enabled, nilIfEmpty(r.TitleTemplate), nilIfEmpty(r.BodyTemplate), ruleSource(r), r.DisplayOnService, nilIfEmpty(r.Unit), resolveModeOf(r), notifConfigJSON(r.NotificationContent), r.Runbook, nilIfEmpty(r.CheckScope))
+		r.OrganizationID, uuidArg(r.IntegrationID), uuidArg(r.SystemID), nilIfEmpty(r.ServiceName), uuidArg(r.GroupID), r.Name, nilIfEmpty(r.Description), ruleSignal(r), spec, string(r.Severity), r.Enabled, nilIfEmpty(r.TitleTemplate), nilIfEmpty(r.BodyTemplate), ruleSource(r), r.DisplayOnService, nilIfEmpty(r.Unit), resolveModeOf(r), notifConfigJSON(r.NotificationContent), r.Runbook, nilIfEmpty(r.CheckScope), environmentModeOf(r), environmentsOf(r))
 	created, err := scanRule(row)
 	if err != nil {
 		return AlertRule{}, fmt.Errorf("insert alert rule: %w", err)
@@ -316,10 +318,10 @@ func (s *Store) UpdateRule(ctx context.Context, orgID uuid.UUID, r AlertRule) (A
 
 	row := tx.QueryRow(ctx, `
 		UPDATE alert_rules
-		SET name = $3, description = $4, rule_spec = $5, severity = $6, enabled = $7, integration_id = $8, system_id = $19, service_name = $9, group_id = $10, title_template = $11, body_template = $12, source = $13, display_on_service = $14, unit = $15, resolve_mode = $16, notification_config = $17, runbook = $18, updated_at = now()
+		SET name = $3, description = $4, rule_spec = $5, severity = $6, enabled = $7, integration_id = $8, system_id = $19, service_name = $9, group_id = $10, title_template = $11, body_template = $12, source = $13, display_on_service = $14, unit = $15, resolve_mode = $16, notification_config = $17, runbook = $18, environment_mode = $20, environments = $21, updated_at = now()
 		WHERE organization_id = $1 AND id = $2
 		RETURNING `+ruleCols,
-		orgID, r.ID, r.Name, nilIfEmpty(r.Description), spec, string(r.Severity), r.Enabled, uuidArg(r.IntegrationID), nilIfEmpty(r.ServiceName), uuidArg(r.GroupID), nilIfEmpty(r.TitleTemplate), nilIfEmpty(r.BodyTemplate), ruleSource(r), r.DisplayOnService, nilIfEmpty(r.Unit), resolveModeOf(r), notifConfigJSON(r.NotificationContent), r.Runbook, uuidArg(r.SystemID))
+		orgID, r.ID, r.Name, nilIfEmpty(r.Description), spec, string(r.Severity), r.Enabled, uuidArg(r.IntegrationID), nilIfEmpty(r.ServiceName), uuidArg(r.GroupID), nilIfEmpty(r.TitleTemplate), nilIfEmpty(r.BodyTemplate), ruleSource(r), r.DisplayOnService, nilIfEmpty(r.Unit), resolveModeOf(r), notifConfigJSON(r.NotificationContent), r.Runbook, uuidArg(r.SystemID), environmentModeOf(r), environmentsOf(r))
 	updated, err := scanRule(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return AlertRule{}, ErrNotFound
@@ -335,6 +337,30 @@ func (s *Store) UpdateRule(ctx context.Context, orgID uuid.UUID, r AlertRule) (A
 	}
 	updated.ChannelIDs = dedupe(r.ChannelIDs)
 	return updated, nil
+}
+
+// Environment modes of a check bound to an integration (#40).
+const (
+	// EnvironmentEach evaluates every environment of the integration
+	// separately, one alert instance per environment. The default.
+	EnvironmentEach = "each"
+	// EnvironmentOnly evaluates just the rule's Environments, each
+	// separately.
+	EnvironmentOnly = "only"
+)
+
+func environmentModeOf(r AlertRule) string {
+	if r.EnvironmentMode == EnvironmentOnly {
+		return EnvironmentOnly
+	}
+	return EnvironmentEach
+}
+
+func environmentsOf(r AlertRule) []string {
+	if r.EnvironmentMode != EnvironmentOnly || r.Environments == nil {
+		return []string{}
+	}
+	return r.Environments
 }
 
 // DeleteRule removes a rule (cascade drops its routes/instances).
@@ -872,6 +898,52 @@ func (s *Store) FiringHealthIntegrations(ctx context.Context, orgID uuid.UUID) (
 		out[id] = true
 	}
 	return out, rows.Err()
+}
+
+// AllEnvironments marks an instance that is about every environment of
+// its integration: one opened before checks were evaluated per
+// environment, or one of an integration that has none.
+const AllEnvironments = "*"
+
+// FiringHealthIntegrationEnvironments is FiringHealthIntegrations split
+// by environment (#40): integration -> environment -> firing. An
+// instance without an environment label is about all of them and is
+// reported under AllEnvironments.
+func (s *Store) FiringHealthIntegrationEnvironments(ctx context.Context, orgID uuid.UUID) (map[uuid.UUID]map[string]bool, error) {
+	const q = `
+		SELECT DISTINCT r.integration_id, COALESCE(i.labels->>'environment', '` + AllEnvironments + `')
+		FROM alert_instances i
+		JOIN alert_rules r ON r.id = i.alert_rule_id
+		WHERE r.organization_id = $1 AND i.state = 'firing'
+		  AND r.integration_id IS NOT NULL
+		  AND (r.signal <> 'trace' OR r.rule_spec->>'kind' IN ('` + TraceErrorSpecKind + `', '` + TraceLatencySpecKind + `', '` + TraceVolumeSpecKind + `', '` + TraceAttributeSpecKind + `'))`
+	rows, err := s.pool.Query(ctx, q, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("firing health integration environments: %w", err)
+	}
+	defer rows.Close()
+	out := map[uuid.UUID]map[string]bool{}
+	for rows.Next() {
+		var (
+			id  uuid.UUID
+			env string
+		)
+		if err := rows.Scan(&id, &env); err != nil {
+			return nil, err
+		}
+		if out[id] == nil {
+			out[id] = map[string]bool{}
+		}
+		out[id][env] = true
+	}
+	return out, rows.Err()
+}
+
+// FiringIn reports whether an integration has a firing check in one
+// environment, counting checks that are about all of them.
+func FiringIn(byEnv map[uuid.UUID]map[string]bool, id uuid.UUID, env string) bool {
+	m := byEnv[id]
+	return m[env] || m[AllEnvironments]
 }
 
 // FiringHealthSystems is FiringHealthIntegrations for systems (issue

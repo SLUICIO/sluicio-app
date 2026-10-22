@@ -73,7 +73,7 @@ func resourceAttrsFor(svc serviceSpec) []*commonpb.KeyValue {
 		stringAttr("service.namespace", svc.namespace),
 		stringAttr("service.version", fmt.Sprintf("1.%d.%d", h%6, h%19)),
 		stringAttr("service.instance.id", fmt.Sprintf("i-%08x", h)),
-		stringAttr("deployment.environment", svc.namespace),
+		stringAttr("deployment.environment.name", svc.namespace),
 		// Telemetry SDK.
 		stringAttr("telemetry.sdk.name", "opentelemetry"),
 		stringAttr("telemetry.sdk.language", "go"),

@@ -339,6 +339,47 @@ type alertEmailTemplateSetting struct {
 	Body    string `json:"body"`
 }
 
+// TelemetryEnvironment is where a row's environment is read from (#40):
+// Key overrides deployment.environment.name / deployment.environment,
+// Aliases map values onto canonical names (case-insensitive).
+type TelemetryEnvironment struct {
+	Key     string            `json:"key,omitempty"`
+	Aliases map[string]string `json:"aliases,omitempty"`
+}
+
+// GetTelemetryEnvironment returns the setting, zero when none is stored.
+func (s *Store) GetTelemetryEnvironment(ctx context.Context) (TelemetryEnvironment, error) {
+	var raw []byte
+	err := s.pool.QueryRow(ctx,
+		`SELECT value FROM cell_settings WHERE key = 'system.telemetry_environment'`).Scan(&raw)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return TelemetryEnvironment{}, nil
+	}
+	if err != nil {
+		return TelemetryEnvironment{}, fmt.Errorf("settings: get telemetry environment: %w", err)
+	}
+	var v TelemetryEnvironment
+	if json.Unmarshal(raw, &v) != nil {
+		return TelemetryEnvironment{}, nil
+	}
+	return v, nil
+}
+
+// SetTelemetryEnvironment stores the setting.
+func (s *Store) SetTelemetryEnvironment(ctx context.Context, v TelemetryEnvironment) error {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	if _, err := s.pool.Exec(ctx, `
+		INSERT INTO cell_settings (key, value, updated_at)
+		VALUES ('system.telemetry_environment', $1::jsonb, now())
+		ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`, raw); err != nil {
+		return fmt.Errorf("settings: set telemetry environment: %w", err)
+	}
+	return nil
+}
+
 // GetAlertEmailTemplate returns the org default alert email subject + body, or
 // two empty strings when unset.
 func (s *Store) GetAlertEmailTemplate(ctx context.Context) (subject, body string, err error) {

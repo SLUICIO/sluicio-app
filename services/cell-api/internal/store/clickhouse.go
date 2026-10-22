@@ -3032,6 +3032,17 @@ func attrClauseIn(primaryMap string, f LogAttrFilter) (string, []any) {
 	if f.Key == spanNameAttrKey && primaryMap == "SpanAttributes" {
 		eff = "SpanName"
 	}
+	// The environment is derived, not a map entry (#40): exists means a
+	// row has one, and every value comparison reads the canonical name.
+	if f.Key == EnvironmentAttrKey {
+		eff = EnvironmentExpr()
+		switch f.Op {
+		case AttrOpExists:
+			return "(" + eff + ") != ''", nil
+		case AttrOpNotExists:
+			return "(" + eff + ") = ''", nil
+		}
+	}
 	switch f.Op {
 	case AttrOpEq:
 		return "(" + eff + ") = ?", []any{f.Value}

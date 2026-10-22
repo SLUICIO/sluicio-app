@@ -156,7 +156,7 @@ func TestPayloadCarriesTheThreeMetrics(t *testing.T) {
 	for _, kv := range (*got)[0].ResourceMetrics[0].Resource.Attributes {
 		res[kv.Key] = kv.Value.GetStringValue()
 	}
-	if res["sluicio.cell.name"] != "cell-eu-1" || res["deployment.environment"] != "prod" {
+	if res["sluicio.cell.name"] != "cell-eu-1" || res["deployment.environment.name"] != "prod" {
 		t.Errorf("resource does not identify the cell: %v", res)
 	}
 	if (*heads)[0].Get("Authorization") != "Api-Token abc" {

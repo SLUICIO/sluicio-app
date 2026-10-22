@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/cellhealth"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/envctx"
 	"log/slog"
 	"net/http"
 	"os"
@@ -149,9 +150,12 @@ type Engine struct {
 	latencyEval TraceLatencyEvaluator
 	volumeEval  TraceVolumeEvaluator
 	attrEval    TraceAttributeCounter
-	resolver    ChannelResolver
-	log         *slog.Logger
-	org         uuid.UUID
+	// envLister enables per-environment evaluation of integration checks
+	// (#40); nil keeps every check evaluated over its whole scope.
+	envLister EnvironmentLister
+	resolver  ChannelResolver
+	log       *slog.Logger
+	org       uuid.UUID
 
 	evalInterval time.Duration
 	deliveryPoll time.Duration
@@ -327,7 +331,7 @@ func (e *Engine) resolveOrHold(ctx context.Context, active *AlertInstance, rule 
 		}
 		return
 	}
-	if err := e.store.ResolveInstance(ctx, active.ID, summary); err != nil {
+	if err := e.store.ResolveInstance(ctx, active.ID, environmentSummary(ctx, summary)); err != nil {
 		e.log.Error(kind+" eval: resolve failed", "rule", rule.ID, "err", err)
 		return
 	}
@@ -477,7 +481,7 @@ func (e *Engine) evaluateOnce(ctx context.Context) {
 		return
 	}
 	for _, rule := range rules {
-		e.evaluateRule(ctx, rule)
+		e.perEnvironment(ctx, rule, e.evaluateRule)
 	}
 }
 
@@ -517,7 +521,7 @@ func (e *Engine) evaluateRule(ctx context.Context, rule AlertRule) {
 	}
 	outcome := DecideMetric(rule.Spec, samples, value, everReported)
 
-	active, err := e.store.ActiveInstance(ctx, rule.ID)
+	active, err := e.activeInstance(ctx, rule)
 	if err != nil {
 		e.log.Error("alert eval: active instance failed", "rule", rule.ID, "err", err)
 		return
@@ -536,7 +540,7 @@ func (e *Engine) evaluateRule(ctx context.Context, rule AlertRule) {
 		if outcome == OutcomeNoData {
 			markNoData(labels)
 		}
-		inst, err := e.store.OpenInstance(ctx, rule.ID, "all", labels, summaryFor("firing"))
+		inst, err := e.openInstance(ctx, rule, labels, summaryFor("firing"))
 		if err != nil {
 			e.log.Error("alert eval: open instance failed", "rule", rule.ID, "err", err)
 			return
@@ -554,7 +558,7 @@ func (e *Engine) evaluateRule(ctx context.Context, rule AlertRule) {
 		if outcome == OutcomeNoData {
 			markNoData(labels)
 		}
-		if err := e.store.RefreshInstance(ctx, active.ID, labels, summaryFor("firing")); err != nil {
+		if err := e.refreshInstance(ctx, active.ID, labels, summaryFor("firing")); err != nil {
 			e.log.Error("alert eval: refresh failed", "rule", rule.ID, "err", err)
 		}
 	case !outcome.Firing() && active != nil:
@@ -623,7 +627,7 @@ func (e *Engine) evaluatePushedRule(ctx context.Context, rule AlertRule) {
 	value := reading.Value
 	breached := EvaluateBreach(rule.Spec.Operator, value, rule.Spec.Threshold)
 
-	active, err := e.store.ActiveInstance(ctx, rule.ID)
+	active, err := e.activeInstance(ctx, rule)
 	if err != nil {
 		e.log.Error("alert eval: active instance failed", "rule", rule.ID, "err", err)
 		return
@@ -633,7 +637,7 @@ func (e *Engine) evaluatePushedRule(ctx context.Context, rule AlertRule) {
 	case breached && active == nil:
 		labels := ruleLabels(rule, value)
 		summary := pushedRuleSummary(rule, value, "firing")
-		inst, err := e.store.OpenInstance(ctx, rule.ID, "all", labels, summary)
+		inst, err := e.openInstance(ctx, rule, labels, summary)
 		if err != nil {
 			e.log.Error("alert eval: open instance failed", "rule", rule.ID, "err", err)
 			return
@@ -729,7 +733,7 @@ func (e *Engine) evaluateSplitRule(ctx context.Context, rule AlertRule) {
 		}
 	}
 
-	active, err := e.store.ActiveInstance(ctx, rule.ID)
+	active, err := e.activeInstance(ctx, rule)
 	if err != nil {
 		e.log.Error("alert eval: active instance failed", "rule", rule.ID, "err", err)
 		return
@@ -743,7 +747,7 @@ func (e *Engine) evaluateSplitRule(ctx context.Context, rule AlertRule) {
 			markNoData(labels)
 			summary = noDataSummary(rule)
 		}
-		inst, err := e.store.OpenInstance(ctx, rule.ID, "all", labels, summary)
+		inst, err := e.openInstance(ctx, rule, labels, summary)
 		if err != nil {
 			e.log.Error("alert eval: open instance failed", "rule", rule.ID, "err", err)
 			return
@@ -761,7 +765,7 @@ func (e *Engine) evaluateSplitRule(ctx context.Context, rule AlertRule) {
 			markNoData(labels)
 			summary = noDataSummary(rule)
 		}
-		if err := e.store.RefreshInstance(ctx, active.ID, labels, summary); err != nil {
+		if err := e.refreshInstance(ctx, active.ID, labels, summary); err != nil {
 			e.log.Error("alert eval: refresh failed", "rule", rule.ID, "err", err)
 		}
 	case !breached && active != nil:
@@ -830,7 +834,7 @@ func (e *Engine) evaluateLogOnce(ctx context.Context) {
 		return
 	}
 	for _, rule := range rules {
-		e.evaluateLogRule(ctx, rule)
+		e.perEnvironment(ctx, rule, e.evaluateLogRule)
 	}
 }
 
@@ -874,7 +878,7 @@ func (e *Engine) evaluateLogRule(ctx context.Context, rule AlertRule) {
 		breached = count < uint64(threshold)
 	}
 
-	active, err := e.store.ActiveInstance(ctx, rule.ID)
+	active, err := e.activeInstance(ctx, rule)
 	if err != nil {
 		e.log.Error("log alert eval: active instance failed", "rule", rule.ID, "err", err)
 		return
@@ -884,7 +888,7 @@ func (e *Engine) evaluateLogRule(ctx context.Context, rule AlertRule) {
 	case breached && active == nil:
 		labels := logRuleLabels(rule, count)
 		summary := logRuleSummary(rule, count, "firing")
-		inst, err := e.store.OpenInstance(ctx, rule.ID, "all", labels, summary)
+		inst, err := e.openInstance(ctx, rule, labels, summary)
 		if err != nil {
 			e.log.Error("log alert eval: open instance failed", "rule", rule.ID, "err", err)
 			return
@@ -921,9 +925,18 @@ func (e *Engine) renotifyOnce(ctx context.Context) {
 		inst     FiringUnackedInstance
 		rule     AlertRule
 		renotify int
+		// ctx carries the instance's environment (#40), so routing picks
+		// the profile for that environment on every re-page too.
+		ctx context.Context
 	}
 	perCheck := make([]item, 0, len(insts))
-	perInteg := map[uuid.UUID][]item{}
+	// Per integration AND environment: production and test of one
+	// integration are two notification streams, not one.
+	type integEnv struct {
+		id  uuid.UUID
+		env string
+	}
+	perInteg := map[integEnv][]item{}
 	ruleCache := map[uuid.UUID]AlertRule{}
 	for _, fi := range insts {
 		rule, ok := ruleCache[fi.RuleID]
@@ -936,10 +949,15 @@ func (e *Engine) renotifyOnce(ctx context.Context) {
 			rule = r
 			ruleCache[fi.RuleID] = r
 		}
-		grouping, renotify := e.behavior(ctx, rule)
-		it := item{inst: fi, rule: rule, renotify: renotify}
+		ictx := ctx
+		if fi.HasEnvironment {
+			ictx = envctx.With(ctx, fi.Environment)
+		}
+		grouping, renotify := e.behavior(ictx, rule)
+		it := item{inst: fi, rule: rule, renotify: renotify, ctx: ictx}
 		if grouping == groupingPerIntegration && rule.IntegrationID != nil {
-			perInteg[*rule.IntegrationID] = append(perInteg[*rule.IntegrationID], it)
+			k := integEnv{id: *rule.IntegrationID, env: fi.Environment}
+			perInteg[k] = append(perInteg[k], it)
 		} else {
 			perCheck = append(perCheck, it)
 		}
@@ -978,7 +996,7 @@ func (e *Engine) renotifyOnce(ctx context.Context) {
 		}
 		if it.inst.LastNotifiedAt == nil {
 			if it.inst.SuppressedBy != nil {
-				e.renotifyInstance(ctx, it.inst.InstanceID, it.rule, "notified (maintenance ended)")
+				e.renotifyInstance(it.ctx, it.inst.InstanceID, it.rule, "notified (maintenance ended)")
 			}
 			continue
 		}
@@ -986,7 +1004,7 @@ func (e *Engine) renotifyOnce(ctx context.Context) {
 			continue
 		}
 		if due(it.inst.LastNotifiedAt, it.renotify) {
-			e.renotifyInstance(ctx, it.inst.InstanceID, it.rule, "re-notified")
+			e.renotifyInstance(it.ctx, it.inst.InstanceID, it.rule, "re-notified")
 		}
 	}
 
@@ -1015,8 +1033,8 @@ func (e *Engine) renotifyOnce(ctx context.Context) {
 			continue
 		}
 		if due(rep.inst.LastNotifiedAt, rep.renotify) {
-			e.renotifyInstance(ctx, rep.inst.InstanceID, rep.rule, "integration-notified")
-			e.log.Info("integration alert coalesced", "integration", integ, "firing_checks", len(items))
+			e.renotifyInstance(rep.ctx, rep.inst.InstanceID, rep.rule, "integration-notified")
+			e.log.Info("integration alert coalesced", "integration", integ.id, "environment", integ.env, "firing_checks", len(items))
 		}
 	}
 }
@@ -1192,7 +1210,7 @@ func (e *Engine) evaluateTraceErrorOnce(ctx context.Context) {
 		return
 	}
 	for _, rule := range rules {
-		e.evaluateTraceErrorRule(ctx, rule)
+		e.perEnvironment(ctx, rule, e.evaluateTraceErrorRule)
 	}
 }
 
@@ -1235,7 +1253,7 @@ func (e *Engine) evaluateTraceErrorRule(ctx context.Context, rule AlertRule) {
 	}
 	breached := count >= uint64(threshold)
 
-	active, err := e.store.ActiveInstance(ctx, rule.ID)
+	active, err := e.activeInstance(ctx, rule)
 	if err != nil {
 		e.log.Error("trace alert eval: active instance failed", "rule", rule.ID, "err", err)
 		return
@@ -1245,7 +1263,7 @@ func (e *Engine) evaluateTraceErrorRule(ctx context.Context, rule AlertRule) {
 	case breached && active == nil:
 		labels := traceErrorRuleLabels(rule, count)
 		summary := traceErrorRuleSummary(rule, count, "firing")
-		inst, err := e.store.OpenInstance(ctx, rule.ID, "all", labels, summary)
+		inst, err := e.openInstance(ctx, rule, labels, summary)
 		if err != nil {
 			e.log.Error("trace alert eval: open instance failed", "rule", rule.ID, "err", err)
 			return
@@ -1313,7 +1331,7 @@ func (e *Engine) evaluateTraceAttributeOnce(ctx context.Context) {
 		return
 	}
 	for _, rule := range rules {
-		e.evaluateTraceAttributeRule(ctx, rule)
+		e.perEnvironment(ctx, rule, e.evaluateTraceAttributeRule)
 	}
 }
 
@@ -1349,7 +1367,7 @@ func (e *Engine) evaluateTraceAttributeRule(ctx context.Context, rule AlertRule)
 	}
 	breached := count >= uint64(threshold)
 
-	active, err := e.store.ActiveInstance(ctx, rule.ID)
+	active, err := e.activeInstance(ctx, rule)
 	if err != nil {
 		e.log.Error("trace attribute alert eval: active instance failed", "rule", rule.ID, "err", err)
 		return
@@ -1359,7 +1377,7 @@ func (e *Engine) evaluateTraceAttributeRule(ctx context.Context, rule AlertRule)
 	case breached && active == nil:
 		labels := traceAttributeRuleLabels(rule, count)
 		summary := traceAttributeRuleSummary(rule, count, "firing")
-		inst, err := e.store.OpenInstance(ctx, rule.ID, "all", labels, summary)
+		inst, err := e.openInstance(ctx, rule, labels, summary)
 		if err != nil {
 			e.log.Error("trace attribute alert eval: open instance failed", "rule", rule.ID, "err", err)
 			return
@@ -1432,7 +1450,7 @@ func (e *Engine) evaluateTraceLatencyOnce(ctx context.Context) {
 		return
 	}
 	for _, rule := range rules {
-		e.evaluateTraceLatencyRule(ctx, rule)
+		e.perEnvironment(ctx, rule, e.evaluateTraceLatencyRule)
 	}
 }
 
@@ -1458,7 +1476,7 @@ func (e *Engine) evaluateTraceLatencyRule(ctx context.Context, rule AlertRule) {
 	// No spans in the window → no signal; don't fire or resolve on no-data.
 	breached := samples > 0 && spec.ThresholdMs > 0 && latencyMs >= float64(spec.ThresholdMs)
 
-	active, err := e.store.ActiveInstance(ctx, rule.ID)
+	active, err := e.activeInstance(ctx, rule)
 	if err != nil {
 		e.log.Error("latency alert eval: active instance failed", "rule", rule.ID, "err", err)
 		return
@@ -1468,7 +1486,7 @@ func (e *Engine) evaluateTraceLatencyRule(ctx context.Context, rule AlertRule) {
 	case breached && active == nil:
 		labels := traceLatencyRuleLabels(rule, latencyMs)
 		summary := traceLatencyRuleSummary(rule, latencyMs, "firing")
-		inst, err := e.store.OpenInstance(ctx, rule.ID, "all", labels, summary)
+		inst, err := e.openInstance(ctx, rule, labels, summary)
 		if err != nil {
 			e.log.Error("latency alert eval: open instance failed", "rule", rule.ID, "err", err)
 			return
@@ -1534,7 +1552,7 @@ func (e *Engine) evaluateTraceVolumeOnce(ctx context.Context) {
 		return
 	}
 	for _, rule := range rules {
-		e.evaluateTraceVolumeRule(ctx, rule)
+		e.perEnvironment(ctx, rule, e.evaluateTraceVolumeRule)
 	}
 }
 
@@ -1568,7 +1586,7 @@ func (e *Engine) evaluateTraceVolumeRule(ctx context.Context, rule AlertRule) {
 	// user explicitly asked to catch) fire just like any other shortfall.
 	breached := spec.Threshold > 0 && total < uint64(spec.Threshold)
 
-	active, err := e.store.ActiveInstance(ctx, rule.ID)
+	active, err := e.activeInstance(ctx, rule)
 	if err != nil {
 		e.log.Error("volume alert eval: active instance failed", "rule", rule.ID, "err", err)
 		return
@@ -1578,7 +1596,7 @@ func (e *Engine) evaluateTraceVolumeRule(ctx context.Context, rule AlertRule) {
 	case breached && active == nil:
 		labels := traceVolumeRuleLabels(rule, total)
 		summary := traceVolumeRuleSummary(rule, total, "firing")
-		inst, err := e.store.OpenInstance(ctx, rule.ID, "all", labels, summary)
+		inst, err := e.openInstance(ctx, rule, labels, summary)
 		if err != nil {
 			e.log.Error("volume alert eval: open instance failed", "rule", rule.ID, "err", err)
 			return

@@ -392,6 +392,17 @@ func rangeArg(args map[string]any, def string) url.Values {
 	return url.Values{"range": {w}}
 }
 
+// envProp is the optional environment argument (#40) of the tools that
+// read an integration.
+var envProp = strProp(`Read one environment only, e.g. "production". "(none)" reads telemetry with no environment. Omit for all environments. For logs, applies when scoped to an integration.`)
+
+// envArg passes the environment argument through as ?env=.
+func envArg(q url.Values, args map[string]any) {
+	if v := argStr(args, "environment"); v != "" {
+		q.Set("env", v)
+	}
+}
+
 func argBool(args map[string]any, key string, def bool) bool {
 	if args != nil {
 		if v, ok := args[key].(bool); ok {
@@ -424,8 +435,16 @@ func buildTools(s *Server) []tool {
 		}),
 			Call: func(a map[string]any) (string, error) { return s.get("/api/v1/cell-brief", rangeArg(a, "24h")) }},
 
-		{Name: "sluicio_list_integrations", Output: listIntegrationsOut, Description: "List the org's integrations with their rolled-up health status (ok/errors/unhealthy/quiet) and traffic/error counts.", Schema: objSchema(nil),
-			Call: func(a map[string]any) (string, error) { return s.get("/api/v1/integrations", nil) }},
+		{Name: "sluicio_list_integrations", Output: listIntegrationsOut, Description: "List the org's integrations with their rolled-up health status (ok/errors/unhealthy/quiet), traffic/error counts, and the status in each environment the integration runs in (production, test, …). Pass environment to read every integration in one environment only.", Schema: objSchema(map[string]any{
+			"window":      strProp("Time window, e.g. 1h, 24h. Default 1h."),
+			"environment": envProp,
+		}),
+			Call: func(a map[string]any) (string, error) {
+				q := rangeArg(a, "1h")
+				q.Set("environments", "1")
+				envArg(q, a)
+				return s.get("/api/v1/integrations", q)
+			}},
 		{Name: "sluicio_list_services", Output: listServicesOut, Description: "List discovered services with their TRAFFIC (trace + error counts), last-seen, and health over a time window (default 24h). This is the source of truth for whether a service has traffic — if a service shows zero, widen `window` (e.g. 7d) before concluding it has none, since low-frequency integrations may be quiet within a short window.", Schema: objSchema(map[string]any{"window": strProp("Time window, e.g. 1h, 24h, 7d. Default 24h.")}),
 			Call: func(a map[string]any) (string, error) { return s.get("/api/v1/services", rangeArg(a, "24h")) }},
 		// An agent could file proposals but never see its own queue, so
@@ -516,21 +535,25 @@ func buildTools(s *Server) []tool {
 				return s.post("/api/v1/messages/search", rangeArg(a, "24h"), map[string]any{"filters": filters, "limit": limit})
 			}},
 		{Name: "sluicio_get_integration", Output: getIntegrationOut, Description: "Get one integration by id: its matchers, member services with per-service health over the window, tags, and aggregate status. Use an id from sluicio_list_integrations.", Schema: objSchema(map[string]any{
-			"id":     strProp("The integration id (uuid)."),
-			"window": strProp("Time window for the per-service stats, e.g. 1h, 24h. Default 24h."),
+			"id":          strProp("The integration id (uuid)."),
+			"window":      strProp("Time window for the per-service stats, e.g. 1h, 24h. Default 24h."),
+			"environment": envProp,
 		}, "id"),
 			Call: func(a map[string]any) (string, error) {
 				id := argStr(a, "id")
 				if id == "" {
 					return "", fmt.Errorf("id is required")
 				}
-				return s.get("/api/v1/integrations/"+url.PathEscape(id), rangeArg(a, "24h"))
+				q := rangeArg(a, "24h")
+				envArg(q, a)
+				return s.get("/api/v1/integrations/"+url.PathEscape(id), q)
 			}},
 		{Name: "sluicio_search_logs", Output: searchLogsOut, Description: "Search log events within a time window: free-text body match, OTLP severity floor (info≈9, warn≈13, error≈17, fatal≈21), scope to a service or an integration's member services, and attribute predicates. Results are RBAC-filtered to what the token may see. Returns up to `limit` logs plus a next_cursor when more match.", Schema: objSchema(map[string]any{
 			"query":        strProp("Case-insensitive substring of the log body."),
 			"min_severity": map[string]any{"type": "integer", "description": "OTLP SeverityNumber floor; 17 = errors and worse. Omit for any severity."},
 			"service":      strProp("Scope to one service name."),
 			"integration":  strProp("Scope to an integration name — its member services."),
+			"environment":  envProp,
 			"window":       strProp("Time window, e.g. 1h, 24h, 7d. Default 24h."),
 			"attrs": map[string]any{"type": "array", "description": "Attribute predicates, AND-ed. Each: {key, op, value} with op one of eq, neq, contains, not_contains, starts_with, ends_with, gt, gte, lt, lte, exists.",
 				"items": map[string]any{"type": "object"}},
@@ -550,6 +573,7 @@ func buildTools(s *Server) []tool {
 				if v := argStr(a, "integration"); v != "" {
 					q.Set("integration", v)
 				}
+				envArg(q, a)
 				limit := argInt(a, "limit", 100)
 				if limit <= 0 || limit > 500 {
 					limit = 100

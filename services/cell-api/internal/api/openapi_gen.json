@@ -1128,6 +1128,38 @@
         ]
       }
     },
+    "/api/v1/cell-settings/telemetry-environment": {
+      "get": {
+        "operationId": "get_api_v1_cell_settings_telemetry_environment",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "List cell-settings",
+        "tags": [
+          "cell-settings"
+        ]
+      },
+      "put": {
+        "operationId": "put_api_v1_cell_settings_telemetry_environment",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Update cell-setting",
+        "tags": [
+          "cell-settings"
+        ]
+      }
+    },
     "/api/v1/collector-target": {
       "get": {
         "operationId": "get_api_v1_collector_target",
@@ -1317,6 +1349,23 @@
         "summary": "Create digest",
         "tags": [
           "digest"
+        ]
+      }
+    },
+    "/api/v1/environments": {
+      "get": {
+        "operationId": "get_api_v1_environments",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "List environments",
+        "tags": [
+          "environments"
         ]
       }
     },
@@ -2018,9 +2067,63 @@
         ]
       }
     },
+    "/api/v1/integrations/{id}/declared-environments": {
+      "put": {
+        "operationId": "put_api_v1_integrations_id_declared_environments",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Update integration",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
     "/api/v1/integrations/{id}/delete-impact": {
       "get": {
         "operationId": "get_api_v1_integrations_id_delete_impact",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "List integrations",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
+    "/api/v1/integrations/{id}/environments": {
+      "get": {
+        "operationId": "get_api_v1_integrations_id_environments",
         "parameters": [
           {
             "in": "path",
@@ -7724,6 +7827,9 @@
     },
     {
       "name": "docs"
+    },
+    {
+      "name": "environments"
     },
     {
       "name": "errors"

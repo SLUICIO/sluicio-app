@@ -25,6 +25,35 @@ type profileBody struct {
 	RenotifyMinutes int      `json:"renotify_minutes"`
 	IsDefault       bool     `json:"is_default"`
 	ChannelIDs      []string `json:"channel_ids"`
+	// EnvironmentMode / Environments: route only some environments'
+	// alerts through this profile (#40). "any" (default), "only", "except".
+	EnvironmentMode string   `json:"environment_mode"`
+	Environments    []string `json:"environments"`
+}
+
+// profileEnvironment validates a profile's environment filter.
+func profileEnvironment(body profileBody) (string, []string, error) {
+	mode := strings.TrimSpace(body.EnvironmentMode)
+	switch mode {
+	case "", notifyprofiles.EnvironmentAny:
+		return notifyprofiles.EnvironmentAny, nil, nil
+	case notifyprofiles.EnvironmentOnly, notifyprofiles.EnvironmentExcept:
+	default:
+		return "", nil, errors.New(`environment_mode must be "any", "only" or "except"`)
+	}
+	seen := map[string]bool{}
+	var envs []string
+	for _, e := range body.Environments {
+		e = strings.TrimSpace(e)
+		if !seen[e] && len(e) <= 128 {
+			seen[e] = true
+			envs = append(envs, e)
+		}
+	}
+	if len(envs) == 0 {
+		return "", nil, errors.New("an environment filter needs at least one environment")
+	}
+	return mode, envs, nil
 }
 
 func (h *Handlers) listNotificationProfiles(w http.ResponseWriter, r *http.Request) {
@@ -55,6 +84,11 @@ func (h *Handlers) createNotificationProfile(w http.ResponseWriter, r *http.Requ
 		httpserver.WriteError(w, http.StatusBadRequest, "name is required")
 		return
 	}
+	envMode, envs, err := profileEnvironment(body)
+	if err != nil {
+		httpserver.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	p := notifyprofiles.Profile{
 		ID:              uuid.New(),
 		OrganizationID:  middleware.OrgID(r),
@@ -62,6 +96,8 @@ func (h *Handlers) createNotificationProfile(w http.ResponseWriter, r *http.Requ
 		Grouping:        normalizeGrouping(body.Grouping),
 		RenotifyMinutes: maxInt(0, body.RenotifyMinutes),
 		IsDefault:       body.IsDefault,
+		EnvironmentMode: envMode,
+		Environments:    envs,
 	}
 	if g := strings.TrimSpace(body.GroupID); g != "" {
 		gid, err := uuid.Parse(g)
@@ -102,12 +138,19 @@ func (h *Handlers) updateNotificationProfile(w http.ResponseWriter, r *http.Requ
 		httpserver.WriteError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
+	envMode, envs, err := profileEnvironment(body)
+	if err != nil {
+		httpserver.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	p := notifyprofiles.Profile{
 		ID:              id,
 		Name:            strings.TrimSpace(body.Name),
 		Grouping:        normalizeGrouping(body.Grouping),
 		RenotifyMinutes: maxInt(0, body.RenotifyMinutes),
 		IsDefault:       body.IsDefault,
+		EnvironmentMode: envMode,
+		Environments:    envs,
 	}
 	updated, err := h.Profiles.Update(r.Context(), middleware.OrgID(r), p)
 	if errors.Is(err, notifyprofiles.ErrNotFound) {

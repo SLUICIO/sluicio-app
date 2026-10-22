@@ -51,6 +51,10 @@ type IntegrationSummary struct {
 	// the caller passes ?series=1 (the dashboard); omitted otherwise. A
 	// quiet integration returns all-zeros (a flat line), never fake data.
 	TrafficSeries []int `json:"traffic_series,omitempty"`
+	// Environments is the integration's status per environment (#40), worst
+	// first: every environment its traffic came from in the window, plus
+	// the ones it declares. Only when asked for (?environments=1).
+	Environments []EnvironmentStatus `json:"environments,omitempty"`
 	// Tags attached to the integration. Always present (possibly empty)
 	// so the frontend can render an empty cell without branching.
 	Tags []tags.Tag `json:"tags"`
@@ -794,4 +798,16 @@ type ServiceMetricSeriesResponse struct {
 	StepSeconds int                 `json:"step_seconds"`
 	Window      WindowSummary       `json:"window"`
 	Points      []MetricSeriesPoint `json:"points"`
+}
+
+// EnvironmentStatus is one integration's state in one environment (#40).
+type EnvironmentStatus struct {
+	// Environment is the canonical name; "" is "(no environment)".
+	Environment     string `json:"environment"`
+	Status          string `json:"status"`
+	TraceCount      uint64 `json:"trace_count"`
+	ErrorTraceCount uint64 `json:"error_trace_count"`
+	// Declared: the integration declares this environment. A declared
+	// environment with no traffic reads "quiet" rather than vanishing.
+	Declared bool `json:"declared"`
 }

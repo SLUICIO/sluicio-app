@@ -395,7 +395,8 @@ func exportChannels(ctx context.Context, tx pgx.Tx, org string, b *Bundle, ids m
 
 func exportProfiles(ctx context.Context, tx pgx.Tx, org string, b *Bundle, groupSlug, channelName, ids map[string]string) error {
 	rows, err := tx.Query(ctx, `
-		SELECT id, name, group_id, COALESCE(grouping,''), renotify_minutes, is_default
+		SELECT id, name, group_id, COALESCE(grouping,''), renotify_minutes, is_default,
+		       NULLIF(environment_mode, 'any'), environments
 		FROM notification_profiles WHERE organization_id=$1 ORDER BY name`, org)
 	if err != nil {
 		return err
@@ -405,9 +406,13 @@ func exportProfiles(ctx context.Context, tx pgx.Tx, org string, b *Bundle, group
 		var id string
 		var gid *string
 		var p Profile
-		if err := rows.Scan(&id, &p.Name, &gid, &p.Grouping, &p.RenotifyMinutes, &p.IsDefault); err != nil {
+		var envMode *string
+		if err := rows.Scan(&id, &p.Name, &gid, &p.Grouping, &p.RenotifyMinutes, &p.IsDefault, &envMode, &p.Environments); err != nil {
 			rows.Close()
 			return err
+		}
+		if envMode != nil {
+			p.EnvironmentMode = *envMode
 		}
 		if gid != nil {
 			if s, ok := groupSlug[*gid]; ok {
@@ -448,7 +453,8 @@ func exportProfiles(ctx context.Context, tx pgx.Tx, org string, b *Bundle, group
 
 func exportIntegrations(ctx context.Context, tx pgx.Tx, org string, b *Bundle, tagSlug, fieldKey, profileName, ids map[string]string) error {
 	rows, err := tx.Query(ctx, `
-		SELECT id, slug, name, COALESCE(description,''), badge_public, rule_match, notification_profile_id
+		SELECT id, slug, name, COALESCE(description,''), badge_public, rule_match, notification_profile_id,
+		       declared_environments
 		FROM integrations WHERE organization_id=$1 ORDER BY slug`, org)
 	if err != nil {
 		return err
@@ -458,7 +464,7 @@ func exportIntegrations(ctx context.Context, tx pgx.Tx, org string, b *Bundle, t
 		var id string
 		var pid *string
 		var in Integration
-		if err := rows.Scan(&id, &in.Slug, &in.Name, &in.Description, &in.BadgePublic, &in.RuleMatch, &pid); err != nil {
+		if err := rows.Scan(&id, &in.Slug, &in.Name, &in.Description, &in.BadgePublic, &in.RuleMatch, &pid, &in.DeclaredEnvironments); err != nil {
 			rows.Close()
 			return err
 		}
@@ -744,7 +750,8 @@ func exportAlertRules(ctx context.Context, tx pgx.Tx, org string, b *Bundle, int
 		       severity::text, COALESCE(evaluation_interval::text,''), enabled, service_name, integration_id,
 		       group_id, COALESCE(title_template,''), COALESCE(body_template,''), COALESCE(source,''),
 		       COALESCE(display_on_service,false), COALESCE(unit,''), COALESCE(resolve_mode,''),
-		       COALESCE(notification_config,'null'::jsonb)::text
+		       COALESCE(notification_config,'null'::jsonb)::text,
+		       NULLIF(environment_mode, 'each'), environments
 		FROM alert_rules WHERE organization_id=$1 ORDER BY name, id`, org)
 	if err != nil {
 		return err
@@ -754,12 +761,16 @@ func exportAlertRules(ctx context.Context, tx pgx.Tx, org string, b *Bundle, int
 		var id, spec, nconf string
 		var integID, gid *string
 		var r AlertRule
+		var ruleEnvMode *string
 		if err := rows.Scan(&id, &r.Name, &r.Description, &r.Signal, &spec, &r.Severity,
 			&r.EvaluationInterval, &r.Enabled, &r.ServiceName, &integID, &gid,
 			&r.TitleTemplate, &r.BodyTemplate, &r.Source, &r.DisplayOnService,
-			&r.Unit, &r.ResolveMode, &nconf); err != nil {
+			&r.Unit, &r.ResolveMode, &nconf, &ruleEnvMode, &r.Environments); err != nil {
 			rows.Close()
 			return err
+		}
+		if ruleEnvMode != nil {
+			r.EnvironmentMode = *ruleEnvMode
 		}
 		if spec != "null" {
 			r.RuleSpec = json.RawMessage(spec)

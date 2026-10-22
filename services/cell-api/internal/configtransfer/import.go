@@ -678,16 +678,18 @@ func (r *resolver) importProfiles(profiles []Profile) func() error {
 					var id string
 					// notification_profiles has no id default — mint one here.
 					err := r.tx.QueryRow(r.ctx, `
-						INSERT INTO notification_profiles (id, organization_id, group_id, name, grouping, renotify_minutes, is_default)
-						VALUES (gen_random_uuid(),$1,$2,$3,NULLIF($4,''),$5,$6) RETURNING id`,
-						r.org, gid, p.Name, p.Grouping, p.RenotifyMinutes, p.IsDefault).Scan(&id)
+						INSERT INTO notification_profiles (id, organization_id, group_id, name, grouping, renotify_minutes, is_default,
+						  environment_mode, environments)
+						VALUES (gen_random_uuid(),$1,$2,$3,NULLIF($4,''),$5,$6,COALESCE(NULLIF($7,''),'any'),COALESCE($8::text[],'{}')) RETURNING id`,
+						r.org, gid, p.Name, p.Grouping, p.RenotifyMinutes, p.IsDefault, p.EnvironmentMode, p.Environments).Scan(&id)
 					return id, err
 				},
 				func(id string) error {
 					_, err := r.tx.Exec(r.ctx, `
 						UPDATE notification_profiles SET group_id=$2, grouping=NULLIF($3,''), renotify_minutes=$4,
-						  is_default=$5, updated_at=now() WHERE id=$1`,
-						id, gid, p.Grouping, p.RenotifyMinutes, p.IsDefault)
+						  is_default=$5, environment_mode=COALESCE(NULLIF($6,''),'any'), environments=COALESCE($7::text[],'{}'),
+						  updated_at=now() WHERE id=$1`,
+						id, gid, p.Grouping, p.RenotifyMinutes, p.IsDefault, p.EnvironmentMode, p.Environments)
 					return err
 				})
 			if err != nil {
@@ -736,15 +738,17 @@ func (r *resolver) importIntegrations(integrations []Integration) func() error {
 				func() (string, error) {
 					var id string
 					err := r.tx.QueryRow(r.ctx, `
-						INSERT INTO integrations (organization_id, slug, name, description, badge_public, rule_match, notification_profile_id)
-						VALUES ($1,$2,$3,$4,$5,COALESCE(NULLIF($6,''),'any'),$7) RETURNING id`,
-						r.org, in.Slug, in.Name, in.Description, in.BadgePublic, in.RuleMatch, pid).Scan(&id)
+						INSERT INTO integrations (organization_id, slug, name, description, badge_public, rule_match, notification_profile_id,
+						  declared_environments)
+						VALUES ($1,$2,$3,$4,$5,COALESCE(NULLIF($6,''),'any'),$7,COALESCE($8::text[],'{}')) RETURNING id`,
+						r.org, in.Slug, in.Name, in.Description, in.BadgePublic, in.RuleMatch, pid, in.DeclaredEnvironments).Scan(&id)
 					return id, err
 				},
 				func(id string) error {
 					_, err := r.tx.Exec(r.ctx, `
-						UPDATE integrations SET name=$2, description=$3, badge_public=$4, rule_match=COALESCE(NULLIF($5,''),'any'), notification_profile_id=$6, updated_at=now() WHERE id=$1`,
-						id, in.Name, in.Description, in.BadgePublic, in.RuleMatch, pid)
+						UPDATE integrations SET name=$2, description=$3, badge_public=$4, rule_match=COALESCE(NULLIF($5,''),'any'), notification_profile_id=$6,
+						  declared_environments=COALESCE($7::text[],'{}'), updated_at=now() WHERE id=$1`,
+						id, in.Name, in.Description, in.BadgePublic, in.RuleMatch, pid, in.DeclaredEnvironments)
 					return err
 				})
 			if err != nil {
@@ -1044,12 +1048,13 @@ func (r *resolver) importAlertRules(rules []AlertRule) func() error {
 					err := r.tx.QueryRow(r.ctx, `
 						INSERT INTO alert_rules (organization_id, integration_id, name, description, signal, rule_spec,
 						  severity, evaluation_interval, enabled, service_name, group_id, title_template, body_template,
-						  source, display_on_service, unit, resolve_mode, notification_config)
+						  source, display_on_service, unit, resolve_mode, notification_config, environment_mode, environments)
 						VALUES ($1,$2,$3,$4,$5::alert_signal,COALESCE($6::jsonb,'{}'::jsonb),$7::alert_severity,$8::interval,
-						  $9,$10,$11,$12,$13,COALESCE(NULLIF($14,''),'custom'),$15,$16,NULLIF($17,''),NULLIF($18,'')::jsonb) RETURNING id`,
+						  $9,$10,$11,$12,$13,COALESCE(NULLIF($14,''),'custom'),$15,$16,NULLIF($17,''),NULLIF($18,'')::jsonb,
+						  COALESCE(NULLIF($19,''),'each'),COALESCE($20::text[],'{}')) RETURNING id`,
 						r.org, integID, a.Name, a.Description, a.Signal, jsonArg(a.RuleSpec), a.Severity, interval,
 						a.Enabled, a.ServiceName, gid, a.TitleTemplate, a.BodyTemplate, a.Source,
-						a.DisplayOnService, a.Unit, a.ResolveMode, string(a.NotificationConfig)).Scan(&id)
+						a.DisplayOnService, a.Unit, a.ResolveMode, string(a.NotificationConfig), a.EnvironmentMode, a.Environments).Scan(&id)
 					return id, err
 				},
 				func(id string) error {
@@ -1057,9 +1062,11 @@ func (r *resolver) importAlertRules(rules []AlertRule) func() error {
 						UPDATE alert_rules SET description=$2, rule_spec=COALESCE($3::jsonb,'{}'::jsonb), severity=$4::alert_severity,
 						  evaluation_interval=$5::interval, enabled=$6, title_template=$7, body_template=$8,
 						  display_on_service=$9, unit=$10, resolve_mode=NULLIF($11,''), notification_config=NULLIF($12,'')::jsonb,
+						  environment_mode=COALESCE(NULLIF($13,''),'each'), environments=COALESCE($14::text[],'{}'),
 						  updated_at=now() WHERE id=$1`,
 						id, a.Description, jsonArg(a.RuleSpec), a.Severity, interval, a.Enabled,
-						a.TitleTemplate, a.BodyTemplate, a.DisplayOnService, a.Unit, a.ResolveMode, string(a.NotificationConfig))
+						a.TitleTemplate, a.BodyTemplate, a.DisplayOnService, a.Unit, a.ResolveMode, string(a.NotificationConfig),
+						a.EnvironmentMode, a.Environments)
 					return err
 				})
 			if err != nil {

@@ -58,6 +58,11 @@ type AlertFacts struct {
 	// severity, 🟢 resolved) as a colon code — a convenience so templates
 	// own the whole line instead of getting an icon force-prepended.
 	StateEmoji string `json:"state_emoji,omitempty"`
+	// Environment is the environment of the integration's telemetry this
+	// alert is about (#40): "production", "(no environment)", or empty
+	// for a check not evaluated per environment. Not org.environment,
+	// which names the Sluicio instance.
+	Environment string `json:"environment,omitempty"`
 }
 
 type RuleFacts struct {

@@ -43,20 +43,71 @@ type Profile struct {
 	RenotifyMinutes int         `json:"renotify_minutes"`
 	IsDefault       bool        `json:"is_default"`
 	ChannelIDs      []uuid.UUID `json:"channel_ids"`
-	CreatedAt       time.Time   `json:"created_at"`
-	UpdatedAt       time.Time   `json:"updated_at"`
+	// EnvironmentMode and Environments restrict the profile to some
+	// environments (#40): "any" (default), "only" these, or every one
+	// "except" these. A profile that does not apply to a firing's
+	// environment is passed over for the next one down the ladder.
+	EnvironmentMode string    `json:"environment_mode"`
+	Environments    []string  `json:"environments"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+}
+
+// Environment modes of a profile.
+const (
+	EnvironmentAny    = "any"
+	EnvironmentOnly   = "only"
+	EnvironmentExcept = "except"
+)
+
+// AppliesTo reports whether the profile routes an alert about env. An
+// alert that is not about an environment (hasEnv false) is routed by
+// every profile, as before.
+func (p Profile) AppliesTo(env string, hasEnv bool) bool {
+	if !hasEnv {
+		return true
+	}
+	listed := false
+	for _, e := range p.Environments {
+		if e == env {
+			listed = true
+			break
+		}
+	}
+	switch p.EnvironmentMode {
+	case EnvironmentOnly:
+		return listed
+	case EnvironmentExcept:
+		return !listed
+	}
+	return true
+}
+
+func environmentModeOf(p Profile) string {
+	switch p.EnvironmentMode {
+	case EnvironmentOnly, EnvironmentExcept:
+		return p.EnvironmentMode
+	}
+	return EnvironmentAny
+}
+
+func environmentsOf(p Profile) []string {
+	if environmentModeOf(p) == EnvironmentAny || p.Environments == nil {
+		return []string{}
+	}
+	return p.Environments
 }
 
 type Store struct{ pool *pgxpool.Pool }
 
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
-const profileCols = `id, organization_id, group_id, name, grouping, renotify_minutes, is_default, created_at, updated_at`
+const profileCols = `id, organization_id, group_id, name, grouping, renotify_minutes, is_default, environment_mode, environments, created_at, updated_at`
 
 func scanProfile(row pgx.Row) (Profile, error) {
 	var p Profile
 	var grp uuid.NullUUID
-	if err := row.Scan(&p.ID, &p.OrganizationID, &grp, &p.Name, &p.Grouping, &p.RenotifyMinutes, &p.IsDefault, &p.CreatedAt, &p.UpdatedAt); err != nil {
+	if err := row.Scan(&p.ID, &p.OrganizationID, &grp, &p.Name, &p.Grouping, &p.RenotifyMinutes, &p.IsDefault, &p.EnvironmentMode, &p.Environments, &p.CreatedAt, &p.UpdatedAt); err != nil {
 		return Profile{}, err
 	}
 	if grp.Valid {
@@ -115,9 +166,9 @@ func (s *Store) Create(ctx context.Context, p Profile) (Profile, error) {
 		p.Grouping = GroupingPerCheck
 	}
 	row := s.pool.QueryRow(ctx, `
-		INSERT INTO notification_profiles (id, organization_id, group_id, name, grouping, renotify_minutes, is_default)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		RETURNING `+profileCols, p.ID, p.OrganizationID, p.GroupID, p.Name, p.Grouping, p.RenotifyMinutes, p.IsDefault)
+		INSERT INTO notification_profiles (id, organization_id, group_id, name, grouping, renotify_minutes, is_default, environment_mode, environments)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		RETURNING `+profileCols, p.ID, p.OrganizationID, p.GroupID, p.Name, p.Grouping, p.RenotifyMinutes, p.IsDefault, environmentModeOf(p), environmentsOf(p))
 	created, err := scanProfile(row)
 	if err != nil {
 		return Profile{}, fmt.Errorf("notifyprofiles: create: %w", err)
@@ -137,9 +188,9 @@ func (s *Store) Update(ctx context.Context, orgID uuid.UUID, p Profile) (Profile
 	}
 	row := s.pool.QueryRow(ctx, `
 		UPDATE notification_profiles
-		SET name = $3, grouping = $4, renotify_minutes = $5, is_default = $6, updated_at = now()
+		SET name = $3, grouping = $4, renotify_minutes = $5, is_default = $6, environment_mode = $7, environments = $8, updated_at = now()
 		WHERE organization_id = $1 AND id = $2
-		RETURNING `+profileCols, orgID, p.ID, p.Name, p.Grouping, p.RenotifyMinutes, p.IsDefault)
+		RETURNING `+profileCols, orgID, p.ID, p.Name, p.Grouping, p.RenotifyMinutes, p.IsDefault, environmentModeOf(p), environmentsOf(p))
 	updated, err := scanProfile(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Profile{}, ErrNotFound

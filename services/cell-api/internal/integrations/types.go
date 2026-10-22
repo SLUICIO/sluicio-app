@@ -93,7 +93,13 @@ type Integration struct {
 	// (issue #31). Only populated by Get. Empty = unrestricted, which is
 	// what an integration nobody has configured means.
 	MessageFilters []MessageFilter `json:"message_filters,omitempty"`
-	CreatedAt      time.Time       `json:"created_at"`
+	// DeclaredEnvironments are the environments the integration is
+	// expected to run in (#40). Optional: without them its environments
+	// are the ones its telemetry shows. A declared environment with no
+	// traffic reads as quiet there instead of not appearing. "" is "(no
+	// environment)".
+	DeclaredEnvironments []string  `json:"declared_environments"`
+	CreatedAt            time.Time `json:"created_at"`
 	UpdatedAt      time.Time       `json:"updated_at"`
 }
 

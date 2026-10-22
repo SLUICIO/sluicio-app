@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -74,6 +75,10 @@ type alertRuleRequest struct {
 	// acknowledged). Empty → defaulted by signal (metric/pushed → auto,
 	// log + failed-trace → manual) to preserve prior behaviour.
 	ResolveMode string `json:"resolve_mode"`
+	// EnvironmentMode and Environments scope a check bound to an
+	// integration by environment (#40): "each" (default) or "only".
+	EnvironmentMode string   `json:"environment_mode"`
+	Environments    []string `json:"environments"`
 }
 
 // validateLogRuleSpec checks a log rule_spec before persistence. Reuses
@@ -557,6 +562,34 @@ func (h *Handlers) buildRule(orgID uuid.UUID, id uuid.UUID, req alertRuleRequest
 		DisplayOnService:    req.DisplayOnService,
 		Unit:                strings.TrimSpace(req.Unit),
 		ResolveMode:         resolveMode,
+	}
+	// Environment scope (#40): meaningful only on a check bound to an
+	// integration, which is where the environment dimension lives.
+	switch strings.TrimSpace(req.EnvironmentMode) {
+	case "", alerting.EnvironmentEach:
+		rule.EnvironmentMode = alerting.EnvironmentEach
+	case alerting.EnvironmentOnly:
+		if integrationID == nil {
+			return alerting.AlertRule{}, errors.New("environment_mode only applies to a check bound to an integration")
+		}
+		seen := map[string]bool{}
+		for _, e := range req.Environments {
+			e = strings.TrimSpace(e)
+			if len(e) > 128 {
+				return alerting.AlertRule{}, errors.New("environment name too long (max 128)")
+			}
+			if !seen[e] {
+				seen[e] = true
+				rule.Environments = append(rule.Environments, e)
+			}
+		}
+		if len(rule.Environments) == 0 {
+			return alerting.AlertRule{}, errors.New(`environment_mode "only" needs at least one environment`)
+		}
+		sort.Strings(rule.Environments)
+		rule.EnvironmentMode = alerting.EnvironmentOnly
+	default:
+		return alerting.AlertRule{}, errors.New(`environment_mode must be "each" or "only"`)
 	}
 	switch signal {
 	case "metric":
