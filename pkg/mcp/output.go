@@ -538,4 +538,20 @@ var integrationCandidatesOut = outSchema(map[string]any{
 		"services":        strArr("The service names in the oversized component."),
 		"internal_traces": intOut("Traces on hops inside it."),
 	}),
+	"partitions": arrOf("Services that look like several flows: an attribute splits their messages, one value per message, into a handful of parts. Each value is a candidate integration.", map[string]any{
+		"service":            strOut("The service, e.g. a Node-RED runtime."),
+		"attribute":          strOut("The span attribute that splits it, e.g. node_red.flow.id."),
+		"coverage":           numOut("Share of the service's messages carrying the attribute."),
+		"values_per_message": numOut("~1 for a partition: each message is in one part."),
+		"named_as_flow":      boolOut("The attribute's name says flow, route, integration, pipeline or similar. When false, judge whether it names a flow or is a property of the message."),
+		"in_integrations":    strArr("Integrations the service already belongs to; splitting a catch-all integration is the usual case."),
+		"values": arrOf("One per part, busiest first.", map[string]any{
+			"value":       strOut("The attribute value: one proposed integration."),
+			"messages":    intOut("Messages carrying it in the window."),
+			"failed":      intOut("Of those, failed."),
+			"first_seen":  strOut("First seen in the window (RFC3339)."),
+			"last_seen":   strOut("Last seen in the window (RFC3339)."),
+			"integration": strOut("An integration already selecting exactly this value on this service, if any."),
+		}),
+	}),
 })

@@ -15,9 +15,13 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/sluicio/sluicio-app/pkg/httpserver"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/api/middleware"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/integrations"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/proposals"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/store"
 )
 
 // IntegrationCandidate is one proposed grouping.
@@ -50,6 +54,44 @@ type IntegrationCandidatesResponse struct {
 	// than silently dropped: a cap that says nothing reads as "there was
 	// nothing else to find", which is the opposite of the truth.
 	Skipped []IntegrationCandidate `json:"skipped_oversized,omitempty"`
+	// Partitions are services that look like several flows (issue #18):
+	// an attribute splits their traffic, one value per message, into a
+	// handful of parts, each a candidate integration.
+	Partitions []PartitionSuggestion `json:"partitions"`
+}
+
+// PartitionSuggestion is one attribute that splits one service into
+// flows: one proposed integration per value, defined as
+// service.name = Service AND Attribute = value.
+type PartitionSuggestion struct {
+	Service   string `json:"service"`
+	Attribute string `json:"attribute"`
+	// Coverage is the share of the service's messages carrying the
+	// attribute; ValuesPerMessage is ~1 for a partition.
+	Coverage         float64 `json:"coverage"`
+	ValuesPerMessage float64 `json:"values_per_message"`
+	// NamedAsFlow: the attribute's name says flow, route, integration,
+	// pipeline or the like. Ranked first; the rest may be a property of
+	// the message rather than a flow, which is the reviewer's call.
+	NamedAsFlow bool `json:"named_as_flow"`
+	// InIntegrations names the integrations the service already belongs
+	// to. A shared runtime usually sits in one catch-all integration,
+	// which is the case this exists for; nothing changes until someone
+	// acts on the suggestion.
+	InIntegrations []string                   `json:"in_integrations,omitempty"`
+	Values         []PartitionValueSuggestion `json:"values"`
+}
+
+// PartitionValueSuggestion is one value: one proposed integration.
+type PartitionValueSuggestion struct {
+	Value     string    `json:"value"`
+	Messages  uint64    `json:"messages"`
+	Failed    uint64    `json:"failed"`
+	FirstSeen time.Time `json:"first_seen"`
+	LastSeen  time.Time `json:"last_seen"`
+	// Integration is set when an integration already selects exactly
+	// this value on this service.
+	Integration string `json:"integration,omitempty"`
 }
 
 // integrationCandidates: GET /api/v1/integration-candidates?range=...
@@ -67,7 +109,9 @@ func (h *Handlers) integrationCandidates(w http.ResponseWriter, r *http.Request)
 	// Everything already claimed by an integration, so candidates are
 	// drawn only from what nobody has grouped yet.
 	assigned := map[string]bool{}
-	if integs, err := h.Integrations.List(r.Context(), orgID); err == nil {
+	integrationsOf := map[string][]string{}
+	integs, err := h.Integrations.List(r.Context(), orgID)
+	if err == nil {
 		for _, i := range integs {
 			members, mErr := h.Catalog.IntegrationServices(r.Context(), i.ID)
 			if mErr != nil {
@@ -75,6 +119,7 @@ func (h *Handlers) integrationCandidates(w http.ResponseWriter, r *http.Request)
 			}
 			for _, m := range members {
 				assigned[m] = true
+				integrationsOf[m] = append(integrationsOf[m], i.Name)
 			}
 		}
 	} else {
@@ -142,5 +187,104 @@ func (h *Handlers) integrationCandidates(w http.ResponseWriter, r *http.Request)
 		Candidates: toAPI(proposals.FindClusters(unassigned, edges, serviceTraces, opt)),
 		Unassigned: len(unassigned),
 		Skipped:    toAPI(proposals.OversizedClusters(unassigned, edges, serviceTraces, opt)),
+		Partitions: h.partitionSuggestions(r, all, integs, integrationsOf, tr),
 	})
+}
+
+// partitionSuggestions finds services that are several flows (issue #18).
+// Every service the caller can see is considered, assigned or not:
+// a shared runtime is usually already in a catch-all integration.
+func (h *Handlers) partitionSuggestions(r *http.Request, all []store.ServiceRow, integs []integrations.Integration, integrationsOf map[string][]string, tr TimeRange) []PartitionSuggestion {
+	ctx := r.Context()
+	popt := proposals.DefaultPartitionOptions()
+	names := make([]string, 0, len(all))
+	for _, s := range all {
+		if s.TraceCount >= popt.MinTraces {
+			names = append(names, s.ServiceName)
+		}
+	}
+	visible, ok := h.filterVisibleMembers(r, names)
+	if !ok || len(visible) == 0 {
+		return []PartitionSuggestion{}
+	}
+	rows, err := h.Store.AttrPartitionStats(ctx, visible, tr.From, tr.To, 20000, popt.MaxValues)
+	if err != nil {
+		h.Logger.Warn("partition stats failed", "err", err)
+		return []PartitionSuggestion{}
+	}
+	stats := make([]proposals.AttrPartitionStats, 0, len(rows))
+	for _, r := range rows {
+		stats = append(stats, proposals.AttrPartitionStats{
+			Service: r.Service, Key: r.Key, TracesWithKey: r.TracesWithKey, TracesTotal: r.TracesTotal,
+			DistinctValues: r.DistinctValues, TraceValuePairs: r.TraceValuePairs, NumericValues: r.NumericValues, BooleanValues: r.BooleanValues,
+		})
+	}
+	found := proposals.FindPartitions(stats, popt, 2, 20)
+
+	// Which values an integration already selects: service.name = S AND
+	// key = v on one rule. Matchers are loaded once.
+	selected := map[string]string{} // service \x00 key \x00 value -> integration
+	if len(found) > 0 {
+		byID := map[uuid.UUID]string{}
+		for _, i := range integs {
+			byID[i.ID] = i.Name
+		}
+		if all, err := h.Integrations.AllMatchersWithIntegration(ctx, middleware.OrgID(r)); err == nil {
+			type groupKey struct {
+				id    uuid.UUID
+				group int
+			}
+			groups := map[groupKey][]integrations.Matcher{}
+			for _, mi := range all {
+				k := groupKey{mi.Integration.ID, mi.Matcher.MatchGroup}
+				groups[k] = append(groups[k], mi.Matcher)
+			}
+			for k, ms := range groups {
+				var svc string
+				for _, m := range ms {
+					if m.IsServiceMatcher() && m.Operator == integrations.OperatorEquals {
+						svc = m.Value
+					}
+				}
+				if svc == "" {
+					continue
+				}
+				for _, m := range ms {
+					if !m.IsServiceMatcher() && m.Operator == integrations.OperatorEquals {
+						selected[svc+"\x00"+m.Attribute+"\x00"+m.Value] = byID[k.id]
+					}
+				}
+			}
+		}
+	}
+
+	out := make([]PartitionSuggestion, 0, len(found))
+	for _, c := range found {
+		vals, err := h.Store.PartitionValues(ctx, c.Service, c.Key, tr.From, tr.To, proposals.MaxPartitionValues)
+		if err != nil {
+			h.Logger.Warn("partition values failed", "service", c.Service, "key", c.Key, "err", err)
+			continue
+		}
+		sug := PartitionSuggestion{
+			Service: c.Service, Attribute: c.Key, Coverage: c.Presence, ValuesPerMessage: c.PerTrace, NamedAsFlow: c.NamedAsFlow,
+			InIntegrations: integrationsOf[c.Service], Values: make([]PartitionValueSuggestion, 0, len(vals)),
+		}
+		uncovered := 0
+		for _, v := range vals {
+			pv := PartitionValueSuggestion{
+				Value: v.Value, Messages: v.Traces, Failed: v.ErrorTraces, FirstSeen: v.FirstSeen, LastSeen: v.LastSeen,
+				Integration: selected[c.Service+"\x00"+c.Key+"\x00"+v.Value],
+			}
+			if pv.Integration == "" {
+				uncovered++
+			}
+			sug.Values = append(sug.Values, pv)
+		}
+		// Every value already has its integration: nothing to suggest.
+		if uncovered == 0 {
+			continue
+		}
+		out = append(out, sug)
+	}
+	return out
 }

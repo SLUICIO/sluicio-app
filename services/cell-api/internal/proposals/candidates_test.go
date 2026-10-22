@@ -258,7 +258,6 @@ func TestAnUnknownReportingSetDoesNotCondemnEverything(t *testing.T) {
 	}
 }
 
-
 // ── The shared-gateway case, from a real cell ────────────────────────
 //
 // The demo cell proposed one cluster of seven services. A human would
@@ -277,7 +276,7 @@ var (
 	// b2b-gateway is in every trace; each downstream pair in a subset.
 	// 33,327 + 19,829 + 13,312 = 66,468, exactly the gateway's total.
 	gwTraces = map[string]uint64{
-		"b2b-gateway": 66468,
+		"b2b-gateway":     66468,
 		"order-validator": 33327, "erp-adapter": 33327,
 		"invoice-matcher": 19829, "finance-ledger": 19829,
 		"despatch-notifier": 13312, "warehouse-sync": 13312,
