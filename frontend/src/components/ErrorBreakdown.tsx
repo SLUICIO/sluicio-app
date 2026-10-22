@@ -19,7 +19,7 @@ import ServiceRef from "./ServiceRef";
 import { useCanOpenServices } from "../lib/useNavigationReach";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
-import type { ErrorBreakdownResponse, ServiceSummary } from "../api/types";
+import type { ErrorBreakdownBucket, ErrorBreakdownResponse, ServiceSummary } from "../api/types";
 import { formatNumber } from "../lib/format";
 import { useCurrentUser } from "../lib/useCurrentUser";
 import CreateTraceAlertDrawer from "./CreateTraceAlertDrawer";
@@ -27,6 +27,13 @@ import CreateTraceAlertDrawer from "./CreateTraceAlertDrawer";
 // The Messages tab understands ?s=<status>; "err only" pre-filters the
 // integration's message list to failed messages.
 const ERRORS_ONLY_QUERY = `?s=${encodeURIComponent("err only")}`;
+
+// The failed messages whose error type is exactly `value`, in the
+// grammar messageFilterUrl reads (the value is encoded inside the chunk).
+function failedWithErrorType(value: string): string {
+  const params = new URLSearchParams({ s: "err only", q: `@errorType:${encodeURIComponent(value)}` });
+  return `?${params.toString()}`;
+}
 
 interface Breakdown {
   service_name: string;
@@ -156,6 +163,8 @@ export default function ErrorBreakdown({
           A trace that failed at more than one {label} is counted at each, so these add up to more
           than {formatNumber(byDimension.error_traces)}.
         </p>
+
+        <ExceptionBuckets integrationId={integrationId} buckets={byDimension.exceptions} />
 
         {showAlert && (
           <CreateTraceAlertDrawer
@@ -359,6 +368,50 @@ export default function ErrorBreakdown({
           ))}
         </div>
       )}
+
+      <ExceptionBuckets integrationId={integrationId} buckets={attribution?.exceptions} />
+    </div>
+  );
+}
+
+// What failed, as opposed to where (#42): the failing traces split by the
+// exception the erroring span recorded. Says nothing about services, so
+// it is shown to every reader of the integration. Hidden when no failing
+// span recorded an exception, which is the usual state for
+// instrumentation that only sets a status.
+function ExceptionBuckets({
+  integrationId,
+  buckets,
+}: {
+  integrationId: string;
+  buckets?: ErrorBreakdownBucket[];
+}) {
+  if (!buckets || buckets.length === 0) return null;
+  const max = Math.max(...buckets.map((b) => b.errors), 1);
+  return (
+    <div className="space-y-1.5" data-testid="error-breakdown-exceptions">
+      <h4 className="text-sm font-semibold">What failed?</h4>
+      {buckets.map((b) => (
+        <Link
+          key={b.value}
+          to={`/integrations/${encodeURIComponent(integrationId)}/messages${failedWithErrorType(b.value)}`}
+          className="flex items-center gap-3 rounded-md px-1 text-sm hover:bg-surface-elevated"
+          title={`Failed messages with ${b.value}`}
+        >
+          <span className="min-w-0 flex-1 truncate font-mono text-xs">{b.value}</span>
+          <span
+            aria-hidden
+            style={{
+              height: 6,
+              width: `${(b.errors / max) * 120}px`,
+              background: "var(--err)",
+              borderRadius: 3,
+              flex: "none",
+            }}
+          />
+          <span className="w-10 text-right font-mono text-xs text-muted">{formatNumber(b.errors)}</span>
+        </Link>
+      ))}
     </div>
   );
 }

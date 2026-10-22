@@ -14,6 +14,7 @@ import { traceOnFlowHref } from "../lib/traceOnFlowHref";
 import { pickInitialSpan } from "../lib/spanSelection";
 import { api } from "../api/client";
 import TraceWaterfall from "./TraceWaterfall";
+import SpanEvents from "./SpanEvents";
 import { KVTable, StatusPip, attributeRows } from "./primitives";
 import PromoteAttributeButton from "./integrations/PromoteAttributeButton";
 import type {
@@ -380,6 +381,7 @@ export default function TraceDrawer({
                     )}
                   </div>
                   <div className="p-4" style={{ overflowY: "auto" }}>
+                    <SpanEvents span={selected} />
                     <AttrTable
                       label="Span attributes"
                       attrs={selected.span_attributes}
@@ -394,7 +396,7 @@ export default function TraceDrawer({
                       columns={msgColumns}
                       onColumnsChanged={setMsgColumns}
                     />
-                    {emptyAttrs(selected) && (
+                    {emptyAttrs(selected) && (selected.events ?? []).length === 0 && (
                       <div className="text-sm text-muted">No attributes on this span.</div>
                     )}
                   </div>

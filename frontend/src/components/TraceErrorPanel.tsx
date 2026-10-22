@@ -10,6 +10,7 @@
 // — Sluicio is an observability tool, not a control plane.
 
 import type { SpanSummary } from "../api/types";
+import { StackTrace, exceptionOf } from "./SpanEvents";
 
 interface Props {
   errorSpan: SpanSummary;
@@ -19,12 +20,17 @@ interface Props {
 
 export default function TraceErrorPanel({ errorSpan, onSimilarErrors }: Props) {
   const attrs = errorSpan.attributes ?? {};
+  // The exception the span recorded (#42) says what failed better than
+  // anything else on it, so it leads; the attributes are the fallback.
+  const exception = exceptionOf(errorSpan);
   const errClass =
+    exception?.type ||
     attrs["error.type"] ||
     attrs["exception.type"] ||
     errorSpan.status_message?.split(":")[0] ||
     "Error";
   const errMessage =
+    exception?.message ||
     attrs["error.message"] ||
     attrs["exception.message"] ||
     errorSpan.status_message ||
@@ -32,7 +38,7 @@ export default function TraceErrorPanel({ errorSpan, onSimilarErrors }: Props) {
   const file =
     attrs["code.filepath"] ||
     attrs["code.function"] ||
-    attrs["exception.stacktrace"]?.split("\n")[1]?.trim();
+    exception?.stacktrace?.split("\n")[1]?.trim();
   const dlq = attrs["dead_letter.destination"] || attrs["messaging.destination.name"];
   const attempt = attrs["retry.attempt"] || attrs["messaging.attempt"];
   const offending = attrs["http.request.body"] || attrs["messaging.payload"] || attrs["payload"];
@@ -52,7 +58,8 @@ export default function TraceErrorPanel({ errorSpan, onSimilarErrors }: Props) {
           error · permanent
         </div>
         <div className="mt-1 text-xl font-semibold">{errClass}</div>
-        <div className="mt-1 text-sm">{errMessage}</div>
+        <div className="mt-1 whitespace-pre-wrap break-words text-sm">{errMessage}</div>
+        {exception?.stacktrace && <StackTrace text={exception.stacktrace} />}
       </div>
 
       {/* Where card */}

@@ -3328,7 +3328,28 @@ func toSpanSummaries(rows []store.SpanRow) []SpanSummary {
 			SpanAttributes:     r.SpanAttributes,
 			Links:              links,
 			LinksTotal:         r.LinksTotal,
+			Events:             spanEvents(r),
+			EventsTotal:        r.EventsTotal,
 		})
+	}
+	return out
+}
+
+// spanEvents pairs a stored span's parallel event arrays into events.
+func spanEvents(r store.SpanRow) []SpanEvent {
+	if len(r.EventsName) == 0 {
+		return nil
+	}
+	out := make([]SpanEvent, 0, len(r.EventsName))
+	for i, name := range r.EventsName {
+		ev := SpanEvent{Name: name}
+		if i < len(r.EventsTimestamp) {
+			ev.Timestamp = r.EventsTimestamp[i]
+		}
+		if i < len(r.EventsAttributes) {
+			ev.Attributes = r.EventsAttributes[i]
+		}
+		out = append(out, ev)
 	}
 	return out
 }

@@ -175,11 +175,10 @@ func messageFromJob(ctx context.Context, job DeliveryJob, product, env, company 
 	// Rich context: core facts from the job + live enrichment (service /
 	// integration / metadata) resolved at delivery time.
 	actx := contextFromJob(job, product, env, company, link)
-	if svc, integ, chk := resolveEnrichment(ctx, job); true {
-		actx.Service, actx.Integration = svc, integ
-		if chk != nil {
-			actx.Check = chk
-		}
+	enr := resolveEnrichment(ctx, job)
+	actx.Service, actx.Integration, actx.Exception = enr.Service, enr.Integration, enr.Exception
+	if enr.Check != nil {
+		actx.Check = enr.Check
 	}
 	content := job.Content
 	legacyTmpl := job.BodyTemplate != "" || job.TitleTemplate != ""

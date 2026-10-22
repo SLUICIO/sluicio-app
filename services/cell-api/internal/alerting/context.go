@@ -43,6 +43,7 @@ type AlertContext struct {
 	Check       *CheckFacts       `json:"check,omitempty"`
 	Service     *ServiceFacts     `json:"service,omitempty"`
 	Integration *IntegrationFacts `json:"integration,omitempty"`
+	Exception   *ExceptionFacts   `json:"exception,omitempty"`
 	Org         OrgFacts          `json:"org"`
 	SentAt      string            `json:"sent_at"`
 }
@@ -96,6 +97,20 @@ type IntegrationFacts struct {
 	Metadata map[string]string `json:"metadata,omitempty"`
 }
 
+// ExceptionFacts is the latest exception a failing span in the rule's
+// scope recorded (#42): "what failed", where the rest of the context
+// says where and how much. Resolved at delivery for a firing
+// notification only, from the last exceptionLookback; nil when nothing
+// in scope recorded one, which is common - plenty of instrumentation
+// only sets a span status.
+type ExceptionFacts struct {
+	Type       string `json:"type"`
+	Message    string `json:"message,omitempty"`
+	Service    string `json:"service,omitempty"`
+	TraceID    string `json:"trace_id,omitempty"`
+	Stacktrace string `json:"stacktrace,omitempty"`
+}
+
 type OrgFacts struct {
 	Company     string `json:"company,omitempty"`
 	Environment string `json:"environment,omitempty"`
@@ -119,18 +134,18 @@ func SetAlertContextResolver(f func(ctx context.Context, job DeliveryJob) (*Aler
 	alertContextResolver = f
 }
 
-// resolveEnrichment returns the live Service/Integration/Check for a job, or
-// nils when no resolver is wired or it errors — enrichment is best-effort and
-// never blocks delivery.
-func resolveEnrichment(ctx context.Context, job DeliveryJob) (*ServiceFacts, *IntegrationFacts, *CheckFacts) {
+// resolveEnrichment returns the live Service/Integration/Check/Exception
+// for a job, or an empty context when no resolver is wired or it errors —
+// enrichment is best-effort and never blocks delivery.
+func resolveEnrichment(ctx context.Context, job DeliveryJob) AlertContext {
 	if alertContextResolver == nil {
-		return nil, nil, nil
+		return AlertContext{}
 	}
 	c, err := alertContextResolver(ctx, job)
 	if err != nil || c == nil {
-		return nil, nil, nil
+		return AlertContext{}
 	}
-	return c.Service, c.Integration, c.Check
+	return *c
 }
 
 // defaultEmailTemplateResolver, when wired, returns the org's default email
@@ -362,6 +377,12 @@ func (c *AlertContext) webhookPayload(content NotificationContent) map[string]an
 		}
 		p["integration"] = i
 	}
+	// Not behind a toggle: it is present only when something in scope
+	// recorded an exception, and a receiver that does not know the key
+	// ignores it.
+	if c.Exception != nil {
+		p["exception"] = c.Exception
+	}
 	return p
 }
 
@@ -400,6 +421,13 @@ const DefaultEmailBody = `<!doctype html>
             <div style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#64748b;font-weight:600;">Integration</div>
             <div style="font-size:14px;margin-top:4px;"><b>{{ integration.name }}</b>{% if integration.status %} · {{ integration.status }}{% endif %}</div>
             {% if include.integration_metadata and integration.metadata %}<table style="margin-top:6px;font-size:13px;">{% for kv in integration.metadata %}<tr><td style="color:#64748b;padding-right:10px;">{{ kv.key }}</td><td>{{ kv.value }}</td></tr>{% endfor %}</table>{% endif %}
+          </div>
+          {% endif %}
+          {% if exception %}
+          <div style="margin-top:16px;border-top:1px solid #e2e8f0;padding-top:12px;">
+            <div style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#64748b;font-weight:600;">Latest exception</div>
+            <div style="font-size:14px;margin-top:4px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;"><b>{{ exception.type | escape }}</b>{% if exception.service %} <span style="color:#64748b;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">on {{ exception.service | escape }}</span>{% endif %}</div>
+            {% if exception.message %}<div style="font-size:14px;margin-top:2px;white-space:pre-line;">{{ exception.message | truncate: 500 | escape }}</div>{% endif %}
           </div>
           {% endif %}
           {% if alert.link %}<div style="margin-top:24px;"><a href="{{ alert.link }}" style="display:inline-block;background:#0f172a;color:#ffffff;text-decoration:none;padding:10px 18px;border-radius:8px;font-size:14px;font-weight:600;">View in {{ org.product }}</a></div>{% endif %}

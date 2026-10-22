@@ -128,8 +128,8 @@ func Build(filters []Filter) (SQL, error) {
 			if strings.TrimSpace(f.Value) == "" {
 				continue
 			}
-			// Match against StatusMessage and the conventional
-			// exception.type attribute on the span.
+			// Match against StatusMessage, the recorded exception's
+			// type (#42) and an exception.type attribute on the span.
 			c, args, err := errorTypeClause(f.Op, f.Value)
 			if err != nil {
 				return SQL{}, err
@@ -239,14 +239,14 @@ func payloadClause(key string, op Operator, value string) (string, []any, error)
 func errorTypeClause(op Operator, value string) (string, []any, error) {
 	switch op {
 	case OpEquals, OpIs:
-		clause := "(StatusMessage = ? OR SpanAttributes['exception.type'] = ?)"
-		return clause, []any{value, value}, nil
+		clause := "(StatusMessage = ? OR ExceptionType = ? OR SpanAttributes['exception.type'] = ?)"
+		return clause, []any{value, value, value}, nil
 	case OpContains:
-		clause := "(positionCaseInsensitive(StatusMessage, ?) > 0 OR positionCaseInsensitive(SpanAttributes['exception.type'], ?) > 0)"
-		return clause, []any{value, value}, nil
+		clause := "(positionCaseInsensitive(StatusMessage, ?) > 0 OR positionCaseInsensitive(ExceptionType, ?) > 0 OR positionCaseInsensitive(SpanAttributes['exception.type'], ?) > 0)"
+		return clause, []any{value, value, value}, nil
 	case OpMatches:
-		clause := "(match(StatusMessage, ?) OR match(SpanAttributes['exception.type'], ?))"
-		return clause, []any{value, value}, nil
+		clause := "(match(StatusMessage, ?) OR match(ExceptionType, ?) OR match(SpanAttributes['exception.type'], ?))"
+		return clause, []any{value, value, value}, nil
 	case OpIn:
 		vals := splitList(value)
 		if len(vals) == 0 {
@@ -254,8 +254,11 @@ func errorTypeClause(op Operator, value string) (string, []any, error) {
 		}
 		placeholders := strings.Repeat("?,", len(vals))
 		placeholders = placeholders[:len(placeholders)-1]
-		clause := fmt.Sprintf("(StatusMessage IN (%s) OR SpanAttributes['exception.type'] IN (%s))", placeholders, placeholders)
-		args := make([]any, 0, len(vals)*2)
+		clause := fmt.Sprintf("(StatusMessage IN (%s) OR ExceptionType IN (%s) OR SpanAttributes['exception.type'] IN (%s))", placeholders, placeholders, placeholders)
+		args := make([]any, 0, len(vals)*3)
+		for _, v := range vals {
+			args = append(args, v)
+		}
 		for _, v := range vals {
 			args = append(args, v)
 		}

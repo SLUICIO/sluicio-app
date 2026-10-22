@@ -5,6 +5,7 @@ package ingest
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 )
@@ -44,7 +45,11 @@ func (s *Store) InsertSpans(ctx context.Context, rows []SpanRow) error {
 			StatusMessage,
 			LinkTraceIds,
 			LinkSpanIds,
-			LinksTotal
+			LinksTotal,
+			EventsTimestamp,
+			EventsName,
+			EventsAttributes,
+			EventsTotal
 		)
 	`)
 	if err != nil {
@@ -72,6 +77,10 @@ func (s *Store) InsertSpans(ctx context.Context, rows []SpanRow) error {
 			nonNil(r.LinkTraceIDs),
 			nonNil(r.LinkSpanIDs),
 			r.LinksTotal,
+			nonNilTimes(r.EventsTimestamp),
+			nonNil(r.EventsName),
+			nonNilMaps(r.EventsAttributes),
+			r.EventsTotal,
 		); err != nil {
 			return fmt.Errorf("append row: %w", err)
 		}
@@ -186,4 +195,18 @@ func nonNil(s []string) []string {
 		return []string{}
 	}
 	return s
+}
+
+func nonNilTimes(v []time.Time) []time.Time {
+	if v == nil {
+		return []time.Time{}
+	}
+	return v
+}
+
+func nonNilMaps(v []map[string]string) []map[string]string {
+	if v == nil {
+		return []map[string]string{}
+	}
+	return v
 }

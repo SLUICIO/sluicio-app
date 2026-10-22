@@ -447,6 +447,22 @@ type SpanSummary struct {
 	// the reader has to say "showing N of M" rather than presenting the
 	// stored ones as all of them.
 	LinksTotal uint32 `json:"links_total,omitempty"`
+	// Events are the span's events, in order (issue #42). An exception is
+	// the event named "exception", carrying exception.type, .message and
+	// .stacktrace - often the only place the reason for a failure is
+	// written down. Absent for spans ingested before span events were
+	// stored.
+	Events []SpanEvent `json:"events,omitempty"`
+	// EventsTotal is how many events the span carried before truncation
+	// at ingest; greater than len(Events) means the rest were dropped.
+	EventsTotal uint32 `json:"events_total,omitempty"`
+}
+
+// SpanEvent is one event on a span.
+type SpanEvent struct {
+	Timestamp  time.Time         `json:"timestamp"`
+	Name       string            `json:"name"`
+	Attributes map[string]string `json:"attributes,omitempty"`
 }
 
 // SpanLink is one reference from a span to another span, usually in a
@@ -508,6 +524,10 @@ type TraceSearchResult struct {
 	// span "matched" and the field would assert something false. Absent
 	// means "no opinion", not "nothing matched".
 	MatchedSpanIDs []string `json:"matched_span_ids,omitempty"`
+	// ExceptionType and ExceptionMessage say what failed: the first
+	// exception a failing span recorded (#42). Absent when none did.
+	ExceptionType    string `json:"exception_type,omitempty"`
+	ExceptionMessage string `json:"exception_message,omitempty"`
 	// Promoted holds the integration's promoted column values keyed by
 	// attribute key (issue #23). Resolved against every span of the
 	// trace, not only the matched one. A key the trace never carried is

@@ -318,9 +318,21 @@ export default function IntegrationErrors() {
                     <span className="truncate font-mono text-xs" style={{ color: "var(--primary)" }}>
                       {t.trace_id.slice(0, 16)}…
                     </span>
-                    <span className="truncate">
-                      {t.matched_service}
-                      <span className="text-muted"> · {t.matched_span_name}</span>
+                    <span className="min-w-0">
+                      <span className="block truncate">
+                        {t.matched_service}
+                        <span className="text-muted"> · {t.matched_span_name}</span>
+                      </span>
+                      {t.exception_type && (
+                        <span
+                          className="block truncate font-mono text-xs"
+                          style={{ color: "var(--err-ink)" }}
+                          title={t.exception_message ? `${t.exception_type}: ${t.exception_message}` : t.exception_type}
+                        >
+                          {t.exception_type}
+                          {t.exception_message ? `: ${t.exception_message}` : ""}
+                        </span>
+                      )}
                     </span>
                     <span className="text-right text-xs text-muted">
                       {formatDateTime(t.trace_start)}

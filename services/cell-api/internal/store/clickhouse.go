@@ -570,6 +570,63 @@ func (s *Store) CountErrorTracesForServices(ctx context.Context, serviceNames []
 	return n, nil
 }
 
+// ExceptionRow is one exception a failing span recorded (#42).
+type ExceptionRow struct {
+	Timestamp   time.Time
+	ServiceName string
+	TraceID     string
+	Type        string
+	Message     string
+	Stacktrace  string
+}
+
+// LatestException returns the most recent exception recorded by a
+// failing span on the given services within [from,to], read the same
+// way the message list reads one: the span's exception event, else its
+// exception.* attributes. groups is the bound integration's conditions
+// (nil for none), as on CountErrorTracesForServices. ok is false when no
+// failing span in scope recorded one.
+func (s *Store) LatestException(ctx context.Context, serviceNames []string, from, to time.Time, groups [][]LogAttrFilter) (ExceptionRow, bool, error) {
+	if len(serviceNames) == 0 {
+		return ExceptionRow{}, false, nil
+	}
+	args := []any{from, to}
+	svc := make([]string, len(serviceNames))
+	for i, n := range serviceNames {
+		svc[i] = "?"
+		args = append(args, n)
+	}
+	sliceSQL, sliceArgs := checkSliceClause(groups, from, to)
+	args = append(args, sliceArgs...)
+	q := `
+		SELECT Timestamp, ServiceName, TraceId,
+		       ` + exceptionTypeExpr + `,
+		       ` + exceptionMessageExpr + `,
+		       if(ExceptionType != '',
+		          EventsAttributes[indexOf(EventsName, 'exception')]['exception.stacktrace'],
+		          SpanAttributes['exception.stacktrace'])
+		FROM traces
+		WHERE Timestamp >= ? AND Timestamp <= ?
+		  AND ServiceName IN (` + strings.Join(svc, ",") + `)
+		  AND StatusCode = 'Error'
+		  AND ` + exceptionTypeExpr + ` != ''` + sliceSQL + `
+		ORDER BY Timestamp DESC
+		LIMIT 1`
+	rows, err := s.conn.Query(ctx, q, args...)
+	if err != nil {
+		return ExceptionRow{}, false, fmt.Errorf("latest exception: %w", err)
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		return ExceptionRow{}, false, rows.Err()
+	}
+	var r ExceptionRow
+	if err := rows.Scan(&r.Timestamp, &r.ServiceName, &r.TraceID, &r.Type, &r.Message, &r.Stacktrace); err != nil {
+		return ExceptionRow{}, false, fmt.Errorf("latest exception: %w", err)
+	}
+	return r, true, nil
+}
+
 // CountTracesMatchingAttrs counts the distinct traces that have at least
 // one span matching ALL of attrs on any of the given services within
 // [from,to], REGARDLESS of that span's status.
@@ -1034,6 +1091,13 @@ type SpanRow struct {
 	// ingest. Greater than len(LinkTraceIDs) means the rest were dropped
 	// and the reader must say "showing N of M".
 	LinksTotal uint32
+	// Events are the span's events (issue #42): an exception is one,
+	// named "exception" with exception.type / .message / .stacktrace.
+	// Empty means "not recorded" for spans ingested before migration 0009.
+	EventsTimestamp  []time.Time
+	EventsName       []string
+	EventsAttributes []map[string]string
+	EventsTotal      uint32
 }
 
 // RecentSpans returns the most recent spans for a service in the range.
@@ -1043,7 +1107,8 @@ func (s *Store) RecentSpans(ctx context.Context, service string, from, to time.T
 			Timestamp, TraceId, SpanId, ParentSpanId, ServiceName,
 			SpanName, SpanKind, StatusCode, StatusMessage, DurationNs,
 			ResourceAttributes, SpanAttributes,
-			LinkTraceIds, LinkSpanIds, LinksTotal
+			LinkTraceIds, LinkSpanIds, LinksTotal,
+			EventsTimestamp, EventsName, EventsAttributes, EventsTotal
 		FROM traces
 		WHERE ServiceName = ? AND Timestamp >= ? AND Timestamp <= ?
 		ORDER BY Timestamp DESC
@@ -1197,6 +1262,14 @@ func promotedColumnSQL(keys []string) (selects string, args []any) {
 // search could report a different span on every reload. promotedColumnSQL
 // already broke ties this way; these columns did not, and splitting the
 // query is what made the two disagree in a test.
+// exceptionTypeExpr and exceptionMessageExpr read a span's exception:
+// the event it recorded (#42) first, then the exception.* span
+// attributes some instrumentations set instead.
+const (
+	exceptionTypeExpr    = "if(ExceptionType != '', ExceptionType, SpanAttributes['exception.type'])"
+	exceptionMessageExpr = "if(ExceptionType != '', ExceptionMessage, SpanAttributes['exception.message'])"
+)
+
 func buildMessagesSearchSQL(p MessagesSearchParams) (string, []any) {
 	// The SCOPE - window and service allow-list - is kept separate from
 	// the row predicates, because the exclusion subquery needs the scope
@@ -1297,7 +1370,17 @@ func buildMessagesSearchSQL(p MessagesSearchParams) (string, []any) {
 		           argMax(SpanName, (Timestamp, SpanId))           AS matched_span_name,
 		           argMax(ResourceAttributes, (Timestamp, SpanId)) AS matched_resource_attrs,
 		           argMax(SpanAttributes, (Timestamp, SpanId))     AS matched_span_attrs,
-		           %s                                              AS matched_span_ids
+		           %s                                              AS matched_span_ids,
+		           -- What failed (#42): the first exception an ERRORING
+		           -- span recorded. The same spans has_error is computed
+		           -- over (scope and predicates), so a message never names
+		           -- an exception from a step the reader cannot see. Here
+		           -- rather than in candidates, which must not touch the
+		           -- attribute maps.
+		           argMinIf(`+exceptionTypeExpr+`, Timestamp,
+		                    StatusCode = 'Error' AND `+exceptionTypeExpr+` != '') AS exception_type,
+		           argMinIf(`+exceptionMessageExpr+`, Timestamp,
+		                    StatusCode = 'Error' AND `+exceptionTypeExpr+` != '') AS exception_message
 		    FROM traces
 		    WHERE TraceId IN (SELECT TraceId FROM candidates) AND %s
 		    GROUP BY TraceId
@@ -1324,6 +1407,8 @@ func buildMessagesSearchSQL(p MessagesSearchParams) (string, []any) {
 		    m.matched_resource_attrs,
 		    m.matched_span_attrs,
 		    m.matched_span_ids,
+		    m.exception_type,
+		    m.exception_message,
 		    c.first_match%s
 		FROM summary AS s
 		INNER JOIN matching AS m ON s.TraceId = m.TraceId
@@ -1356,6 +1441,7 @@ func (s *Store) SearchMessages(ctx context.Context, p MessagesSearchParams) ([]S
 			&r.MatchedService, &r.MatchedSpanName,
 			&r.MatchedResourceAttrs, &r.MatchedSpanAttrs,
 			&r.MatchedSpanIDs,
+			&r.ExceptionType, &r.ExceptionMessage,
 			&r.FirstMatch,
 		}
 		for i := range promoted {
@@ -1438,8 +1524,9 @@ func (s *Store) TableAvgRowBytes(ctx context.Context, table string) (float64, er
 }
 
 // DistinctErrorTypes returns the error identifiers observed on error
-// spans in the window — the conventional exception.type attribute when
-// present, else the span's StatusMessage — most frequent first. Backs
+// spans in the window — the type of the span's recorded exception event
+// (#42), else an exception.type span attribute, else the span's
+// StatusMessage — most frequent first. Backs
 // the message-search error-type picker: the set isn't static (it's
 // whatever the org's telemetry emits), so the UI offers the observed
 // values with a free-text fallback.
@@ -1449,7 +1536,7 @@ func (s *Store) DistinctErrorTypes(ctx context.Context, from, to time.Time, limi
 	}
 	const q = `
 		SELECT etype, toUInt64(count()) AS uses FROM (
-		    SELECT if(SpanAttributes['exception.type'] != '', SpanAttributes['exception.type'], StatusMessage) AS etype
+		    SELECT multiIf(ExceptionType != '', ExceptionType, SpanAttributes['exception.type'] != '', SpanAttributes['exception.type'], StatusMessage) AS etype
 		    FROM traces
 		    WHERE Timestamp >= ? AND Timestamp <= ? AND StatusCode = 'Error'
 		)
@@ -1645,6 +1732,12 @@ type SearchTraceRow struct {
 	// Capped (see matchedSpanIDsExpr): a caller that wants every span in
 	// a trace should fetch the trace.
 	MatchedSpanIDs []string
+	// ExceptionType and ExceptionMessage name the first exception a
+	// failing span in the searched slice recorded (#42): its exception
+	// event, else exception.* span attributes. Empty when none did, and
+	// always empty from SearchTraces.
+	ExceptionType    string
+	ExceptionMessage string
 	// FirstMatch is when the message started within the slice that was
 	// searched: the earliest span satisfying the query, in the window
 	// and in the services the reader may see. It is the keyset cursor
@@ -1732,6 +1825,8 @@ func (s *Store) SearchTraces(ctx context.Context, q string, from, to time.Time, 
 		        positionCaseInsensitive(ServiceName, ?) > 0
 		        OR positionCaseInsensitive(SpanName, ?) > 0
 		        OR positionCaseInsensitive(StatusMessage, ?) > 0
+		        OR positionCaseInsensitive(ExceptionType, ?) > 0
+		        OR positionCaseInsensitive(ExceptionMessage, ?) > 0
 		        OR arrayExists(x -> positionCaseInsensitive(x, ?) > 0, mapKeys(SpanAttributes))
 		        OR arrayExists(x -> positionCaseInsensitive(x, ?) > 0, mapValues(SpanAttributes))
 		        OR arrayExists(x -> positionCaseInsensitive(x, ?) > 0, mapKeys(ResourceAttributes))
@@ -1772,7 +1867,7 @@ func (s *Store) SearchTraces(ctx context.Context, q string, from, to time.Time, 
 
 	args := []any{
 		from, to,
-		q, q, q, q, q, q, q,
+		q, q, q, q, q, q, q, q, q,
 	}
 	args = append(args, serviceFilterArgs...)
 	args = append(args, limit)
@@ -2092,7 +2187,8 @@ func (s *Store) SpansForTrace(ctx context.Context, traceID string, limit int) ([
 			Timestamp, TraceId, SpanId, ParentSpanId, ServiceName,
 			SpanName, SpanKind, StatusCode, StatusMessage, DurationNs,
 			ResourceAttributes, SpanAttributes,
-			LinkTraceIds, LinkSpanIds, LinksTotal
+			LinkTraceIds, LinkSpanIds, LinksTotal,
+			EventsTimestamp, EventsName, EventsAttributes, EventsTotal
 		FROM traces
 		WHERE TraceId = ?
 		ORDER BY Timestamp ASC
@@ -2771,6 +2867,7 @@ func (s *Store) querySpans(ctx context.Context, query string, args ...any) ([]Sp
 			&r.SpanName, &r.SpanKind, &r.StatusCode, &r.StatusMessage, &r.DurationNs,
 			&r.ResourceAttributes, &r.SpanAttributes,
 			&r.LinkTraceIDs, &r.LinkSpanIDs, &r.LinksTotal,
+			&r.EventsTimestamp, &r.EventsName, &r.EventsAttributes, &r.EventsTotal,
 		); err != nil {
 			return nil, err
 		}
@@ -4901,6 +4998,11 @@ type ErrorDimension struct {
 	// AttributeKey groups by the value of one span/resource attribute.
 	// Empty means group by span name instead.
 	AttributeKey string
+	// Exception groups by what failed rather than where: the type of
+	// the exception the erroring span recorded (#42), else an
+	// exception.type attribute. Spans that recorded neither are left out.
+	// Takes precedence over AttributeKey.
+	Exception bool
 }
 
 // ErrorBucket is one row of an error breakdown: a dimension value and
@@ -4952,7 +5054,10 @@ func (s *Store) ErrorTracesByDimension(
 	// the integration.
 	group := "SpanName"
 	var groupArgs []any
-	if dim.AttributeKey != "" {
+	switch {
+	case dim.Exception:
+		group = "if(ExceptionType != '', ExceptionType, SpanAttributes['exception.type'])"
+	case dim.AttributeKey != "":
 		group = "coalesce(nullIf(SpanAttributes[?], ''), ResourceAttributes[?])"
 		groupArgs = []any{dim.AttributeKey, dim.AttributeKey}
 	}

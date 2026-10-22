@@ -491,9 +491,9 @@ func buildTools(s *Server) []tool {
 				}
 				return s.get("/api/v1/metric-catalog", q)
 			}},
-		{Name: "sluicio_search_traces", Output: searchTracesOut, Description: "Search traces within a time window: filter by service, errors-only, and/or an error-message substring. Returns matching traces (trace_id, service, span, error flag, timing) — drill in with sluicio_get_trace. NOTE: returns up to `limit` traces (default 100); a non-null next_cursor in the response means more match beyond the limit, so treat the count as a lower bound.", Schema: objSchema(map[string]any{
+		{Name: "sluicio_search_traces", Output: searchTracesOut, Description: "Search traces within a time window: filter by service, errors-only, and/or an error-message substring. Returns matching traces (trace_id, service, span, error flag, timing, and for a failed trace the exception it recorded) — drill in with sluicio_get_trace. NOTE: returns up to `limit` traces (default 100); a non-null next_cursor in the response means more match beyond the limit, so treat the count as a lower bound.", Schema: objSchema(map[string]any{
 			"service":     strProp("Scope to one service name (e.g. INT002)."),
-			"query":       strProp("Substring to match against the error type / status message (e.g. 'timeout')."),
+			"query":       strProp("Substring to match against the error type: the recorded exception's type or the status message (e.g. 'timeout')."),
 			"window":      strProp("Time window, e.g. 1h, 24h, 48h, 7d. Default 24h."),
 			"errors_only": map[string]any{"type": "boolean", "description": "Only failed/error traces. Default true."},
 			"limit":       map[string]any{"type": "integer", "description": "Max traces to return (1-1000). Default 100."},
@@ -595,7 +595,7 @@ func buildTools(s *Server) []tool {
 			"window": strProp("Time window the report is computed over, e.g. 24h, 7d, 30d. Default 24h."),
 		}),
 			Call: func(a map[string]any) (string, error) { return s.get("/api/v1/reports/usage", rangeArg(a, "24h")) }},
-		{Name: "sluicio_get_trace", Output: getTraceOut, Description: "Fetch one trace by id — all its spans across services, with timings and errors. Use a trace_id from sluicio_search_traces or a sample_trace_id from sluicio_errors.", Schema: objSchema(map[string]any{"trace_id": strProp("The trace id (hex string).")}, "trace_id"),
+		{Name: "sluicio_get_trace", Output: getTraceOut, Description: "Fetch one trace by id — all its spans across services, with timings, errors and the events each span recorded (a recorded exception carries its type, message and stack trace). Use a trace_id from sluicio_search_traces or a sample_trace_id from sluicio_errors.", Schema: objSchema(map[string]any{"trace_id": strProp("The trace id (hex string).")}, "trace_id"),
 			Call: func(a map[string]any) (string, error) {
 				id := argStr(a, "trace_id")
 				if id == "" {

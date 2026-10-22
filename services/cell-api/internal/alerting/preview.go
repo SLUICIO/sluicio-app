@@ -97,6 +97,13 @@ func SampleAlertContext() *AlertContext {
 				"Runbook":         "https://wiki.example.com/order-pipeline",
 			},
 		},
+		Exception: &ExceptionFacts{
+			Type:       "System.InvalidOperationException",
+			Message:    "Payment provider returned 503 for order ORD-10432",
+			Service:    "checkout-api",
+			TraceID:    "4bf92f3577b34da6a3ce929d0e0e4736",
+			Stacktrace: "System.InvalidOperationException: Payment provider returned 503 for order ORD-10432\n   at Checkout.PaymentClient.ChargeAsync(Order order) in PaymentClient.cs:line 88\n   at Checkout.OrderHandler.HandleAsync(Order order) in OrderHandler.cs:line 41",
+		},
 		// The wordmark is the real one, not a placeholder: the preview and
 		// the variable palette are where a partner checks that their brand
 		// reaches the email, and showing them "Sluicio" there would be the

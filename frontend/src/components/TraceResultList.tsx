@@ -73,6 +73,12 @@ function TraceCard({
         </span>
         <span className="muted">{formatRelative(trace.trace_start)}</span>
       </div>
+      {trace.exception_type && (
+        <div className="result__msg" style={{ color: "var(--err-ink)" }}>
+          <span className="font-mono">{trace.exception_type}</span>
+          {trace.exception_message ? `: ${trace.exception_message}` : ""}
+        </div>
+      )}
       {keyEntries.length > 0 && (
         <div className="attrs attrs--key">
           {keyEntries.map(([k, v]) => (

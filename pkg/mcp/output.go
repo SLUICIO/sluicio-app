@@ -332,6 +332,8 @@ var (
 			"matched_span_name": strOut("The matching span's name."),
 			"service_count":     intOut("Distinct services in the trace."),
 			"total_spans":       intOut("Spans in the trace."),
+			"exception_type":    strOut("What failed: the type of the first exception a failing span recorded, e.g. System.InvalidOperationException. Absent when none did."),
+			"exception_message": strOut("That exception's message."),
 		}),
 		"total":       intOut("Matches returned. With a non-null next_cursor this is a lower bound, not the true total."),
 		"next_cursor": objOf("Pass back to page further. Null when the result set is complete.", nil),
@@ -430,6 +432,12 @@ var (
 			"status_message":      strOut("Error detail when the span failed."),
 			"span_attributes":     objOf("Span-level attributes.", nil),
 			"resource_attributes": objOf("Resource-level attributes.", nil),
+			"events": arrOf("What the span recorded while it ran, oldest first. An event named 'exception' carries exception.type, exception.message and exception.stacktrace: read it first when a span failed. Long values may end in a '[truncated]' marker. Absent when none were stored.", map[string]any{
+				"timestamp":  strOut("When the event happened (RFC3339)."),
+				"name":       strOut("Event name; 'exception' for a recorded exception."),
+				"attributes": objOf("The event's attributes.", nil),
+			}),
+			"events_total": intOut("Events the span carried before truncation at ingest. More than len(events) means some were dropped."),
 		}),
 	}, "trace_id", "spans")
 

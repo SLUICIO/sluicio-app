@@ -34,7 +34,31 @@ type SpanRow struct {
 	// truncation. Kept separately so a truncated span can say "linked to
 	// 500, showing 32" instead of quietly presenting 32 as all of them.
 	LinksTotal uint32
+	// Events are the span's events, in order, truncated to MaxSpanEvents
+	// (issue #42). An exception is recorded as an event named
+	// "exception" with exception.type / .message / .stacktrace, and is
+	// often the only place the REASON for a failure is written down.
+	EventsTimestamp  []time.Time
+	EventsName       []string
+	EventsAttributes []map[string]string
+	// EventsTotal is how many events the span carried before truncation.
+	EventsTotal uint32
 }
+
+// MaxSpanEvents caps how many events are stored per span. The median span
+// has none and a failing one a few; the cap is for the span that logs an
+// event per item of a large batch. Same number and same reasoning as
+// MaxSpanLinks: raising it later does not recover what was discarded.
+const MaxSpanEvents = 32
+
+// MaxEventValueBytes caps one event attribute value - in practice a stack
+// trace. Long enough for any trace a person reads to its end; the rest is
+// the same frames again, recursion, or a framework's own depth.
+const MaxEventValueBytes = 16 << 10
+
+// TruncatedMarker ends a value cut at MaxEventValueBytes, so a reader can
+// tell a cut stack trace from a short one.
+const TruncatedMarker = "\n… [truncated]"
 
 // MaxSpanLinks caps how many links are stored per span.
 //

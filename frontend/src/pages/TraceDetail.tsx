@@ -14,6 +14,7 @@ import IntegrationFlow from "../components/IntegrationFlow";
 import SpanGraph from "../components/SpanGraph";
 import MessageChain from "../components/MessageChain";
 import TraceErrorPanel from "../components/TraceErrorPanel";
+import SpanEvents, { exceptionOf } from "../components/SpanEvents";
 import TraceWaterfall from "../components/TraceWaterfall";
 import TraceTrimPanel from "../components/traces/TraceTrimPanel";
 import { KVTable, StatusPip, attributeRows } from "../components/primitives";
@@ -247,7 +248,10 @@ export default function TraceDetail() {
     [data],
   );
   const hasError = errorSpans.length > 0;
-  const primaryErrorSpan = errorSpans[0];
+  // The failing span that recorded an exception, when one did: a parent
+  // that failed because its child threw usually carries only a status,
+  // and the exception is what the reader came for (#42).
+  const primaryErrorSpan = errorSpans.find((s) => exceptionOf(s) !== null) ?? errorSpans[0];
 
   // Active firings scoped to the current integration context (if
   // any). The status pip + alert banner only consider these so the
@@ -723,6 +727,7 @@ function SpanDetailsPanel({
       </div>
       <div className="p-4" style={{ overflowY: "auto" }}>
         <KeyAttributes span={span} keyAttrs={keyAttrs} />
+        <SpanEvents span={span} />
         <Attrs label="Resource attributes" attrs={span.resource_attributes} />
         <Attrs label="Span attributes" attrs={span.span_attributes} />
       </div>

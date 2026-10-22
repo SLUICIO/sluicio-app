@@ -75,6 +75,12 @@ var templateVariableDocs = map[string]varDoc{
 	"integration.services":       {"member service names (iterable)", "integration-scoped rules"},
 	"integration.metadata.<key>": {"an integration metadata field (also iterable)", "integration-scoped rules with the metadata block enabled"},
 
+	"exception.type":       {"the type of the latest exception a failing span in scope recorded, e.g. System.InvalidOperationException", "firing notifications, when a failing span in the rule's scope recorded an exception in the last 15 minutes"},
+	"exception.message":    {"that exception's message", "when exception.type is set and the exception had a message"},
+	"exception.service":    {"the service whose span recorded it", "when exception.type is set"},
+	"exception.trace_id":   {"the trace it was recorded in", "when exception.type is set"},
+	"exception.stacktrace": {"its stack trace, as recorded (long; cut at 16 KB at ingest)", "when exception.type is set and a stack trace was recorded"},
+
 	"org.company":     {"the organization's company name", "when configured"},
 	"org.environment": {"the cell's environment label", "when configured"},
 	"org.product":     {"what this deployment calls itself — the cell's wordmark, or \"Sluicio\"", "always"},

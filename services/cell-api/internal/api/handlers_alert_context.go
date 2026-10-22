@@ -7,16 +7,24 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/sluicio/sluicio-app/pkg/httpserver"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/alerting"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/store"
 )
+
+// exceptionLookback is how far back a firing notification looks for the
+// exception to name (#42). Recent enough to belong to this firing, wide
+// enough to cover a check's evaluation window.
+const exceptionLookback = 15 * time.Minute
 
 // ResolveAlertContext is the alerting.SetAlertContextResolver implementation:
 // it enriches a firing notification with the live service / integration
-// details + their user-defined metadata, read fresh at delivery time. Only
-// Service / Integration are returned (delivery.go owns Alert / Rule / Org /
-// Check). Best-effort — a failed lookup just leaves that block nil, never
+// details + their user-defined metadata, read fresh at delivery time, and
+// for a firing notification the latest exception recorded in the rule's
+// scope. Only Service / Integration / Exception are returned (delivery.go
+// owns Alert / Rule / Org / Check). Best-effort — a failed lookup just leaves that block nil, never
 // blocking delivery.
 func (h *Handlers) ResolveAlertContext(ctx context.Context, job alerting.DeliveryJob) (*alerting.AlertContext, error) {
 	out := &alerting.AlertContext{}
@@ -31,17 +39,45 @@ func (h *Handlers) ResolveAlertContext(ctx context.Context, job alerting.Deliver
 		out.Service = sf
 	}
 
+	// Exception: what the scope's failing spans last recorded. Scoped
+	// like the rule: a service-bound rule reads that service, an
+	// integration-bound one its member services through its slice, and
+	// an org-wide rule names nothing rather than an exception from an
+	// arbitrary corner of the org.
+	var (
+		excServices []string
+		excGroups   [][]store.LogAttrFilter
+	)
+
 	// Integration block — when the rule is bound to an integration.
 	if job.IntegrationID != nil {
 		if integ, err := h.Integrations.Get(ctx, orgID, *job.IntegrationID); err == nil {
 			inf := &alerting.IntegrationFacts{Name: integ.Name, Slug: integ.Slug}
 			if members, mErr := h.Catalog.IntegrationServices(ctx, *job.IntegrationID); mErr == nil {
 				inf.Services = members
+				excServices = members
+				excGroups = h.integrationGroups(ctx, *job.IntegrationID)
 			}
 			if meta, mErr := h.integrationMetadataValues(ctx, *job.IntegrationID); mErr == nil && len(meta) > 0 {
 				inf.Metadata = meta
 			}
 			out.Integration = inf
+		}
+	} else if out.Service != nil {
+		excServices = []string{out.Service.Name}
+	}
+	if job.State == "firing" && h.Store != nil && len(excServices) > 0 {
+		now := time.Now()
+		if ex, ok, err := h.Store.LatestException(ctx, excServices, now.Add(-exceptionLookback), now, excGroups); err != nil {
+			h.Logger.Warn("alert context: latest exception failed", "err", err)
+		} else if ok {
+			out.Exception = &alerting.ExceptionFacts{
+				Type:       ex.Type,
+				Message:    ex.Message,
+				Service:    ex.ServiceName,
+				TraceID:    ex.TraceID,
+				Stacktrace: ex.Stacktrace,
+			}
 		}
 	}
 	return out, nil

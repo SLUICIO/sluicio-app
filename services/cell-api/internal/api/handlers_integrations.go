@@ -1939,6 +1939,11 @@ type ErrorBreakdownResponse struct {
 	// than what it was. Reported separately so nothing has to derive a
 	// total by adding rows up, which would overcount.
 	ErrorTraces uint64 `json:"error_traces"`
+	// Exceptions splits the same failing traces by WHAT failed: the
+	// exception type the erroring span recorded (#42). Independent of
+	// Dimension, which answers where. Empty when no failing span recorded
+	// an exception, and like Buckets it can sum to more than ErrorTraces.
+	Exceptions []ErrorBreakdownBucket `json:"exceptions"`
 }
 
 // integrationErrorBreakdown: GET /api/v1/integrations/{id}/error-breakdown
@@ -2022,6 +2027,17 @@ func (h *Handlers) integrationErrorBreakdown(w http.ResponseWriter, r *http.Requ
 		out = append(out, ErrorBreakdownBucket{Value: b.Value, Errors: b.Errors})
 	}
 
+	exceptions := []ErrorBreakdownBucket{}
+	if exb, err := h.Store.ErrorTracesByDimension(
+		r.Context(), memberNames, tr.From, tr.To, attrGroups,
+		store.ErrorDimension{Exception: true}, 20); err != nil {
+		h.Logger.Warn("exception error breakdown failed", "err", err)
+	} else {
+		for _, b := range exb {
+			exceptions = append(exceptions, ErrorBreakdownBucket{Value: b.Value, Errors: b.Errors})
+		}
+	}
+
 	total, tErr := h.Store.ErrorTraceTotalFiltered(r.Context(), memberNames, tr.From, tr.To, attrGroups)
 	if tErr != nil {
 		h.Logger.Warn("error trace total failed", "err", tErr)
@@ -2034,6 +2050,7 @@ func (h *Handlers) integrationErrorBreakdown(w http.ResponseWriter, r *http.Requ
 		Reason:       choice.Reason,
 		Buckets:      out,
 		ErrorTraces:  total,
+		Exceptions:   exceptions,
 	})
 }
 

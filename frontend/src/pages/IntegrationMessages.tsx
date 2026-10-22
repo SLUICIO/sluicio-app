@@ -99,6 +99,15 @@ const DEFAULT_COLUMNS_WHILE_LOADING: MessageColumn[] = [
  * longer than a service name. `minmax` throughout so a narrow window
  * shrinks the flexible ones instead of overflowing the row.
  */
+// The last segment of a qualified exception type, which is what tells
+// two apart in a narrow cell: "System.InvalidOperationException" and
+// "java.lang.IllegalStateException" become their class names. The full
+// name stays on hover.
+function shortExceptionType(t: string): string {
+  const m = /(?:\.|::)([^.:]+)$/.exec(t);
+  return m ? m[1] : t;
+}
+
 function columnWidth(c: MessageColumn): string {
   if (c.kind !== "builtin") return "minmax(112px,1fr)";
   switch (c.key) {
@@ -1040,7 +1049,19 @@ export default function IntegrationMessagesPage() {
                     inside the service column, which the user can now
                     remove — a badge that disappears with an unrelated
                     column would hide a real status. */}
-                <span style={{ display: "flex", alignItems: "center", minWidth: 0 }}>
+                <span style={{ display: "flex", alignItems: "center", gap: 4, minWidth: 0 }}>
+                  {/* What failed (#42), in the same cell as the delayed
+                      badge for the same reason: no column configuration
+                      may hide a status. The message is on hover. */}
+                  {r.exception_type && (
+                    <span
+                      className="truncate font-mono text-xs"
+                      style={{ color: "var(--err-ink)", maxWidth: 240 }}
+                      title={r.exception_message ? `${r.exception_type}: ${r.exception_message}` : r.exception_type}
+                    >
+                      {shortExceptionType(r.exception_type)}
+                    </span>
+                  )}
                   {showBadge && (
                     <span
                       className={badgeClass}

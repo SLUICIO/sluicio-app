@@ -451,7 +451,7 @@ func (h *Handlers) fieldsCatalog(w http.ResponseWriter, r *http.Request) {
 		{
 			Field:       "errorType",
 			Label:       "error type",
-			Description: "Match the span's StatusMessage or exception.type attribute.",
+			Description: "Match the span's StatusMessage, its recorded exception's type, or an exception.type attribute.",
 			Operators:   []string{"equals", "contains", "matches", "in"},
 			// Observed error identifiers in the window (not a static
 			// vocabulary — whatever the telemetry emits), so the picker
@@ -712,17 +712,19 @@ func (h *Handlers) searchMessages(w http.ResponseWriter, r *http.Request) {
 	results := make([]TraceSearchResult, 0, len(rows))
 	for _, t := range rows {
 		results = append(results, TraceSearchResult{
-			TraceID:         t.TraceID,
-			TraceStart:      t.TraceStart,
-			DurationMs:      t.DurationMs,
-			HasError:        t.HasError,
-			TotalSpans:      t.TotalSpans,
-			ServiceCount:    t.ServiceCount,
-			MatchedService:  t.MatchedService,
-			MatchedSpanName: t.MatchedSpanName,
-			MatchedSpanIDs:  t.MatchedSpanIDs,
-			Attributes:      mergeAttributes(t.MatchedResourceAttrs, t.MatchedSpanAttrs),
-			Promoted:        promotedByKey(messageColumns, t.Promoted),
+			TraceID:          t.TraceID,
+			TraceStart:       t.TraceStart,
+			DurationMs:       t.DurationMs,
+			HasError:         t.HasError,
+			TotalSpans:       t.TotalSpans,
+			ServiceCount:     t.ServiceCount,
+			MatchedService:   t.MatchedService,
+			MatchedSpanName:  t.MatchedSpanName,
+			MatchedSpanIDs:   t.MatchedSpanIDs,
+			ExceptionType:    t.ExceptionType,
+			ExceptionMessage: t.ExceptionMessage,
+			Attributes:       mergeAttributes(t.MatchedResourceAttrs, t.MatchedSpanAttrs),
+			Promoted:         promotedByKey(messageColumns, t.Promoted),
 		})
 	}
 

@@ -227,6 +227,25 @@ export interface SpanSummary {
    *  Greater than links.length means the rest were dropped, and the
    *  reader must be told "showing N of M". */
   links_total?: number;
+  /** Events the span recorded while it ran, oldest first: most often an
+   *  exception (name "exception", with exception.type, .message and
+   *  .stacktrace), sometimes a log-like milestone.
+   *
+   *  ABSENT means none were stored, which for a trace ingested before
+   *  events were kept (#42) says nothing about whether it had any. */
+  events?: SpanEvent[];
+  /** How many events the span carried before truncation at ingest.
+   *  Greater than events.length means the rest were dropped. */
+  events_total?: number;
+}
+
+/** One event recorded on a span (OpenTelemetry span event). Long
+ *  attribute values, a stack trace in particular, may have been cut at
+ *  ingest and then end with a "[truncated]" marker. */
+export interface SpanEvent {
+  timestamp: string;
+  name: string;
+  attributes?: Record<string, string>;
 }
 
 /** One reference from a span to another span, usually in another trace.
@@ -1112,6 +1131,10 @@ export interface TraceSearchResult {
   // hour"), which means "no opinion" rather than "nothing matched" —
   // the trace view keeps its own default selection in that case.
   matched_span_ids?: string[];
+  /** What failed: the first exception a failing span recorded (its
+   *  exception event, else exception.* attributes). Absent when none did. */
+  exception_type?: string;
+  exception_message?: string;
   // The integration's promoted column values, keyed by attribute key.
   // Resolved against EVERY span of the trace, not only the matched one,
   // so a value set deep in a flow still reaches the list. A key no span
@@ -3105,6 +3128,11 @@ export interface ErrorBreakdownResponse {
    *  trace that failed at two operations is counted at both, because the
    *  question is where it failed. Never derive a total by adding rows. */
   error_traces: number;
+  /** The same failing traces split by WHAT failed: the exception type the
+   *  erroring span recorded. Independent of `dimension`, which says where.
+   *  Empty when no failing span recorded an exception; like `buckets` it
+   *  can sum to more than error_traces. Absent from older servers. */
+  exceptions?: ErrorBreakdownBucket[];
 }
 
 /** The advisor's demand-history status.

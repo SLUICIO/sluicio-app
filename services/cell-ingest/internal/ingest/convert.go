@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"strconv"
 	"time"
+	"unicode/utf8"
 
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
@@ -38,6 +39,7 @@ func convertSpan(span *tracepb.Span, resourceAttrs map[string]string, serviceNam
 	}
 	status := span.GetStatus()
 	linkTraces, linkSpans, linksTotal := convertLinks(span.GetLinks())
+	evTimes, evNames, evAttrs, evTotal := convertEvents(span.GetEvents())
 	return SpanRow{
 		Timestamp:          start,
 		TraceID:            hex.EncodeToString(span.GetTraceId()),
@@ -55,7 +57,54 @@ func convertSpan(span *tracepb.Span, resourceAttrs map[string]string, serviceNam
 		LinkTraceIDs:       linkTraces,
 		LinkSpanIDs:        linkSpans,
 		LinksTotal:         linksTotal,
+		EventsTimestamp:    evTimes,
+		EventsName:         evNames,
+		EventsAttributes:   evAttrs,
+		EventsTotal:        evTotal,
 	}
+}
+
+// convertEvents keeps a span's events: time, name and attributes, capped
+// at MaxSpanEvents with the true count returned, and each attribute value
+// cut at MaxEventValueBytes (issue #42).
+//
+// Unlike link attributes, event attributes are the point: an exception's
+// type, message and stack trace live there and nowhere else.
+func convertEvents(events []*tracepb.Span_Event) (times []time.Time, names []string, attrs []map[string]string, total uint32) {
+	total = uint32(len(events))
+	if total == 0 {
+		return nil, nil, nil, 0
+	}
+	n := min(len(events), MaxSpanEvents)
+	times = make([]time.Time, 0, n)
+	names = make([]string, 0, n)
+	attrs = make([]map[string]string, 0, n)
+	for _, e := range events[:n] {
+		if e == nil {
+			continue
+		}
+		m := attributesToMap(e.GetAttributes())
+		for k, v := range m {
+			if len(v) > MaxEventValueBytes {
+				m[k] = truncateUTF8(v, MaxEventValueBytes) + TruncatedMarker
+			}
+		}
+		times = append(times, time.Unix(0, int64(e.GetTimeUnixNano())).UTC())
+		names = append(names, e.GetName())
+		attrs = append(attrs, m)
+	}
+	return times, names, attrs, total
+}
+
+// truncateUTF8 cuts s to at most n bytes without splitting a character.
+func truncateUTF8(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
 }
 
 // convertLinks extracts a span's links, keeping only the REFERENCE and
