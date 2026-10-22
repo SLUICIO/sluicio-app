@@ -3,8 +3,16 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.178 — 2026-10-22
+
+- feat: suggest one integration per flow on a shared runtime (#18) (9740b4f)
+- feat(stateexport): an integration's state per environment (#40) (7b6bb7a)
+- feat(frontend): read and alert on an integration per environment (#40) (d47c9bc)
+- feat(api): environments on an integration, read and alerted per environment (#40) (2550b4f)
+
 ## v0.11.177 — 2026-10-22
 
+- release v0.11.177 - refresh internal changelog (9e9a00a)
 - feat: recurring maintenance windows (#9) (27f1585)
 - feat: report a cell's capacity without judging it (#21) (19a4a4c)
 - feat(frontend): the global Messages list and its CSV export name the recorded exception (#42) (7eccaba)
