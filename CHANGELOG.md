@@ -3,8 +3,15 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.177 — 2026-10-22
+
+- feat: recurring maintenance windows (#9) (27f1585)
+- feat: report a cell's capacity without judging it (#21) (19a4a4c)
+- feat(frontend): the global Messages list and its CSV export name the recorded exception (#42) (7eccaba)
+
 ## v0.11.176 — 2026-10-22
 
+- release v0.11.176 - refresh internal changelog (5ea0ea1)
 - feat: store and show span events, so a recorded exception is visible (#42) (eeb55ff)
 
 ## v0.11.175 — 2026-10-21
