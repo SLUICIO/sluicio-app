@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.179 — 2026-10-22
+
+- fix(clickhouse): typed defaults for span event columns, so data from before 0009 stays readable (eeed915)
+
 ## v0.11.178 — 2026-10-22
 
+- release v0.11.178 - refresh internal changelog (effca91)
 - feat: suggest one integration per flow on a shared runtime (#18) (9740b4f)
 - feat(stateexport): an integration's state per environment (#40) (7b6bb7a)
 - feat(frontend): read and alert on an integration per environment (#40) (d47c9bc)
