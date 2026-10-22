@@ -106,6 +106,15 @@ deploymentToken:
   existingSecret: ""
   secretKey: "deployment-token"
 
+# Token for monitoring tools to read the cell's health and capacity
+# (GET /api/v1/cell-health and /api/v1/cell-capacity, bearer; capacity
+# also as Prometheus text with ?format=prometheus). Unset: only a
+# signed-in operator can read them. existingSecret preferred.
+healthToken:
+  key: ""
+  existingSecret: ""
+  secretKey: "health-token"
+
 cellApi:
   image:
     repository: ghcr.io/sluicio/cell-api

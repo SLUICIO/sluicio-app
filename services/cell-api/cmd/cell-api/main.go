@@ -909,6 +909,8 @@ func main() {
 		// inside the handler, not a session; the auth middleware would
 		// reject the request before it got there.
 		"/api/v1/cell-health",
+		// Capacity, same shared secret as cell-health (issue #21).
+		"/api/v1/cell-capacity",
 		// The deployment's read of usage against its limits: a token
 		// checked inside the handler (SLUICIO_DEPLOYMENT_TOKEN), never a
 		// session. 404 when no token is set.

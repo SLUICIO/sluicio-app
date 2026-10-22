@@ -89,6 +89,7 @@ spec:
               value: {{ .Values.limits.monitoredEntities | quote }}
             {{- end }}
             {{- include "cell.secretEnv" (dict "root" . "name" "SLUICIO_DEPLOYMENT_TOKEN" "cfg" .Values.deploymentToken "appKey" "deployment-token") | nindent 12 }}
+            {{- include "cell.secretEnv" (dict "root" . "name" "SLUICIO_HEALTH_TOKEN" "cfg" .Values.healthToken "appKey" "health-token") | nindent 12 }}
             {{- with .Values.cellApi.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

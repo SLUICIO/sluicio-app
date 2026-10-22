@@ -1667,6 +1667,15 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 			}
 			h.AuthMW.RequireOperator(h.cellHealth)(w, r)
 		})
+		// Capacity (issue #21): reported, never judged. Same access as
+		// cell-health.
+		mux.HandleFunc("GET /api/v1/cell-capacity", func(w http.ResponseWriter, r *http.Request) {
+			if healthTokenOK(r) {
+				h.cellCapacity(w, r)
+				return
+			}
+			h.AuthMW.RequireOperator(h.cellCapacity)(w, r)
+		})
 		mux.HandleFunc("GET /api/v1/cell-settings/smtp",
 			h.AuthMW.RequireOperator(h.getSMTP))
 		mux.HandleFunc("PATCH /api/v1/cell-settings/smtp",

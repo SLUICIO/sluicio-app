@@ -103,10 +103,7 @@ No organisation names or per-org figures appear in the payload.
 feature exists for and cannot be produced without breaking something on
 purpose.
 
-**Not built.** Capacity reporting. #14's design says capacity is
-reported but not judged; none of it shipped, so Case 14.7 below cannot
-be walked — there is nothing to check. Tracked in #21 rather than left
-looking like a passed case.
+**Capacity (#21).** Reported at its own endpoint, `GET /api/v1/cell-capacity` (same access as cell-health; `?format=prometheus` for the text format): ClickHouse disks, telemetry bytes per table, Postgres size, and per signal what is held, the days held, the configured retention and what was stored yesterday and today. Cases 14.7 to 14.9 below.
 
 | | |
 |--|--|
@@ -116,7 +113,9 @@ looking like a passed case.
 | **Case 14.4** | `GET /api/v1/cell-health` without `SLUICIO_HEALTH_TOKEN` set returns 401 even with a correct-looking bearer token. |
 | **Case 14.5** | With the token set, the report lists ten loops. After the cell has run a few minutes, the frequent ones (`alerting`, `demand-writer`, `event-subscriptions`) read `ok`. |
 | **Case 14.6** | A response contains **no organisation names and no per-org figures**. This is a privacy boundary, not a formatting preference: a cell operator and a tenant's admins can be different parties. |
-| **Case 14.7** | ~~Capacity never moves `status`.~~ **Not testable: capacity is not reported at all. See #21.** |
+| **Case 14.7** | Capacity never moves `status`: with a cell whose disk is well used, `/api/v1/cell-health` still reads `ok`, and `/api/v1/cell-capacity` has no status, threshold or projection field at all. |
+| **Case 14.8** | `/api/v1/cell-capacity` with the health token returns disks, `telemetry_bytes`, `postgres.database_bytes` and a `signals` entry for traces, logs and metrics; `last_full_day.day` is yesterday in UTC and a signal with nothing yesterday reads zeros rather than vanishing. Like 14.6: no organisation names, no per-org figures. |
+| **Case 14.9** | `?format=prometheus` returns `text/plain; version=0.0.4` that `promtool check metrics` accepts. Stop Postgres: the JSON carries `postgres.error`, the text drops the Postgres gauge and reports `sluicio_capacity_measured{section="postgres"} 0`, and the rest still answers. |
 
 ---
 

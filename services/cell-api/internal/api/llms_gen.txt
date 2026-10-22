@@ -84,6 +84,9 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 ## cell-brief
 - GET /api/v1/cell-brief — List cell-brief
 
+## cell-capacity
+- GET /api/v1/cell-capacity — List cell-capacity
+
 ## cell-health
 - GET /api/v1/cell-health — List cell-health
 

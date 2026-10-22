@@ -169,6 +169,17 @@ type DeploymentUsage struct {
 		ByTable           map[string]uint64 `json:"by_table,omitempty"`
 		Error             string            `json:"error,omitempty"`
 	} `json:"storage"`
+	// Ingest is what each signal stored yesterday (the last complete UTC
+	// day) and so far today: the rate usage is growing at. Absent when it
+	// could not be measured. Instance-wide; how it is used is the
+	// deployment's business.
+	Ingest map[string]IngestVolume `json:"ingest,omitempty"`
+}
+
+// IngestVolume is one signal's intake by day.
+type IngestVolume struct {
+	LastFullDay imclickhouse.DayVolume `json:"last_full_day"`
+	Today       imclickhouse.DayVolume `json:"today"`
 }
 
 // deploymentUsage: GET /api/v1/deployment/usage - integrations, systems
@@ -212,6 +223,19 @@ func (h *Handlers) deploymentUsage(w http.ResponseWriter, r *http.Request) {
 		used := u.Bytes
 		out.Storage.UsedBytes = &used
 		out.Storage.ByTable = u.ByTable
+	}
+	if h.ClickHouseConn != nil {
+		mctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		vols, verr := imclickhouse.MeasureSignals(mctx, h.ClickHouseConn, time.Now())
+		cancel()
+		if verr != nil {
+			h.Logger.Warn("deployment usage: ingest measurement failed", "err", verr)
+		} else {
+			out.Ingest = map[string]IngestVolume{}
+			for signal, v := range vols {
+				out.Ingest[signal] = IngestVolume{LastFullDay: v.LastFullDay, Today: v.Today}
+			}
+		}
 	}
 	if h.StorageLimit.Bytes > 0 {
 		lim := h.StorageLimit.Bytes
