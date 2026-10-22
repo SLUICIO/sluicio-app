@@ -34,6 +34,8 @@ const COLUMNS: Array<{ header: string; get: (r: TraceSearchResult) => unknown }>
   { header: "service_count", get: (r) => r.service_count },
   { header: "matched_service", get: (r) => r.matched_service },
   { header: "matched_span_name", get: (r) => r.matched_span_name },
+  { header: "exception_type", get: (r) => r.exception_type ?? "" },
+  { header: "exception_message", get: (r) => r.exception_message ?? "" },
   {
     header: "attributes",
     get: (r) =>

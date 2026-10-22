@@ -647,7 +647,17 @@ export default function Search() {
                     <span className="text-muted"> · {r.matched_span_name}</span>
                   </span>
                   <span className="truncate font-mono text-xs text-muted">
-                    {r.attributes &&
+                    {r.exception_type ? (
+                      // What failed (#42) says more about a failed message
+                      // than any three of its attributes.
+                      <span
+                        style={{ color: "var(--err-ink)" }}
+                        title={r.exception_message ? `${r.exception_type}: ${r.exception_message}` : r.exception_type}
+                      >
+                        {r.exception_type}
+                        {r.exception_message ? `: ${r.exception_message}` : ""}
+                      </span>
+                    ) : r.attributes &&
                       Object.entries(r.attributes)
                         .slice(0, 3)
                         .map(([k, v]) => `${k}=${v}`)
