@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.180 — 2026-10-22
+
+- feat(dashboards): environments and include rules; integrations open on production (#40) (11ef2ce)
+
 ## v0.11.179 — 2026-10-22
 
+- release v0.11.179 - refresh internal changelog (88bceb9)
 - fix(clickhouse): typed defaults for span event columns, so data from before 0009 stays readable (eeed915)
 
 ## v0.11.178 — 2026-10-22
