@@ -11,6 +11,7 @@
 // tab counts (.svc-tab .count).
 
 import { useLocation } from "react-router-dom";
+import { envQuery, useEnvironmentParam } from "../lib/activeEnvironment";
 import { TabStrip } from "./primitives";
 import { useNavigationReach } from "../lib/useNavigationReach";
 
@@ -54,6 +55,7 @@ export default function IntegrationTabs({ integrationId, messagesCount, errorsCo
   // reads as "offer everything".
   const reach = useNavigationReach();
   const loc = useLocation();
+  const [env] = useEnvironmentParam();
   const base = `/integrations/${encodeURIComponent(integrationId)}`;
   const tabs: Tab[] = [
     { label: "Overview", path: base, exact: true },
@@ -87,7 +89,8 @@ export default function IntegrationTabs({ integrationId, messagesCount, errorsCo
       items={tabs.map((t) => ({
         key: t.label,
         label: t.label,
-        to: t.path,
+        // The environment travels between tabs (issue #40).
+        to: t.path + envQuery(env),
         active: isActive(t),
         disabled: t.disabled,
         count: t.count,

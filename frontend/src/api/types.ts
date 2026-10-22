@@ -786,6 +786,28 @@ export interface Integration {
   // empty). On single-integration responses they live at the top
   // level of the wrapper (see IntegrationDetail.tags).
   tags?: Tag[];
+  /** Environments the integration is expected to run in (issue #40).
+   *  "" is "(no environment)". A declared one with no traffic reads quiet. */
+  declared_environments?: string[];
+  /** Status per environment, worst first, when the list was asked for it. */
+  environments?: EnvironmentStatus[];
+}
+
+/** One integration's state in one environment (issue #40). */
+export interface EnvironmentStatus {
+  /** "" is "(no environment)". */
+  environment: string;
+  status: ServiceStatus;
+  trace_count: number;
+  error_trace_count: number;
+  declared: boolean;
+}
+
+/** An environment on the integration page's strip: its status plus
+ *  whether logs and metrics came from it too. */
+export interface IntegrationEnvironment extends EnvironmentStatus {
+  log_records: number;
+  metric_rows: number;
 }
 
 export interface Matcher {
@@ -925,6 +947,7 @@ export interface IntegrationStats {
   error_trace_count?: number;
   delayed_trace_count?: number;
   traffic_series?: number[];
+  environments?: EnvironmentStatus[];
 }
 
 export interface CreateIntegrationRequest {
@@ -1900,6 +1923,9 @@ export interface TemplateVariable {
 
 export interface AlertRule {
   id: string;
+  /** Environment scope of a check bound to an integration (issue #40). */
+  environment_mode?: "each" | "only";
+  environments?: string[];
   organization_id: string;
   integration_id?: string;
   // Bound system. Resolved to the system's member services at evaluation
@@ -1993,6 +2019,10 @@ export interface AlertRuleInput {
   // "auto" = self-recovering; "manual" = stays firing until acknowledged.
   // Omit to let the server default by signal (metric→auto, log/trace→manual).
   resolve_mode?: "auto" | "manual";
+  // Checks bound to an integration (issue #40): "each" environment
+  // separately (default) or "only" the listed ones.
+  environment_mode?: "each" | "only";
+  environments?: string[];
 }
 
 // One outbound event subscription (issue #4): type-filter globs fanned
@@ -2064,9 +2094,16 @@ export interface NotificationProfile {
   renotify_minutes: number; // 0 = no recurring re-notification
   is_default: boolean; // the default for its scope (team or org)
   channel_ids: string[];
+  /** Routing by environment (issue #40): "any" (default), "only" these,
+   *  or every one "except" these. A profile that does not apply to an
+   *  alert's environment is passed over for the next one down. */
+  environment_mode?: ProfileEnvironmentMode;
+  environments?: string[];
   created_at: string;
   updated_at: string;
 }
+
+export type ProfileEnvironmentMode = "any" | "only" | "except";
 
 export interface NotificationProfileInput {
   group_id?: string | null;
@@ -2075,6 +2112,8 @@ export interface NotificationProfileInput {
   renotify_minutes: number;
   is_default: boolean;
   channel_ids?: string[];
+  environment_mode?: ProfileEnvironmentMode;
+  environments?: string[];
 }
 
 // ConfigImportReport is what config-import returns (dry-run and real).

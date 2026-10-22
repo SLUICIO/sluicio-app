@@ -6,6 +6,7 @@
 // threshold; any one firing flips the entity's health pill. Bound rules
 // reuse the alert engine (alert_rules.service_name / integration_id).
 
+import EnvironmentScopeField, { envScopePayload, initialEnvScope, type EnvScope } from "./EnvironmentScopeField";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
@@ -594,6 +595,7 @@ function HealthCheckEditor({
   const pushed = canPush && source === "pushed";
   const [name, setName] = useState(rule?.name ?? "");
   const [runbook, setRunbook] = useState(rule?.runbook ?? "");
+  const [envScope, setEnvScope] = useState<EnvScope>(() => initialEnvScope(rule));
   const [metricNames, setMetricNames] = useState<string[]>([]);
   const [metric, setMetric] = useState(rule?.spec.metric_name ?? "");
   const [fields, setFields] = useState<LogFieldEntry[]>([]);
@@ -710,6 +712,7 @@ function HealthCheckEditor({
       unit: unit.trim() || undefined,
       resolve_mode: resolveMode,
       ...scopeBinding(scope, target),
+      ...envScopePayload(scope, envScope),
     };
     try {
       if (rule) {
@@ -770,6 +773,8 @@ function HealthCheckEditor({
           placeholder={pushed ? "e.g. Queue depth" : metric ? `${metric} health` : "Health check name"}
         />
       </div>
+
+      <EnvironmentScopeField scope={scope} integrationId={target} value={envScope} onChange={setEnvScope} />
 
       <div className="m-field">
         <label className="m-field-label">Runbook <span className="muted" style={{ fontWeight: 400 }}>optional</span></label>
@@ -981,6 +986,7 @@ function LogCheckEditor({
   const ls = rule?.log_spec;
   const [name, setName] = useState(rule?.name ?? "");
   const [runbook, setRunbook] = useState(rule?.runbook ?? "");
+  const [envScope, setEnvScope] = useState<EnvScope>(() => initialEnvScope(rule));
   const [severity, setSeverity] = useState<AlertSeverity>(rule?.severity ?? "warning");
   const [minSeverity, setMinSeverity] = useState<number>(ls?.min_severity ?? 17);
   const [bodyContains, setBodyContains] = useState(ls?.body_contains ?? "");
@@ -1015,6 +1021,7 @@ function LogCheckEditor({
         comparison,
       },
       ...scopeBinding(scope, target),
+      ...envScopePayload(scope, envScope),
     };
     try {
       if (rule) {
@@ -1040,6 +1047,8 @@ function LogCheckEditor({
         <label className="m-field-label">Name</label>
         <input className="search__input" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Error logs" />
       </div>
+
+      <EnvironmentScopeField scope={scope} integrationId={target} value={envScope} onChange={setEnvScope} />
 
       <div className="m-field">
         <label className="m-field-label">Runbook <span className="muted" style={{ fontWeight: 400 }}>optional</span></label>
@@ -1252,6 +1261,7 @@ function TraceCheckEditor({
   );
   const [name, setName] = useState(rule?.name ?? "");
   const [runbook, setRunbook] = useState(rule?.runbook ?? "");
+  const [envScope, setEnvScope] = useState<EnvScope>(() => initialEnvScope(rule));
   const [severity, setSeverity] = useState<AlertSeverity>(rule?.severity ?? "warning");
   // Failed-trace fields.
   const [threshold, setThreshold] = useState<number>(ts?.threshold ?? 1);
@@ -1317,6 +1327,7 @@ function TraceCheckEditor({
       resolve_mode: resolveMode,
       signal: "trace" as const,
       ...scopeBinding(scope, target),
+      ...envScopePayload(scope, envScope),
     };
     const body =
       mode === "latency"
@@ -1398,6 +1409,8 @@ function TraceCheckEditor({
         <label className="m-field-label">Name</label>
         <input className="search__input" value={name} onChange={(e) => setName(e.target.value)} placeholder={mode === "latency" ? "e.g. Slow checkout" : mode === "volume" ? "e.g. Orders stopped" : mode === "attribute" ? "e.g. Documents failed to ingest" : "e.g. Failed orders"} />
       </div>
+
+      <EnvironmentScopeField scope={scope} integrationId={target} value={envScope} onChange={setEnvScope} />
 
       <div className="m-field">
         <label className="m-field-label">Runbook <span className="muted" style={{ fontWeight: 400 }}>optional</span></label>

@@ -44,6 +44,7 @@ import MetadataPanel from "../components/MetadataPanel";
 import { usePageTitle } from "../lib/usePageTitle";
 import { useTimeWindow } from "../lib/useTimeWindow";
 import HealthChecks from "../components/health/HealthChecks";
+import DeclaredEnvironments from "../components/integrations/DeclaredEnvironments";
 import { useProductName } from "../lib/useProductName";
 
 type TimeUnit = "seconds" | "minutes" | "hours";
@@ -376,6 +377,16 @@ export default function IntegrationSettings() {
             <IntegrationProfileSelect integrationId={id} canWrite={canWrite} />
           </div>
         </section>
+
+        {integration && (
+          <DeclaredEnvironments
+            integrationId={id}
+            declared={integration.integration.declared_environments ?? []}
+            canWrite={canWrite}
+            onSaved={refresh}
+            onError={setError}
+          />
+        )}
         </div>
       )}
 

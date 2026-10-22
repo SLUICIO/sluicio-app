@@ -14,6 +14,7 @@ import { api } from "../api/client";
 import type {
   NotificationChannel,
   NotificationProfile,
+  ProfileEnvironmentMode,
   ProfileGrouping,
 } from "../api/types";
 
@@ -23,6 +24,8 @@ type Draft = {
   renotify_minutes: number;
   is_default: boolean;
   channel_ids: string[];
+  environment_mode: ProfileEnvironmentMode;
+  environments: string[];
 };
 
 function toDraft(p: NotificationProfile): Draft {
@@ -32,6 +35,8 @@ function toDraft(p: NotificationProfile): Draft {
     renotify_minutes: p.renotify_minutes,
     is_default: p.is_default,
     channel_ids: [...p.channel_ids],
+    environment_mode: p.environment_mode ?? "any",
+    environments: [...(p.environments ?? [])],
   };
 }
 
@@ -41,6 +46,8 @@ function draftsEqual(a: Draft, b: Draft): boolean {
     a.grouping === b.grouping &&
     a.renotify_minutes === b.renotify_minutes &&
     a.is_default === b.is_default &&
+    a.environment_mode === b.environment_mode &&
+    a.environments.join("\u0000") === b.environments.join("\u0000") &&
     a.channel_ids.length === b.channel_ids.length &&
     a.channel_ids.every((id) => b.channel_ids.includes(id))
   );
@@ -161,6 +168,9 @@ function ProfileCard({
   onError: (msg: string) => void;
 }) {
   const [draft, setDraft] = useState<Draft>(toDraft(profile));
+  // The typed text, kept apart from the parsed list so a comma being
+  // typed is not normalised away mid-word.
+  const [envText, setEnvText] = useState(() => (profile.environments ?? []).join(", "));
   const [saving, setSaving] = useState(false);
 
   // Re-sync when the underlying profile changes (e.g. after a sibling save
@@ -188,6 +198,8 @@ function ProfileCard({
         grouping: draft.grouping,
         renotify_minutes: Math.max(0, Math.floor(draft.renotify_minutes || 0)),
         is_default: draft.is_default,
+        environment_mode: draft.environment_mode,
+        environments: draft.environment_mode === "any" ? [] : draft.environments,
       });
       await api.setNotificationProfileChannels(profile.id, draft.channel_ids);
       await onChanged();
@@ -278,6 +290,49 @@ function ProfileCard({
           Default for this scope
         </label>
       </div>
+
+      {/* Routing by environment (issue #40): "production pages, test
+          posts to Slack" is a production-only profile on the
+          integration over a default for the rest. */}
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
+        <label style={field}>
+          <span style={labelStyle}>Environments</span>
+          <select
+            className="search__input"
+            style={{ fontSize: 13 }}
+            value={draft.environment_mode}
+            disabled={!canWrite}
+            onChange={(e) => setDraft((d) => ({ ...d, environment_mode: e.target.value as ProfileEnvironmentMode }))}
+          >
+            <option value="any">Every environment</option>
+            <option value="only">Only these</option>
+            <option value="except">All except these</option>
+          </select>
+        </label>
+        {draft.environment_mode !== "any" && (
+          <label style={{ ...field, flex: "1 1 220px" }}>
+            <span style={labelStyle}>Environment names, comma separated</span>
+            <input
+              className="search__input"
+              style={{ fontSize: 13 }}
+              disabled={!canWrite}
+              placeholder="production"
+              value={envText}
+              onChange={(e) => {
+                setEnvText(e.target.value);
+                const environments = e.target.value.split(",").map((x) => x.trim()).filter(Boolean);
+                setDraft((d) => ({ ...d, environments }));
+              }}
+            />
+          </label>
+        )}
+      </div>
+      {draft.environment_mode !== "any" && (
+        <p className="muted" style={{ fontSize: 11.5, margin: 0 }}>
+          An alert about another environment passes this profile over for the next one: the team default,
+          then the org default. Alerts that are not about an environment use this profile as before.
+        </p>
+      )}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
         <span style={labelStyle}>Channels</span>

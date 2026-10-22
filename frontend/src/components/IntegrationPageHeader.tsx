@@ -33,6 +33,7 @@ import { useCanOpenServices } from "../lib/useNavigationReach";
 import type { ReactNode } from "react";
 import { StatusPip, pipForStatus } from "./primitives";
 import TagChip from "./tags/TagChip";
+import EnvironmentPicker from "./EnvironmentPicker";
 import type { IntegrationDetail, ServiceStatus, Tag } from "../api/types";
 import { formatRelative, statusLabel } from "../lib/format";
 import { useBreadcrumbLeaf } from "../lib/breadcrumb";
@@ -99,19 +100,20 @@ export default function IntegrationPageHeader({ detail, actions, belowStats }: P
         )}
         {belowStats ?? <HeaderTags tags={detail?.tags ?? []} />}
       </div>
-      {(canEdit || actions) && (
-        <div className="flex items-center gap-2 flex-shrink-0">
-          {actions}
-          {canEdit && detail && (
-            <Link
-              className="btn primary"
-              to={`/integrations/${encodeURIComponent(detail.integration.id)}/settings`}
-            >
-              ✎ Edit integration
-            </Link>
-          )}
-        </div>
-      )}
+      <div className="flex items-center gap-2 flex-shrink-0">
+        {/* Which environment every tab reads (issue #40). Hidden for an
+            integration whose telemetry carries no environment. */}
+        <EnvironmentPicker integrationId={detail?.integration.id} />
+        {actions}
+        {canEdit && detail && (
+          <Link
+            className="btn primary"
+            to={`/integrations/${encodeURIComponent(detail.integration.id)}/settings`}
+          >
+            ✎ Edit integration
+          </Link>
+        )}
+      </div>
     </header>
   );
 }

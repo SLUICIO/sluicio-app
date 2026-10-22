@@ -2,6 +2,7 @@
 import type { ReactElement } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import AppShell from "./components/AppShell";
+import EnvironmentScope from "./components/EnvironmentScope";
 import UserProvider from "./components/UserProvider";
 import { useCurrentUser } from "./lib/useCurrentUser";
 import Alerts from "./pages/Alerts";
@@ -87,19 +88,23 @@ function SignedInApp() {
         <Route path="/systems" element={<Systems />} />
         <Route path="/systems/:id" element={<SystemDetail />} />
         <Route path="/services/:name" element={<ServiceDetail />} />
-        <Route path="/integrations" element={<Integrations />} />
         <Route path="/integrations/new" element={<IntegrationNew />} />
-        <Route path="/integrations/:id" element={<IntegrationDetail />} />
-        <Route
-          path="/integrations/:id/messages"
-          element={<IntegrationMessages />}
-        />
-        <Route path="/integrations/:id/logs" element={<IntegrationLogs />} />
-        <Route path="/integrations/:id/metrics" element={<IntegrationMetrics />} />
-        <Route path="/integrations/:id/services" element={<IntegrationServices />} />
-        <Route path="/integrations/:id/metadata" element={<IntegrationMetadata />} />
-        <Route path="/integrations/:id/errors" element={<IntegrationErrors />} />
-        <Route path="/integrations/:id/settings" element={<IntegrationSettings />} />
+        {/* Read for all environments or one (issue #40): ?env= follows
+            every read on these pages. */}
+        <Route element={<EnvironmentScope />}>
+          <Route path="/integrations" element={<Integrations />} />
+          <Route path="/integrations/:id" element={<IntegrationDetail />} />
+          <Route
+            path="/integrations/:id/messages"
+            element={<IntegrationMessages />}
+          />
+          <Route path="/integrations/:id/logs" element={<IntegrationLogs />} />
+          <Route path="/integrations/:id/metrics" element={<IntegrationMetrics />} />
+          <Route path="/integrations/:id/services" element={<IntegrationServices />} />
+          <Route path="/integrations/:id/metadata" element={<IntegrationMetadata />} />
+          <Route path="/integrations/:id/errors" element={<IntegrationErrors />} />
+          <Route path="/integrations/:id/settings" element={<IntegrationSettings />} />
+        </Route>
         <Route path="/monitoring-templates" element={<MonitoringTemplates />} />
         <Route path="/proposals" element={<Proposals />} />
         <Route path="/system-types" element={<SystemTypesPage />} />

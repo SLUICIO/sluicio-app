@@ -277,6 +277,7 @@ func (h *Handlers) buildIntegrationSummaries(
 	}
 	envSlices := []store.IntegrationSlice{}
 	memberFiringByIntegration := map[uuid.UUID]alerting.ServiceFiring{}
+	sliceByIntegration := map[uuid.UUID]bool{}
 	// Open errors do not colour an integration: a service's health is its
 	// configured checks alone (see computeServiceStatus). The lookups
 	// that used to feed that decision are gone rather than left
@@ -492,10 +493,7 @@ func (h *Handlers) buildIntegrationSummaries(
 			}
 		}
 		health := integrationHealth{
-			// One environment is always a slice of the integration: its
-			// status comes from that environment's own traffic, never
-			// from the member services' totals across all of them.
-			Slice:             integrations.SelectsSlice(matchers, modeByIntegration[integ.ID]) || hasEnv,
+			Slice:             integrations.SelectsSlice(matchers, modeByIntegration[integ.ID]),
 			Active:            memberActive,
 			MemberFiring:      memberFiring(firingMembers, firingScopes),
 			IntegrationFiring: firingIntegrations[integ.ID],
@@ -505,13 +503,14 @@ func (h *Handlers) buildIntegrationSummaries(
 			health.IntegrationFiring = alerting.FiringIn(firingByEnv, integ.ID, reqEnv)
 		}
 		memberFiringByIntegration[integ.ID] = health.MemberFiring
+		sliceByIntegration[integ.ID] = health.Slice
 		if len(matchedNames) > 0 {
 			sl := integrationSlice(integ.ID, matchedNames, matchers, modeByIntegration[integ.ID])
 			if opts.WithEnvironments {
 				envSlices = append(envSlices, sl)
 			}
 			sl.Groups = withRequestEnvironment(r.Context(), sl.Groups)
-			if !health.Slice && !health.Active {
+			if !health.Slice && !health.Active && !hasEnv {
 				health.Active = h.activeWithoutTraces(r.Context(), sl, false, tr.From, tr.To)
 			}
 			slices = append(slices, sl)
@@ -536,7 +535,7 @@ func (h *Handlers) buildIntegrationSummaries(
 	// every row's slice split by environment in one batched read, plus
 	// the environments a row declares and has no traffic in.
 	if opts.WithEnvironments {
-		h.fillEnvironmentStatuses(r.Context(), summaries, envSlices, firingByEnv, memberFiringByIntegration, tr, errAcks)
+		h.fillEnvironmentStatuses(r.Context(), summaries, envSlices, firingByEnv, memberFiringByIntegration, sliceByIntegration, tr, errAcks)
 	}
 
 	// Every row's slice in one read, then the statuses it was waiting for.
@@ -547,9 +546,15 @@ func (h *Handlers) buildIntegrationSummaries(
 			if p.ownCounts {
 				sum.TraceCount, sum.ErrorTraceCount = st.Traces, st.ErrorTraces
 			}
-			if p.health.Slice {
+			// Read for one environment (#40), activity is that
+			// environment's, for every integration. What colours the
+			// status stays the integration's own rule: open error traces
+			// only for a slice (see integrationRollupStatus).
+			if p.health.Slice || hasEnv {
 				p.health.Active = st.Traces > 0 || h.activeWithoutTraces(r.Context(), p.slice, true, tr.From, tr.To)
-				p.health.OpenSliceErrors = st.OpenErrorTraces
+				if p.health.Slice {
+					p.health.OpenSliceErrors = st.OpenErrorTraces
+				}
 				sum.Status = integrationRollupStatus(p.health)
 			}
 		}
@@ -1176,9 +1181,7 @@ func (h *Handlers) getIntegration(w http.ResponseWriter, r *http.Request) {
 	// it does not speak for this integration.
 	reqEnv, hasEnv := envctx.From(r.Context())
 	health := integrationHealth{
-		// Read for one environment (#40), the integration is that
-		// environment's slice of its traffic, whatever its matchers.
-		Slice:             integrations.SelectsSlice(full.Matchers, full.Integration.RuleMatch) || hasEnv,
+		Slice:             integrations.SelectsSlice(full.Matchers, full.Integration.RuleMatch),
 		MemberFiring:      memberFiring(memberNames, firingScopes),
 		IntegrationFiring: firingIntegrations[id],
 		Delayed:           delayedMessageCount,
@@ -1195,15 +1198,20 @@ func (h *Handlers) getIntegration(w http.ResponseWriter, r *http.Request) {
 	}
 	slice := integrationSlice(id, memberNames, full.Matchers, full.Integration.RuleMatch)
 	slice.Groups = withRequestEnvironment(r.Context(), slice.Groups)
-	if health.Slice {
+	// Read for one environment (#40), activity comes from that
+	// environment's slice for any integration; open error traces still
+	// colour only a slice, as they do across all environments.
+	if health.Slice || hasEnv {
 		if stats := h.sliceStats(r.Context(), []store.IntegrationSlice{slice}, tr.From, tr.To, errAcks, false); stats != nil {
 			st := stats[id.String()]
 			health.Active = st.Traces > 0
-			health.OpenSliceErrors = st.OpenErrorTraces
+			if health.Slice {
+				health.OpenSliceErrors = st.OpenErrorTraces
+			}
 		}
 	}
 	if !health.Active {
-		health.Active = h.activeWithoutTraces(r.Context(), slice, health.Slice, tr.From, tr.To)
+		health.Active = h.activeWithoutTraces(r.Context(), slice, health.Slice || hasEnv, tr.From, tr.To)
 	}
 	status := integrationRollupStatus(health)
 
@@ -1244,6 +1252,11 @@ func (h *Handlers) getIntegration(w http.ResponseWriter, r *http.Request) {
 		h.Logger.Warn("integration detail: firing instances failed", "err", ferr)
 	} else {
 		for _, fi := range firing {
+			// Read for one environment (#40), another environment's
+			// alert is not this page's problem.
+			if hasEnv && !fi.InEnvironment(reqEnv) {
+				continue
+			}
 			if fi.IntegrationID != nil && *fi.IntegrationID == id {
 				failingCheckCount++
 			} else if fi.ServiceName != "" && memberSet[fi.ServiceName] {

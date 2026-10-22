@@ -78,7 +78,9 @@ func (h *Handlers) integrationEnvironments(w http.ResponseWriter, r *http.Reques
 	}
 	sum := []IntegrationSummary{{Integration: full.Integration}}
 	h.fillEnvironmentStatuses(ctx, sum, []store.IntegrationSlice{slice}, firingByEnv,
-		map[uuid.UUID]alerting.ServiceFiring{id: memberFiring(members, firingScopes)}, tr, h.errorAcks(ctx, orgID))
+		map[uuid.UUID]alerting.ServiceFiring{id: memberFiring(members, firingScopes)},
+		map[uuid.UUID]bool{id: integrations.SelectsSlice(full.Matchers, full.Integration.RuleMatch)},
+		tr, h.errorAcks(ctx, orgID))
 
 	// Logs and metrics can come from an environment no trace did.
 	volumes, err := h.Store.EnvironmentsIn(ctx, visible, groups, tr.From, tr.To)
@@ -99,11 +101,14 @@ func (h *Handlers) integrationEnvironments(w http.ResponseWriter, r *http.Reques
 	for _, v := range volumes {
 		e, ok := byEnv[v.Environment]
 		if !ok {
-			// Metrics or logs only: active, with the checks firing for it.
-			status := "ok"
-			if alerting.FiringIn(firingByEnv, id, v.Environment) {
-				status = "unhealthy"
-			}
+			// Metrics or logs only: active, read by the same rule as any
+			// other environment.
+			status := integrationRollupStatus(integrationHealth{
+				Slice:             integrations.SelectsSlice(full.Matchers, full.Integration.RuleMatch),
+				Active:            true,
+				MemberFiring:      memberFiring(members, firingScopes),
+				IntegrationFiring: alerting.FiringIn(firingByEnv, id, v.Environment),
+			})
 			e = &IntegrationEnvironment{EnvironmentStatus: EnvironmentStatus{
 				Environment: v.Environment, Status: status, Declared: declared[v.Environment],
 			}}

@@ -722,6 +722,15 @@ type FiringInstance struct {
 	// GroupID is the owning team of the rule (nil = org-wide). Drives the
 	// same team access-control filter as rules/instances.
 	GroupID *uuid.UUID `json:"group_id,omitempty"`
+	// Environment is the environment a per-environment instance is about
+	// (#40); nil for one about the whole scope.
+	Environment *string `json:"environment,omitempty"`
+}
+
+// InEnvironment reports whether the instance concerns env: it is about
+// that environment, or about every environment of its scope.
+func (f FiringInstance) InEnvironment(env string) bool {
+	return f.Environment == nil || *f.Environment == env
 }
 
 // FiringInstances returns every currently-firing alert instance in the
@@ -731,7 +740,7 @@ func (s *Store) FiringInstances(ctx context.Context, orgID uuid.UUID) ([]FiringI
 	const q = `
 		SELECT i.id, r.id, r.name, r.severity, i.started_at, i.handled_at,
 		       COALESCE(i.summary, ''), COALESCE(r.service_name, ''),
-		       r.integration_id, r.system_id, r.group_id
+		       r.integration_id, r.system_id, r.group_id, i.labels->>'environment'
 		FROM alert_instances i
 		JOIN alert_rules r ON r.id = i.alert_rule_id
 		WHERE r.organization_id = $1 AND i.state = 'firing'
@@ -749,7 +758,7 @@ func (s *Store) FiringInstances(ctx context.Context, orgID uuid.UUID) ([]FiringI
 			sys  uuid.NullUUID
 			grp  uuid.NullUUID
 		)
-		if err := rows.Scan(&v.ID, &v.RuleID, &v.RuleName, &v.Severity, &v.StartedAt, &v.HandledAt, &v.Summary, &v.ServiceName, &intg, &sys, &grp); err != nil {
+		if err := rows.Scan(&v.ID, &v.RuleID, &v.RuleName, &v.Severity, &v.StartedAt, &v.HandledAt, &v.Summary, &v.ServiceName, &intg, &sys, &grp, &v.Environment); err != nil {
 			return nil, err
 		}
 		if intg.Valid {

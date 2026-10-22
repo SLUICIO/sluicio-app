@@ -73,13 +73,14 @@ var envStatusOrder = map[string]int{"unhealthy": 0, "errors": 1, "ok": 2, "quiet
 
 // fillEnvironmentStatuses sets each summary's per-environment status from
 // one batched read of every row's slice split by environment. The fold is
-// integrationRollupStatus with the environment as the slice: its own
-// traffic, its own open errors, the checks firing for it, and the member
-// checks that describe the whole process (those know no environment).
+// integrationRollupStatus over that environment's traffic and the checks
+// firing for it, with the integration's own rules for the rest: open
+// error traces colour a slice only, and member checks speak for it as
+// they do across all environments (they know no environment).
 func (h *Handlers) fillEnvironmentStatuses(
 	ctx context.Context, summaries []IntegrationSummary, slices []store.IntegrationSlice,
 	firingByEnv map[uuid.UUID]map[string]bool, memberFiringBy map[uuid.UUID]alerting.ServiceFiring,
-	tr TimeRange, acks map[string]erroracks.Ack,
+	sliceBy map[uuid.UUID]bool, tr TimeRange, acks map[string]erroracks.Ack,
 ) {
 	acked := make(map[string]time.Time, len(acks))
 	for name, a := range acks {
@@ -109,12 +110,17 @@ func (h *Handlers) fillEnvironmentStatuses(
 		out := make([]EnvironmentStatus, 0, len(names))
 		for env := range names {
 			st := stats[env]
+			// The integration's own rule for what colours it, read in
+			// this environment: open error traces count for a slice only,
+			// exactly as on the integration's overall status.
 			health := integrationHealth{
-				Slice:             true,
+				Slice:             sliceBy[s.ID],
 				Active:            st.Traces > 0,
-				OpenSliceErrors:   st.OpenErrorTraces,
 				MemberFiring:      memberFiringBy[s.ID],
 				IntegrationFiring: alerting.FiringIn(firingByEnv, s.ID, env),
+			}
+			if health.Slice {
+				health.OpenSliceErrors = st.OpenErrorTraces
 			}
 			out = append(out, EnvironmentStatus{
 				Environment:     env,

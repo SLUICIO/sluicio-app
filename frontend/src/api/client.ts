@@ -21,6 +21,7 @@ import type {
   MaintenanceWindowInput,
   MaintenanceSchedule,
   MaintenanceScheduleInput,
+  IntegrationEnvironment,
   MessageColumn,
   CreateDashboardRequest,
   CreateIntegrationRequest,
@@ -163,6 +164,7 @@ import type {
   EventDelivery,
 } from "./types";
 import { getActiveOrgSlug } from "../lib/activeOrg";
+import { envToParam, getActiveEnvironment, readsIntegrationData } from "../lib/activeEnvironment";
 
 const BASE = "/api/v1";
 
@@ -174,6 +176,13 @@ async function request<T>(
   // resolves scope per request from this header (membership-checked
   // server-side). Absent header = first membership.
   const activeOrg = getActiveOrgSlug();
+  // The environment an integration page reads (issue #40) follows every
+  // read of integration data made while it is on screen, unless the
+  // caller already chose one.
+  const env = getActiveEnvironment();
+  if (env !== null && readsIntegrationData(path, init.method ?? "GET") && !/[?&]env=/.test(path)) {
+    path += (path.includes("?") ? "&" : "?") + "env=" + encodeURIComponent(envToParam(env));
+  }
   const res = await fetch(BASE + path, {
     // Explicit "same-origin" so the session cookie set by the cell-api
     // (via the Vite proxy in dev, or directly in prod) is included on
@@ -458,12 +467,31 @@ export const api = {
 
   // The deferred half: the numbers for a handful of integrations. The
   // server caps the batch, so the caller chunks.
-  integrationStats: (ids: string[], window: string = "1h", opts: { series?: boolean } = {}) =>
+  integrationStats: (ids: string[], window: string = "1h", opts: { series?: boolean; environments?: boolean } = {}) =>
     get<{ stats: IntegrationStats[] }>(
       `/integrations/stats?ids=${encodeURIComponent(ids.join(","))}&range=${encodeURIComponent(
         window,
-      )}${opts.series ? "&series=1" : ""}`
+      )}${opts.series ? "&series=1" : ""}${opts.environments ? "&environments=1" : ""}`
     ),
+
+  // Environments (issue #40).
+  // The integration's environments with their status, for the picker and
+  // the Overview strip. Read across all environments whatever the page
+  // is narrowed to, hence the explicit empty env.
+  integrationEnvironments: (id: string, window: string = "1h") =>
+    get<{ environments: IntegrationEnvironment[]; declared: string[] }>(
+      `/integrations/${encodeURIComponent(id)}/environments?range=${encodeURIComponent(window)}&env=`
+    ),
+  setDeclaredEnvironments: (id: string, environments: string[]) =>
+    put<{ declared: string[] }>(`/integrations/${encodeURIComponent(id)}/declared-environments`, { environments }),
+  // Every environment seen across what the caller can see, for the
+  // list-wide picker.
+  listEnvironments: (window: string = "24h") =>
+    get<{ environments: string[] }>(`/environments?range=${encodeURIComponent(window)}`),
+  getTelemetryEnvironment: () =>
+    get<{ key: string; aliases: Record<string, string>; default_keys: string[] }>(`/cell-settings/telemetry-environment`),
+  setTelemetryEnvironment: (body: { key: string; aliases: Record<string, string> }) =>
+    put<{ key: string; aliases: Record<string, string> }>(`/cell-settings/telemetry-environment`, body),
 
   // What a draft rule would match right now, for the matcher editor's
   // live line. Same shape the create call takes, so the rehearsal and

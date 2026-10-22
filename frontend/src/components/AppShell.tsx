@@ -200,11 +200,15 @@ function TopBar({ navHidden, onToggleNav }: { navHidden: boolean; onToggleNav: (
       </button>
       <Brand />
       <OrgBadge />
+      {/* Which Sluicio instance this is, beside the org ("Acme
+          Logistics · staging"). It used to sit on the right as "ENV ·
+          PRODUCTION", where next to an integration's environment picker
+          (issue #40) it read as the telemetry's environment. */}
+      <EnvLabel />
       <Breadcrumb />
       <TopSearch />
       <div className="flex-1" />
       <LivePulse />
-      <EnvLabel />
       <TimeWindowPicker />
       <DigestBell />
       <UserMenu />
@@ -708,17 +712,19 @@ function EnvLabel() {
     };
   }, []);
   const isProd = /^prod(uction)?$/i.test(env.trim());
+  const title = `This Sluicio instance: ${env}`;
   if (isProd) {
     return (
-      <span className="text-xs uppercase tracking-wide" style={{ color: "var(--muted)" }}>
-        env · {env}
+      <span className="text-xs" style={{ color: "var(--muted)" }} title={title} data-testid="instance-label">
+        · {env}
       </span>
     );
   }
   return (
     <span
       className="text-xs uppercase tracking-wide"
-      title="Non-production environment"
+      title={`${title} (not production)`}
+      data-testid="instance-label"
       style={{
         color: "var(--warn-ink)",
         background: "var(--warn-soft)",
@@ -728,7 +734,7 @@ function EnvLabel() {
         fontWeight: 600,
       }}
     >
-      env · {env}
+      {env}
     </span>
   );
 }

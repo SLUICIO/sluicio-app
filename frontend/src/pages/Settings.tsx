@@ -15,6 +15,7 @@
 // Each tab fetches its own data on mount; tab switching doesn't
 // invalidate the other tabs' state.
 
+import TelemetryEnvironmentSettings from "../components/TelemetryEnvironmentSettings";
 import { FormEvent, Fragment, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
@@ -3332,7 +3333,13 @@ function SystemSettingsSection() {
           </button>
         ))}
       </div>
-      {sub === "general" && <SystemSettingsTab />}
+      {sub === "general" && (
+        <>
+          <SystemSettingsTab />
+          {/* Where a row's environment comes from (issue #40). */}
+          <TelemetryEnvironmentSettings />
+        </>
+      )}
       {sub === "email" && <SmtpSettings isAdmin={isAdmin} />}
       {sub === "security" && <SecurityPolicy isAdmin={isAdmin} />}
       {sub === "templates" && <NotificationTemplateEditor scope="org" />}

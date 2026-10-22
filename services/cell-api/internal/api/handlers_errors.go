@@ -11,6 +11,7 @@ import (
 	"github.com/sluicio/sluicio-app/pkg/httpserver"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/alerting"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/api/middleware"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/envctx"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/store"
 )
 
@@ -53,6 +54,9 @@ type FailingCheck struct {
 	// already renders it from the rule via alertCondition(), and adding a
 	// second renderer here, in another language, is how the two drift.
 	Attrs []ruleAttrWire `json:"attrs,omitempty"`
+	// Environment is the environment a per-environment check fired in
+	// (#40); absent for one about its whole scope.
+	Environment *string `json:"environment,omitempty"`
 	// wholeService: a service-bound check that describes the service as a
 	// process (alerting.DescribesWholeService), and so speaks for every
 	// integration on it, slices included. Not on the wire: it only steers
@@ -140,7 +144,13 @@ func (h *Handlers) failingChecks(r *http.Request) ([]FailingCheck, error) {
 		if !h.canSeeAlertTarget(r, fi.ServiceName, fi.IntegrationID, fi.SystemID) {
 			continue
 		}
+		// Read for one environment (#40): another environment's alert
+		// is left out, an alert about every environment stays.
+		if env, ok := envctx.From(r.Context()); ok && !fi.InEnvironment(env) {
+			continue
+		}
 		fc := FailingCheck{
+			Environment: fi.Environment,
 			ID:          fi.ID,
 			RuleID:      fi.RuleID,
 			RuleName:    fi.RuleName,
