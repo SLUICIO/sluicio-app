@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.176 — 2026-10-22
+
+- feat: store and show span events, so a recorded exception is visible (#42) (eeb55ff)
+
 ## v0.11.175 — 2026-10-21
 
+- release v0.11.175 - refresh internal changelog (fab489b)
 - fix(integrations): "or" within a member means "or" in one-trace mode (#39) (ad36052)
 - feat(frontend): serve the web app from an empty image, without nginx and Alpine (#41) (9157660)
 - feat: a per-release list of third-party components that ships with the product (#41) (5e758d7)
