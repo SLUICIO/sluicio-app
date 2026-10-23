@@ -41,6 +41,10 @@ interface Props {
   // it exactly, labelled by createLabel.
   creatable?: boolean;
   createLabel?: (typed: string) => string;
+  // "toolbar" (default) is button-sized, for toolbars and beside buttons;
+  // "field" is the size of a form's text inputs (search__input), for a
+  // select inside a form of fields, so the row lines up.
+  variant?: "toolbar" | "field";
 }
 
 // The "add what was typed" entry, never a real option value.
@@ -58,6 +62,7 @@ export default function SearchableSelect({
   withoutAll = false,
   creatable = false,
   createLabel = (typed) => `Add “${typed}”`,
+  variant = "toolbar",
 }: Props) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -166,12 +171,17 @@ export default function SearchableSelect({
       <button
         ref={btnRef}
         type="button"
-        className="toolbar__select"
+        className={variant === "field" ? "search__input" : "toolbar__select"}
         aria-haspopup="listbox"
         aria-expanded={open}
         disabled={disabled}
         onClick={() => !disabled && setOpen((o) => !o)}
-        style={{ minWidth: 180, textAlign: "left", opacity: disabled ? 0.6 : undefined }}
+        style={{
+          minWidth: variant === "field" ? 220 : 180,
+          textAlign: "left",
+          opacity: disabled ? 0.6 : undefined,
+          ...(variant === "field" ? { flex: "0 0 auto", cursor: "pointer" } : {}),
+        }}
       >
         {value === "" ? <span className="muted">{allLabel}</span> : label(value)}
         <span aria-hidden style={{ float: "right", color: "var(--muted)" }}>▾</span>

@@ -26,6 +26,7 @@ import IntegrationPageHeader from "../components/IntegrationPageHeader";
 import IntegrationTabs from "../components/IntegrationTabs";
 import { integrationProblemCount } from "../lib/integrationHealth";
 import MetricsExplorer from "../components/metrics/MetricsExplorer";
+import { SourcesNote } from "../components/IntegrationSources";
 import type { IntegrationDetail } from "../api/types";
 import { usePageTitle } from "../lib/usePageTitle";
 
@@ -77,6 +78,14 @@ export default function IntegrationMetrics() {
       {/* The catalogue resolves an integration by display name, the same
           form the Logs tab passes. `embedded` drops the page chrome and
           hides group-by + Trim ingestion, both org-wide concerns. */}
+      {/* Metric sources (issue #43): what this tab includes beyond the
+          members, and the way to add more. */}
+      <SourcesNote
+        integrationId={id}
+        signal="metrics"
+        sources={data.sources ?? []}
+        canManage={Boolean(data.can_manage)}
+      />
       <MetricsExplorer integration={data.integration.name} embedded />
     </div>
   );

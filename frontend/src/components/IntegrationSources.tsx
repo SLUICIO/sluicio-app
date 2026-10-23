@@ -8,7 +8,9 @@
 // and never its flow, its members or its message counts, which is why it
 // is listed apart from the services above.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
+import { envQuery, useEnvironmentSet } from "../lib/activeEnvironment";
 import { api } from "../api/client";
 import type { IntegrationSource, IntegrationSourceView, MatcherOperator, System } from "../api/types";
 import SearchableSelect from "./SearchableSelect";
@@ -32,10 +34,14 @@ function opLabel(op: MatcherOperator): string {
 }
 
 /** "metrics of rabbitmq-prod where rabbitmq.queue.name = orders, named rabbitmq.queue.*" */
-function describe(s: IntegrationSourceView) {
+export function describe(s: IntegrationSourceView, withSignal = true) {
   return (
     <>
-      <span className="font-medium">{s.signal === "metrics" ? "Metrics" : "Logs"}</span> of{" "}
+      {withSignal && (
+        <>
+          <span className="font-medium">{s.signal === "metrics" ? "Metrics" : "Logs"}</span> of{" "}
+        </>
+      )}
       {s.origin_kind === "system" ? (
         <>
           system <span className="font-medium">{s.origin_name}</span>
@@ -69,8 +75,13 @@ function describe(s: IntegrationSourceView) {
   );
 }
 
-const blank = (): IntegrationSource => ({
-  signal: "metrics",
+/** ?addSource=metrics (or logs) on the Services tab opens the editor
+ *  with a new source of that signal started: the Metrics and Logs tabs
+ *  link here. */
+export const ADD_SOURCE_PARAM = "addSource";
+
+const blank = (signal: IntegrationSource["signal"] = "metrics"): IntegrationSource => ({
+  signal,
   origin_kind: "service",
   origin: "",
   conditions: [{ attribute: "", operator: "equals", value: "" }],
@@ -93,6 +104,37 @@ export default function IntegrationSources({
   const [systems, setSystems] = useState<System[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [params, setParams] = useSearchParams();
+  const sectionRef = useRef<HTMLElement | null>(null);
+
+  // Arrived from the Metrics or Logs tab to add a source: open the
+  // editor with one started, and bring it into view.
+  useEffect(() => {
+    const signal = params.get(ADD_SOURCE_PARAM);
+    if (signal !== "metrics" && signal !== "logs") return;
+    if (canManage) {
+      setDraft([
+        ...sources.map(({ signal, origin_kind, origin, conditions, metric_names }) => ({
+          signal,
+          origin_kind,
+          origin,
+          conditions: conditions.map((c) => ({ ...c })),
+          metric_names: [...metric_names],
+        })),
+        blank(signal),
+      ]);
+      setTimeout(() => sectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+    }
+    setParams(
+      (prev) => {
+        const p = new URLSearchParams(prev);
+        p.delete(ADD_SOURCE_PARAM);
+        return p;
+      },
+      { replace: true },
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Origins to pick from, only once editing starts.
   useEffect(() => {
@@ -136,6 +178,7 @@ export default function IntegrationSources({
 
   return (
     <section
+      ref={sectionRef}
       className="overflow-hidden rounded-lg border bg-surface-2"
       style={{ borderColor: "var(--border)" }}
       data-testid="integration-sources"
@@ -216,6 +259,7 @@ export default function IntegrationSources({
                     options={services}
                     withoutAll
                     creatable
+                    variant="field"
                     allLabel="choose a service…"
                     placeholder="Search or type a service…"
                     createLabel={(typed) => `Use “${typed}”`}
@@ -227,6 +271,7 @@ export default function IntegrationSources({
                     options={systems.map((sy) => sy.id)}
                     labelFor={(id) => systems.find((sy) => sy.id === id)?.name ?? id}
                     withoutAll
+                    variant="field"
                     allLabel="choose a system…"
                     placeholder="Search systems…"
                   />
@@ -348,5 +393,61 @@ export default function IntegrationSources({
         </div>
       )}
     </section>
+  );
+}
+
+/** The line above an integration's Metrics or Logs: which sources the
+ *  tab includes, or, for someone who may edit the integration, how to
+ *  add one. Nothing for a reader with no sources to show. */
+export function SourcesNote({
+  integrationId,
+  signal,
+  sources,
+  canManage,
+}: {
+  integrationId: string;
+  signal: IntegrationSource["signal"];
+  sources: IntegrationSourceView[];
+  canManage: boolean;
+}) {
+  const mine = sources.filter((s) => s.signal === signal);
+  const noun = signal === "metrics" ? "metrics" : "logs";
+  // Keep the environments being read on the way to the Services tab.
+  const [envs, , explicitAll] = useEnvironmentSet();
+  const q = envQuery(envs, explicitAll);
+  const services = `/integrations/${encodeURIComponent(integrationId)}/services${q}`;
+  const addLink = `${services}${q ? "&" : "?"}${ADD_SOURCE_PARAM}=${signal}`;
+  if (mine.length === 0 && !canManage) return null;
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm text-muted" data-testid={`sources-note-${signal}`}>
+      {mine.length === 0 ? (
+        <span>
+          {signal === "metrics"
+            ? "Metrics from a service that is not a member, such as its queue on a shared broker, can be added as a source."
+            : "Logs from a service that is not a member, such as a runtime that serves many flows, can be added as a source."}
+        </span>
+      ) : (
+        <span>
+          Includes {noun} from {mine.length === 1 ? "a source" : `${mine.length} sources`}:{" "}
+          {mine.map((s, i) => (
+            <span key={s.id}>
+              {i > 0 && "; "}
+              {describe(s, false)}
+            </span>
+          ))}
+          .
+        </span>
+      )}
+      {canManage && (
+        <Link className="btn btn--link" style={{ padding: 0 }} to={addLink}>
+          Add a {signal === "metrics" ? "metric" : "log"} source
+        </Link>
+      )}
+      {mine.length > 0 && !canManage && (
+        <Link className="btn btn--link" style={{ padding: 0 }} to={services}>
+          See sources
+        </Link>
+      )}
+    </div>
   );
 }

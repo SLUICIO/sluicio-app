@@ -523,7 +523,7 @@ function WindowForm({
             </label>
             <div className="form__label">
               Timezone
-              <SearchableSelect value={timezone} onChange={setTimezone} options={timezones} withoutAll
+              <SearchableSelect value={timezone} onChange={setTimezone} options={timezones} withoutAll variant="field"
                 allLabel="choose a timezone…" placeholder="Search timezones…" />
             </div>
             <label className="form__label">
