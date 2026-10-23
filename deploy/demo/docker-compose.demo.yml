@@ -40,6 +40,9 @@ services:
     environment:
       SLUICIO_INGEST_KEY: ${DEMO_INGEST_KEY:?mint an ingest key in the demo org and set DEMO_INGEST_KEY}
     command:
+      # The demo estate: two integrations (Order sync, 1 to 1; Invoice
+      # distribution, A to B to C and D), production and some test.
+      - "-estate=demo"
       - "-continuous"
       - "-interval=${DEMO_SEED_INTERVAL:-15s}"
       - "-batch=${DEMO_SEED_BATCH:-50}"

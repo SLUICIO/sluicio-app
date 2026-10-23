@@ -17,7 +17,8 @@
 //
 // The synthetic data models a small integration estate (an order API,
 // a payment service, a fulfillment worker, and a partner EDI feed)
-// with a realistic mix of successful and failed spans. Each batch also
+// with a realistic mix of successful and failed spans. -estate demo
+// seeds the public demo's two integrations instead (estate_demo.go). Each batch also
 // emits logs (varied severities) and metrics (a gauge, a monotonic
 // counter, and a histogram) for the same services — see
 // seed_logs_metrics.go.
@@ -58,8 +59,14 @@ type scenarioFactory func(rng *mrand.Rand) []serviceSpans
 type serviceSpans struct {
 	serviceName      string
 	serviceNamespace string
-	spans            []*tracepb.Span
+	// environment is deployment.environment.name; "" is dev.
+	environment string
+	spans       []*tracepb.Span
 }
+
+// standaloneSpans: emit each demoService's own single-service spans as
+// well as the scenarios. The demo estate is scenarios only.
+var standaloneSpans = true
 
 var demoScenarios = []scenarioFactory{
 	orderFlowScenario,
@@ -168,7 +175,16 @@ func main() {
 	batchSize := flag.Int("batch", 50, "spans per request")
 	continuous := flag.Bool("continuous", false, "keep emitting until interrupted")
 	interval := flag.Duration("interval", 5*time.Second, "wait between batches in continuous mode")
+	estate := flag.String("estate", "full", "what to seed: full (every shape the product needs, for development and tests) or demo (two integrations, the public demo)")
 	flag.Parse()
+	switch *estate {
+	case "full":
+	case "demo":
+		useDemoEstate()
+	default:
+		fmt.Fprintf(os.Stderr, "seed-traces: unknown -estate %q (full or demo)\n", *estate)
+		os.Exit(2)
+	}
 
 	rng := mrand.New(mrand.NewSource(time.Now().UnixNano()))
 
@@ -223,13 +239,20 @@ func buildRequest(rng *mrand.Rand, batch int) *coltracepb.ExportTraceServiceRequ
 	// contribute several spans per call (across multiple services),
 	// so they amortize at roughly the same volume as a single
 	// service's per-call output.
-	units := len(demoServices) + len(demoScenarios)
+	units := len(demoScenarios)
+	if standaloneSpans {
+		units += len(demoServices)
+	}
 	perUnit := batch / units
 	if perUnit < 1 {
 		perUnit = 1
 	}
 
-	for _, svc := range demoServices {
+	standalone := demoServices
+	if !standaloneSpans {
+		standalone = nil
+	}
+	for _, svc := range standalone {
 		rs := &tracepb.ResourceSpans{
 			Resource: &resourcepb.Resource{
 				Attributes: []*commonpb.KeyValue{
@@ -256,30 +279,38 @@ func buildRequest(rng *mrand.Rand, batch int) *coltracepb.ExportTraceServiceRequ
 	// Scenarios produce spans across multiple services per trace.
 	// Accumulate them per service name and emit one ResourceSpans
 	// block per service at the end.
+	// One block per service and environment: the environment is a
+	// resource attribute, so a service seen in two is two resources.
+	type bucketKey struct{ service, environment string }
 	type bucket struct {
 		namespace string
 		spans     []*tracepb.Span
 	}
-	buckets := map[string]*bucket{}
+	buckets := map[bucketKey]*bucket{}
 	for _, scenario := range demoScenarios {
 		for i := 0; i < perUnit; i++ {
 			for _, ss := range scenario(rng) {
-				b, ok := buckets[ss.serviceName]
+				env := ss.environment
+				if env == "" {
+					env = "dev"
+				}
+				k := bucketKey{ss.serviceName, env}
+				b, ok := buckets[k]
 				if !ok {
 					b = &bucket{namespace: ss.serviceNamespace}
-					buckets[ss.serviceName] = b
+					buckets[k] = b
 				}
 				b.spans = append(b.spans, ss.spans...)
 			}
 		}
 	}
-	for serviceName, b := range buckets {
+	for k, b := range buckets {
 		req.ResourceSpans = append(req.ResourceSpans, &tracepb.ResourceSpans{
 			Resource: &resourcepb.Resource{
 				Attributes: []*commonpb.KeyValue{
-					stringAttr("service.name", serviceName),
+					stringAttr("service.name", k.service),
 					stringAttr("service.namespace", b.namespace),
-					stringAttr("deployment.environment.name", "dev"),
+					stringAttr("deployment.environment.name", k.environment),
 				},
 			},
 			ScopeSpans: []*tracepb.ScopeSpans{{

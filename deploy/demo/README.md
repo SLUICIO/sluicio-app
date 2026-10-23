@@ -12,7 +12,13 @@ Three moving parts:
    Operator page.
 2. **Continuous seeder** — the `demo-seeder` service emits synthetic
    traces/logs/metrics through the real OTLP pipeline forever, so the
-   demo always shows live, moving data.
+   demo always shows live, moving data. It runs the demo estate
+   (`-estate=demo`), two flows, mostly production with some test:
+   - **Order sync**: `webshop-orders` → `erp-order-sync` (1 to 1).
+   - **Invoice distribution**: `invoice-intake` → `invoice-router` →
+     `erp-invoice-adapter` and `invoice-archiver`.
+
+   Build the demo org's two integrations on those services.
 3. **Golden snapshot + scheduled reseed** — the demo org's config lives
    in a `pg_dump` you take once; a cron job restores it and truncates
    telemetry, erasing visitor changes.
