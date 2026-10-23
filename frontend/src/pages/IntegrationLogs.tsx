@@ -16,6 +16,7 @@ import IntegrationPageHeader from "../components/IntegrationPageHeader";
 import IntegrationTabs from "../components/IntegrationTabs";
 import { integrationProblemCount } from "../lib/integrationHealth";
 import LogsView from "../components/logs/LogsView";
+import { SourcesNote } from "../components/IntegrationSources";
 import type { IntegrationDetail } from "../api/types";
 import { usePageTitle } from "../lib/usePageTitle";
 
@@ -66,6 +67,9 @@ export default function IntegrationLogs() {
     <div className="flex flex-col gap-6">
       <IntegrationPageHeader detail={data} />
       <IntegrationTabs integrationId={id} errorsCount={integrationProblemCount(data)} />
+      {/* Log sources (issue #43): what this tab includes beyond the
+          members, and the way to add more. */}
+      <SourcesNote integrationId={id} signal="logs" sources={data.sources ?? []} canManage={Boolean(data.can_manage)} />
       <LogsView forcedIntegration={integrationName} forcedIntegrationId={id} />
     </div>
   );
