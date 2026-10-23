@@ -9,8 +9,8 @@
 // environment (production unless an operator changed it) when the
 // integration has it, so the first thing read is production rather than
 // production and test mixed. One read of its environments decides, before
-// anything below fetches; an integration without the default, or without
-// environments at all, opens on all of them as before.
+// anything below fetches; an integration without messages in the default,
+// or without environments at all, opens on all of them as before.
 
 import { Fragment, useEffect, useState } from "react";
 import { Outlet, useMatch, useSearchParams } from "react-router-dom";
@@ -34,7 +34,14 @@ export default function EnvironmentScope() {
       .then((r) => {
         if (cancelled) return;
         const d = r.default ?? "";
-        if (d !== "" && (r.environments ?? []).some((e) => e.environment === d)) {
+        const envs = r.environments ?? [];
+        // Only an environment the integration's messages run in, or one it
+        // declares: opening on one that only logs or metrics come from
+        // would open on an empty Messages tab. An integration with no
+        // messages anywhere (metrics only) takes any.
+        const anyMessages = envs.some((e) => e.trace_count > 0);
+        const target = envs.find((e) => e.environment === d);
+        if (d !== "" && target && (target.trace_count > 0 || target.declared || !anyMessages)) {
           setParams(
             (prev) => {
               const p = new URLSearchParams(prev);

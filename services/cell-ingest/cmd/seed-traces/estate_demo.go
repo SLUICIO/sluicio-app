@@ -36,12 +36,12 @@ import (
 
 // demoEstateServices are the six services, for the logs and metrics.
 var demoEstateServices = []serviceSpec{
-	{name: "webshop-orders", namespace: "production"},
-	{name: "erp-order-sync", namespace: "production"},
-	{name: "invoice-intake", namespace: "production"},
-	{name: "invoice-router", namespace: "production"},
-	{name: "erp-invoice-adapter", namespace: "production"},
-	{name: "invoice-archiver", namespace: "production"},
+	{name: "webshop-orders", namespace: "production", environment: "production"},
+	{name: "erp-order-sync", namespace: "production", environment: "production"},
+	{name: "invoice-intake", namespace: "production", environment: "production"},
+	{name: "invoice-router", namespace: "production", environment: "production"},
+	{name: "erp-invoice-adapter", namespace: "production", environment: "production"},
+	{name: "invoice-archiver", namespace: "production", environment: "production"},
 }
 
 var demoEstateScenarios = []scenarioFactory{

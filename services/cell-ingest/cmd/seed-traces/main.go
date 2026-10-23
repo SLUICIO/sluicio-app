@@ -78,9 +78,12 @@ var demoScenarios = []scenarioFactory{
 type serviceSpec struct {
 	name      string
 	namespace string
-	spanNames []string
-	errorRate float64
-	factory   spanFactory // optional; nil uses defaultSpan
+	// environment is the deployment.environment.name of the service's
+	// logs and metrics; "" is dev, the environment of its spans.
+	environment string
+	spanNames   []string
+	errorRate   float64
+	factory     spanFactory // optional; nil uses defaultSpan
 }
 
 var demoServices = []serviceSpec{

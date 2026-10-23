@@ -66,6 +66,12 @@ func svcHash(s string) uint32 {
 // keys to bite on (service.version, k8s.pod.name, host.name, …).
 func resourceAttrsFor(svc serviceSpec) []*commonpb.KeyValue {
 	h := svcHash(svc.name)
+	// The same environment as the service's spans: logs and metrics in
+	// an environment its messages never ran in would invent one.
+	env := svc.environment
+	if env == "" {
+		env = "dev"
+	}
 	pick := func(pool []string) string { return pool[int(h)%len(pool)] }
 	return []*commonpb.KeyValue{
 		// Service identity.
@@ -73,7 +79,7 @@ func resourceAttrsFor(svc serviceSpec) []*commonpb.KeyValue {
 		stringAttr("service.namespace", svc.namespace),
 		stringAttr("service.version", fmt.Sprintf("1.%d.%d", h%6, h%19)),
 		stringAttr("service.instance.id", fmt.Sprintf("i-%08x", h)),
-		stringAttr("deployment.environment.name", svc.namespace),
+		stringAttr("deployment.environment.name", env),
 		// Telemetry SDK.
 		stringAttr("telemetry.sdk.name", "opentelemetry"),
 		stringAttr("telemetry.sdk.language", "go"),
