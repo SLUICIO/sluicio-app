@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.183 — 2026-10-23
+
+- feat(integrations): metric and log sources, evidence that is not membership (#43) (a5ae55e)
+
 ## v0.11.182 — 2026-10-23
 
+- release v0.11.182 - refresh internal changelog (7db2cad)
 - feat(environments): production is a role, not a name (#40) (ecf4d86)
 - fix(environments): open on the default only where the integration's messages run (6189335)
 
