@@ -129,7 +129,7 @@ func (h *Handlers) listLogs(w http.ResponseWriter, r *http.Request) {
 	// Candidates come from the Postgres catalog snapshot — see P0-5 in
 	// docs/performance-audit.md. The prior CH-based DistinctLogServices
 	// scan was running on every request that carried ?integration=.
-	serviceIn, integGroups, _ := h.integrationFilter(r.Context(), r, func() ([]string, error) {
+	serviceIn, integGroups, _ := h.integrationFilter(r.Context(), r, identity.SignalLogs, func() ([]string, error) {
 		return h.catalogServiceNames(r.Context())
 	})
 
@@ -401,7 +401,7 @@ func (h *Handlers) logVolume(w http.ResponseWriter, r *http.Request) {
 
 	// `integration=<name>` narrows to that integration's services.
 	// Same catalog-sourced candidates as the list endpoint (P0-5).
-	serviceIn, integGroups, _ := h.integrationFilter(r.Context(), r, func() ([]string, error) {
+	serviceIn, integGroups, _ := h.integrationFilter(r.Context(), r, identity.SignalLogs, func() ([]string, error) {
 		return h.catalogServiceNames(r.Context())
 	})
 

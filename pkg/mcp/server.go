@@ -497,8 +497,9 @@ func buildTools(s *Server) []tool {
 			}},
 		{Name: "sluicio_digest", Output: digestOut, Description: "The since-last-visit digest: new services, detected collectors to set up, and integrations that started failing (RBAC-filtered).", Schema: objSchema(nil),
 			Call: func(a map[string]any) (string, error) { return s.get("/api/v1/digest", nil) }},
-		{Name: "sluicio_metric_catalog", Output: metricCatalogOut, Description: "Search the metric catalog: each metric's current value, series count, and type. Optionally filter by a name query and/or scope to one service.", Schema: objSchema(map[string]any{
+		{Name: "sluicio_metric_catalog", Output: metricCatalogOut, Description: "Search the metric catalog: each metric's current value, series count, and type. Optionally filter by a name query, scope to one service, or scope to one integration (its members' metrics plus its metric sources, such as its queue on a shared broker).", Schema: objSchema(map[string]any{
 			"window": strProp("Time window, e.g. 1h, 24h. Default 1h."), "query": strProp("Substring to filter metric names by."), "service": strProp("Scope to a single service name."),
+			"integration": strProp("Scope to an integration name: its members' metrics and its metric sources."),
 		}),
 			Call: func(a map[string]any) (string, error) {
 				q := rangeArg(a, "24h")
@@ -507,6 +508,9 @@ func buildTools(s *Server) []tool {
 				}
 				if v := argStr(a, "service"); v != "" {
 					q.Set("service", v)
+				}
+				if v := argStr(a, "integration"); v != "" {
+					q.Set("integration", v)
 				}
 				return s.get("/api/v1/metric-catalog", q)
 			}},
@@ -534,7 +538,7 @@ func buildTools(s *Server) []tool {
 				}
 				return s.post("/api/v1/messages/search", rangeArg(a, "24h"), map[string]any{"filters": filters, "limit": limit})
 			}},
-		{Name: "sluicio_get_integration", Output: getIntegrationOut, Description: "Get one integration by id: its matchers, member services with per-service health over the window, tags, and aggregate status. Use an id from sluicio_list_integrations.", Schema: objSchema(map[string]any{
+		{Name: "sluicio_get_integration", Output: getIntegrationOut, Description: "Get one integration by id: its matchers, member services with per-service health over the window, its metric and log sources (evidence from non-member services such as a broker's queue), tags, and aggregate status. Use an id from sluicio_list_integrations.", Schema: objSchema(map[string]any{
 			"id":          strProp("The integration id (uuid)."),
 			"window":      strProp("Time window for the per-service stats, e.g. 1h, 24h. Default 24h."),
 			"environment": envProp,

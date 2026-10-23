@@ -852,10 +852,32 @@ export interface Matcher {
   created_at: string;
 }
 
+/** A metric or log source of an integration (issue #43): telemetry from
+ *  a service that is not a member, a broker's queue for instance, that is
+ *  evidence about the integration. Never in its flow or message counts. */
+export interface IntegrationSource {
+  signal: "metrics" | "logs";
+  origin_kind: "service" | "system";
+  /** A service name, or a system id. */
+  origin: string;
+  conditions: { attribute: string; operator: MatcherOperator; value: string }[];
+  /** Metric sources: which metrics, as globs; empty is all. */
+  metric_names: string[];
+}
+
+/** A source as read back: a system origin's name and services now. */
+export interface IntegrationSourceView extends IntegrationSource {
+  id: string;
+  origin_name: string;
+  origin_services: string[];
+}
+
 export interface IntegrationDetail {
   can_manage?: boolean;
   integration: Integration;
   matchers: Matcher[];
+  /** Metric and log sources (issue #43). */
+  sources?: IntegrationSourceView[];
   // services, status, and window are returned by GET; absent on the
   // POST (create) response. The detail page is the canonical place
   // to see the matched services and aggregate health.

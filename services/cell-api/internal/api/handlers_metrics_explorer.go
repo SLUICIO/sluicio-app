@@ -51,7 +51,7 @@ func (h *Handlers) metricCatalog(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// `integration=<name>` scopes to that integration's services.
-	serviceIn, integGroups, _ := h.integrationFilter(r.Context(), r, func() ([]string, error) {
+	serviceIn, integGroups, _ := h.integrationFilter(r.Context(), r, identity.SignalMetrics, func() ([]string, error) {
 		return h.Store.DistinctMetricServices(r.Context(), tr.From, tr.To)
 	})
 	// G5: intersect with the caller's group-policy service allowlist —

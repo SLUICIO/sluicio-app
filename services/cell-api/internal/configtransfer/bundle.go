@@ -181,6 +181,25 @@ type Integration struct {
 	// DeclaredEnvironments (#40); omitted when none, so older bundles
 	// stay byte-identical.
 	DeclaredEnvironments []string `json:"declared_environments,omitempty"`
+	// Sources (#43): metric and log sources, a system origin by name;
+	// omitted when none, so older bundles stay byte-identical.
+	Sources []IntegrationSource `json:"sources,omitempty"`
+}
+
+// IntegrationSource is an integration's metric or log source. Origin is
+// a service name, or for origin_kind "system" the system's name.
+type IntegrationSource struct {
+	Signal      string            `json:"signal"`
+	OriginKind  string            `json:"origin_kind"`
+	Origin      string            `json:"origin"`
+	Conditions  []SourceCondition `json:"conditions,omitempty"`
+	MetricNames []string          `json:"metric_names,omitempty"`
+}
+
+type SourceCondition struct {
+	Attribute string `json:"attribute"`
+	Operator  string `json:"operator"`
+	Value     string `json:"value"`
 }
 
 type Matcher struct {

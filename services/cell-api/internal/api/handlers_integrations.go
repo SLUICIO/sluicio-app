@@ -1278,10 +1278,17 @@ func (h *Handlers) getIntegration(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Metric and log sources (#43): evidence, listed apart from members.
+	sources, srcErr := h.Integrations.SourcesForIntegration(r.Context(), id)
+	if srcErr != nil {
+		h.Logger.Warn("integration detail: sources failed", "err", srcErr)
+	}
+
 	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
 		"integration":           full.Integration,
 		"can_manage":            h.canManageIntegration(r, id),
 		"matchers":              full.Matchers,
+		"sources":               h.sourceViews(r.Context(), sources),
 		"services":              matched,
 		"status":                status,
 		"tags":                  integTags,

@@ -931,17 +931,15 @@ func (h *Handlers) integrationSliceScope(r *http.Request, service string, sig id
 	if len(members) == 0 {
 		return empty, nil, true
 	}
-	matchers, err := h.Integrations.MatchersForIntegration(r.Context(), id)
+	// The members' slice, plus the integration's sources of this signal
+	// (#43): a grant on "Order sync" reaches the broker's orders queue,
+	// never the broker's other queues.
+	svcs, groups, err := h.integrationSignalScope(r.Context(), id, members, sig)
 	if err != nil {
-		h.Logger.Warn("integration slice: matchers failed", "err", err, "integration", id)
+		h.Logger.Warn("integration slice: scope failed", "err", err, "integration", id)
 		return empty, nil, true
 	}
-	mode, err := h.Integrations.RuleMatchForIntegration(r.Context(), id)
-	if err != nil {
-		h.Logger.Warn("integration slice: rule match failed", "err", err, "integration", id)
-		return empty, nil, true
-	}
-	return applyAllowlist(service, members, members, true), withRequestEnvironment(r.Context(), AttrGroupsFromMatchers(matchers, mode)), true
+	return applyAllowlist(service, svcs, svcs, true), groups, true
 }
 
 // resolveSignalRead is the access decision for a metrics or logs read:
@@ -1952,6 +1950,10 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	// listing + setting per-integration values stay open to any member.
 	mux.HandleFunc("GET /api/v1/metadata-fields", h.listMetadataFields)
 	mux.HandleFunc("PUT /api/v1/integrations/{id}/metadata", h.writeAnywhere(h.requireManageIntegration(h.putIntegrationMetadata)))
+	// Metric and log sources (#43): evidence about an integration from
+	// services that are not its members.
+	mux.HandleFunc("GET /api/v1/integrations/{id}/sources", h.listIntegrationSources)
+	mux.HandleFunc("PUT /api/v1/integrations/{id}/sources", h.writeAnywhere(h.requireManageIntegration(h.putIntegrationSources)))
 	if h.AuthMW != nil {
 		mux.HandleFunc("POST /api/v1/metadata-fields", h.AuthMW.RequireRole(identity.Role.CanWrite, h.createMetadataField))
 		mux.HandleFunc("PATCH /api/v1/metadata-fields/{id}", h.AuthMW.RequireRole(identity.Role.CanWrite, h.updateMetadataField))

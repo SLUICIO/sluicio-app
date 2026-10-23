@@ -213,6 +213,8 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 - DELETE /api/v1/integrations/{id}/completion-rules/{rid} — Delete integration
 - POST /api/v1/integrations/{id}/completion-firings/{iid}/handle — Create integration
 - PUT /api/v1/integrations/{id}/metadata — Update integration
+- GET /api/v1/integrations/{id}/sources — List integrations
+- PUT /api/v1/integrations/{id}/sources — Update integration
 
 ## license
 - GET /api/v1/license — List license

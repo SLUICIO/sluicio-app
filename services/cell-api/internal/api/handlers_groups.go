@@ -56,7 +56,7 @@ func parseMinSeverity(r *http.Request) int32 {
 // Returns (services, true) when the param is present; a no-match yields
 // a sentinel ([""]) that excludes everything so the list comes back
 // empty rather than unfiltered.
-func (h *Handlers) integrationFilter(ctx context.Context, r *http.Request, candidates func() ([]string, error)) ([]string, [][]store.LogAttrFilter, bool) {
+func (h *Handlers) integrationFilter(ctx context.Context, r *http.Request, sig identity.Signal, candidates func() ([]string, error)) ([]string, [][]store.LogAttrFilter, bool) {
 	name := strings.TrimSpace(r.URL.Query().Get("integration"))
 	if name == "" {
 		return nil, nil, false
@@ -79,9 +79,15 @@ func (h *Handlers) integrationFilter(ctx context.Context, r *http.Request, candi
 		svcs = h.servicesForIntegration(ctx, name, cand)
 		// Attribute matchers (producer, consumer, …) become a DNF row
 		// predicate on the integration's telemetry. service.name matchers
-		// already shaped svcs above.
+		// already shaped svcs above. A metrics or logs read adds the
+		// integration's sources of that signal (#43).
 		if id, ok := h.integrationIDByName(ctx, name); ok {
-			attrGroups = h.integrationGroups(ctx, id)
+			if s, g, err := h.integrationSignalScope(ctx, id, svcs, sig); err == nil {
+				svcs, attrGroups = s, g
+			} else {
+				h.Logger.Warn("integration filter: sources failed; members only", "err", err, "integration", id)
+				attrGroups = h.integrationGroups(ctx, id)
+			}
 		}
 	}
 	if len(svcs) == 0 {
@@ -97,7 +103,7 @@ func (h *Handlers) integrationFilter(ctx context.Context, r *http.Request, candi
 // is in reach and the store must not be asked: an empty service list
 // there reads as unrestricted.
 func (h *Handlers) pickerAccess(r *http.Request, sig identity.Signal) (serviceIn []string, groups [][]store.LogAttrFilter, empty bool) {
-	serviceIn, integGroups, _ := h.integrationFilter(r.Context(), r, func() ([]string, error) {
+	serviceIn, integGroups, _ := h.integrationFilter(r.Context(), r, sig, func() ([]string, error) {
 		return h.catalogServiceNames(r.Context())
 	})
 	pf, groups := h.resolveSignalRead(r, "", serviceIn, integGroups, sig)
@@ -289,7 +295,7 @@ func (h *Handlers) logGroups(w http.ResponseWriter, r *http.Request) {
 	rawService := strings.TrimSpace(r.URL.Query().Get("service"))
 	// `integration=<name>` narrows group counts to one integration's
 	// services. Catalog-sourced candidates (P0-5).
-	serviceIn, integGroups, _ := h.integrationFilter(r.Context(), r, func() ([]string, error) {
+	serviceIn, integGroups, _ := h.integrationFilter(r.Context(), r, identity.SignalLogs, func() ([]string, error) {
 		return h.catalogServiceNames(r.Context())
 	})
 	// G5: enforce policy-based visibility for log group counts, through

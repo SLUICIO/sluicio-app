@@ -46,8 +46,8 @@ five.
 | `sluicio_error_report` | errors-since-a-time triage, grouped with the causing checks (arg: `since`) |
 | `sluicio_alert_instances` | recent alert-rule firings with state + severity (arg: `limit`) |
 | `sluicio_digest` | since-last-visit digest |
-| `sluicio_get_integration` | one integration + per-service health (args: `id`, `window`) |
-| `sluicio_metric_catalog` | metric catalog search (args: `window`, `query`, `service`) |
+| `sluicio_get_integration` | one integration + per-service health and its metric and log sources (args: `id`, `window`, `environment`) |
+| `sluicio_metric_catalog` | metric catalog search (args: `window`, `query`, `service`, `integration`) |
 | `sluicio_metric_series` | one metric's time series per service (args: `metric`, `service`, `window`) |
 | `sluicio_search_traces` | search traces by `service` / `errors_only` / `query` / `window` (up to `limit`; `next_cursor` ⇒ more) |
 | `sluicio_get_trace` | one trace by id — all its spans (arg: `trace_id`) |

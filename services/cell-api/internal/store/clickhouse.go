@@ -2945,6 +2945,14 @@ type LogAttrFilter struct {
 	// hold. Nil makes the group its own member, which is how every group
 	// was read before members existed.
 	Member *int `json:"member,omitempty"`
+	// Source marks a group as one of an integration's metric or log
+	// SOURCES (#43): telemetry that is evidence about the integration
+	// without being one of its members, a broker's queue for instance.
+	// A source group is OR-ed beside the members' predicate and never
+	// takes part in the one-trace gate, which a broker's gauges could
+	// not satisfy. A property of the group: any filter carrying it
+	// marks the whole group.
+	Source bool `json:"source,omitempty"`
 }
 
 // Attribute filter operators. Text ops compare the attribute value as a
@@ -3020,6 +3028,12 @@ const serviceNameAttrKey = "service.name"
 // column, and there `span.name` stays an ordinary attribute lookup.
 const spanNameAttrKey = "span.name"
 
+// MetricNameAttrKey addresses a metric data point's NAME, the MetricName
+// column, the way span.name addresses a span's. A metric source (#43)
+// narrows to some of a broker's metrics with it (rabbitmq.queue.*). On
+// any other signal it is an attribute nothing carries.
+const MetricNameAttrKey = "metric.name"
+
 // attrEffectiveExpr is the log-table specialisation of
 // attrEffectiveExprIn (primary map = LogAttributes).
 func attrEffectiveExpr(key string) string { return attrEffectiveExprIn("LogAttributes", key) }
@@ -3037,6 +3051,9 @@ func attrClauseIn(primaryMap string, f LogAttrFilter) (string, []any) {
 	}
 	if f.Key == spanNameAttrKey && primaryMap == "SpanAttributes" {
 		eff = "SpanName"
+	}
+	if f.Key == MetricNameAttrKey && primaryMap == "MetricAttributes" {
+		eff = "MetricName"
 	}
 	// The environment is derived, not a map entry (#40): exists means a
 	// row has one, and every value comparison reads the canonical name.
@@ -3130,6 +3147,39 @@ func SpanAttrClause(f LogAttrFilter) (string, []any) { return attrClauseIn("Span
 // Metrics carry no span tree, so there the condition applies as written.
 // Logs keep their own match and add the logs of the subtree's spans.
 func attrGroupsClause(primaryMap string, groups [][]LogAttrFilter, from, to time.Time) (string, []any) {
+	// Sources (#43) are a plain union beside the members' predicate, so
+	// they are compiled apart from it and never reach the gate.
+	var members, sources [][]LogAttrFilter
+	for _, g := range groups {
+		if isSourceGroup(g) {
+			sources = append(sources, g)
+		} else {
+			members = append(members, g)
+		}
+	}
+	if len(sources) > 0 {
+		clause, args := attrGroupsClause(primaryMap, members, from, to)
+		var srcParts []string
+		var srcArgs []any
+		for _, g := range sources {
+			var andParts []string
+			for _, f := range g {
+				c, a := attrClauseIn(primaryMap, f)
+				andParts = append(andParts, c)
+				srcArgs = append(srcArgs, a...)
+			}
+			if len(andParts) > 0 {
+				srcParts = append(srcParts, "("+strings.Join(andParts, " AND ")+")")
+			}
+		}
+		switch {
+		case len(srcParts) == 0:
+			return clause, args
+		case clause == "":
+			return "(" + strings.Join(srcParts, " OR ") + ")", srcArgs
+		}
+		return "(" + clause + " OR " + strings.Join(srcParts, " OR ") + ")", append(args, srcArgs...)
+	}
 	orParts := make([]string, 0, len(groups))
 	var args []any
 	// Kept alongside the compiled OR so the trace-level gate below can ask
@@ -3197,6 +3247,16 @@ func attrGroupsClause(primaryMap string, groups [][]LogAttrFilter, from, to time
 		args = append(args, gateArgs...)
 	}
 	return clause, args
+}
+
+// isSourceGroup reports whether a group is an integration's source.
+func isSourceGroup(g []LogAttrFilter) bool {
+	for _, f := range g {
+		if f.Source {
+			return true
+		}
+	}
+	return false
 }
 
 // groupMemberOf is the member a group belongs to: the first filter's

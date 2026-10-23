@@ -1017,6 +1017,38 @@ func integrationCheckScope(ctx context.Context, cat *catalog.Store, integs *inte
 	return svcs, contextEnvironmentGroups(ctx, api.AttrGroupsFromMatchers(ms, mode)), nil
 }
 
+// integrationSignalCheckScope is integrationCheckScope for a metric or
+// log check: the members' slice plus the integration's sources of that
+// signal (#43), so "Order sync" is unhealthy when its queue backs up on
+// a broker that is not one of its members. Like the members' scope, no
+// members yet is no data.
+func integrationSignalCheckScope(ctx context.Context, cat *catalog.Store, integs *integrations.Store, orgID, id uuid.UUID, signal string) ([]string, [][]store.LogAttrFilter, error) {
+	svcs, err := cat.IntegrationServices(ctx, id)
+	if err != nil || len(svcs) == 0 {
+		return nil, nil, err
+	}
+	ms, err := integs.MatchersForIntegration(ctx, id)
+	if err != nil {
+		return nil, nil, err
+	}
+	mode, err := integs.RuleMatchForIntegration(ctx, id)
+	if err != nil {
+		return nil, nil, err
+	}
+	sources, err := integs.SourcesForIntegration(ctx, id)
+	if err != nil {
+		return nil, nil, err
+	}
+	resolved, err := api.ResolveSources(ctx, sources, signal, func(ctx context.Context, sys uuid.UUID) ([]string, error) {
+		return cat.SystemMemberNames(ctx, orgID, sys)
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	all, groups := api.WithSources(svcs, api.AttrGroupsFromMatchers(ms, mode), resolved, signal)
+	return all, contextEnvironmentGroups(ctx, groups), nil
+}
+
 // contextEnvironmentGroups narrows an integration's groups to the
 // environment the evaluation is about (#40), when it is about one.
 func contextEnvironmentGroups(ctx context.Context, groups [][]store.LogAttrFilter) [][]store.LogAttrFilter {
@@ -1151,7 +1183,7 @@ func (a metricEvaluatorAdapter) metricScope(ctx context.Context, serviceName str
 		return svcs, nil, true, nil
 	}
 	if integrationID != nil {
-		svcs, groups, err := integrationCheckScope(ctx, a.catalog, a.integs, *integrationID)
+		svcs, groups, err := integrationSignalCheckScope(ctx, a.catalog, a.integs, a.orgID, *integrationID, integrations.SourceMetrics)
 		if err != nil {
 			return nil, nil, false, err
 		}
@@ -1245,7 +1277,7 @@ func (a logCounterAdapter) CountLogs(ctx context.Context, q alerting.LogCountQue
 			p.ServiceIn = svcs
 		}
 	} else if q.IntegrationID != nil {
-		svcs, groups, err := integrationCheckScope(ctx, a.catalog, a.integs, *q.IntegrationID)
+		svcs, groups, err := integrationSignalCheckScope(ctx, a.catalog, a.integs, a.orgID, *q.IntegrationID, integrations.SourceLogs)
 		if err != nil {
 			return 0, err
 		}
@@ -1254,7 +1286,8 @@ func (a logCounterAdapter) CountLogs(ctx context.Context, q alerting.LogCountQue
 			return 0, nil
 		}
 		p.ServiceIn = svcs
-		// The same predicate the integration's Logs tab applies.
+		// The same predicate the integration's Logs tab applies, its
+		// log sources included.
 		p.AttrGroups = groups
 	}
 	return a.s.CountLogs(ctx, p)

@@ -55,7 +55,9 @@ func Export(ctx context.Context, tx pgx.Tx, orgID string, appVersion string) (*B
 		{"groups", func() error { return exportGroups(ctx, tx, orgID, b, groupSlug) }},
 		{"channels", func() error { return exportChannels(ctx, tx, orgID, b, channelName) }},
 		{"profiles", func() error { return exportProfiles(ctx, tx, orgID, b, groupSlug, channelName, profileName) }},
-		{"integrations", func() error { return exportIntegrations(ctx, tx, orgID, b, tagSlug, fieldKey, profileName, integSlug) }},
+		{"integrations", func() error {
+			return exportIntegrations(ctx, tx, orgID, b, tagSlug, fieldKey, profileName, integSlug, systemName)
+		}},
 		{"access_policies", func() error { return exportPolicies(ctx, tx, orgID, b, groupSlug, integSlug, systemName) }},
 		{"service_config", func() error { return exportServiceConfig(ctx, tx, orgID, b, tagSlug, fieldKey, schemaKey) }},
 		{"message_views", func() error { return exportMessageViews(ctx, tx, orgID, b, integSlug) }},
@@ -451,7 +453,7 @@ func exportProfiles(ctx context.Context, tx pgx.Tx, org string, b *Bundle, group
 	return nil
 }
 
-func exportIntegrations(ctx context.Context, tx pgx.Tx, org string, b *Bundle, tagSlug, fieldKey, profileName, ids map[string]string) error {
+func exportIntegrations(ctx context.Context, tx pgx.Tx, org string, b *Bundle, tagSlug, fieldKey, profileName, ids, systemName map[string]string) error {
 	rows, err := tx.Query(ctx, `
 		SELECT id, slug, name, COALESCE(description,''), badge_public, rule_match, notification_profile_id,
 		       declared_environments
@@ -542,6 +544,33 @@ func exportIntegrations(ctx context.Context, tx pgx.Tx, org string, b *Bundle, t
 		}
 		frows.Close()
 		if err := frows.Err(); err != nil {
+			return err
+		}
+		srows, err := tx.Query(ctx, `
+			SELECT signal, origin_kind, origin, conditions::text, metric_names
+			FROM integration_sources WHERE integration_id=$1 ORDER BY position, created_at`, iid)
+		if err != nil {
+			return err
+		}
+		for srows.Next() {
+			var s IntegrationSource
+			var conds string
+			if err := srows.Scan(&s.Signal, &s.OriginKind, &s.Origin, &conds, &s.MetricNames); err != nil {
+				srows.Close()
+				return err
+			}
+			_ = json.Unmarshal([]byte(conds), &s.Conditions)
+			if s.OriginKind == "system" {
+				n, ok := systemName[s.Origin]
+				if !ok {
+					continue // a system not in the bundle cannot be named on import
+				}
+				s.Origin = n
+			}
+			b.Sections.Integrations[i].Sources = append(b.Sections.Integrations[i].Sources, s)
+		}
+		srows.Close()
+		if err := srows.Err(); err != nil {
 			return err
 		}
 	}

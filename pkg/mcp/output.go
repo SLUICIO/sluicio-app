@@ -359,6 +359,16 @@ var (
 			"operator":  strOut("How it is compared: equals, prefix, …"),
 			"value":     strOut("The value matched against."),
 		}),
+		"sources": arrOf("Metric and log sources: telemetry from services that are NOT members (a broker's queue, say) that is evidence about this integration. Never in the flow or the message counts; read by its Metrics and Logs and its metric and log checks.", map[string]any{
+			"signal":          strOut("metrics or logs."),
+			"origin_kind":     strOut("service or system."),
+			"origin_name":     strOut("The service, or the system's name."),
+			"origin_services": strArr("The services the origin is now."),
+			"conditions": arrOf("Conditions on the rows' attributes, AND-ed.", map[string]any{
+				"attribute": strOut("Attribute key."), "operator": strOut("equals, prefix, regex, …"), "value": strOut("Value."),
+			}),
+			"metric_names": strArr("Metric sources: which metrics, as globs. Empty is all."),
+		}),
 		"status":                strOut("Rolled-up status across members."),
 		"tags":                  arrOf("Tags applied.", map[string]any{"slug": strOut("Tag slug."), "name": strOut("Tag name.")}),
 		"message_count":         intOut("Messages (traces) in the window."),

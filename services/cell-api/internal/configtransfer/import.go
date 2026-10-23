@@ -781,6 +781,37 @@ func (r *resolver) importIntegrations(integrations []Integration) func() error {
 					return err
 				}
 			}
+			if _, err := r.tx.Exec(r.ctx, `DELETE FROM integration_sources WHERE integration_id=$1`, id); err != nil {
+				return err
+			}
+			for pos, s := range in.Sources {
+				origin := s.Origin
+				if s.OriginKind == "system" {
+					sid, err := r.system(s.Origin)
+					if err != nil {
+						return err
+					}
+					origin = sid
+				}
+				conds := s.Conditions
+				if conds == nil {
+					conds = []SourceCondition{}
+				}
+				rawConds, err := json.Marshal(conds)
+				if err != nil {
+					return err
+				}
+				names := s.MetricNames
+				if names == nil {
+					names = []string{}
+				}
+				if _, err := r.tx.Exec(r.ctx, `
+					INSERT INTO integration_sources (integration_id, signal, origin_kind, origin, conditions, metric_names, position)
+					VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7)`,
+					id, s.Signal, s.OriginKind, origin, string(rawConds), names, pos); err != nil {
+					return err
+				}
+			}
 			if _, err := r.tx.Exec(r.ctx, `DELETE FROM integration_metadata WHERE integration_id=$1`, id); err != nil {
 				return err
 			}

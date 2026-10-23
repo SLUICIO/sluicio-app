@@ -14,6 +14,7 @@ import IntegrationPageHeader from "../components/IntegrationPageHeader";
 import IntegrationTabs from "../components/IntegrationTabs";
 import { integrationProblemCount } from "../lib/integrationHealth";
 import IntegrationServicesGuide from "../components/IntegrationServicesGuide";
+import IntegrationSources from "../components/IntegrationSources";
 import ServicesTable from "../components/ServicesTable";
 import type { IntegrationDetail } from "../api/types";
 import { usePageTitle } from "../lib/usePageTitle";
@@ -69,6 +70,14 @@ export default function IntegrationServices() {
             emptyState={<IntegrationServicesGuide integrationId={id} />}
           />
         </section>
+      )}
+      {data && (
+        <IntegrationSources
+          integrationId={id}
+          sources={data.sources ?? []}
+          canManage={Boolean(data.can_manage)}
+          onSaved={(sources) => setData((d) => (d ? { ...d, sources } : d))}
+        />
       )}
     </div>
   );

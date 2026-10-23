@@ -4,6 +4,8 @@
 // use relative paths from the browser.
 
 import type {
+  IntegrationSource,
+  IntegrationSourceView,
   EnvironmentRole,
   TelemetryEnvironmentSetting,
   IntegrationStats,
@@ -491,6 +493,9 @@ export const api = {
     get<{ environments: IntegrationEnvironment[]; declared: string[]; open_on: "production" | "all" }>(
       `/integrations/${encodeURIComponent(id)}/environments?range=${encodeURIComponent(window)}&env=`
     ),
+  // Metric and log sources (issue #43).
+  setIntegrationSources: (id: string, sources: IntegrationSource[]) =>
+    put<{ sources: IntegrationSourceView[] }>(`/integrations/${encodeURIComponent(id)}/sources`, { sources }),
   setDeclaredEnvironments: (id: string, environments: string[]) =>
     put<{ declared: string[] }>(`/integrations/${encodeURIComponent(id)}/declared-environments`, { environments }),
   // Every environment seen across what the caller can see, for the

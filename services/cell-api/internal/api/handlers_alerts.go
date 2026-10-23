@@ -16,6 +16,7 @@ import (
 	"github.com/sluicio/sluicio-app/pkg/httpserver"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/alerting"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/api/middleware"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/identity"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/store"
 )
 
@@ -807,10 +808,17 @@ func (h *Handlers) previewAlertRule(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		pf = h.resolveServiceFilter(r, "", members)
-		// The integration's conditions too, exactly as the evaluator
-		// applies them: one queue of a broker previews that queue.
-		groups = h.integrationGroups(r.Context(), id)
+		// The integration's conditions and its metric sources (#43), as
+		// the evaluator applies them: one queue of a broker previews that
+		// queue, whether the broker is a member or a source.
+		svcs, g, sErr := h.integrationSignalScope(r.Context(), id, members, identity.SignalMetrics)
+		if sErr != nil {
+			h.Logger.Warn("alert preview: integration scope failed", "err", sErr, "integration", id)
+			httpserver.WriteError(w, http.StatusInternalServerError, "query failed")
+			return
+		}
+		pf = h.resolveServiceFilter(r, "", svcs)
+		groups = g
 		// A caller who can see NONE of the members intersects down to an
 		// empty list, and an empty ServiceIn reads downstream as "no
 		// filter" — i.e. the whole cell. The ?service= path is protected
