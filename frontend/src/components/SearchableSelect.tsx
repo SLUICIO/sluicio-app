@@ -6,6 +6,12 @@
 // client-side; the empty value ("") is the "all / none" choice shown
 // with allLabel. Closes on outside click or Escape; arrow keys + Enter
 // navigate the filtered list.
+//
+// It is also the picker for adding a value to a list (environments,
+// services): withoutAll drops the "all" entry, and creatable offers
+// "Add “typed text”" when what was typed is not an option, for a value
+// that has not been seen yet. Use it rather than a native <datalist>,
+// whose browser-drawn dropdown looks like nothing else in the app.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -28,7 +34,17 @@ interface Props {
   // visible) but the popover cannot be opened. Used where a form is shown
   // to someone without write access.
   disabled?: boolean;
+  // No "all / none" entry: every choice is a real value. The trigger
+  // still shows allLabel (muted) while value is "".
+  withoutAll?: boolean;
+  // Offer the typed text as a value of its own when no option matches
+  // it exactly, labelled by createLabel.
+  creatable?: boolean;
+  createLabel?: (typed: string) => string;
 }
+
+// The "add what was typed" entry, never a real option value.
+const CREATE = "\u0000create";
 
 export default function SearchableSelect({
   value,
@@ -39,6 +55,9 @@ export default function SearchableSelect({
   labelFor = (v) => v,
   align = "left",
   disabled = false,
+  withoutAll = false,
+  creatable = false,
+  createLabel = (typed) => `Add “${typed}”`,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -51,12 +70,16 @@ export default function SearchableSelect({
   // any ancestor overflow:hidden (cards) / transform (drawers).
   const [coords, setCoords] = useState<{ top: number; left: number; minWidth: number; openUp: boolean; listMax: number } | null>(null);
 
-  // The selectable list always starts with the "all" entry (empty value).
+  // The selectable list starts with the "all" entry (empty value) unless
+  // withoutAll, and ends with the create entry when it applies.
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     const matches = q ? options.filter((o) => labelFor(o).toLowerCase().includes(q)) : options;
-    return ["", ...matches];
-  }, [options, query, labelFor]);
+    const exact = options.some((o) => labelFor(o).toLowerCase() === q || o.toLowerCase() === q);
+    const create = creatable && q !== "" && !exact ? [CREATE] : [];
+    return [...(withoutAll ? [] : [""]), ...matches, ...create];
+  }, [options, query, labelFor, withoutAll, creatable]);
+  const realMatches = filtered.filter((o) => o !== "" && o !== CREATE).length;
 
   useEffect(() => {
     if (!open) return;
@@ -119,7 +142,7 @@ export default function SearchableSelect({
   }, [open]);
 
   const choose = (v: string) => {
-    onChange(v);
+    onChange(v === CREATE ? query.trim() : v);
     setOpen(false);
   };
 
@@ -203,7 +226,7 @@ export default function SearchableSelect({
           <div style={{ maxHeight: coords.listMax, overflowY: "auto" }}>
             {filtered.map((opt, i) => (
               <button
-                key={opt || "__all__"}
+                key={opt === CREATE ? "__create__" : opt || "__all__"}
                 type="button"
                 role="option"
                 aria-selected={opt === value}
@@ -219,14 +242,14 @@ export default function SearchableSelect({
                   border: "none",
                   cursor: "pointer",
                   background: i === active ? "var(--surface-3)" : "transparent",
-                  color: opt === "" ? "var(--muted)" : "var(--ink-2)",
+                  color: opt === "" ? "var(--muted)" : opt === CREATE ? "var(--primary)" : "var(--ink-2)",
                   fontWeight: opt === value ? 600 : 400,
                 }}
               >
-                {opt === "" ? allLabel : labelFor(opt)}
+                {opt === "" ? allLabel : opt === CREATE ? createLabel(query.trim()) : labelFor(opt)}
               </button>
             ))}
-            {filtered.length === 1 && query.trim() !== "" && (
+            {realMatches === 0 && !filtered.includes(CREATE) && query.trim() !== "" && (
               <div className="muted" style={{ padding: "6px 10px", fontSize: 12 }}>
                 No matches
               </div>

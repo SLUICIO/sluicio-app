@@ -521,14 +521,11 @@ function WindowForm({
               <input type="number" className="search__input" min={0.25} max={168} step={0.25} value={repeatHours}
                 onChange={(e) => setRepeatHours(Number(e.target.value))} style={{ width: 100 }} required />
             </label>
-            <label className="form__label">
+            <div className="form__label">
               Timezone
-              <input className="search__input" list="mw-timezones" value={timezone}
-                onChange={(e) => setTimezone(e.target.value)} required style={{ width: 200 }} />
-              <datalist id="mw-timezones">
-                {timezones.map((z) => <option key={z} value={z} />)}
-              </datalist>
-            </label>
+              <SearchableSelect value={timezone} onChange={setTimezone} options={timezones} withoutAll
+                allLabel="choose a timezone…" placeholder="Search timezones…" />
+            </div>
             <label className="form__label">
               Until <span className="muted">(optional)</span>
               <input type="date" className="search__input" value={endsOn} onChange={(e) => setEndsOn(e.target.value)} />

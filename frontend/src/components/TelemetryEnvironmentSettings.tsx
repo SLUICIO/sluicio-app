@@ -11,6 +11,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { EnvironmentRole, TelemetryEnvironmentSetting } from "../api/types";
+import SearchableSelect from "./SearchableSelect";
 
 function aliasesToText(a: Record<string, string>): string {
   return Object.entries(a)
@@ -44,7 +45,6 @@ export default function TelemetryEnvironmentSettings() {
   const [openOn, setOpenOn] = useState<"production" | "all">("production");
   // The environments seen in the last week, with their roles.
   const [seen, setSeen] = useState<EnvironmentRole[] | null>(null);
-  const [added, setAdded] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -115,9 +115,8 @@ export default function TelemetryEnvironmentSettings() {
   };
 
   return (
-    <section className="card" style={{ padding: 16, marginTop: 20, maxWidth: 760 }} data-testid="telemetry-environment-settings">
-      <h3 style={{ margin: "0 0 4px", fontSize: 15 }}>Telemetry environments</h3>
-      <p className="muted" style={{ fontSize: 13, margin: "0 0 12px", lineHeight: 1.55 }}>
+    <div style={{ maxWidth: 760 }} data-testid="telemetry-environment-settings">
+      <p className="muted" style={{ fontSize: 13, marginBottom: 18, lineHeight: 1.55 }}>
         Integrations are read and alerted on per environment. By default the environment is the resource
         attribute <code>{loaded.default_keys[0]}</code>, or <code>{loaded.default_keys[1]}</code> where only the
         older name is sent. Telemetry with neither shows as “(no environment)”. Changes apply at once and
@@ -209,19 +208,16 @@ export default function TelemetryEnvironmentSettings() {
             Confirm {unconfirmed.length} suggestion{unconfirmed.length === 1 ? "" : "s"}
           </button>
         )}
-        <input
-          className="search__input"
-          style={{ width: 200, flex: "0 0 200px" }}
-          placeholder="add an environment"
-          value={added}
-          onChange={(e) => setAdded(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && added.trim()) {
-              e.preventDefault();
-              setRole(added.trim(), "production");
-              setAdded("");
-            }
-          }}
+        {/* One that has not sent yet, decided ahead of it. */}
+        <SearchableSelect
+          value=""
+          onChange={(v) => v && setRole(v, "production")}
+          options={[]}
+          withoutAll
+          creatable
+          allLabel="Add an environment…"
+          placeholder="Type its name…"
+          createLabel={(typed) => `Add “${typed}” as production`}
         />
       </div>
 
@@ -244,6 +240,6 @@ export default function TelemetryEnvironmentSettings() {
         </button>
         {saved && !dirty && <span className="muted" style={{ fontSize: 12 }}>Saved.</span>}
       </div>
-    </section>
+    </div>
   );
 }

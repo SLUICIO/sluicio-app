@@ -6,10 +6,11 @@
 // on the list and the Overview, and an "each environment" low-traffic
 // check watches it.
 
-import { FormEvent, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../../api/client";
 import { environmentLabel } from "../../lib/activeEnvironment";
 import { useIntegrationEnvironments } from "../EnvironmentPicker";
+import SearchableSelect from "../SearchableSelect";
 
 export default function DeclaredEnvironments({
   integrationId,
@@ -25,7 +26,6 @@ export default function DeclaredEnvironments({
   onError: (msg: string) => void;
 }) {
   const [list, setList] = useState<string[]>(declared);
-  const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const seen = useIntegrationEnvironments(integrationId);
   useEffect(() => setList(declared), [declared]);
@@ -33,12 +33,6 @@ export default function DeclaredEnvironments({
   const dirty = [...list].sort().join("\u0000") !== [...declared].sort().join("\u0000");
   const suggestions = (seen ?? []).map((e) => e.environment).filter((e) => e !== "" && !list.includes(e));
 
-  const add = (e?: FormEvent) => {
-    e?.preventDefault();
-    const v = draft.trim();
-    if (v && !list.includes(v)) setList([...list, v]);
-    setDraft("");
-  };
   const save = async () => {
     setBusy(true);
     try {
@@ -61,57 +55,42 @@ export default function DeclaredEnvironments({
           than not appearing, and checks set to each environment watch it for silence.
         </p>
       </div>
-      <div className="p-4 flex flex-col gap-3">
-        <div className="flex flex-wrap gap-2">
-          {list.length === 0 && <span className="text-sm text-muted">None declared.</span>}
-          {list.map((e) => (
-            <span key={e} className="badge" style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-              {environmentLabel(e)}
-              {canWrite && (
-                <button
-                  type="button"
-                  aria-label={`Remove ${environmentLabel(e)}`}
-                  onClick={() => setList(list.filter((x) => x !== e))}
-                  style={{ background: "none", border: 0, cursor: "pointer", color: "var(--muted)", padding: 0 }}
-                >
-                  ×
-                </button>
-              )}
-            </span>
-          ))}
-        </div>
+      <div className="p-4 flex flex-wrap items-center gap-2">
+        {list.length === 0 && !canWrite && <span className="text-sm text-muted">None declared.</span>}
+        {list.map((e) => (
+          <span key={e} className="badge" style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+            {environmentLabel(e)}
+            {canWrite && (
+              <button
+                type="button"
+                aria-label={`Remove ${environmentLabel(e)}`}
+                onClick={() => setList(list.filter((x) => x !== e))}
+                style={{ background: "none", border: 0, cursor: "pointer", color: "var(--muted)", padding: 0 }}
+              >
+                ×
+              </button>
+            )}
+          </span>
+        ))}
         {canWrite && (
-          <form onSubmit={add} className="flex flex-wrap items-center gap-2">
-            <input
-              className="search__input"
-              list="declared-env-suggestions"
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              placeholder="production"
-              aria-label="Environment to declare"
-              style={{ width: 220, flex: "0 0 220px" }}
+          <>
+            {/* The app's select, not a native datalist: the environments
+                its telemetry reports, or a name typed for one that has not
+                sent yet. */}
+            <SearchableSelect
+              value=""
+              onChange={(v) => v && !list.includes(v) && setList([...list, v])}
+              options={suggestions}
+              withoutAll
+              creatable
+              allLabel="Add an environment…"
+              placeholder="Search or type a name…"
+              createLabel={(typed) => `Declare “${typed}”`}
             />
-            <datalist id="declared-env-suggestions">
-              {suggestions.map((s) => <option key={s} value={s} />)}
-            </datalist>
-            <button type="submit" className="btn" disabled={!draft.trim()}>Add</button>
             <button type="button" className="btn btn--primary" disabled={!dirty || busy} onClick={save}>
               {busy ? "Saving…" : "Save"}
             </button>
-          </form>
-        )}
-        {canWrite && suggestions.length > 0 && (
-          <p className="text-xs text-muted">
-            Seen in its telemetry:{" "}
-            {suggestions.map((s, i) => (
-              <span key={s}>
-                {i > 0 && ", "}
-                <button type="button" className="btn btn--link" style={{ padding: 0, fontSize: 12 }} onClick={() => setList([...list, s])}>
-                  {s}
-                </button>
-              </span>
-            ))}
-          </p>
+          </>
         )}
       </div>
     </section>

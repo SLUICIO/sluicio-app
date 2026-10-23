@@ -83,7 +83,7 @@ const TABS: { key: TabKey; label: string; subtitle: string; enterprise?: boolean
   { key: "ingestion", label: "Ingestion", subtitle: "Ingest keys and ready-to-paste exporter configuration." },
   { key: "retention", label: "Retention", subtitle: "How long telemetry and audit history are kept, cell-wide." },
   { key: "reports", label: "Reports", subtitle: "What you store vs what you alert on — with trim suggestions." },
-  { key: "system", label: "System settings", subtitle: "Cell-wide platform settings — general knobs, email transport, security policy, notification templates, and announcements." },
+  { key: "system", label: "System settings", subtitle: "Cell-wide platform settings — general knobs, telemetry environments, email transport, security policy, notification templates, and announcements." },
   { key: "sso", label: "SSO", subtitle: "Single sign-on for this organization.", enterprise: true },
   { key: "audit", label: "Audit log", subtitle: "Who changed what, when — tamper-evident.", enterprise: true },
   { key: "license", label: "License", subtitle: "License status and Enterprise entitlements." },
@@ -132,9 +132,10 @@ function TabIcon({ k }: { k: TabKey }) {
 // (general knobs + SMTP + MFA + templates + announcements), so each area
 // gets its own panel. `?sub=` addresses them like `?tab=` does the page,
 // so other pages can deep-link (e.g. the email-channel hint on Alerts).
-type SystemSubKey = "general" | "email" | "security" | "templates" | "announcements";
+type SystemSubKey = "general" | "environments" | "email" | "security" | "templates" | "announcements";
 const SYSTEM_SUBTABS: { key: SystemSubKey; label: string }[] = [
   { key: "general", label: "General" },
+  { key: "environments", label: "Environments" },
   { key: "email", label: "Email" },
   { key: "security", label: "Security" },
   { key: "templates", label: "Notification templates" },
@@ -3333,13 +3334,10 @@ function SystemSettingsSection() {
           </button>
         ))}
       </div>
-      {sub === "general" && (
-        <>
-          <SystemSettingsTab />
-          {/* Where a row's environment comes from (issue #40). */}
-          <TelemetryEnvironmentSettings />
-        </>
-      )}
+      {sub === "general" && <SystemSettingsTab />}
+      {/* Where a row's environment comes from, and which are production
+          (issue #40). */}
+      {sub === "environments" && <TelemetryEnvironmentSettings />}
       {sub === "email" && <SmtpSettings isAdmin={isAdmin} />}
       {sub === "security" && <SecurityPolicy isAdmin={isAdmin} />}
       {sub === "templates" && <NotificationTemplateEditor scope="org" />}

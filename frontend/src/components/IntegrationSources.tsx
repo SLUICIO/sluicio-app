@@ -11,6 +11,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { IntegrationSource, IntegrationSourceView, MatcherOperator, System } from "../api/types";
+import SearchableSelect from "./SearchableSelect";
 
 const OPERATORS: { value: MatcherOperator; label: string }[] = [
   { value: "equals", label: "=" },
@@ -179,11 +180,6 @@ export default function IntegrationSources({
         </ul>
       ) : (
         <div className="flex flex-col gap-3 px-4 py-3 text-sm">
-          <datalist id="source-services">
-            {services.map((s) => (
-              <option key={s} value={s} />
-            ))}
-          </datalist>
           {draft.map((s, i) => (
             <div
               key={i}
@@ -214,30 +210,26 @@ export default function IntegrationSources({
                   <option value="system">system</option>
                 </select>
                 {s.origin_kind === "service" ? (
-                  <input
-                    className="search__input"
-                    style={{ width: 240, flex: "0 0 240px" }}
-                    list="source-services"
-                    placeholder="rabbitmq-prod"
+                  <SearchableSelect
                     value={s.origin}
-                    onChange={(e) => update(i, { origin: e.target.value })}
-                    aria-label="Service"
+                    onChange={(v) => update(i, { origin: v })}
+                    options={services}
+                    withoutAll
+                    creatable
+                    allLabel="choose a service…"
+                    placeholder="Search or type a service…"
+                    createLabel={(typed) => `Use “${typed}”`}
                   />
                 ) : (
-                  <select
-                    className="search__input"
-                    style={{ width: 240, flex: "0 0 240px" }}
+                  <SearchableSelect
                     value={s.origin}
-                    onChange={(e) => update(i, { origin: e.target.value })}
-                    aria-label="System"
-                  >
-                    <option value="">choose a system…</option>
-                    {systems.map((sy) => (
-                      <option key={sy.id} value={sy.id}>
-                        {sy.name}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(v) => update(i, { origin: v })}
+                    options={systems.map((sy) => sy.id)}
+                    labelFor={(id) => systems.find((sy) => sy.id === id)?.name ?? id}
+                    withoutAll
+                    allLabel="choose a system…"
+                    placeholder="Search systems…"
+                  />
                 )}
                 <button
                   type="button"
