@@ -3,8 +3,14 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.185 — 2026-10-23
+
+- feat(integrations): the Logs tab shows its log sources and offers to add one (#43) (47f4742)
+- feat(integrations): the Metrics tab shows its metric sources and offers to add one (#43) (e3980c7)
+
 ## v0.11.184 — 2026-10-23
 
+- release v0.11.184 - refresh internal changelog (410afd1)
 - demo: the two demo integrations as an importable configuration bundle (8d27c14)
 - fix(ui): environment and source pickers use the app's select; Environments is a system settings tab (31f5375)
 
