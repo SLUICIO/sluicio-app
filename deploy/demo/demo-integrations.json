@@ -1,0 +1,115 @@
+{
+  "format_version": 1,
+  "app_version": "0.0.0-dev",
+  "exported_at": "2026-10-23T00:00:00Z",
+  "source": {
+    "org_slug": "demo-estate",
+    "org_name": "Demo estate"
+  },
+  "sections": {
+    "integrations": [
+      {
+        "slug": "invoice-distribution",
+        "name": "Invoice distribution",
+        "description": "Supplier invoices from the SFTP drop, routed to the ERP and the archive.",
+        "badge_public": false,
+        "rule_match": "any",
+        "matchers": [
+          {
+            "attribute": "service.name",
+            "operator": "equals",
+            "value": "invoice-intake",
+            "match_group": 0
+          },
+          {
+            "attribute": "service.name",
+            "operator": "equals",
+            "value": "invoice-router",
+            "match_group": 1
+          },
+          {
+            "attribute": "service.name",
+            "operator": "equals",
+            "value": "erp-invoice-adapter",
+            "match_group": 2
+          },
+          {
+            "attribute": "service.name",
+            "operator": "equals",
+            "value": "invoice-archiver",
+            "match_group": 3
+          }
+        ],
+        "metadata": {
+          "country": "Germany"
+        },
+        "declared_environments": [
+          "production",
+          "test"
+        ]
+      },
+      {
+        "slug": "order-sync",
+        "name": "Order sync",
+        "description": "Orders placed in the webshop, synced into the ERP.",
+        "badge_public": false,
+        "rule_match": "any",
+        "matchers": [
+          {
+            "attribute": "service.name",
+            "operator": "equals",
+            "value": "webshop-orders",
+            "match_group": 0
+          },
+          {
+            "attribute": "service.name",
+            "operator": "equals",
+            "value": "erp-order-sync",
+            "match_group": 1
+          }
+        ],
+        "metadata": {
+          "country": "Sweden"
+        },
+        "declared_environments": [
+          "production",
+          "test"
+        ]
+      }
+    ],
+    "alert_rules": [
+      {
+        "name": "Failed invoices",
+        "signal": "trace",
+        "rule_spec": {
+          "kind": "trace_error",
+          "threshold": 40,
+          "window_seconds": 300
+        },
+        "severity": "warning",
+        "evaluation_interval": "00:01:00",
+        "enabled": true,
+        "integration": "invoice-distribution",
+        "source": "telemetry",
+        "display_on_service": false,
+        "resolve_mode": "auto"
+      },
+      {
+        "name": "Failed orders",
+        "signal": "trace",
+        "rule_spec": {
+          "kind": "trace_error",
+          "threshold": 25,
+          "window_seconds": 300
+        },
+        "severity": "warning",
+        "evaluation_interval": "00:01:00",
+        "enabled": true,
+        "integration": "order-sync",
+        "source": "telemetry",
+        "display_on_service": false,
+        "resolve_mode": "auto"
+      }
+    ]
+  }
+}

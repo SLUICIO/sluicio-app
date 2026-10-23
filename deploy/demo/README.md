@@ -18,7 +18,14 @@ Three moving parts:
    - **Invoice distribution**: `invoice-intake` → `invoice-router` →
      `erp-invoice-adapter` and `invoice-archiver`.
 
-   Build the demo org's two integrations on those services.
+   Import the demo org's two integrations from
+   [`demo-integrations.json`](demo-integrations.json): Settings →
+   Organization → Export & import, as an admin that is not a demo
+   account. It
+   brings both integrations with their members, Country metadata
+   (Sweden, Germany), declared environments (production, test) and a
+   failed-messages check each. It needs the org's `country` metadata
+   field, and leaves everything else in the org alone.
 3. **Golden snapshot + scheduled reseed** — the demo org's config lives
    in a `pg_dump` you take once; a cron job restores it and truncates
    telemetry, erasing visitor changes.
