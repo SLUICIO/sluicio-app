@@ -804,13 +804,36 @@ export interface EnvironmentStatus {
   trace_count: number;
   error_trace_count: number;
   declared: boolean;
+  /** Has the production role: confirmed in the settings, or suggested
+   *  by its name. */
+  production?: boolean;
 }
 
-/** An environment on the integration page's strip: its status plus
- *  whether logs and metrics came from it too. */
+/** One of an integration's environments, for the picker: its status
+ *  plus whether logs and metrics came from it too. */
 export interface IntegrationEnvironment extends EnvironmentStatus {
   log_records: number;
   metric_rows: number;
+}
+
+/** An environment's role (issue #40): production or not, confirmed by
+ *  an operator or suggested by its name. */
+export interface EnvironmentRole {
+  environment: string;
+  role: "production" | "non-production";
+  confirmed: boolean;
+  /** Telemetry came from it in the window. */
+  seen: boolean;
+}
+
+/** The cell's telemetry-environment setting. */
+export interface TelemetryEnvironmentSetting {
+  key: string;
+  aliases: Record<string, string>;
+  /** Confirmed roles; an environment not in it has its suggested role. */
+  roles: Record<string, "production" | "non-production">;
+  /** What an integration's page opens on. */
+  open_on: "production" | "all";
 }
 
 export interface Matcher {

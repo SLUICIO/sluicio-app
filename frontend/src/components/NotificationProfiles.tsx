@@ -11,6 +11,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
+import { PRODUCTION_TOKEN } from "../lib/activeEnvironment";
 import type {
   NotificationChannel,
   NotificationProfile,
@@ -170,7 +171,11 @@ function ProfileCard({
   const [draft, setDraft] = useState<Draft>(toDraft(profile));
   // The typed text, kept apart from the parsed list so a comma being
   // typed is not normalised away mid-word.
-  const [envText, setEnvText] = useState(() => (profile.environments ?? []).join(", "));
+  // The names typed; "production environments" (the role) is its own
+  // checkbox.
+  const [envText, setEnvText] = useState(() =>
+    (profile.environments ?? []).filter((e) => e !== PRODUCTION_TOKEN).join(", "),
+  );
   const [saving, setSaving] = useState(false);
 
   // Re-sync when the underlying profile changes (e.g. after a sibling save
@@ -310,8 +315,27 @@ function ProfileCard({
           </select>
         </label>
         {draft.environment_mode !== "any" && (
+          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, paddingBottom: 6 }}>
+            <input
+              type="checkbox"
+              disabled={!canWrite}
+              checked={draft.environments.includes(PRODUCTION_TOKEN)}
+              onChange={(e) =>
+                setDraft((d) => ({
+                  ...d,
+                  environments: e.target.checked
+                    ? [PRODUCTION_TOKEN, ...d.environments.filter((x) => x !== PRODUCTION_TOKEN)]
+                    : d.environments.filter((x) => x !== PRODUCTION_TOKEN),
+                }))
+              }
+              data-testid="profile-production-environments"
+            />
+            production environments
+          </label>
+        )}
+        {draft.environment_mode !== "any" && (
           <label style={{ ...field, flex: "1 1 220px" }}>
-            <span style={labelStyle}>Environment names, comma separated</span>
+            <span style={labelStyle}>{draft.environments.includes(PRODUCTION_TOKEN) ? "And these, comma separated" : "Environment names, comma separated"}</span>
             <input
               className="search__input"
               style={{ fontSize: 13 }}
@@ -320,8 +344,11 @@ function ProfileCard({
               value={envText}
               onChange={(e) => {
                 setEnvText(e.target.value);
-                const environments = e.target.value.split(",").map((x) => x.trim()).filter(Boolean);
-                setDraft((d) => ({ ...d, environments }));
+                const names = e.target.value.split(",").map((x) => x.trim()).filter(Boolean);
+                setDraft((d) => ({
+                  ...d,
+                  environments: d.environments.includes(PRODUCTION_TOKEN) ? [PRODUCTION_TOKEN, ...names] : names,
+                }));
               }}
             />
           </label>

@@ -22,6 +22,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/envrole"
 )
 
 // Grouping modes.
@@ -67,13 +69,9 @@ func (p Profile) AppliesTo(env string, hasEnv bool) bool {
 	if !hasEnv {
 		return true
 	}
-	listed := false
-	for _, e := range p.Environments {
-		if e == env {
-			listed = true
-			break
-		}
-	}
+	// The list may say "production environments" (envrole), which
+	// follows the roles as they change.
+	listed := envrole.Listed(p.Environments, env)
 	switch p.EnvironmentMode {
 	case EnvironmentOnly:
 		return listed

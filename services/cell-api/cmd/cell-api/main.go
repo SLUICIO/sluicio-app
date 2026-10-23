@@ -66,6 +66,7 @@ import (
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/demand"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/deploymentlimits"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/envctx"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/envrole"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/erroracks"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/errornotify"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/eventsubs"
@@ -447,6 +448,7 @@ func main() {
 		logger.Warn("telemetry environment setting not loaded; using the defaults", "err", err)
 	} else {
 		store.SetEnvironmentConfig(store.EnvironmentConfig{Key: te.Key, Aliases: te.Aliases})
+		envrole.Set(envrole.Config{Roles: te.Roles})
 	}
 
 	// Two windows, not one (issue #26). The pass PROFILES fourteen days,

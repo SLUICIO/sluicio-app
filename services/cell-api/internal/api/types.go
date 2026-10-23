@@ -814,4 +814,7 @@ type EnvironmentStatus struct {
 	// Declared: the integration declares this environment. A declared
 	// environment with no traffic reads "quiet" rather than vanishing.
 	Declared bool `json:"declared"`
+	// Production: the environment has the production role (envrole),
+	// confirmed by an operator or suggested by its name.
+	Production bool `json:"production"`
 }

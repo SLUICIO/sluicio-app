@@ -27,7 +27,7 @@ import { useNavigationReach } from "../lib/useNavigationReach";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import { materializeItems, ruleIntegrations, toItemRequest } from "../lib/dashboardItems";
-import { environmentLabel, useEnvironmentParam } from "../lib/activeEnvironment";
+import { PRODUCTION_TOKEN, environmentLabel, expandProduction, useEnvironmentParam } from "../lib/activeEnvironment";
 import { orderDashboards, pickActiveDashboard } from "../lib/dashboardPick";
 import { byHealthThenName } from "../lib/healthOrder";
 import { useAccess } from "../lib/useAccess";
@@ -136,11 +136,20 @@ export default function Health() {
   // environment to each card.
   const [viewEnv, setViewEnv] = useEnvironmentParam();
   const [envDashSource, setEnvDashSource] = useState<string[]>([]);
-  const effectiveEnvs = viewEnv !== null ? [viewEnv] : envDashSource;
+  // "Production environments" on a dashboard is the role, read as the
+  // environments that have it now. With none, the token itself goes to
+  // the server, where it names no environment: the dashboard reads
+  // nothing rather than everything.
+  const known = useKnownEnvironments(windowVal);
+  const expanded = expandProduction(envDashSource, known.production);
+  const effectiveEnvs =
+    viewEnv !== null ? [viewEnv] : expanded.length === 0 && envDashSource.includes(PRODUCTION_TOKEN) ? [PRODUCTION_TOKEN] : expanded;
+  const waitingForRoles = viewEnv === null && envDashSource.includes(PRODUCTION_TOKEN) && !known.loaded;
   const envKey = effectiveEnvs.join("\u0000");
   const [metadataFields, setMetadataFields] = useState<{ key: string; label: string; options?: string[] }[]>([]);
 
   useEffect(() => {
+    if (waitingForRoles) return;
     setIntLoading(true);
     setIntError(null);
     api
@@ -158,7 +167,7 @@ export default function Health() {
       .catch((e) => setIntError(String(e.message ?? e)))
       .finally(() => setIntLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [windowVal, envKey]);
+  }, [windowVal, envKey, waitingForRoles]);
 
   // Dashboards load once — they don't depend on the time window. The
   // editor reloads from the server after save/delete so any new
@@ -516,10 +525,10 @@ export default function Health() {
       setSaving(true);
       setDashError(null);
       try {
-        // A new dashboard starts on the default environment when the
-        // telemetry has it; untick it in the editor to read them all.
-        const known = await api.listEnvironments().catch(() => null);
-        const startEnvs = known && known.default && known.environments.includes(known.default) ? [known.default] : [];
+        // A new dashboard starts on the production environments when
+        // there are any; untick it in the editor to read them all.
+        const roles = await api.listEnvironments().catch(() => null);
+        const startEnvs = roles && roles.production.length > 0 ? [PRODUCTION_TOKEN] : [];
         const created = await api.createDashboard({
           name,
           autoIncludeAll: start_with_all,
@@ -1897,15 +1906,23 @@ function hashString(s: string): number {
 
 // ── Environments and rules (issue #40) ──────────────────────────────
 
-/** The environments seen in the window, for the dashboard pickers. */
-function useKnownEnvironments(windowVal: string): string[] {
-  const [envs, setEnvs] = useState<string[]>([]);
+interface KnownEnvironments {
+  environments: string[];
+  /** Those with the production role. */
+  production: string[];
+  loaded: boolean;
+}
+
+/** The environments seen in the window and which are production, for
+ *  the dashboard pickers. */
+function useKnownEnvironments(windowVal: string): KnownEnvironments {
+  const [envs, setEnvs] = useState<KnownEnvironments>({ environments: [], production: [], loaded: false });
   useEffect(() => {
     let cancelled = false;
     api
       .listEnvironments(windowVal)
-      .then((r) => !cancelled && setEnvs(r.environments ?? []))
-      .catch(() => !cancelled && setEnvs([]));
+      .then((r) => !cancelled && setEnvs({ environments: r.environments ?? [], production: r.production ?? [], loaded: true }))
+      .catch(() => !cancelled && setEnvs({ environments: [], production: [], loaded: true }));
     return () => {
       cancelled = true;
     };
@@ -1924,9 +1941,12 @@ function DashboardEnvironmentsEditor({
   onChange: (envs: string[]) => void;
 }) {
   const known = useKnownEnvironments(windowVal);
-  const names = [...known];
-  for (const e of value) if (!names.includes(e)) names.push(e);
+  const names = [...known.environments];
+  for (const e of value) if (e !== PRODUCTION_TOKEN && !names.includes(e)) names.push(e);
   if (names.length === 0) return null;
+  // "Production environments" first: it follows the roles in the
+  // settings as environments come and go, where ticking names does not.
+  if (known.production.length > 0 || value.includes(PRODUCTION_TOKEN)) names.unshift(PRODUCTION_TOKEN);
   return (
     <div className="flex flex-wrap items-center gap-2 text-sm text-muted" data-testid="dashboard-environments">
       environments
@@ -2051,8 +2071,10 @@ function EnvironmentSwitch({
   window: string;
 }) {
   const known = useKnownEnvironments(windowVal);
-  const names = [...known];
-  for (const e of [...dashboardEnvs, ...(viewEnv !== null ? [viewEnv] : [])]) if (!names.includes(e)) names.push(e);
+  const names = [...known.environments];
+  for (const e of [...dashboardEnvs, ...(viewEnv !== null ? [viewEnv] : [])]) {
+    if (e !== PRODUCTION_TOKEN && !names.includes(e)) names.push(e);
+  }
   if (names.length === 0 || (names.length === 1 && names[0] === "")) return null;
   const own =
     dashboardEnvs.length === 0 ? "all environments" : dashboardEnvs.map(environmentLabel).join(", ");

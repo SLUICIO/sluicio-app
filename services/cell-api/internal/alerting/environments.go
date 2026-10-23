@@ -24,6 +24,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/envctx"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/envrole"
 )
 
 // envFingerprintPrefix prefixes a per-environment instance's fingerprint.
@@ -92,7 +93,24 @@ func (e *Engine) environmentsFor(ctx context.Context, rule AlertRule) (envs []st
 	}
 	if rule.EnvironmentMode == EnvironmentOnly {
 		for _, env := range rule.Environments {
-			set[env] = true
+			if env != envrole.ProductionToken {
+				set[env] = true
+			}
+		}
+		// "Production environments": the integration's environments
+		// with the production role now, so prod-us joins the check the
+		// moment it sends, and a role changed in the settings applies at
+		// the next tick.
+		if envrole.HasToken(rule.Environments) {
+			have, err := e.envLister.IntegrationEnvironments(ctx, *rule.IntegrationID)
+			if err != nil {
+				return nil, false, err
+			}
+			for _, env := range have {
+				if envrole.IsProduction(env) {
+					set[env] = true
+				}
+			}
 		}
 	} else {
 		have, err := e.envLister.IntegrationEnvironments(ctx, *rule.IntegrationID)

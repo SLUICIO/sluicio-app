@@ -21,6 +21,7 @@ import (
 	"github.com/sluicio/sluicio-app/pkg/httpserver"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/alerting"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/api/middleware"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/envrole"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/integrations"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/settings"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/store"
@@ -112,6 +113,7 @@ func (h *Handlers) integrationEnvironments(w http.ResponseWriter, r *http.Reques
 			})
 			e = &IntegrationEnvironment{EnvironmentStatus: EnvironmentStatus{
 				Environment: v.Environment, Status: status, Declared: declared[v.Environment],
+				Production: envrole.IsProduction(v.Environment),
 			}}
 			byEnv[v.Environment] = e
 			out = append(out, e)
@@ -128,22 +130,43 @@ func (h *Handlers) integrationEnvironments(w http.ResponseWriter, r *http.Reques
 		"window":       tr.Window(),
 		"environments": out,
 		"declared":     nonNilStrings(full.Integration.DeclaredEnvironments),
-		"default":      h.defaultEnvironment(ctx),
+		"open_on":      h.openOn(ctx),
 	})
 }
 
-// defaultEnvironment is the environment pages open on when they have it
-// (the cell setting, production unless changed), "" for none. Canonical,
-// so an alias names the same environment the data does.
-func (h *Handlers) defaultEnvironment(ctx context.Context) string {
+// openOn is what an integration's page opens on: "production" (its
+// production environments) or "all".
+func (h *Handlers) openOn(ctx context.Context) string {
 	v, err := h.Settings.GetTelemetryEnvironment(ctx)
 	if err != nil {
 		h.Logger.Warn("telemetry environment setting failed", "err", err)
 	}
-	if d := v.DefaultOrBuiltIn(); d != "" {
-		return store.CanonicalEnvironment(d)
+	return v.OpenOn
+}
+
+// EnvironmentRole is one environment's role, for the settings list and
+// the pickers that offer "production environments".
+type EnvironmentRole struct {
+	Environment string `json:"environment"`
+	Role        string `json:"role"`
+	// Confirmed: an operator decided the role. Otherwise it is what the
+	// name suggests, and the settings list asks for a decision.
+	Confirmed bool `json:"confirmed"`
+	// Seen: telemetry came from it in the window (else it is only
+	// configured or declared).
+	Seen bool `json:"seen"`
+}
+
+func environmentRoles(names []string, seen map[string]bool) []EnvironmentRole {
+	out := make([]EnvironmentRole, 0, len(names))
+	for _, n := range names {
+		if n == "" {
+			continue
+		}
+		_, confirmed := envrole.Confirmed(n)
+		out = append(out, EnvironmentRole{Environment: n, Role: envrole.Of(n), Confirmed: confirmed, Seen: seen[n]})
 	}
-	return ""
+	return out
 }
 
 // putDeclaredEnvironments: PUT /api/v1/integrations/{id}/declared-environments
@@ -204,6 +227,7 @@ func (h *Handlers) listEnvironments(w http.ResponseWriter, r *http.Request) {
 		visible = nil
 	}
 	seen := map[string]bool{}
+	sent := map[string]bool{}
 	if len(visible) > 0 {
 		vols, err := h.Store.EnvironmentsIn(ctx, visible, nil, tr.From, tr.To)
 		if err != nil {
@@ -211,6 +235,7 @@ func (h *Handlers) listEnvironments(w http.ResponseWriter, r *http.Request) {
 		}
 		for _, v := range vols {
 			seen[v.Environment] = true
+			sent[v.Environment] = true
 		}
 	}
 	if integs, err := h.Integrations.List(ctx, middleware.OrgID(r)); err == nil {
@@ -225,11 +250,20 @@ func (h *Handlers) listEnvironments(w http.ResponseWriter, r *http.Request) {
 		out = append(out, e)
 	}
 	sort.Strings(out)
+	var production []string
+	for _, e := range out {
+		if envrole.IsProduction(e) {
+			production = append(production, e)
+		}
+	}
 	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
-		"environments": out,
-		"none_param":   NoEnvironmentParam,
-		"window":       tr.Window(),
-		"default":      h.defaultEnvironment(ctx),
+		"environments":     out,
+		"production":       nonNilStrings(production),
+		"roles":            environmentRoles(out, sent),
+		"none_param":       NoEnvironmentParam,
+		"production_token": envrole.ProductionToken,
+		"open_on":          h.openOn(ctx),
+		"window":           tr.Window(),
 	})
 }
 
@@ -247,10 +281,14 @@ func (h *Handlers) getTelemetryEnvironment(w http.ResponseWriter, r *http.Reques
 	if v.Aliases == nil {
 		v.Aliases = map[string]string{}
 	}
+	if v.Roles == nil {
+		v.Roles = map[string]string{}
+	}
 	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
 		"key":          v.Key,
 		"aliases":      v.Aliases,
-		"default":      v.DefaultOrBuiltIn(),
+		"roles":        v.Roles,
+		"open_on":      v.OpenOn,
 		"default_keys": []string{"deployment.environment.name", "deployment.environment"},
 	})
 }
@@ -283,22 +321,51 @@ func (h *Handlers) putTelemetryEnvironment(w http.ResponseWriter, r *http.Reques
 		clean[from] = to
 	}
 	body.Aliases = clean
-	if body.Default != nil {
-		d := strings.TrimSpace(*body.Default)
-		if len(d) > 128 {
-			httpserver.WriteError(w, http.StatusBadRequest, "the default environment is at most 128 characters")
+	// Roles and open_on left out keep what is stored, so a client that
+	// only sets the aliases does not reset them. v0.11.180's default
+	// carries over only when neither is given.
+	stored, err := h.Settings.GetTelemetryEnvironment(r.Context())
+	if err != nil {
+		httpserver.WriteError(w, http.StatusInternalServerError, "could not load setting")
+		return
+	}
+	if body.Roles != nil || body.OpenOn != "" {
+		body.Default = nil
+	}
+	if body.Roles == nil {
+		body.Roles = stored.Roles
+	}
+	if body.OpenOn == "" && body.Default == nil {
+		body.OpenOn = stored.OpenOn
+	}
+	if len(body.Roles) > 200 {
+		httpserver.WriteError(w, http.StatusBadRequest, "at most 200 environment roles")
+		return
+	}
+	roles := map[string]string{}
+	for env, role := range body.Roles {
+		env = strings.TrimSpace(env)
+		if env == "" || len(env) > 128 || (role != envrole.Production && role != envrole.NonProduction) {
+			httpserver.WriteError(w, http.StatusBadRequest, "a role is production or non-production, for an environment of at most 128 characters")
 			return
 		}
-		body.Default = &d
+		roles[env] = role
 	}
+	body.Roles = roles
+	if body.OpenOn != "" && body.OpenOn != settings.OpenOnProduction && body.OpenOn != settings.OpenOnAll {
+		httpserver.WriteError(w, http.StatusBadRequest, "open_on is production or all")
+		return
+	}
+	body = body.Normalized()
 	if err := h.Settings.SetTelemetryEnvironment(r.Context(), body); err != nil {
 		httpserver.WriteError(w, http.StatusInternalServerError, "could not save setting")
 		return
 	}
 	store.SetEnvironmentConfig(store.EnvironmentConfig{Key: body.Key, Aliases: body.Aliases})
+	envrole.Set(envrole.Config{Roles: body.Roles})
 	h.recordAudit(r, "cell_settings.telemetry_environment_updated", "cell_settings", "telemetry_environment",
-		map[string]any{"key": body.Key, "aliases": len(body.Aliases), "default": body.DefaultOrBuiltIn()})
-	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"key": body.Key, "aliases": body.Aliases, "default": body.DefaultOrBuiltIn()})
+		map[string]any{"key": body.Key, "aliases": len(body.Aliases), "roles": body.Roles, "open_on": body.OpenOn})
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"key": body.Key, "aliases": body.Aliases, "roles": body.Roles, "open_on": body.OpenOn})
 }
 
 func nonNilStrings(s []string) []string {

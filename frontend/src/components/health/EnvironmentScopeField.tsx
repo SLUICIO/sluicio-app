@@ -7,7 +7,7 @@
 
 import { useState } from "react";
 import type { AlertRule } from "../../api/types";
-import { environmentLabel } from "../../lib/activeEnvironment";
+import { PRODUCTION_TOKEN, environmentLabel } from "../../lib/activeEnvironment";
 import { useIntegrationEnvironments } from "../EnvironmentPicker";
 import type { CheckScope } from "./HealthChecks";
 
@@ -45,7 +45,10 @@ export default function EnvironmentScopeField({
   const [draft, setDraft] = useState("");
   if (scope !== "integration") return null;
   const known = (envs ?? []).map((e) => e.environment);
-  for (const e of value.environments) if (!known.includes(e)) known.push(e);
+  for (const e of value.environments) if (e !== PRODUCTION_TOKEN && !known.includes(e)) known.push(e);
+  // "Production environments" first: the role, so prod-us joins the
+  // check the moment it sends, without editing it.
+  known.unshift(PRODUCTION_TOKEN);
   const toggle = (e: string) =>
     onChange({
       ...value,

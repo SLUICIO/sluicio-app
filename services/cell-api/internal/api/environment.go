@@ -19,6 +19,7 @@ import (
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/erroracks"
 
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/envctx"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/envrole"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/store"
 )
 
@@ -147,6 +148,7 @@ func (h *Handlers) fillEnvironmentStatuses(
 				TraceCount:      st.Traces,
 				ErrorTraceCount: st.ErrorTraces,
 				Declared:        declared[env],
+				Production:      envrole.IsProduction(env),
 			})
 		}
 		sort.Slice(out, func(a, b int) bool {

@@ -8,7 +8,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { IntegrationEnvironment, ServiceStatus } from "../api/types";
-import { environmentLabel, useEnvironmentParam } from "../lib/activeEnvironment";
+import { environmentLabel, useEnvironmentSet } from "../lib/activeEnvironment";
 import { statusLabel } from "../lib/format";
 import { useTimeWindow } from "../lib/useTimeWindow";
 
@@ -54,34 +54,59 @@ function worthPicking(envs: IntegrationEnvironment[]): boolean {
 
 export default function EnvironmentPicker({ integrationId }: { integrationId: string | undefined }) {
   const envs = useIntegrationEnvironments(integrationId);
-  const [env, setEnv] = useEnvironmentParam();
+  const [chosen, setChosen] = useEnvironmentSet();
   if (envs === null) return null;
-  // "All environments" is written out (?env=*): without it the page
-  // would open on the default environment again.
   const names = envs.map((e) => e.environment);
-  // A link can name an environment that is not in this window.
-  if (env !== null && !names.includes(env)) names.push(env);
-  if (!worthPicking(envs) && env === null) return null;
+  // A link can name environments that are not in this window.
+  for (const e of chosen ?? []) if (!names.includes(e)) names.push(e);
+  if (!worthPicking(envs) && chosen === null) return null;
+  const isProduction = (n: string) => envs.find((e) => e.environment === n)?.production ?? false;
+  const production = names.filter((n) => n !== "" && isProduction(n)).sort();
+  const other = names.filter((n) => !production.includes(n));
+  const same = (a: string[], b: string[]) => a.length === b.length && [...a].sort().join("\u0000") === [...b].sort().join("\u0000");
+  // The value of the current choice: all, every production environment,
+  // one, or a set a link named.
+  const value =
+    chosen === null
+      ? "\u0000all"
+      : production.length > 1 && same(chosen, production)
+        ? "\u0000prod"
+        : chosen.length === 1
+          ? chosen[0]
+          : "\u0000set";
+  const option = (n: string) => {
+    const s = envs.find((e) => e.environment === n);
+    return (
+      <option key={n} value={n}>
+        {environmentLabel(n)}
+        {s ? ` · ${statusLabel(s.status as ServiceStatus)}` : ""}
+      </option>
+    );
+  };
   return (
     <label className="flex items-center gap-2 text-sm" data-testid="environment-picker">
       <span className="text-muted">Environment</span>
       <select
         className="search__input"
         style={{ minWidth: 180 }}
-        value={env === null ? "\u0000all" : env}
-        onChange={(e) => setEnv(e.target.value === "\u0000all" ? null : e.target.value, true)}
+        value={value}
+        // "All environments" is written out (?env=*): without it the
+        // page would open on production again.
+        onChange={(e) => {
+          const v = e.target.value;
+          if (v === "\u0000all") setChosen(null, true);
+          else if (v === "\u0000prod") setChosen(production);
+          else if (v !== "\u0000set") setChosen([v]);
+        }}
         aria-label="Environment"
       >
         <option value={"\u0000all"}>All environments</option>
-        {names.map((n) => {
-          const s = envs.find((e) => e.environment === n);
-          return (
-            <option key={n} value={n}>
-              {environmentLabel(n)}
-              {s ? ` · ${statusLabel(s.status as ServiceStatus)}` : ""}
-            </option>
-          );
-        })}
+        {production.length > 1 && <option value={"\u0000prod"}>Production ({production.join(", ")})</option>}
+        {value === "\u0000set" && <option value={"\u0000set"}>{(chosen ?? []).map(environmentLabel).join(", ")}</option>}
+        {production.length > 0 && <optgroup label="Production">{production.map(option)}</optgroup>}
+        {other.length > 0 && (
+          <optgroup label={production.length > 0 ? "Other environments" : "Environments"}>{other.map(option)}</optgroup>
+        )}
       </select>
     </label>
   );

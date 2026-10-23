@@ -4,6 +4,8 @@
 // use relative paths from the browser.
 
 import type {
+  EnvironmentRole,
+  TelemetryEnvironmentSetting,
   IntegrationStats,
   LimitsStatus,
   RuleMatch,
@@ -164,7 +166,7 @@ import type {
   EventDelivery,
 } from "./types";
 import { getActiveOrgSlug } from "../lib/activeOrg";
-import { envToParam, getActiveEnvironment, readsIntegrationData } from "../lib/activeEnvironment";
+import { envToParam, getActiveEnvironments, readsIntegrationData } from "../lib/activeEnvironment";
 
 const BASE = "/api/v1";
 
@@ -179,9 +181,9 @@ async function request<T>(
   // The environment an integration page reads (issue #40) follows every
   // read of integration data made while it is on screen, unless the
   // caller already chose one.
-  const env = getActiveEnvironment();
-  if (env !== null && readsIntegrationData(path, init.method ?? "GET") && !/[?&]env=/.test(path)) {
-    path += (path.includes("?") ? "&" : "?") + "env=" + encodeURIComponent(envToParam(env));
+  const envs = getActiveEnvironments();
+  if (envs !== null && readsIntegrationData(path, init.method ?? "GET") && !/[?&]env=/.test(path)) {
+    path += (path.includes("?") ? "&" : "?") + envs.map((e) => "env=" + encodeURIComponent(envToParam(e))).join("&");
   }
   const res = await fetch(BASE + path, {
     // Explicit "same-origin" so the session cookie set by the cell-api
@@ -486,7 +488,7 @@ export const api = {
   // and the environment its pages open on. Read across all environments
   // whatever the page is narrowed to, hence the explicit empty env.
   integrationEnvironments: (id: string, window: string = "1h") =>
-    get<{ environments: IntegrationEnvironment[]; declared: string[]; default: string }>(
+    get<{ environments: IntegrationEnvironment[]; declared: string[]; open_on: "production" | "all" }>(
       `/integrations/${encodeURIComponent(id)}/environments?range=${encodeURIComponent(window)}&env=`
     ),
   setDeclaredEnvironments: (id: string, environments: string[]) =>
@@ -494,14 +496,18 @@ export const api = {
   // Every environment seen across what the caller can see, for the
   // list-wide picker.
   listEnvironments: (window: string = "24h") =>
-    get<{ environments: string[]; default: string }>(`/environments?range=${encodeURIComponent(window)}`),
-  // default: the environment integration pages open on ("" = none).
+    get<{
+      environments: string[];
+      production: string[];
+      roles: EnvironmentRole[];
+      open_on: "production" | "all";
+    }>(`/environments?range=${encodeURIComponent(window)}`),
+  // roles: the operator's confirmed role per environment; open_on: what
+  // an integration's page opens on.
   getTelemetryEnvironment: () =>
-    get<{ key: string; aliases: Record<string, string>; default: string; default_keys: string[] }>(
-      `/cell-settings/telemetry-environment`,
-    ),
-  setTelemetryEnvironment: (body: { key: string; aliases: Record<string, string>; default: string }) =>
-    put<{ key: string; aliases: Record<string, string>; default: string }>(`/cell-settings/telemetry-environment`, body),
+    get<TelemetryEnvironmentSetting & { default_keys: string[] }>(`/cell-settings/telemetry-environment`),
+  setTelemetryEnvironment: (body: TelemetryEnvironmentSetting) =>
+    put<TelemetryEnvironmentSetting>(`/cell-settings/telemetry-environment`, body),
 
   // What a draft rule would match right now, for the matcher editor's
   // live line. Same shape the create call takes, so the rehearsal and

@@ -345,22 +345,45 @@ type alertEmailTemplateSetting struct {
 type TelemetryEnvironment struct {
 	Key     string            `json:"key,omitempty"`
 	Aliases map[string]string `json:"aliases,omitempty"`
-	// Default is the environment an integration page opens on when the
-	// integration has it. Unset means DefaultTelemetryEnvironment; "" means none,
-	// so pages open on all environments.
+	// Roles are the operator's confirmed roles by environment name,
+	// "production" or "non-production" (envrole). An environment not in
+	// it has the role its name suggests.
+	Roles map[string]string `json:"roles,omitempty"`
+	// OpenOn is what an integration's page opens on: "production" (its
+	// production environments, the default) or "all".
+	OpenOn string `json:"open_on,omitempty"`
+	// Default is v0.11.180's single default environment, read only to
+	// carry it over (Normalized): a name became a confirmed production
+	// role, and "" became OpenOn all.
 	Default *string `json:"default,omitempty"`
 }
 
-// DefaultTelemetryEnvironment is the default environment when none is set: what
-// people look at first is production.
-const DefaultTelemetryEnvironment = "production"
+// OpenOnProduction and OpenOnAll are the OpenOn values.
+const (
+	OpenOnProduction = "production"
+	OpenOnAll        = "all"
+)
 
-// DefaultOrBuiltIn returns the environment pages open on, "" for none.
-func (t TelemetryEnvironment) DefaultOrBuiltIn() string {
-	if t.Default == nil {
-		return DefaultTelemetryEnvironment
+// Normalized carries v0.11.180's Default over and fills OpenOn.
+func (t TelemetryEnvironment) Normalized() TelemetryEnvironment {
+	if t.Default != nil {
+		if d := strings.TrimSpace(*t.Default); d == "" {
+			if t.OpenOn == "" {
+				t.OpenOn = OpenOnAll
+			}
+		} else if _, set := t.Roles[d]; !set {
+			roles := map[string]string{d: "production"}
+			for k, v := range t.Roles {
+				roles[k] = v
+			}
+			t.Roles = roles
+		}
+		t.Default = nil
 	}
-	return *t.Default
+	if t.OpenOn != OpenOnAll {
+		t.OpenOn = OpenOnProduction
+	}
+	return t
 }
 
 // GetTelemetryEnvironment returns the setting, zero when none is stored.
@@ -369,16 +392,16 @@ func (s *Store) GetTelemetryEnvironment(ctx context.Context) (TelemetryEnvironme
 	err := s.pool.QueryRow(ctx,
 		`SELECT value FROM cell_settings WHERE key = 'system.telemetry_environment'`).Scan(&raw)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return TelemetryEnvironment{}, nil
+		return TelemetryEnvironment{}.Normalized(), nil
 	}
 	if err != nil {
-		return TelemetryEnvironment{}, fmt.Errorf("settings: get telemetry environment: %w", err)
+		return TelemetryEnvironment{}.Normalized(), fmt.Errorf("settings: get telemetry environment: %w", err)
 	}
 	var v TelemetryEnvironment
 	if json.Unmarshal(raw, &v) != nil {
-		return TelemetryEnvironment{}, nil
+		return TelemetryEnvironment{}.Normalized(), nil
 	}
-	return v, nil
+	return v.Normalized(), nil
 }
 
 // SetTelemetryEnvironment stores the setting.

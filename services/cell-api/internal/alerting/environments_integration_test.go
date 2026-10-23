@@ -10,6 +10,7 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"sort"
 	"sync"
 	"testing"
 	"time"
@@ -22,6 +23,8 @@ import (
 	impostgres "github.com/sluicio/sluicio-app/pkg/postgres"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/envctx"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/migrations"
+
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/envrole"
 )
 
 // envEvaluator answers a metric aggregate per environment, and records
@@ -204,6 +207,20 @@ func TestChecksPerEnvironment(t *testing.T) {
 	}
 	if got = firing(); len(got) != 0 {
 		t.Errorf("only mode fired for an environment it does not watch: %v", got)
+	}
+
+	// "Production environments": whatever has the role now, so prod-us
+	// joins without the check being edited.
+	rule.Environments = []string{envrole.ProductionToken}
+	if _, err := store.UpdateRule(ctx, org, rule); err != nil {
+		t.Fatal(err)
+	}
+	lister.envs = []string{"", "production", "prod-us", "test"}
+	eval.reset(map[string]float64{"production": 1, "prod-us": 1, "test": 1})
+	e.evaluateOnce(ctx)
+	sort.Strings(eval.asked)
+	if len(eval.asked) != 2 || eval.asked[0] != "prod-us" || eval.asked[1] != "production" {
+		t.Errorf("production environments evaluated %v", eval.asked)
 	}
 }
 
