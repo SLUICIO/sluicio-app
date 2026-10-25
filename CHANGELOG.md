@@ -3,8 +3,15 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.186 — 2026-10-25
+
+- feat(services): a service's page reads one environment or several (#40) (522e5d2)
+- feat(services): environment picker and per-environment status on the Services list (#40) (974da43)
+- docs: CLAUDE.md, the conventions that keep features consistent (bf3c243)
+
 ## v0.11.185 — 2026-10-23
 
+- release v0.11.185 - refresh internal changelog (be42966)
 - feat(integrations): the Logs tab shows its log sources and offers to add one (#43) (47f4742)
 - feat(integrations): the Metrics tab shows its metric sources and offers to add one (#43) (e3980c7)
 
