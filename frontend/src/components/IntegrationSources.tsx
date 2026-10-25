@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: FSL-1.1-Apache-2.0
 //
 // Supporting telemetry (issue #43): an integration's metric and log
-// sources, on its Services tab. A source is telemetry from a service that
+// sources. Edited under Edit integration → Services beside the members,
+// like everything else that configures an integration; its Services tab
+// lists them read-only. A source is telemetry from a service that
 // is NOT a member - a broker serving many integrations, where this one
 // owns the orders queue - that is evidence about the integration. It
 // feeds the integration's Metrics and Logs and its metric and log checks,
@@ -75,10 +77,15 @@ export function describe(s: IntegrationSourceView, withSignal = true) {
   );
 }
 
-/** ?addSource=metrics (or logs) on the Services tab opens the editor
- *  with a new source of that signal started: the Metrics and Logs tabs
- *  link here. */
+/** ?addSource=metrics (or logs) on Edit integration → Services opens the
+ *  editor with a new source of that signal started: the Metrics and Logs
+ *  tabs link here. */
 export const ADD_SOURCE_PARAM = "addSource";
+
+/** Where an integration's sources are edited. */
+export function sourcesEditHref(integrationId: string, add?: IntegrationSource["signal"]): string {
+  return `/integrations/${encodeURIComponent(integrationId)}/settings?tab=services${add ? `&${ADD_SOURCE_PARAM}=${add}` : ""}`;
+}
 
 const blank = (signal: IntegrationSource["signal"] = "metrics"): IntegrationSource => ({
   signal,
@@ -93,11 +100,15 @@ export default function IntegrationSources({
   sources,
   canManage,
   onSaved,
+  readOnly = false,
 }: {
   integrationId: string;
   sources: IntegrationSourceView[];
   canManage: boolean;
-  onSaved: (sources: IntegrationSourceView[]) => void;
+  onSaved?: (sources: IntegrationSourceView[]) => void;
+  /** The integration's Services tab: the list, and for someone who may
+   *  edit the integration a link to where it is edited. */
+  readOnly?: boolean;
 }) {
   const [draft, setDraft] = useState<IntegrationSource[] | null>(null);
   const [services, setServices] = useState<string[]>([]);
@@ -111,7 +122,7 @@ export default function IntegrationSources({
   // editor with one started, and bring it into view.
   useEffect(() => {
     const signal = params.get(ADD_SOURCE_PARAM);
-    if (signal !== "metrics" && signal !== "logs") return;
+    if (readOnly || (signal !== "metrics" && signal !== "logs")) return;
     if (canManage) {
       setDraft([
         ...sources.map(({ signal, origin_kind, origin, conditions, metric_names }) => ({
@@ -165,7 +176,7 @@ export default function IntegrationSources({
         metric_names: s.signal === "metrics" ? s.metric_names : [],
       }));
       const r = await api.setIntegrationSources(integrationId, clean);
-      onSaved(r.sources ?? []);
+      onSaved?.(r.sources ?? []);
       setDraft(null);
     } catch (e) {
       setError(String((e as Error).message ?? e));
@@ -185,7 +196,12 @@ export default function IntegrationSources({
     >
       <div className="flex items-baseline justify-between border-b border-border px-4 py-3">
         <h2 className="text-base font-semibold">Supporting telemetry ({sources.length})</h2>
-        {canManage && draft === null && (
+        {canManage && readOnly && (
+          <Link className="btn btn--sm" to={sourcesEditHref(integrationId)} data-testid="edit-sources-link">
+            {sources.length > 0 ? "Edit" : "Add a source"}
+          </Link>
+        )}
+        {canManage && !readOnly && draft === null && (
           <button
             type="button"
             className="btn btn--sm"
@@ -416,7 +432,7 @@ export function SourcesNote({
   const [envs, , explicitAll] = useEnvironmentSet();
   const q = envQuery(envs, explicitAll);
   const services = `/integrations/${encodeURIComponent(integrationId)}/services${q}`;
-  const addLink = `${services}${q ? "&" : "?"}${ADD_SOURCE_PARAM}=${signal}`;
+  const addLink = sourcesEditHref(integrationId, signal);
   if (mine.length === 0 && !canManage) return null;
   return (
     <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm text-muted" data-testid={`sources-note-${signal}`}>

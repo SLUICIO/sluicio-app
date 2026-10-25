@@ -76,7 +76,7 @@ export default function IntegrationServices() {
           integrationId={id}
           sources={data.sources ?? []}
           canManage={Boolean(data.can_manage)}
-          onSaved={(sources) => setData((d) => (d ? { ...d, sources } : d))}
+          readOnly
         />
       )}
     </div>

@@ -45,6 +45,7 @@ import { usePageTitle } from "../lib/usePageTitle";
 import { useTimeWindow } from "../lib/useTimeWindow";
 import HealthChecks from "../components/health/HealthChecks";
 import DeclaredEnvironments from "../components/integrations/DeclaredEnvironments";
+import IntegrationSources from "../components/IntegrationSources";
 import { useProductName } from "../lib/useProductName";
 
 type TimeUnit = "seconds" | "minutes" | "hours";
@@ -207,13 +208,23 @@ export default function IntegrationSettings() {
       )}
 
       {tab === "services" && (
-        <MatcherConfig
-          integrationId={id}
-          data={integration}
-          canWrite={canWrite}
-          windowVal={windowVal}
-          onChanged={refresh}
-        />
+        <div className="flex flex-col gap-6">
+          <MatcherConfig
+            integrationId={id}
+            data={integration}
+            canWrite={canWrite}
+            windowVal={windowVal}
+            onChanged={refresh}
+          />
+          {/* Metric and log sources (issue #43): telemetry from services
+              that are not members, configured beside the members. */}
+          <IntegrationSources
+            integrationId={id}
+            sources={integration.sources ?? []}
+            canManage={canWrite}
+            onSaved={(sources) => setIntegration((d) => (d ? { ...d, sources } : d))}
+          />
+        </div>
       )}
 
       {tab === "messages" && (
