@@ -27,15 +27,34 @@ var orgFilteredTables = []string{"traces", "logs", "metrics"}
 // get the filter via middleware (the authenticated principal's org);
 // background loops wrap their context with their configured org.
 func WithOrgFilter(ctx context.Context, org string) context.Context {
-	if org == "" {
+	return WithTableFilter(ctx, org, "")
+}
+
+// WithTableFilter is WithOrgFilter plus a predicate of the caller's,
+// AND-ed onto the organization on every read of the telemetry tables:
+// a request read in some environments narrows every read it makes, so
+// no reader can be forgotten (#40). The setting holds one filter per
+// table, so the organization and the predicate travel together; setting
+// them one after the other would replace the first.
+//
+// extra must be valid SQL over columns every telemetry table has. Both
+// empty returns ctx unchanged.
+func WithTableFilter(ctx context.Context, org, extra string) context.Context {
+	var conds []string
+	if org != "" {
+		conds = append(conds, "OrganizationId = '"+strings.ReplaceAll(org, "'", "''")+"'")
+	}
+	if extra != "" {
+		conds = append(conds, "("+extra+")")
+	}
+	if len(conds) == 0 {
 		return ctx
 	}
-	// Produces, per table: 'traces':'OrganizationId = ''<org>'''
-	// The inner filter is a single-quoted string; its quotes are doubled
-	// to escape them inside the outer single-quoted map value. org is a
-	// UUID, but we escape defensively.
-	inner := "OrganizationId = '" + strings.ReplaceAll(org, "'", "''") + "'"
-	quoted := "'" + strings.ReplaceAll(inner, "'", "''") + "'"
+	// Each table's filter is a single-quoted string inside the map; its
+	// quotes are doubled to escape them there. org is a UUID, but it is
+	// escaped defensively like the predicate.
+	inner := strings.Join(conds, " AND ")
+	quoted := "'" + strings.NewReplacer(`\`, `\\`, "'", "''").Replace(inner) + "'"
 	parts := make([]string, 0, len(orgFilteredTables))
 	for _, t := range orgFilteredTables {
 		parts = append(parts, fmt.Sprintf("'%s':%s", t, quoted))

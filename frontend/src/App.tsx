@@ -87,11 +87,11 @@ function SignedInApp() {
         <Route path="/services" element={<Services />} />
         <Route path="/systems" element={<Systems />} />
         <Route path="/systems/:id" element={<SystemDetail />} />
-        <Route path="/services/:name" element={<ServiceDetail />} />
         <Route path="/integrations/new" element={<IntegrationNew />} />
         {/* Read for all environments or one (issue #40): ?env= follows
             every read on these pages. */}
         <Route element={<EnvironmentScope />}>
+          <Route path="/services/:name" element={<ServiceDetail />} />
           <Route path="/integrations" element={<Integrations />} />
           <Route path="/integrations/:id" element={<IntegrationDetail />} />
           <Route

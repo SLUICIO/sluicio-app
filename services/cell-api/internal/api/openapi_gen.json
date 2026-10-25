@@ -5140,6 +5140,33 @@
         ]
       }
     },
+    "/api/v1/services/{name}/environments": {
+      "get": {
+        "operationId": "get_api_v1_services_name_environments",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "List services",
+        "tags": [
+          "services"
+        ]
+      }
+    },
     "/api/v1/services/{name}/facet-mappings": {
       "get": {
         "operationId": "get_api_v1_services_name_facet_mappings",

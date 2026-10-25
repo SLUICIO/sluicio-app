@@ -11,9 +11,13 @@ import (
 	"context"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
+
+	imclickhouse "github.com/sluicio/sluicio-app/pkg/clickhouse"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/api/middleware"
 
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/alerting"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/erroracks"
@@ -76,15 +80,38 @@ func parseEnvironmentParam(r *http.Request) ([]string, bool) {
 }
 
 // WithEnvironmentParam puts ?env= into the request context. Wraps the
-// whole API: the parameter only has an effect where an integration's
-// slice is read, and everywhere else it is ignored.
+// whole API, inside authentication.
+//
+// Besides the context value, every ClickHouse read the request makes is
+// narrowed to those environments, beside its organization, through the
+// table filter (pkg/clickhouse.WithTableFilter). A page read in one
+// environment then reads it everywhere, a service's page as much as an
+// integration's, without each reader being taught about it. A read that
+// must see every environment (an environment picker listing them) sends
+// an explicit empty env=, which narrows nothing.
 func WithEnvironmentParam(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if envs, ok := parseEnvironmentParam(r); ok {
-			r = r.WithContext(envctx.WithSet(r.Context(), envs))
+			ctx := envctx.WithSet(r.Context(), envs)
+			org := ""
+			if p, ok := middleware.PrincipalFromContext(ctx); ok && p.OrgID != uuid.Nil {
+				org = p.OrgID.String()
+			}
+			ctx = imclickhouse.WithTableFilter(ctx, org, environmentPredicate(envs))
+			r = r.WithContext(ctx)
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// environmentPredicate is "the row's environment is one of envs", over
+// the canonical environment every telemetry table can compute.
+func environmentPredicate(envs []string) string {
+	lits := make([]string, len(envs))
+	for i, e := range envs {
+		lits[i] = "'" + strings.NewReplacer(`\`, `\\`, "'", `\'`).Replace(e) + "'"
+	}
+	return "(" + store.EnvironmentExpr() + ") IN (" + strings.Join(lits, ", ") + ")"
 }
 
 // envStatusOrder orders statuses worst first, for the per-environment

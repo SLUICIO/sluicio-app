@@ -137,6 +137,8 @@ export function readsIntegrationData(path: string, method: string): boolean {
   if (method !== "GET" && !(method === "POST" && path.startsWith("/messages/search"))) return false;
   return (
     path.startsWith("/integrations") ||
+    // A service's page and everything it reads about the service.
+    path.startsWith("/services/") ||
     path.startsWith("/messages/search") ||
     path.startsWith("/logs") ||
     path.startsWith("/log-") ||

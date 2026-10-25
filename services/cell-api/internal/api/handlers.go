@@ -1269,6 +1269,8 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/digest", h.getDigest)
 	mux.HandleFunc("POST /api/v1/digest/seen", h.markDigestSeen)
 	mux.HandleFunc("GET /api/v1/services/{name}", h.gateServiceRoute(h.serviceDetail))
+	// The environments a service ran in (#40), for its page's picker.
+	mux.HandleFunc("GET /api/v1/services/{name}/environments", h.gateServiceRoute(h.serviceEnvironments))
 	mux.HandleFunc("GET /api/v1/services/{name}/widgets", h.gateServiceRoute(h.serviceWidgets))
 	mux.HandleFunc("GET /api/v1/services/{name}/traces", h.gateServiceRoute(h.serviceTraces))
 	mux.HandleFunc("GET /api/v1/services/{name}/neighbors", h.gateServiceRoute(h.serviceNeighbors))

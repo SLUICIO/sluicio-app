@@ -13,6 +13,7 @@ import { metricCheckHref, metricCheckLinkTitle } from "../lib/metricCheckHref";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api/client";
 import AddToIntegration from "../components/AddToIntegration";
+import EnvironmentPicker from "../components/EnvironmentPicker";
 import PublicBadgeControl from "../components/PublicBadgeControl";
 import ServiceReadingTiles from "../components/health/ServiceReadingTiles";
 import HealthChecks, { HealthCheckEditDrawer } from "../components/health/HealthChecks";
@@ -421,6 +422,8 @@ export default function ServiceDetail() {
           </div>
         </div>
         <div className="svc-head-actions">
+          {/* Read the service in one environment or several (issue #40). */}
+          <EnvironmentPicker serviceName={name} />
           {meta?.runbook_url && (
             <a className="btn ghost" href={meta.runbook_url} target="_blank" rel="noreferrer">Runbook ↗</a>
           )}

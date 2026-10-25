@@ -412,6 +412,7 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 - GET /api/v1/services — List services
 - PUT /api/v1/services/{name}/badge — Update service
 - GET /api/v1/services/{name} — Get service
+- GET /api/v1/services/{name}/environments — List services
 - GET /api/v1/services/{name}/widgets — List services
 - GET /api/v1/services/{name}/traces — List services
 - GET /api/v1/services/{name}/neighbors — List services

@@ -501,6 +501,12 @@ export const api = {
   // Metric and log sources (issue #43).
   setIntegrationSources: (id: string, sources: IntegrationSource[]) =>
     put<{ sources: IntegrationSourceView[] }>(`/integrations/${encodeURIComponent(id)}/sources`, { sources }),
+  // A service's environments with its status in each, for its page's
+  // picker; read across all, hence the explicit empty env.
+  serviceEnvironments: (name: string, window: string = "1h") =>
+    get<{ environments: IntegrationEnvironment[]; open_on: "production" | "all" }>(
+      `/services/${encodeURIComponent(name)}/environments?range=${encodeURIComponent(window)}&env=`,
+    ),
   setDeclaredEnvironments: (id: string, environments: string[]) =>
     put<{ declared: string[] }>(`/integrations/${encodeURIComponent(id)}/declared-environments`, { environments }),
   // Every environment seen across what the caller can see, for the

@@ -374,3 +374,40 @@ func nonNilStrings(s []string) []string {
 	}
 	return s
 }
+
+// serviceEnvironments: GET /api/v1/services/{name}/environments
+//
+// The environments one service ran in, with its status and traffic in
+// each, worst first: the picker on a service's page (#40). Read across
+// every environment whatever the page is narrowed to; the caller sends
+// an explicit empty env=.
+func (h *Handlers) serviceEnvironments(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	tr := ParseRange(r, time.Hour)
+	ctx := r.Context()
+	vols, err := h.Store.EnvironmentsIn(ctx, []string{name}, nil, tr.From, tr.To)
+	if err != nil {
+		h.Logger.Warn("service environments failed", "err", err, "service", name)
+		httpserver.WriteError(w, http.StatusInternalServerError, "query failed")
+		return
+	}
+	firing, err := h.Alerts.FiringHealthServices(ctx, middleware.OrgID(r))
+	if err != nil {
+		h.Logger.Warn("firing health services failed", "err", err)
+		firing = map[string]bool{}
+	}
+	byEnv := map[string]store.EnvironmentVolume{}
+	for _, v := range vols {
+		byEnv[v.Environment] = v
+	}
+	out := []IntegrationEnvironment{}
+	for _, s := range serviceEnvironmentStatuses(vols, firing[name]) {
+		v := byEnv[s.Environment]
+		out = append(out, IntegrationEnvironment{EnvironmentStatus: s, LogRecords: v.LogRecords, MetricRows: v.MetricRows})
+	}
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
+		"window":       tr.Window(),
+		"environments": out,
+		"open_on":      h.openOn(ctx),
+	})
+}
