@@ -28,6 +28,8 @@ import (
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/dashboards"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/demand"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/deploymentlimits"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/envctx"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/envrole"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/erroracks"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/eventsubs"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/facetmappings"
@@ -2141,8 +2143,10 @@ func (h *Handlers) serviceSummaries(r *http.Request, tr TimeRange) ([]ServiceSum
 	}
 
 	// Per-window stats. Quiet services simply aren't in this map; we
-	// look up with a zero default below.
-	windowRows, err := h.Store.ListServices(r.Context(), tr.From, tr.To)
+	// look up with a zero default below. A read for some environments
+	// (#40) counts their traffic alone.
+	reqEnvs, narrowed := envctx.Set(r.Context())
+	windowRows, err := h.Store.ListServicesIn(r.Context(), tr.From, tr.To, reqEnvs)
 	if err != nil {
 		h.Logger.Warn("list window services failed", "err", err)
 		windowRows = nil
@@ -2177,6 +2181,17 @@ func (h *Handlers) serviceSummaries(r *http.Request, tr TimeRange) ([]ServiceSum
 	// on the window the reader picked.
 	facetsByService := h.serviceFacetsFor(r.Context(), serviceNames, tr)
 
+	// Where each service ran (#40): its chips, and, when the read is
+	// for some environments, whether it ran in them at all.
+	var envVols map[string][]store.EnvironmentVolume
+	withEnvironments := r.URL.Query().Get("environments") == "1"
+	if narrowed || withEnvironments {
+		if envVols, err = h.Store.ServiceEnvironments(r.Context(), tr.From, tr.To); err != nil {
+			h.Logger.Warn("service environments failed", "err", err)
+			envVols = nil
+		}
+	}
+
 	out := make([]ServiceSummary, 0, len(catalogServices))
 	for _, cs := range catalogServices {
 		win := statsByName[cs.ServiceName] // zero-valued if no window traffic
@@ -2194,6 +2209,11 @@ func (h *Handlers) serviceSummaries(r *http.Request, tr TimeRange) ([]ServiceSum
 		// the same instance path, so firingServices covers them.
 		effErr := h.effectiveErrorCount(r.Context(), cs.ServiceName, win.ErrorTraceCount, tr.From, tr.To, errAcks)
 		status := computeServiceStatus(effErr, firingServices[cs.ServiceName])
+		// Read for some environments, a service that sent nothing in
+		// them is quiet there, whatever it does elsewhere.
+		if narrowed && envVols != nil && !ranIn(envVols[cs.ServiceName], reqEnvs) {
+			status = "quiet"
+		}
 
 		// Discovery timestamps come from the catalog (window-independent).
 		firstSeen := cs.FirstSeenAt
@@ -2230,9 +2250,50 @@ func (h *Handlers) serviceSummaries(r *http.Request, tr TimeRange) ([]ServiceSum
 			IsSystem:         cs.IsSystem,
 			SystemKind:       cs.SystemKind,
 		})
+		if withEnvironments {
+			out[len(out)-1].Environments = serviceEnvironmentStatuses(envVols[cs.ServiceName], firingServices[cs.ServiceName])
+		}
 	}
 
 	return out, nil
+}
+
+// ranIn reports whether a service sent any telemetry in one of envs.
+func ranIn(vols []store.EnvironmentVolume, envs []string) bool {
+	for _, v := range vols {
+		for _, e := range envs {
+			if v.Environment == e && v.Messages+v.LogRecords+v.MetricRows > 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// serviceEnvironmentStatuses is a service's status in each environment it
+// ran in, worst first. A service's checks are not evaluated per
+// environment, so one that fires speaks for every environment the
+// service runs in; what differs per environment is the traffic.
+func serviceEnvironmentStatuses(vols []store.EnvironmentVolume, firing bool) []EnvironmentStatus {
+	out := make([]EnvironmentStatus, 0, len(vols))
+	for _, v := range vols {
+		status := computeServiceStatus(v.ErrorTraces, firing)
+		if v.Messages+v.LogRecords+v.MetricRows == 0 {
+			status = "quiet"
+		}
+		out = append(out, EnvironmentStatus{
+			Environment: v.Environment, Status: status,
+			TraceCount: v.Messages, ErrorTraceCount: v.ErrorTraces,
+			Production: envrole.IsProduction(v.Environment),
+		})
+	}
+	sort.SliceStable(out, func(a, b int) bool {
+		if ra, rb := envStatusOrder[out[a].Status], envStatusOrder[out[b].Status]; ra != rb {
+			return ra < rb
+		}
+		return out[a].Environment < out[b].Environment
+	})
+	return out
 }
 
 // errorAcks fetches every service's "clear errors" watermark for the

@@ -122,6 +122,8 @@ export interface ServiceSummary {
   // Drives the System badge in the services list and the Systems view.
   is_system?: boolean;
   system_kind?: string;
+  /** Status per environment, worst first, when the list asked for it (issue #40). */
+  environments?: EnvironmentStatus[];
 }
 
 export interface ServicesResponse {

@@ -247,3 +247,73 @@ func (s *Store) EnvironmentsIn(ctx context.Context, services []string, groups []
 	sort.Slice(out, func(i, j int) bool { return out[i].Environment < out[j].Environment })
 	return out, nil
 }
+
+// ServiceEnvironments returns, for every service with telemetry in
+// [from, to], the environments it ran in and what each holds: the
+// per-environment chips on the Services list (#40). Traces give the
+// messages and failures; logs and metrics count too, so a service that
+// only reports metrics (a broker) still shows where it runs.
+func (s *Store) ServiceEnvironments(ctx context.Context, from, to time.Time) (map[string][]EnvironmentVolume, error) {
+	env := EnvironmentExpr()
+	type key struct{ svc, env string }
+	vols := map[key]*EnvironmentVolume{}
+	get := func(svc, e string) *EnvironmentVolume {
+		k := key{svc, e}
+		v, ok := vols[k]
+		if !ok {
+			v = &EnvironmentVolume{Environment: e}
+			vols[k] = v
+		}
+		return v
+	}
+	rows, err := s.conn.Query(ctx, `
+		SELECT ServiceName, `+env+` AS env,
+		       toUInt64(uniq(TraceId)),
+		       toUInt64(uniqIf(TraceId, StatusCode = 'Error'))
+		FROM traces WHERE Timestamp >= ? AND Timestamp <= ?
+		GROUP BY ServiceName, env LIMIT 20000`, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("service environments: traces: %w", err)
+	}
+	for rows.Next() {
+		var svc, e string
+		var msgs, errs uint64
+		if err := rows.Scan(&svc, &e, &msgs, &errs); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		v := get(svc, e)
+		v.Messages, v.ErrorTraces = msgs, errs
+	}
+	rows.Close()
+	for _, t := range []struct {
+		table string
+		set   func(*EnvironmentVolume, uint64)
+	}{
+		{"logs", func(v *EnvironmentVolume, n uint64) { v.LogRecords = n }},
+		{"metrics", func(v *EnvironmentVolume, n uint64) { v.MetricRows = n }},
+	} {
+		rows, err := s.conn.Query(ctx, `
+			SELECT ServiceName, `+env+` AS env, toUInt64(count())
+			FROM `+t.table+` WHERE Timestamp >= ? AND Timestamp <= ?
+			GROUP BY ServiceName, env LIMIT 20000`, from, to)
+		if err != nil {
+			return nil, fmt.Errorf("service environments: %s: %w", t.table, err)
+		}
+		for rows.Next() {
+			var svc, e string
+			var n uint64
+			if err := rows.Scan(&svc, &e, &n); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			t.set(get(svc, e), n)
+		}
+		rows.Close()
+	}
+	out := map[string][]EnvironmentVolume{}
+	for k, v := range vols {
+		out[k.svc] = append(out[k.svc], *v)
+	}
+	return out, nil
+}

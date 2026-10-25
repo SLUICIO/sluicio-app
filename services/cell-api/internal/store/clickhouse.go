@@ -76,7 +76,22 @@ type ServiceRow struct {
 // query (DiscoverServices). The field stays on ServiceRow, zero-valued,
 // rather than churning ten call sites.
 func (s *Store) ListServices(ctx context.Context, from, to time.Time) ([]ServiceRow, error) {
-	const q = `
+	return s.ListServicesIn(ctx, from, to, nil)
+}
+
+// ListServicesIn is ListServices narrowed to some environments (#40): a
+// service's traffic, errors and last-seen in them alone. None is every
+// environment.
+func (s *Store) ListServicesIn(ctx context.Context, from, to time.Time, envs []string) ([]ServiceRow, error) {
+	where := "Timestamp >= ? AND Timestamp <= ?"
+	args := []any{from, to}
+	if len(envs) > 0 {
+		where += " AND (" + EnvironmentExpr() + ") IN (" + strings.TrimSuffix(strings.Repeat("?,", len(envs)), ",") + ")"
+		for _, e := range envs {
+			args = append(args, e)
+		}
+	}
+	q := `
 		SELECT
 			ServiceName,
 			any(ServiceNamespace)                        AS ServiceNamespace,
@@ -84,12 +99,12 @@ func (s *Store) ListServices(ctx context.Context, from, to time.Time) ([]Service
 			toUInt64(uniq(TraceId))                      AS TraceCount,
 			toUInt64(uniqIf(TraceId, StatusCode = 'Error')) AS ErrorTraceCount
 		FROM traces
-		WHERE Timestamp >= ? AND Timestamp <= ?
+		WHERE ` + where + `
 		GROUP BY ServiceName
 		ORDER BY LastSeen DESC
 		LIMIT 5000
 	`
-	rows, err := s.conn.Query(ctx, q, from, to)
+	rows, err := s.conn.Query(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list services: %w", err)
 	}

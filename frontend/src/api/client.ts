@@ -274,9 +274,14 @@ export const api = {
   // degrees. Off by default: they cost a self-join of the traces table
   // across the window - seconds on a busy cell - and the only thing that
   // reads them is the Dependencies filter, which is usually not set.
-  listServices: (window: string = "1h", withDependencies = false) =>
+  // env narrows every service's traffic and status to one environment
+  // (issue #40; null = all), environments adds its status per
+  // environment.
+  listServices: (window: string = "1h", withDependencies = false, opts: { env?: string | null; environments?: boolean } = {}) =>
     get<ServicesResponse>(
-      `/services?range=${encodeURIComponent(window)}${withDependencies ? "&dependencies=1" : ""}`,
+      `/services?range=${encodeURIComponent(window)}${withDependencies ? "&dependencies=1" : ""}${
+        opts.env !== undefined && opts.env !== null ? `&env=${encodeURIComponent(envToParam(opts.env))}` : ""
+      }${opts.environments ? "&environments=1" : ""}`,
     ),
 
   // Services flagged as monitored "systems" (RabbitMQ, SQL Server, …).

@@ -24,8 +24,8 @@ import { useAccess } from "../lib/useAccess";
 import { usePageTitle } from "../lib/usePageTitle";
 import { useTableSort } from "../lib/useTableSort";
 import { useTimeWindow } from "../lib/useTimeWindow";
-import { envQuery, environmentLabel, useEnvironmentParam } from "../lib/activeEnvironment";
-import type { EnvironmentStatus } from "../api/types";
+import { envQuery, useEnvironmentParam } from "../lib/activeEnvironment";
+import { EnvironmentChips, ListEnvironmentPicker } from "../components/EnvironmentListControls";
 
 const INTEGRATION_STATUS_RANK: Record<string, number> = {
   unhealthy: 4,
@@ -834,7 +834,9 @@ export default function Integrations() {
                 <span className={`pill pill--${i.status}`}>
                   {statusLabel(i.status)}
                 </span>
-                {listEnv === null && <EnvironmentChips integrationId={i.id} envs={i.environments} />}
+                {listEnv === null && (
+                  <EnvironmentChips envs={i.environments} linkFor={(env) => `/integrations/${i.id}${envQuery(env)}`} />
+                )}
               </>
             ) : (
               <PendingOrDash id={i.id} pending={pendingStats} />
@@ -1228,67 +1230,3 @@ function PendingOrDash({ id, pending }: { id: string; pending: Set<string> }) {
   );
 }
 
-// One small chip per environment, worst first (issue #40), so "test is
-// failing, production is fine" reads straight off the list. Hidden for
-// an integration whose telemetry carries no environment.
-function EnvironmentChips({ integrationId, envs }: { integrationId: string; envs?: EnvironmentStatus[] }) {
-  if (!envs || envs.length === 0 || (envs.length === 1 && envs[0].environment === "")) return null;
-  return (
-    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }} data-testid="environment-chips">
-      {envs.map((e) => (
-        <Link
-          key={e.environment}
-          to={`/integrations/${integrationId}${envQuery(e.environment)}`}
-          className={`pill pill--${e.status}`}
-          style={{ fontSize: 10.5, padding: "1px 6px" }}
-          title={`${environmentLabel(e.environment)}: ${statusLabel(e.status)}${e.declared && e.trace_count === 0 ? " (declared, no traffic)" : ""}`}
-        >
-          {environmentLabel(e.environment)}
-        </Link>
-      ))}
-    </div>
-  );
-}
-
-// The list-wide environment picker (issue #40).
-function ListEnvironmentPicker({
-  env,
-  setEnv,
-  window,
-}: {
-  env: string | null;
-  setEnv: (e: string | null) => void;
-  window: string;
-}) {
-  const [envs, setEnvs] = useState<string[] | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    api
-      .listEnvironments(window)
-      .then((r) => !cancelled && setEnvs(r.environments ?? []))
-      .catch(() => !cancelled && setEnvs([]));
-    return () => {
-      cancelled = true;
-    };
-  }, [window]);
-  if (envs === null) return null;
-  const names = [...envs];
-  if (env !== null && !names.includes(env)) names.push(env);
-  if (env === null && (names.length === 0 || (names.length === 1 && names[0] === ""))) return null;
-  return (
-    <select
-      className="search__input"
-      aria-label="Environment"
-      data-testid="list-environment-picker"
-      value={env === null ? "\u0000all" : env}
-      onChange={(e) => setEnv(e.target.value === "\u0000all" ? null : e.target.value)}
-    >
-      <option value={"\u0000all"}>All environments</option>
-      {names.map((n) => (
-        <option key={n} value={n}>
-          {environmentLabel(n)}
-        </option>
-      ))}
-    </select>
-  );
-}

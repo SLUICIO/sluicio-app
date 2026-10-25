@@ -154,6 +154,9 @@ type ServiceSummary struct {
 	// Systems view.
 	IsSystem   bool   `json:"is_system"`
 	SystemKind string `json:"system_kind,omitempty"`
+	// Environments is the service's status per environment it ran in,
+	// worst first, when the list asked for it (?environments=1, #40).
+	Environments []EnvironmentStatus `json:"environments,omitempty"`
 }
 
 // ServiceDetail is the response from /services/:name.

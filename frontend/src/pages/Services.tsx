@@ -3,6 +3,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import ServicesTable from "../components/ServicesTable";
+import { ListEnvironmentPicker } from "../components/EnvironmentListControls";
+import { useEnvironmentParam } from "../lib/activeEnvironment";
 import TagChip from "../components/tags/TagChip";
 import IntegrationFilterBar, {
   matchesFilter,
@@ -101,6 +103,9 @@ export default function Services() {
   const ingestBase = useIngestBaseUrl();
   usePageTitle("Services");
   const [windowVal] = useTimeWindow();
+  // The list read in one environment (issue #40), or all with a chip per
+  // environment on each row.
+  const [listEnv, setListEnv] = useEnvironmentParam();
   const [data, setData] = useState<ServicesResponse | null>(null);
   const [allTags, setAllTags] = useState<Tag[]>([]);
   const [metadataFields, setMetadataFields] = useState<MetadataField[]>([]);
@@ -183,7 +188,7 @@ export default function Services() {
     api
       // Only pay for dependency degrees when the filter that reads them
       // is actually set. Flipping the filter refetches.
-      .listServices(windowVal, wantDeps)
+      .listServices(windowVal, wantDeps, { env: listEnv, environments: listEnv === null })
       .then((d) => {
         setData(d);
         setDepsLoaded(wantDeps);
@@ -208,7 +213,7 @@ export default function Services() {
     // filter is chosen: switching between "has upstream" and "no
     // downstream" needs no new data.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [windowVal, dep !== ""]);
+  }, [windowVal, dep !== "", listEnv]);
 
   const services: ServiceSummary[] = useMemo(
     () => data?.services ?? [],
@@ -365,6 +370,7 @@ export default function Services() {
           </p>
         </div>
         <div className="toolbar">
+          <ListEnvironmentPicker env={listEnv} setEnv={setListEnv} window={windowVal} />
           <button className="btn" onClick={refresh} disabled={loading}>
             {loading ? "Loading…" : "Refresh"}
           </button>
@@ -653,6 +659,7 @@ export default function Services() {
                       onTagClick={toggleSlug}
                       activeTagIds={activeTagIds}
                       showIntegrations={groupBy !== "integration"}
+                      showEnvironments={listEnv === null}
                     />
                   )}
                 </div>
@@ -665,6 +672,7 @@ export default function Services() {
               services={visibleServices}
               onTagClick={toggleSlug}
               activeTagIds={activeTagIds}
+              showEnvironments={listEnv === null}
             />
           </div>
         ))}
