@@ -2,8 +2,9 @@
 //
 // Supporting telemetry (issue #43): an integration's metric and log
 // sources. Edited under Edit integration → Services beside the members,
-// like everything else that configures an integration; its Services tab
-// lists them read-only. A source is telemetry from a service that
+// like everything else that configures an integration, and shown on the
+// Metrics and Logs tabs they feed (SourcesNote), never among the members
+// on the Services tab. A source is telemetry from a service that
 // is NOT a member - a broker serving many integrations, where this one
 // owns the orders queue - that is evidence about the integration. It
 // feeds the integration's Metrics and Logs and its metric and log checks,
@@ -12,7 +13,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { envQuery, useEnvironmentSet } from "../lib/activeEnvironment";
 import { api } from "../api/client";
 import type { IntegrationSource, IntegrationSourceView, SourceOperator, System } from "../api/types";
 import SearchableSelect from "./SearchableSelect";
@@ -105,15 +105,11 @@ export default function IntegrationSources({
   sources,
   canManage,
   onSaved,
-  readOnly = false,
 }: {
   integrationId: string;
   sources: IntegrationSourceView[];
   canManage: boolean;
   onSaved?: (sources: IntegrationSourceView[]) => void;
-  /** The integration's Services tab: the list, and for someone who may
-   *  edit the integration a link to where it is edited. */
-  readOnly?: boolean;
 }) {
   const [draft, setDraft] = useState<IntegrationSource[] | null>(null);
   const [services, setServices] = useState<string[]>([]);
@@ -127,7 +123,7 @@ export default function IntegrationSources({
   // editor with one started, and bring it into view.
   useEffect(() => {
     const signal = params.get(ADD_SOURCE_PARAM);
-    if (readOnly || (signal !== "metrics" && signal !== "logs")) return;
+    if (signal !== "metrics" && signal !== "logs") return;
     if (canManage) {
       setDraft([
         ...sources.map(({ signal, origin_kind, origin, conditions, metric_names }) => ({
@@ -201,12 +197,7 @@ export default function IntegrationSources({
     >
       <div className="flex items-baseline justify-between border-b border-border px-4 py-3">
         <h2 className="text-base font-semibold">Supporting telemetry ({sources.length})</h2>
-        {canManage && readOnly && (
-          <Link className="btn btn--sm" to={sourcesEditHref(integrationId)} data-testid="edit-sources-link">
-            {sources.length > 0 ? "Edit" : "Add a source"}
-          </Link>
-        )}
-        {canManage && !readOnly && draft === null && (
+        {canManage && draft === null && (
           <button
             type="button"
             className="btn btn--sm"
@@ -434,10 +425,6 @@ export function SourcesNote({
 }) {
   const mine = sources.filter((s) => s.signal === signal);
   const noun = signal === "metrics" ? "metrics" : "logs";
-  // Keep the environments being read on the way to the Services tab.
-  const [envs, , explicitAll] = useEnvironmentSet();
-  const q = envQuery(envs, explicitAll);
-  const services = `/integrations/${encodeURIComponent(integrationId)}/services${q}`;
   const addLink = sourcesEditHref(integrationId, signal);
   if (mine.length === 0 && !canManage) return null;
   return (
@@ -465,11 +452,7 @@ export function SourcesNote({
           Add a {signal === "metrics" ? "metric" : "log"} source
         </Link>
       )}
-      {mine.length > 0 && !canManage && (
-        <Link className="btn btn--link" style={{ padding: 0 }} to={services}>
-          See sources
-        </Link>
-      )}
+
     </div>
   );
 }
