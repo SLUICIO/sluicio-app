@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.188 — 2026-10-25
+
+- fix(integrations): sources are shown on the Metrics and Logs tabs they feed, not among the members (#43) (8d8ff99)
+
 ## v0.11.187 — 2026-10-25
 
+- release v0.11.187 - refresh internal changelog (aca6c88)
 - feat(integrations): numeric conditions on metric and log sources (#43) (eb23f08)
 - feat(integrations): edit metric and log sources under Edit integration → Services (#43) (032f09b)
 
