@@ -3,8 +3,14 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.187 — 2026-10-25
+
+- feat(integrations): numeric conditions on metric and log sources (#43) (eb23f08)
+- feat(integrations): edit metric and log sources under Edit integration → Services (#43) (032f09b)
+
 ## v0.11.186 — 2026-10-25
 
+- release v0.11.186 - refresh internal changelog (d963cb6)
 - feat(services): a service's page reads one environment or several (#40) (522e5d2)
 - feat(services): environment picker and per-environment status on the Services list (#40) (974da43)
 - docs: CLAUDE.md, the conventions that keep features consistent (bf3c243)
