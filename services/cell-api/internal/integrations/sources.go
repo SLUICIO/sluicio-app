@@ -16,6 +16,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -35,7 +36,29 @@ const (
 // metrics and logs read of the integration.
 const MaxSources = 20
 
-// SourceCondition is one condition on a source's rows, as a matcher's.
+// Numeric operators a source condition takes beyond a matcher's: the
+// attribute read as a number ("http.response.status_code" >= 500). A row
+// whose attribute is not a number does not match. Not matcher operators:
+// an integration's rules compare text, and these never reach the
+// matcher_operator type.
+const (
+	SourceOpGt  Operator = "gt"
+	SourceOpGte Operator = "gte"
+	SourceOpLt  Operator = "lt"
+	SourceOpLte Operator = "lte"
+)
+
+// IsNumeric reports whether op compares the attribute as a number.
+func (op Operator) IsNumeric() bool {
+	switch op {
+	case SourceOpGt, SourceOpGte, SourceOpLt, SourceOpLte:
+		return true
+	}
+	return false
+}
+
+// SourceCondition is one condition on a source's rows: a matcher's
+// operators, plus the numeric ones.
 type SourceCondition struct {
 	Attribute string   `json:"attribute"`
 	Operator  Operator `json:"operator"`
@@ -81,6 +104,12 @@ func (s Source) Validate() error {
 		}
 		if c.Attribute == "service.name" {
 			return errInvalid("a source's service is its origin, not a condition")
+		}
+		if c.Operator.IsNumeric() {
+			if _, err := strconv.ParseFloat(strings.TrimSpace(c.Value), 64); err != nil {
+				return errInvalid("a numeric comparison needs a number, got " + strconv.Quote(c.Value))
+			}
+			continue
 		}
 		if err := (Matcher{Attribute: c.Attribute, Operator: c.Operator, Value: c.Value}).Validate(); err != nil {
 			return err

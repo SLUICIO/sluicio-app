@@ -83,3 +83,13 @@ func TestResolveSources(t *testing.T) {
 		t.Errorf("resolved: %+v", got)
 	}
 }
+
+func TestSourceNumericConditionCompiles(t *testing.T) {
+	_, g := WithSources(nil, nil, []ResolvedSource{{
+		Services:   []string{"gateway"},
+		Conditions: []integrations.SourceCondition{{Attribute: "http.response.status_code", Operator: integrations.SourceOpGte, Value: " 500 "}},
+	}}, integrations.SourceLogs)
+	if f := g[0][1]; f.Op != store.AttrOpGte || f.Value != "500" || f.Key != "http.response.status_code" || !f.Source {
+		t.Errorf("compiled: %+v", f)
+	}
+}

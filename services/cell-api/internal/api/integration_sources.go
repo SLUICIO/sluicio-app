@@ -123,7 +123,7 @@ func WithSources(members []string, memberGroups [][]store.LogAttrFilter, sources
 		}
 		g := []store.LogAttrFilter{anyOf(s.Services)}
 		for _, c := range s.Conditions {
-			g = append(g, attrFilterFromMatcher(integrations.Matcher{Attribute: c.Attribute, Operator: c.Operator, Value: c.Value}))
+			g = append(g, sourceConditionFilter(c))
 		}
 		if signal == integrations.SourceMetrics && len(s.MetricNames) > 0 {
 			g = append(g, store.LogAttrFilter{Key: store.MetricNameAttrKey, Op: store.AttrOpMatches, Value: globsToRegex(s.MetricNames)})
@@ -134,6 +134,23 @@ func WithSources(members []string, memberGroups [][]store.LogAttrFilter, sources
 		groups = append(groups, g)
 	}
 	return svcs, groups
+}
+
+// sourceConditionFilter compiles one source condition: a matcher's
+// operators as an integration rule compiles them, the numeric ones to
+// the store's numeric comparisons.
+func sourceConditionFilter(c integrations.SourceCondition) store.LogAttrFilter {
+	switch c.Operator {
+	case integrations.SourceOpGt:
+		return store.LogAttrFilter{Key: c.Attribute, Op: store.AttrOpGt, Value: strings.TrimSpace(c.Value)}
+	case integrations.SourceOpGte:
+		return store.LogAttrFilter{Key: c.Attribute, Op: store.AttrOpGte, Value: strings.TrimSpace(c.Value)}
+	case integrations.SourceOpLt:
+		return store.LogAttrFilter{Key: c.Attribute, Op: store.AttrOpLt, Value: strings.TrimSpace(c.Value)}
+	case integrations.SourceOpLte:
+		return store.LogAttrFilter{Key: c.Attribute, Op: store.AttrOpLte, Value: strings.TrimSpace(c.Value)}
+	}
+	return attrFilterFromMatcher(integrations.Matcher{Attribute: c.Attribute, Operator: c.Operator, Value: c.Value})
 }
 
 // sourceSignal maps an access signal to a source signal, "" for one

@@ -34,3 +34,20 @@ func TestSourceValidate(t *testing.T) {
 		}
 	}
 }
+
+// Numeric comparisons on an attribute (http.response.status_code >= 500).
+func TestSourceNumericConditions(t *testing.T) {
+	ok := Source{Signal: SourceLogs, OriginKind: OriginService, Origin: "gateway",
+		Conditions: []SourceCondition{{Attribute: "http.response.status_code", Operator: SourceOpGte, Value: "500"}, {Attribute: "retry", Operator: SourceOpLt, Value: "2.5"}}}
+	if err := ok.Validate(); err != nil {
+		t.Errorf("numeric: %v", err)
+	}
+	bad := Source{Signal: SourceLogs, OriginKind: OriginService, Origin: "gateway",
+		Conditions: []SourceCondition{{Attribute: "http.response.status_code", Operator: SourceOpGt, Value: "five hundred"}}}
+	if err := bad.Validate(); err == nil {
+		t.Error("a numeric comparison with a non-number was accepted")
+	}
+	if !SourceOpLte.IsNumeric() || OperatorEquals.IsNumeric() {
+		t.Error("IsNumeric")
+	}
+}

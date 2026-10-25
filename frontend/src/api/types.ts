@@ -857,12 +857,16 @@ export interface Matcher {
 /** A metric or log source of an integration (issue #43): telemetry from
  *  a service that is not a member, a broker's queue for instance, that is
  *  evidence about the integration. Never in its flow or message counts. */
+/** A source condition's operator: a matcher's, or a numeric comparison
+ *  of the attribute read as a number. */
+export type SourceOperator = MatcherOperator | "gt" | "gte" | "lt" | "lte";
+
 export interface IntegrationSource {
   signal: "metrics" | "logs";
   origin_kind: "service" | "system";
   /** A service name, or a system id. */
   origin: string;
-  conditions: { attribute: string; operator: MatcherOperator; value: string }[];
+  conditions: { attribute: string; operator: SourceOperator; value: string }[];
   /** Metric sources: which metrics, as globs; empty is all. */
   metric_names: string[];
 }

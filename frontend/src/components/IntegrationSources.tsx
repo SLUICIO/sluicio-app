@@ -14,12 +14,16 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { envQuery, useEnvironmentSet } from "../lib/activeEnvironment";
 import { api } from "../api/client";
-import type { IntegrationSource, IntegrationSourceView, MatcherOperator, System } from "../api/types";
+import type { IntegrationSource, IntegrationSourceView, SourceOperator, System } from "../api/types";
 import SearchableSelect from "./SearchableSelect";
 
-const OPERATORS: { value: MatcherOperator; label: string }[] = [
+const OPERATORS: { value: SourceOperator; label: string }[] = [
   { value: "equals", label: "=" },
   { value: "not_equals", label: "≠" },
+  { value: "gt", label: ">" },
+  { value: "gte", label: "≥" },
+  { value: "lt", label: "<" },
+  { value: "lte", label: "≤" },
   { value: "prefix", label: "starts with" },
   { value: "suffix", label: "ends with" },
   { value: "contains", label: "contains" },
@@ -29,9 +33,10 @@ const OPERATORS: { value: MatcherOperator; label: string }[] = [
   { value: "not_exists", label: "does not exist" },
 ];
 
-const valueless = (op: MatcherOperator) => op === "exists" || op === "not_exists";
+const valueless = (op: SourceOperator) => op === "exists" || op === "not_exists";
+const numeric = (op: SourceOperator) => op === "gt" || op === "gte" || op === "lt" || op === "lte";
 
-function opLabel(op: MatcherOperator): string {
+function opLabel(op: SourceOperator): string {
   return OPERATORS.find((o) => o.value === op)?.label ?? op;
 }
 
@@ -323,7 +328,7 @@ export default function IntegrationSources({
                     onChange={(e) =>
                       update(i, {
                         conditions: s.conditions.map((x, k) =>
-                          k === ci ? { ...x, operator: e.target.value as MatcherOperator } : x,
+                          k === ci ? { ...x, operator: e.target.value as SourceOperator } : x,
                         ),
                       })
                     }
@@ -339,7 +344,8 @@ export default function IntegrationSources({
                     <input
                       className="search__input"
                       style={{ width: 180, flex: "0 0 180px" }}
-                      placeholder="orders"
+                      placeholder={numeric(c.operator) ? "500" : "orders"}
+                      inputMode={numeric(c.operator) ? "decimal" : undefined}
                       value={c.value}
                       onChange={(e) =>
                         update(i, { conditions: s.conditions.map((x, k) => (k === ci ? { ...x, value: e.target.value } : x)) })
