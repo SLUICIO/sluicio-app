@@ -67,13 +67,23 @@ test.describe("Notification message templates", () => {
     expect((await admin.put("/api/v1/settings/notification-templates", { data: EMPTY_SET })).ok()).toBeTruthy();
   });
 
+  // A group of the test's own. "The first group on the cell" raced the
+  // specs that create and delete theirs in parallel: listed, then gone,
+  // which read as a 404 where a 403 was asserted.
+  const ownGroup = async (admin: APIRequestContext, suffix: string) => {
+    const res = await admin.post("/api/v1/settings/groups", {
+      data: { slug: `e2e-tmpl-${suffix}-${stamp}`, name: `E2E Templates ${suffix} ${stamp}` },
+    });
+    expect(res.ok()).toBeTruthy();
+    const g = (await res.json()) as { id: string; name: string };
+    return { ...g, remove: () => admin.delete(`/api/v1/settings/groups/${g.id}`) };
+  };
+
   test("a viewer cannot PUT a team's override; the palette carries the contract", async ({ page }) => {
     await logIn(page);
     const admin = page.request;
-    // Any group will do as the target.
-    const groups = (await (await admin.get("/api/v1/settings/groups")).json()).groups ?? [];
-    test.skip(groups.length === 0, "no groups on this cell");
-    const gid = groups[0].id;
+    const group = await ownGroup(admin, "viewer");
+    const gid = group.id;
 
     // Provision a fixed viewer (idempotent — 409 = exists from a past run).
     const email = "e2e-tmpl-viewer@sluicio.local";
@@ -89,6 +99,7 @@ test.describe("Notification message templates", () => {
     });
     expect(denied.status()).toBe(403);
     await viewer.dispose();
+    await group.remove();
 
     // The reflected palette: documented entries incl. the public paths.
     const schema = await (await admin.get("/api/v1/alerting/template-context-schema")).json();
@@ -190,10 +201,10 @@ test.describe("Notification message templates", () => {
     await page.getByRole("button", { name: "Slack template" }).click();
     await expect(page.getByText("Slack body (mrkdwn)").first()).toBeVisible();
 
-    const groups = (await (await page.request.get("/api/v1/settings/groups")).json()).groups ?? [];
-    test.skip(groups.length === 0, "no groups on this cell");
+    const group = await ownGroup(page.request, "drawer");
     await page.goto("/settings?tab=groups");
-    await page.getByText(groups[0].name, { exact: true }).first().click();
+    await page.getByText(group.name, { exact: true }).first().click();
     await expect(page.getByRole("heading", { name: "Notification templates" })).toBeVisible();
+    await group.remove();
   });
 });
