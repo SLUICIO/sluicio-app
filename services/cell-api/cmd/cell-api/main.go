@@ -527,6 +527,16 @@ func main() {
 		}
 	}
 	errorNotifier := errornotify.New(chStore, erroracksStore, profilesStore, alertStore, catalogStore, integrations.DefaultOrgID, logger, notifyInterval)
+	// Route by the integrations' service rules at once, not by the
+	// catalog's reconciled membership, which trails a new service.
+	errorNotifier.IntegrationsFor = func(ctx context.Context, service string) ([]uuid.UUID, error) {
+		ints, err := resolver.IntegrationsFor(ctx, integrations.DefaultOrgID, service)
+		ids := make([]uuid.UUID, 0, len(ints))
+		for _, i := range ints {
+			ids = append(ids, i.ID)
+		}
+		return ids, err
+	}
 	go errorNotifier.Run(bgCtx)
 	logger.Info("alert engine started")
 

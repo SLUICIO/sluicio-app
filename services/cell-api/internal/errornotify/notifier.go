@@ -33,7 +33,6 @@ type Notifier struct {
 	acks     *erroracks.Store
 	routes   *notifyprofiles.Store
 	channels *alerting.Store
-	catalog  *catalog.Store
 	org      uuid.UUID
 	log      *slog.Logger
 	interval time.Duration
@@ -43,6 +42,16 @@ type Notifier struct {
 	// page this notifier sends — the event-subscriptions hook (issue #4).
 	// Optional; fire-and-forget.
 	EmitEvent func(ctx context.Context, serviceName string, errorTraces uint64, integrationID *uuid.UUID)
+	// IntegrationsFor, when set, says which integrations a service
+	// belongs to from the integrations' service rules, at once. The
+	// catalog's membership (the fallback) is written by its reconciler,
+	// up to a pass after a service first sends; a brand-new service's
+	// first errors scanned in between were routed without its
+	// integration, to the org default (and marked sent, so its
+	// integration's channels never heard) or to nobody until a later tick.
+	IntegrationsFor func(ctx context.Context, serviceName string) ([]uuid.UUID, error)
+	// catalogIntegrations is the catalog's membership of a service.
+	catalogIntegrations func(ctx context.Context, serviceName string) ([]uuid.UUID, error)
 }
 
 func New(ch *store.Store, acks *erroracks.Store, routes *notifyprofiles.Store, channels *alerting.Store, cat *catalog.Store, org uuid.UUID, log *slog.Logger, interval time.Duration) *Notifier {
@@ -50,10 +59,13 @@ func New(ch *store.Store, acks *erroracks.Store, routes *notifyprofiles.Store, c
 		interval = 60 * time.Second
 	}
 	return &Notifier{
-		ch: ch, acks: acks, routes: routes, channels: channels, catalog: cat,
+		ch: ch, acks: acks, routes: routes, channels: channels,
 		org: org, log: log, interval: interval,
 		lookback: 30 * 24 * time.Hour,
 		client:   &http.Client{Timeout: 10 * time.Second},
+		catalogIntegrations: func(ctx context.Context, service string) ([]uuid.UUID, error) {
+			return cat.IntegrationsForService(ctx, org, service)
+		},
 	}
 }
 
@@ -74,6 +86,23 @@ func (n *Notifier) Run(ctx context.Context) {
 			cellhealth.Beat("error-notifier")
 		}
 	}
+}
+
+// integrationOf is the integration a service's errors are routed through:
+// the first its service rules put it in, else the catalog's membership,
+// nil for none.
+func (n *Notifier) integrationOf(ctx context.Context, service string) *uuid.UUID {
+	if n.IntegrationsFor != nil {
+		if ids, err := n.IntegrationsFor(ctx, service); err == nil && len(ids) > 0 {
+			return &ids[0]
+		} else if err != nil {
+			n.log.Warn("errornotify: integration rules failed; using the catalog", "service", service, "err", err)
+		}
+	}
+	if ids, err := n.catalogIntegrations(ctx, service); err == nil && len(ids) > 0 {
+		return &ids[0]
+	}
+	return nil
 }
 
 func (n *Notifier) once(ctx context.Context) {
@@ -119,10 +148,7 @@ func (n *Notifier) once(ctx context.Context) {
 			continue
 		}
 		// Route: the service's integration (first), else the global default.
-		var integ *uuid.UUID
-		if ids, ierr := n.catalog.IntegrationsForService(ctx, n.org, st.ServiceName); ierr == nil && len(ids) > 0 {
-			integ = &ids[0]
-		}
+		integ := n.integrationOf(ctx, st.ServiceName)
 		chIDs, rerr := n.routes.Resolve(ctx, n.org, nil, integ, nil)
 		if rerr != nil {
 			n.log.Warn("errornotify: resolve channels failed", "service", st.ServiceName, "err", rerr)
