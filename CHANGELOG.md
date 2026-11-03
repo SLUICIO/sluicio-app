@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.191 — 2026-11-03
+
+- feat(settings): give the org admin System settings on a managed instance (cee39d8)
+
 ## v0.11.190 — 2026-11-03
 
+- release v0.11.190 - refresh internal changelog (6020b6f)
 - fix(settings): alerts and exports use the deployment's environment name (d146c31)
 
 ## v0.11.189 — 2026-11-03
