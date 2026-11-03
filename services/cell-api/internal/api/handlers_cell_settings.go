@@ -406,8 +406,7 @@ func (h *Handlers) systemSettings(r *http.Request) (systemSettingsResponse, erro
 	// And the same for the environment name: a deployment that renders the
 	// label knows it better than anyone signed in, and an instance whose
 	// name is part of how it was provisioned should not let that drift.
-	if envName := strings.TrimSpace(os.Getenv("SLUICIO_ENVIRONMENT")); envName != "" {
-		resp.Environment = envName
+	if strings.TrimSpace(os.Getenv("SLUICIO_ENVIRONMENT")) != "" {
 		resp.EnvironmentSource = "env"
 	}
 	return resp, nil

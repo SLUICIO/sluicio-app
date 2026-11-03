@@ -25,6 +25,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -292,9 +293,18 @@ type environmentSetting struct {
 	Environment string `json:"environment"`
 }
 
-// GetEnvironment returns the cell's environment label, or
-// DefaultEnvironment if unset.
+// GetEnvironment returns the cell's environment label: SLUICIO_ENVIRONMENT
+// when the deployment sets it, else the stored setting, else
+// DefaultEnvironment.
+//
+// The deployment's value is read here rather than by each caller so that no
+// surface can disagree with the rest: alert emails once said "production" on
+// a cell whose header said "Trial", because only the settings response knew
+// about the variable.
 func (s *Store) GetEnvironment(ctx context.Context) (string, error) {
+	if env := strings.TrimSpace(os.Getenv("SLUICIO_ENVIRONMENT")); env != "" {
+		return env, nil
+	}
 	var raw []byte
 	err := s.pool.QueryRow(ctx,
 		`SELECT value FROM cell_settings WHERE key = 'system.environment'`).Scan(&raw)
