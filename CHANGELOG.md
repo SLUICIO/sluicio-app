@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.190 — 2026-11-03
+
+- fix(settings): alerts and exports use the deployment's environment name (d146c31)
+
 ## v0.11.189 — 2026-11-03
 
+- release v0.11.189 - refresh internal changelog (abb48df)
 - fix(auth): lost password says why when it can, and logs why when it can't (77099f2)
 - fix(mail): send 7-bit messages, and speak TLS from the start on port 465 (9834e38)
 - fix(errornotify): route a new service's errors by its integration's rules, not the catalog (553f15e)
