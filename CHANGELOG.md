@@ -3,8 +3,16 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.189 — 2026-11-03
+
+- fix(auth): lost password says why when it can, and logs why when it can't (77099f2)
+- fix(mail): send 7-bit messages, and speak TLS from the start on port 465 (9834e38)
+- fix(errornotify): route a new service's errors by its integration's rules, not the catalog (553f15e)
+- test(e2e): notification templates use a group of their own, not the cell's first (a10a23b)
+
 ## v0.11.188 — 2026-10-25
 
+- release v0.11.188 - refresh internal changelog (7efd048)
 - fix(integrations): sources are shown on the Metrics and Logs tabs they feed, not among the members (#43) (8d8ff99)
 
 ## v0.11.187 — 2026-10-25
