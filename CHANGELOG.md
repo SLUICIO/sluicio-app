@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.192 — 2026-11-03
+
+- feat(nav): take Schemas and Maps out of the navigation for now (17ec153)
+
 ## v0.11.191 — 2026-11-03
 
+- release v0.11.191 - refresh internal changelog (91491e1)
 - feat(settings): give the org admin System settings on a managed instance (cee39d8)
 
 ## v0.11.190 — 2026-11-03
