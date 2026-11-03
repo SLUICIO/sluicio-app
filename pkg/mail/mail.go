@@ -12,8 +12,11 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
 	"fmt"
+	"mime"
+	"mime/quotedprintable"
 	"net"
 	"net/smtp"
 	"strings"
@@ -150,6 +153,20 @@ func cleanRecipients(to []string) []string {
 // real error rather than the proxy answering for it.
 const dialTimeout = 20 * time.Second
 
+// implicitTLSPort is SMTP submission over TLS from the first byte (RFC
+// 8314). The server says nothing until the client has shaken hands, so
+// speaking plain SMTP to it just waits out the deadline and reads as a
+// server that hung up.
+const implicitTLSPort = "465"
+
+// rootCAs and dialContext are replaced in tests.
+var (
+	rootCAs     *x509.CertPool
+	dialContext = func(ctx context.Context, d *net.Dialer, network, addr string) (net.Conn, error) {
+		return d.DialContext(ctx, network, addr)
+	}
+)
+
 // sendMail is smtp.SendMail with a deadline and context cancellation.
 //
 // Reimplemented rather than wrapped because the stdlib helper exposes no
@@ -157,7 +174,7 @@ const dialTimeout = 20 * time.Second
 // request handler can defend against from the outside.
 func sendMail(ctx context.Context, addr, host string, auth smtp.Auth, from string, to []string, msg []byte) error {
 	d := net.Dialer{Timeout: dialTimeout}
-	conn, err := d.DialContext(ctx, "tcp", addr)
+	conn, err := dialContext(ctx, &d, "tcp", addr)
 	if err != nil {
 		return err
 	}
@@ -169,6 +186,18 @@ func sendMail(ctx context.Context, addr, host string, auth smtp.Auth, from strin
 	}
 	_ = conn.SetDeadline(deadline)
 
+	tlsConfig := &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12, RootCAs: rootCAs}
+	if _, port, _ := net.SplitHostPort(addr); port == implicitTLSPort {
+		// A *tls.Conn, so net/smtp knows the session is encrypted and
+		// PLAIN auth is allowed over it.
+		secure := tls.Client(conn, tlsConfig)
+		if err := secure.HandshakeContext(ctx); err != nil {
+			_ = conn.Close()
+			return err
+		}
+		conn = secure
+	}
+
 	c, err := smtp.NewClient(conn, host)
 	if err != nil {
 		_ = conn.Close()
@@ -177,7 +206,7 @@ func sendMail(ctx context.Context, addr, host string, auth smtp.Auth, from strin
 	defer func() { _ = c.Close() }()
 
 	if ok, _ := c.Extension("STARTTLS"); ok {
-		if err := c.StartTLS(&tls.Config{ServerName: host, MinVersion: tls.VersionTLS12}); err != nil {
+		if err := c.StartTLS(tlsConfig); err != nil {
 			return err
 		}
 	}
@@ -214,12 +243,12 @@ func sendMail(ctx context.Context, addr, host string, auth smtp.Auth, from strin
 func buildMessage(cfg Config, to []string, subject, body string) []byte {
 	from := cfg.From
 	if n := strings.TrimSpace(cfg.FromName); n != "" {
-		from = fmt.Sprintf("%s <%s>", n, cfg.From)
+		from = fmt.Sprintf("%s <%s>", mime.QEncoding.Encode("utf-8", n), cfg.From)
 	}
 	var b bytes.Buffer
 	fmt.Fprintf(&b, "From: %s\r\n", from)
 	fmt.Fprintf(&b, "To: %s\r\n", strings.Join(to, ", "))
-	fmt.Fprintf(&b, "Subject: %s\r\n", subject)
+	fmt.Fprintf(&b, "Subject: %s\r\n", mime.QEncoding.Encode("utf-8", subject))
 	fmt.Fprintf(&b, "Date: %s\r\n", time.Now().UTC().Format(time.RFC1123Z))
 	// Message-ID is required of a well-formed message (RFC 5322) and is
 	// what receiving systems use to recognise a duplicate. Without it, a
@@ -229,8 +258,16 @@ func buildMessage(cfg Config, to []string, subject, body string) []byte {
 	fmt.Fprintf(&b, "Message-ID: <%s@%s>\r\n", messageID(), messageIDDomain(cfg.From))
 	b.WriteString("MIME-Version: 1.0\r\n")
 	b.WriteString("Content-Type: text/plain; charset=utf-8\r\n")
+	// Quoted-printable, so the message is 7-bit on the wire. A body with
+	// any non-ASCII character and no declared encoding breaks RFC 2045,
+	// and whether it survives depends on each relay and spam filter on
+	// the way: a password-reset mail carrying one dash could be refused
+	// where the plain-ASCII "Send test email" went straight through.
+	b.WriteString("Content-Transfer-Encoding: quoted-printable\r\n")
 	b.WriteString("\r\n")
-	b.WriteString(body)
+	qp := quotedprintable.NewWriter(&b)
+	_, _ = qp.Write([]byte(body))
+	_ = qp.Close()
 	b.WriteString("\r\n")
 	return b.Bytes()
 }

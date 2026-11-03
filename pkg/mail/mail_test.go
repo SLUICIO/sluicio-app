@@ -9,8 +9,24 @@
 package mail
 
 import (
+	"bufio"
+	"bytes"
+	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	crand "crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"fmt"
+	"io"
+	"math/big"
+	"mime"
+	"mime/quotedprintable"
+	"net"
+	netmail "net/mail"
 	"strings"
 	"testing"
+	"time"
 )
 
 func headerOf(raw []byte, name string) string {
@@ -74,4 +90,136 @@ func TestMessageKeepsTheHeadersItAlreadyHad(t *testing.T) {
 	if !strings.HasSuffix(string(raw), "Body\r\n") {
 		t.Error("body missing or not terminated")
 	}
+}
+
+// A body with one non-ASCII character is what a password-reset mail is,
+// and "Send test email", being plain ASCII, can't reveal a problem with it.
+func TestMessageIsSevenBitOnTheWire(t *testing.T) {
+	raw := buildMessage(Config{From: "a@example.com", FromName: "Sluicio Åb"}, []string{"x@y.test"},
+		"Återställ lösenord", "Ignore this email — your password is unchanged.\nSecond line.")
+	for i, c := range raw {
+		if c > 127 {
+			t.Fatalf("non-ASCII byte %#x at %d in:\n%s", c, i, raw)
+		}
+	}
+	if got := headerOf(raw, "Content-Transfer-Encoding"); got != "quoted-printable" {
+		t.Errorf("Content-Transfer-Encoding = %q", got)
+	}
+	msg, err := netmail.ReadMessage(bytes.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := io.ReadAll(quotedprintable.NewReader(msg.Body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "this email — your password") || !strings.Contains(string(body), "Second line.") {
+		t.Errorf("body does not decode back: %q", body)
+	}
+	dec := new(mime.WordDecoder)
+	if s, err := dec.DecodeHeader(msg.Header.Get("Subject")); err != nil || s != "Återställ lösenord" {
+		t.Errorf("Subject decodes to %q (%v)", s, err)
+	}
+	if from, err := msg.Header.AddressList("From"); err != nil || from[0].Name != "Sluicio Åb" {
+		t.Errorf("From decodes to %+v (%v)", from, err)
+	}
+}
+
+// Port 465 is TLS from the first byte: a server there says nothing until
+// the handshake, so a client waiting for its greeting only ever times out.
+func TestSendOverImplicitTLS(t *testing.T) {
+	cert, pool := selfSigned(t, "127.0.0.1")
+	rootCAs = pool
+	t.Cleanup(func() { rootCAs = nil })
+
+	// Listening on an arbitrary port, so the test asks sendMail through
+	// the port it recognises by dialling a custom address.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	got := make(chan string, 1)
+	go func() {
+		raw, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		conn := tls.Server(raw, &tls.Config{Certificates: []tls.Certificate{cert}})
+		defer conn.Close()
+		r := bufio.NewReader(conn)
+		fmt.Fprint(conn, "220 test ESMTP\r\n")
+		var data strings.Builder
+		inData := false
+		for {
+			line, err := r.ReadString('\n')
+			if err != nil {
+				return
+			}
+			switch {
+			case inData && line == ".\r\n":
+				inData = false
+				got <- data.String()
+				fmt.Fprint(conn, "250 ok\r\n")
+			case inData:
+				data.WriteString(line)
+			case strings.HasPrefix(line, "EHLO"):
+				fmt.Fprint(conn, "250-test\r\n250 AUTH PLAIN\r\n")
+			case strings.HasPrefix(line, "AUTH PLAIN"):
+				fmt.Fprint(conn, "235 ok\r\n")
+			case strings.HasPrefix(line, "DATA"):
+				inData = true
+				fmt.Fprint(conn, "354 go\r\n")
+			case strings.HasPrefix(line, "QUIT"):
+				fmt.Fprint(conn, "221 bye\r\n")
+				return
+			default:
+				fmt.Fprint(conn, "250 ok\r\n")
+			}
+		}
+	}()
+
+	// The dial goes to the listener; the port sendMail reads must say 465.
+	realDial := dialContext
+	dialContext = func(ctx context.Context, d *net.Dialer, network, _ string) (net.Conn, error) {
+		return d.DialContext(ctx, network, ln.Addr().String())
+	}
+	t.Cleanup(func() { dialContext = realDial })
+
+	cfg := Config{Host: "127.0.0.1", Port: "465", Username: "u", Password: "p", From: "a@example.com"}
+	s := NewSender(func(context.Context) (Config, error) { return cfg, nil })
+	if err := s.Send(context.Background(), []string{"x@y.test"}, "Subj", "Body"); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	select {
+	case msg := <-got:
+		if !strings.Contains(msg, "Subject: Subj") {
+			t.Errorf("message: %q", msg)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("no message arrived")
+	}
+}
+
+func selfSigned(t *testing.T, ip string) (tls.Certificate, *x509.CertPool) {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), crand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1), NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
+		IPAddresses: []net.IP{net.ParseIP(ip)}, IsCA: true, BasicConstraintsValid: true,
+	}
+	der, err := x509.CreateCertificate(crand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool := x509.NewCertPool()
+	pool.AddCert(parsed)
+	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}, pool
 }
