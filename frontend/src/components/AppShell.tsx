@@ -54,6 +54,9 @@ interface NavItem {
   requiresWrite?: boolean;
   // operatorOnly items are hidden for everyone but cell operators.
   operatorOnly?: boolean;
+  // hidden keeps an item out of the nav for now. The page and its route stay,
+  // so existing links and bookmarks still work.
+  hidden?: boolean;
   // reach names the field in GET /me/navigation that says whether this
   // surface holds anything for the caller (issue #30). Absent means
   // always shown: Dashboard is the landing page, and somebody with
@@ -98,8 +101,8 @@ const navGroups: NavGroup[] = [
       { to: "/service-facets", label: "Service facets", icon: <FacetsIcon />, requiresWrite: true },
       { to: "/tags", label: "Tags", icon: <TagsIcon />, requiresWrite: true },
       { to: "/metadata-fields", label: "Metadata fields", icon: <MetadataIcon />, requiresWrite: true },
-      { to: "/schemas", label: "Schemas", icon: <SchemaIcon />, requiresWrite: true },
-      { to: "/maps", label: "Maps", icon: <MapsIcon />, requiresWrite: true },
+      { to: "/schemas", label: "Schemas", icon: <SchemaIcon />, requiresWrite: true, hidden: true },
+      { to: "/maps", label: "Maps", icon: <MapsIcon />, requiresWrite: true, hidden: true },
     ],
   },
   {
@@ -1006,6 +1009,7 @@ function SideNav() {
       ...g,
       items: g.items.filter(
         (it) =>
+          !it.hidden &&
           (!it.adminOnly || canManage) &&
           (!it.requiresWrite || canWrite) &&
           (!it.operatorOnly || isOperator) &&
