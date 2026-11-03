@@ -3,7 +3,9 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -26,6 +28,9 @@ const minPasswordLen = 8
 // the response must never reveal which addresses are registered. When the
 // address does map to a local-password account and SMTP is configured, a
 // single-use reset link is emailed out-of-band.
+//
+// The person asking can't be told why no mail came, so the operator must
+// be able to: every outcome leaves a log line, by this one message.
 func (h *Handlers) forgotPassword(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Email string `json:"email"`
@@ -38,32 +43,61 @@ func (h *Handlers) forgotPassword(w http.ResponseWriter, r *http.Request) {
 	const ok = `{"status":"ok"}` // identical for every outcome
 
 	if email != "" {
-		// Everything past here is best-effort + side-channel-free: we do the
-		// work in the same shape regardless, log failures, and never change
-		// the response.
-		if user, err := h.Identity.GetUserByEmail(r.Context(), email); err == nil && user.PasswordHash != "" && !user.IsDemo {
-			h.recordAuthAudit(r.Context(), user, nil, "password.reset_requested", clientIP(r), nil)
-			if h.Mail == nil || !h.Mail.Configured(r.Context()) {
-				h.Logger.Warn("password reset requested but SMTP not configured", "email", email)
-			} else if raw, err := h.Identity.CreatePasswordResetToken(r.Context(), user.ID, resetTokenTTL); err != nil {
-				h.Logger.Error("create reset token failed", "err", err)
-			} else {
-				link := fmt.Sprintf("%s/reset-password?token=%s", h.appBaseURL(r), raw)
-				subject := "Reset your Sluicio password"
-				bodyText := fmt.Sprintf(
-					"We received a request to reset the password for your Sluicio account.\n\n"+
-						"Reset it here (the link expires in 1 hour):\n%s\n\n"+
-						"If you didn't request this, you can ignore this email — your password is unchanged.",
-					link)
-				if err := h.Mail.Send(r.Context(), []string{user.Email}, subject, bodyText); err != nil {
-					h.Logger.Error("send reset email failed", "err", err)
-				}
-			}
+		// Everything past the lookup happens after the response. Waiting
+		// for the mail server here would answer a real address seconds
+		// later than an unknown one, which says which addresses exist
+		// just as plainly as a different body would, and would leave the
+		// person looking at a spinner for as long as the server stalls.
+		// Detached, so the send outlives the request that asked for it.
+		ctx := context.WithoutCancel(r.Context())
+		baseURL := h.appBaseURL(r)
+		ip := clientIP(r)
+		if user, err := h.Identity.GetUserByEmail(r.Context(), email); errors.Is(err, identity.ErrNotFound) {
+			h.Logger.Info("password reset requested: no mail sent, no such account", "email", email)
+		} else if err != nil {
+			h.Logger.Error("password reset requested: no mail sent, account lookup failed", "email", email, "err", err)
+		} else if user.IsDemo {
+			h.Logger.Info("password reset requested: no mail sent, demo accounts cannot reset", "email", email)
+		} else if user.PasswordHash == "" {
+			h.Logger.Info("password reset requested: no mail sent, the account has no password (single sign-on)", "email", email)
+		} else {
+			go h.sendPasswordReset(ctx, user, baseURL, ip)
 		}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(ok))
+}
+
+// sendPasswordReset mints the token and mails the link, after the
+// response. baseURL and ip are read from the request before it ends.
+func (h *Handlers) sendPasswordReset(ctx context.Context, user identity.User, baseURL, ip string) {
+	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	defer cancel()
+	h.recordAuthAudit(ctx, user, nil, "password.reset_requested", ip, nil)
+	if h.Mail == nil || !h.Mail.Configured(ctx) {
+		h.Logger.Warn("password reset requested but SMTP not configured", "email", user.Email)
+		return
+	}
+	raw, err := h.Identity.CreatePasswordResetToken(ctx, user.ID, resetTokenTTL)
+	if err != nil {
+		h.Logger.Error("create reset token failed", "err", err)
+		return
+	}
+	link := fmt.Sprintf("%s/reset-password?token=%s", baseURL, raw)
+	subject := "Reset your Sluicio password"
+	bodyText := fmt.Sprintf(
+		"We received a request to reset the password for your Sluicio account.\n\n"+
+			"Reset it here (the link expires in 1 hour):\n%s\n\n"+
+			"If you didn't request this, you can ignore this email — your password is unchanged.",
+		link)
+	if err := h.Mail.Send(ctx, []string{user.Email}, subject, bodyText); err != nil {
+		h.Logger.Error("send reset email failed", "email", user.Email, "err", err)
+		return
+	}
+	// Handed to the mail server: from here, a mail that never arrives is
+	// that server's or the recipient's to explain.
+	h.Logger.Info("password reset email handed to the mail server", "email", user.Email)
 }
 
 // resetPassword: POST /api/v1/auth/reset-password  (public)

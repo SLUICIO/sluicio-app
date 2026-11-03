@@ -1299,7 +1299,7 @@ export const api = {
   // else. There the first-run screen needs a claim token, and there is no
   // default admin password to hint at.
   installState: () =>
-    get<{ fresh: boolean; managed?: boolean; prefill?: { email: string; password: string } }>(
+    get<{ fresh: boolean; managed?: boolean; can_send_mail?: boolean; prefill?: { email: string; password: string } }>(
       `/auth/install-state`,
     ),
 

@@ -32,14 +32,14 @@
 ### Case 3 — Forgot password (request)
 - **Actor:** anonymous · **Endpoint:** `POST /api/v1/auth/forgot-password`
 - **Steps:** Login page → "Forgot password?"; enter email; submit.
-- **Expected:** Generic "if that account exists…" confirmation (no user enumeration); with SMTP set, a reset email is sent.
-- **Automation:** Manual (needs SMTP / mailbox to complete).
+- **Expected:** Generic "if that account exists…" confirmation (no user enumeration); with SMTP set, a reset email is sent. With no mail transport the page says to ask an administrator instead. Every outcome leaves a log line on cell-api.
+- **Automation:** `e2e/tests/password-reset.spec.ts` (needs `E2E_SMTP_HOST` + `E2E_MAILPIT_API`).
 
 ### Case 4 — Reset password (consume token)
 - **Actor:** anonymous with a valid reset token · **Endpoint:** `POST /api/v1/auth/reset-password`
 - **Steps:** Open the reset link; set a new password; submit.
 - **Expected:** Password updated; token is single-use; login works with the new password.
-- **Automation:** Manual (token arrives by email).
+- **Automation:** `e2e/tests/password-reset.spec.ts`.
 
 ### Case 5 — Enroll in MFA (TOTP)
 - **Actor:** any user · **Endpoint:** `POST /api/v1/account/mfa/setup` → `…/enable`

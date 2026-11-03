@@ -6,7 +6,7 @@
 // No router involvement (the user isn't authenticated yet, so
 // AppShell + Routes haven't mounted).
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { SsoProviderButton } from "../api/types";
 import { LogoMark } from "../components/brand/Logo";
@@ -129,6 +129,14 @@ export default function Login({ onSuccess }: Props) {
   const [setupBusy, setSetupBusy] = useState(false);
   const [forgotSent, setForgotSent] = useState(false);
   const [forgotBusy, setForgotBusy] = useState(false);
+  // Whether this instance can send the reset mail at all (install-state).
+  // Assumed yes until told otherwise: an older or unreachable answer must
+  // not take the way back in away.
+  const [canSendMail, setCanSendMail] = useState(true);
+  // The demo address the form was seeded with: a demo account can't reset
+  // its password, so it must not carry over into the forgot form, where
+  // pressing Send would promise a mail that never comes.
+  const prefilledEmail = useRef("");
   // MFA second step: set when login returns mfa_required.
   const [mfaToken, setMfaToken] = useState("");
   const [mfaCode, setMfaCode] = useState("");
@@ -195,11 +203,13 @@ export default function Login({ onSuccess }: Props) {
         if (cancelled) return;
         setShowFreshHint(s.fresh);
         setManaged(s.managed === true);
+        setCanSendMail(s.can_send_mail !== false);
         // Demo cells advertise public credentials — seed the form so a
         // visitor is one click from signed in. Never overwrite anything
         // the user already typed (the fetch races their first keypress).
         const p = s.prefill;
         if (p?.email) {
+          prefilledEmail.current = p.email;
           setEmail((cur) => cur || p.email);
           setPassword((cur) => cur || p.password);
           setPrefilled(true);
@@ -435,7 +445,17 @@ export default function Login({ onSuccess }: Props) {
             </button>
           </form>
         ) : mode === "forgot" ? (
-          forgotSent ? (
+          !canSendMail ? (
+            <div data-testid="forgot-no-mail">
+              <p className="muted" style={{ fontSize: 13, lineHeight: 1.6 }}>
+                This instance isn't set up to send email, so it can't send a reset link. Ask your
+                administrator to set a new password for you, under Settings → Members.
+              </p>
+              <button type="button" className="btn" onClick={() => setMode("login")} style={{ marginTop: 8 }}>
+                Back to sign in
+              </button>
+            </div>
+          ) : forgotSent ? (
             <div>
               <p className="muted" style={{ fontSize: 13, lineHeight: 1.6 }}>
                 If an account exists for <strong>{email.trim() || "that address"}</strong>,
@@ -508,7 +528,11 @@ export default function Login({ onSuccess }: Props) {
           <button
             type="button"
             className="btn btn--link"
-            onClick={() => { setError(null); setMode("forgot"); }}
+            onClick={() => {
+              setError(null);
+              setEmail((cur) => (cur === prefilledEmail.current ? "" : cur));
+              setMode("forgot");
+            }}
             style={{ fontSize: 12.5, alignSelf: "center" }}
           >
             Forgot password?

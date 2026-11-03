@@ -23,6 +23,19 @@ test.describe("Login credential pre-fill (demo cells)", () => {
     await expect(page.getByRole("button", { name: /^Sign in$/ })).toBeEnabled();
   });
 
+  test("the seeded demo address does not carry into the forgot-password form", async ({ page }) => {
+    await page.route("**/api/v1/auth/install-state", (route) =>
+      route.fulfill({
+        json: { fresh: false, managed: false, can_send_mail: true, prefill: { email: "demo@sluicio.com", password: "demodemo" } },
+      }),
+    );
+    await page.goto("/");
+    await expect(page.getByLabel("Email")).toHaveValue("demo@sluicio.com");
+    await page.getByRole("button", { name: "Forgot password?" }).click();
+    // A demo account can't reset; sending would promise a mail that never comes.
+    await expect(page.getByLabel("Email")).toHaveValue("");
+  });
+
   test("no prefill (every normal install) → empty form, no note", async ({ browser }) => {
     const page = await (await browser.newContext()).newPage();
     await page.route("**/api/v1/auth/install-state", (route) =>

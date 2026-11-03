@@ -46,6 +46,13 @@ jobs:
         options: >-
           --health-cmd "clickhouse-client --query 'SELECT 1'"
           --health-interval 5s --health-timeout 5s --health-retries 20
+      # An SMTP catcher, so the specs that need a real mail conversation
+      # run rather than skip: lost password, email channels.
+      mailpit:
+        image: axllent/mailpit:v1.30.4
+        ports:
+          - "1025:1025"
+          - "8025:8025"
     env:
       POSTGRES_DSN: postgres://controlplane:controlplane@localhost:5432/controlplane?sslmode=disable
       CLICKHOUSE_ENDPOINT: localhost:9000
@@ -169,6 +176,9 @@ jobs:
         # suite green for forks and Community-only runs.
         env:
           E2E_EXPECT_EE: ${{ env.HAS_LICENSE == 'true' && '1' || '' }}
+          E2E_SMTP_HOST: localhost
+          E2E_SMTP_PORT: "1025"
+          E2E_MAILPIT_API: http://localhost:8025
         run: npm test
 
       - name: Service logs (on failure)

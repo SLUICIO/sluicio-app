@@ -451,7 +451,15 @@ func (h *Handlers) installState(w http.ResponseWriter, r *http.Request) {
 			fresh = !anyLoggedIn
 		}
 	}
-	resp := map[string]any{"fresh": fresh, "managed": h.Managed}
+	resp := map[string]any{
+		"fresh":   fresh,
+		"managed": h.Managed,
+		// Whether "Forgot password?" can do anything here. Without a mail
+		// transport it would promise a link that never comes, so the login
+		// page says to ask an administrator instead. Says nothing about
+		// any account, and nothing about the transport beyond its existence.
+		"can_send_mail": h.Mail != nil && h.Mail.Configured(r.Context()),
+	}
 	if email := strings.TrimSpace(os.Getenv("SLUICIO_LOGIN_PREFILL_EMAIL")); email != "" {
 		resp["prefill"] = map[string]string{
 			"email":    email,
