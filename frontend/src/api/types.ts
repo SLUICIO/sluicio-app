@@ -2640,6 +2640,8 @@ export interface SystemSettings {
   // "env" = deployment-managed (SLUICIO_INGEST_URL, read-only here),
   // "setting" = admin-editable cell setting, "unset" = origin fallback.
   ingest_url_source?: "env" | "setting" | "unset";
+  // "env" = the deployment owns the environment name; read-only here.
+  environment_source?: "env";
   // Normalize span status at ingest: spans carrying an HTTP 5xx attribute
   // but a non-Error span status are stored as error spans.
   map_http_5xx_to_error?: boolean;

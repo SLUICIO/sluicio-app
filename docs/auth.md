@@ -189,6 +189,8 @@ anyone signed in, and writing them answers 409:
 it makes the environment label authoritative and read-only in the UI, the
 same way `SLUICIO_INGEST_URL` already does for ingest.
 
+**System settings go to the org admin.** A managed instance has no operator, so its org admin gets Settings → System settings, Retention and License. They change the telemetry environments, the two-factor policy, notification templates and the General toggles. Values the deployment owns show read-only, as above, and the mail server shows only whether sending works. Announcements and branding stay out of reach. Their routes remain operator-only and so refuse everyone.
+
 **Requiring two-factor stays the org's.** It is an operator setting on a
 self-hosted install and an org admin's on a managed one, because there is
 no operator there and whether your own people must use 2FA is not the

@@ -1651,11 +1651,11 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 		mux.HandleFunc("PATCH /api/v1/cell-settings/retention",
 			h.AuthMW.RequireOperator(h.patchRetention))
 		mux.HandleFunc("PATCH /api/v1/cell-settings/system",
-			h.AuthMW.RequireOperator(h.patchSystemSettings))
+			h.operatorOrOrgAdmin(h.patchSystemSettings))
 		// Where a row's environment is read from (issue #40).
 		mux.HandleFunc("GET /api/v1/cell-settings/telemetry-environment", h.getTelemetryEnvironment)
 		mux.HandleFunc("PUT /api/v1/cell-settings/telemetry-environment",
-			h.AuthMW.RequireOperator(h.putTelemetryEnvironment))
+			h.operatorOrOrgAdmin(h.putTelemetryEnvironment))
 		// Global SMTP — operator-only. Read masks the password.
 		// Cell health is operator-scoped and cell-wide: it crosses orgs,
 		// so it is not an org-scoped route, and it carries no per-org
@@ -1689,8 +1689,10 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 			}
 			h.AuthMW.RequireOperator(h.cellCapacity)(w, r)
 		})
+		// Reading is the org admin's on a managed instance, where the answer
+		// is only whether sending works. Writing and testing stay refused.
 		mux.HandleFunc("GET /api/v1/cell-settings/smtp",
-			h.AuthMW.RequireOperator(h.getSMTP))
+			h.operatorOrOrgAdmin(h.getSMTP))
 		mux.HandleFunc("PATCH /api/v1/cell-settings/smtp",
 			h.AuthMW.RequireOperator(h.patchSMTP))
 		mux.HandleFunc("POST /api/v1/cell-settings/smtp/test",

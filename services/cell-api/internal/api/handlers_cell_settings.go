@@ -373,6 +373,13 @@ type systemSettingsRequest struct {
 	ForbidOrgWideServiceAccounts *bool   `json:"forbid_org_wide_service_accounts,omitempty"`
 }
 
+// environmentIsDeployments says the environment name is not the instance's to
+// change. Managed mode alone is enough: its org admin can reach this form, and
+// a deployment that left the variable out has not handed the name to them.
+func (h *Handlers) environmentIsDeployments() bool {
+	return h.Managed || strings.TrimSpace(os.Getenv("SLUICIO_ENVIRONMENT")) != ""
+}
+
 // systemSettings reads the current system settings into the response shape.
 func (h *Handlers) systemSettings(r *http.Request) (systemSettingsResponse, error) {
 	env, err := h.Settings.GetEnvironment(r.Context())
@@ -406,8 +413,11 @@ func (h *Handlers) systemSettings(r *http.Request) (systemSettingsResponse, erro
 	// And the same for the environment name: a deployment that renders the
 	// label knows it better than anyone signed in, and an instance whose
 	// name is part of how it was provisioned should not let that drift.
-	if strings.TrimSpace(os.Getenv("SLUICIO_ENVIRONMENT")) != "" {
+	if h.environmentIsDeployments() {
 		resp.EnvironmentSource = "env"
+	}
+	if h.Managed {
+		resp.IngestURLSource = "env"
 	}
 	return resp, nil
 }
@@ -446,7 +456,7 @@ func (h *Handlers) patchSystemSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	audit := map[string]any{}
 	if body.Environment != nil {
-		if strings.TrimSpace(os.Getenv("SLUICIO_ENVIRONMENT")) != "" {
+		if h.environmentIsDeployments() {
 			httpserver.WriteError(w, http.StatusConflict,
 				"the environment name is managed by the deployment (SLUICIO_ENVIRONMENT) and can't be changed here")
 			return
@@ -464,7 +474,7 @@ func (h *Handlers) patchSystemSettings(w http.ResponseWriter, r *http.Request) {
 		audit["environment"] = env
 	}
 	if body.IngestBaseURL != nil {
-		if strings.TrimSpace(os.Getenv("SLUICIO_INGEST_URL")) != "" {
+		if h.Managed || strings.TrimSpace(os.Getenv("SLUICIO_INGEST_URL")) != "" {
 			httpserver.WriteError(w, http.StatusConflict,
 				"the ingest URL is managed by the deployment (SLUICIO_INGEST_URL) and can't be changed here")
 			return

@@ -49,6 +49,7 @@ import NotificationTemplateEditor from "../components/alerts/NotificationTemplat
 import TrimIngestionPanel from "../components/metrics/TrimIngestionPanel";
 import MetricAttributesInline from "../components/metrics/MetricAttributesInline";
 import AnnouncementsAdmin from "../components/AnnouncementsAdmin";
+import { canSeeSettingsTab, canSeeSystemSubtab } from "../lib/settingsAccess";
 import ConfigTransfer from "../components/ConfigTransfer";
 import { EnterpriseBadge, UpgradeNotice } from "../components/EnterpriseUpsell";
 import SsoSettings from "../components/SsoSettings";
@@ -142,15 +143,10 @@ const SYSTEM_SUBTABS: { key: SystemSubKey; label: string }[] = [
   { key: "announcements", label: "Announcements" },
 ];
 
-// Cell-wide tabs — retention, system (SMTP + security), and license apply
-// to every org on the cell, so only operators may see/change them. In
-// single-org self-hosted the admin is the operator, so nothing hides there.
-const OPERATOR_TABS: TabKey[] = ["retention", "system", "license"];
-
 export default function Settings() {
   usePageTitle("Organization settings");
-  const { isOperator } = useCurrentUser();
-  const visibleTabs = TABS.filter((t) => isOperator || !OPERATOR_TABS.includes(t.key));
+  const { isOperator, managed, can } = useCurrentUser();
+  const visibleTabs = TABS.filter((t) => canSeeSettingsTab(t.key, { isOperator, managed, isAdmin: can("org.manage") }));
   // Tab lives in the URL (?tab=) so it's deep-linkable and survives copy-paste /
   // refresh / back-forward — not just read once on mount.
   const [searchParams, setSearchParams] = useSearchParams();
@@ -222,7 +218,7 @@ export default function Settings() {
                 <a href="/account">Account</a>.
               </>
             ) : (
-              active.subtitle
+              active.key === "system" && managed ? "Cell-wide platform settings: general knobs, telemetry environments, email, security policy and notification templates." : active.subtitle
             )}
           </p>
         </div>
@@ -3301,14 +3297,16 @@ function RetentionTab() {
 // Email (SMTP), Security (MFA policy), Notification templates (the org
 // default set — the cell-wide "Alert email template" card was consolidated
 // into it 2026-07-25; the stored cell setting remains a silent fallback
-// rung), and Announcements (cell-wide; the whole tab is operator-gated).
+// rung), and Announcements (cell-wide). The operator's, or on a managed
+// instance the org admin's: see lib/settingsAccess.ts.
 // Sub-tab lives in ?sub= for the same deep-link reasons as ?tab=.
 function SystemSettingsSection() {
-  const { can } = useCurrentUser();
+  const { can, isOperator, managed } = useCurrentUser();
   const isAdmin = can("org.manage");
+  const subtabs = SYSTEM_SUBTABS.filter((s) => canSeeSystemSubtab(s.key, { isOperator, managed, isAdmin }));
   const [searchParams, setSearchParams] = useSearchParams();
   const subParam = searchParams.get("sub");
-  const sub: SystemSubKey = SYSTEM_SUBTABS.some((s) => s.key === subParam) ? (subParam as SystemSubKey) : "general";
+  const sub: SystemSubKey = subtabs.some((s) => s.key === subParam) ? (subParam as SystemSubKey) : "general";
   const setSub = (key: SystemSubKey) => {
     setSearchParams(
       (prev) => {
@@ -3323,7 +3321,7 @@ function SystemSettingsSection() {
   return (
     <div>
       <div className="svc-tabs">
-        {SYSTEM_SUBTABS.map((s) => (
+        {subtabs.map((s) => (
           <button
             key={s.key}
             type="button"
@@ -3630,7 +3628,7 @@ function ReportsTab() {
 }
 
 function SystemSettingsTab() {
-  const { can } = useCurrentUser();
+  const { can, managed } = useCurrentUser();
   const isAdmin = can("org.manage");
   const [data, setData] = useState<SystemSettings | null>(null);
   const [env, setEnv] = useState("");
@@ -3658,7 +3656,8 @@ function SystemSettingsTab() {
   if (!data) return <div className="placeholder">Loading…</div>;
 
   const envManaged = data.ingest_url_source === "env";
-  const envDirty = env.trim() !== data.environment && env.trim() !== "";
+  const nameLocked = data.environment_source === "env";
+  const envDirty = !nameLocked && env.trim() !== data.environment && env.trim() !== "";
   const ingestDirty = !envManaged && ingest.trim() !== (data.ingest_base_url ?? "");
   const map5xxDirty = map5xx !== Boolean(data.map_http_5xx_to_error);
   const forbidSAsDirty = forbidOrgWideSAs !== Boolean(data.forbid_org_wide_service_accounts);
@@ -3669,11 +3668,12 @@ function SystemSettingsTab() {
     setSaving(true);
     setError(null);
     try {
-      // env can't be blank (backend rejects it); always send the current
-      // value. ingest_base_url may be cleared to "" to revert to the
-      // browser-origin default.
+      // env can't be blank (backend rejects it); send the current value
+      // unless the deployment owns it, which the server refuses.
+      // ingest_base_url may be cleared to "" to revert to the browser-origin
+      // default.
       const r = await api.updateSystemSettings({
-        environment: env.trim() || data.environment,
+        ...(nameLocked ? {} : { environment: env.trim() || data.environment }),
         // Never send an env-managed ingest URL — the server refuses it.
         ...(envManaged ? {} : { ingest_base_url: ingest.trim() }),
         map_http_5xx_to_error: map5xx,
@@ -3709,10 +3709,15 @@ function SystemSettingsTab() {
             className="search__input"
             value={env}
             maxLength={40}
-            disabled={!isAdmin}
+            disabled={!isAdmin || nameLocked}
             onChange={(e) => setEnv(e.target.value)}
             placeholder="production"
           />
+          {nameLocked && (
+            <span className="form__hint" style={{ fontSize: 12 }}>
+              Set by the deployment, so it can't be changed here.
+            </span>
+          )}
         </label>
         <label className="form__label">
           Ingest base URL
@@ -3724,7 +3729,11 @@ function SystemSettingsTab() {
             onChange={(e) => setIngest(e.target.value)}
             placeholder={window.location.origin}
           />
-          {envManaged ? (
+          {managed ? (
+            <span className="form__hint" style={{ fontSize: 12 }}>
+              Set by the deployment, so it can't be changed here.
+            </span>
+          ) : envManaged ? (
             <span className="form__hint" style={{ fontSize: 12 }}>
               Managed by the deployment (<code>SLUICIO_INGEST_URL</code>) — change it
               in the server environment, not here. That keeps the endpoint correct
@@ -4590,6 +4599,7 @@ function LicenseTab() {
 }
 
 function LicensePanel({ status }: { status: LicenseStatus | null }) {
+  const { managed } = useCurrentUser();
   const features: { key: keyof LicenseStatus["features"]; label: string }[] = [
     { key: "sso", label: "Single sign-on (OIDC)" },
     { key: "rbac_advanced", label: "Advanced RBAC (group access policies)" },
@@ -4666,7 +4676,7 @@ function LicensePanel({ status }: { status: LicenseStatus | null }) {
         })}
       </div>
 
-      <div className="card" style={{ padding: 16 }}>
+      {!managed && <div className="card" style={{ padding: 16 }}>
         <h3 style={{ fontSize: 13, fontWeight: 600, margin: "0 0 8px" }}>Setting a license key</h3>
         <p className="muted" style={{ fontSize: 13, lineHeight: 1.6, margin: "0 0 8px" }}>
           The cell-api reads the key at startup from an environment variable —
@@ -4680,7 +4690,7 @@ SLUICIO_LICENSE_FILE=/etc/sluicio/license.key`}
         <p className="muted" style={{ fontSize: 12.5, lineHeight: 1.6, margin: "8px 0 0" }}>
           Contact ROMA IT AB for a license key. Restart the cell-api after setting it.
         </p>
-      </div>
+      </div>}
     </div>
   );
 }

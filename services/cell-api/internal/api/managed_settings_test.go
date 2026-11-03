@@ -35,10 +35,11 @@ import (
 // row still says operator - the shape an instance switched INTO managed
 // mode has.
 type managedSettingsFixture struct {
-	t     *testing.T
-	mux   *http.ServeMux
-	admin string // session cookie
-	stale string // session cookie of the leftover operator
+	t      *testing.T
+	mux    *http.ServeMux
+	admin  string // session cookie
+	stale  string // session cookie of the leftover operator
+	viewer string
 }
 
 func newManagedSettingsFixture(t *testing.T, managed bool) *managedSettingsFixture {
@@ -55,9 +56,13 @@ func newManagedSettingsFixture(t *testing.T, managed bool) *managedSettingsFixtu
 		Logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 	mux := http.NewServeMux()
-	// The two routes under test, wired exactly as handlers.go wires them.
+	// The routes under test, wired exactly as handlers.go wires them.
 	mux.HandleFunc("PATCH /api/v1/cell-settings/retention", h.AuthMW.RequireOperator(h.patchRetention))
 	mux.HandleFunc("GET /api/v1/cell-settings/security", h.operatorOrOrgAdmin(h.getSecuritySettings))
+	mux.HandleFunc("PATCH /api/v1/cell-settings/system", h.operatorOrOrgAdmin(h.patchSystemSettings))
+	mux.HandleFunc("GET /api/v1/cell-settings/smtp", h.operatorOrOrgAdmin(h.getSMTP))
+	mux.HandleFunc("PATCH /api/v1/cell-settings/smtp", h.AuthMW.RequireOperator(h.patchSMTP))
+	mux.HandleFunc("PUT /api/v1/cell-settings/branding", h.AuthMW.RequireOperator(h.putBranding))
 
 	orgs, err := idStore.ListOrgs(ctx)
 	if err != nil || len(orgs) == 0 {
@@ -90,10 +95,11 @@ func newManagedSettingsFixture(t *testing.T, managed bool) *managedSettingsFixtu
 	}
 
 	return &managedSettingsFixture{
-		t:     t,
-		mux:   mux,
-		admin: session("admin@acme.test", identity.RoleAdmin, false),
-		stale: session("was-operator@acme.test", identity.RoleAdmin, true),
+		t:      t,
+		mux:    mux,
+		admin:  session("admin@acme.test", identity.RoleAdmin, false),
+		stale:  session("was-operator@acme.test", identity.RoleAdmin, true),
+		viewer: session("viewer@acme.test", identity.RoleViewer, false),
 	}
 }
 
@@ -126,6 +132,47 @@ func TestAManagedInstanceGivesTheMFAPolicyToTheOrgAdmin(t *testing.T) {
 	// setting nobody in the instance could ever reach.
 	if got := f.do(http.MethodGet, "/api/v1/cell-settings/security", f.admin, ""); got != http.StatusOK {
 		t.Errorf("org admin reading the security policy on a managed instance: got %d, want 200", got)
+	}
+}
+
+// The org admin gets the settings that are about how they use the instance,
+// and none of what the deployment owns.
+func TestAManagedInstanceGivesSystemSettingsToTheOrgAdmin(t *testing.T) {
+	f := newManagedSettingsFixture(t, true)
+	for _, c := range []struct {
+		name, method, path, body string
+		want                     int
+	}{
+		{"a setting of theirs", http.MethodPatch, "/api/v1/cell-settings/system", `{"map_http_5xx_to_error":true}`, http.StatusOK},
+		{"the environment name", http.MethodPatch, "/api/v1/cell-settings/system", `{"environment":"staging"}`, http.StatusConflict},
+		{"the ingest URL", http.MethodPatch, "/api/v1/cell-settings/system", `{"ingest_base_url":"https://x.example"}`, http.StatusConflict},
+		{"whether email works", http.MethodGet, "/api/v1/cell-settings/smtp", "", http.StatusOK},
+		{"the mail server", http.MethodPatch, "/api/v1/cell-settings/smtp", `{"host":"x.example"}`, http.StatusForbidden},
+		{"the brand", http.MethodPut, "/api/v1/cell-settings/branding", `{}`, http.StatusForbidden},
+	} {
+		if got := f.do(c.method, c.path, f.admin, c.body); got != c.want {
+			t.Errorf("%s: got %d, want %d", c.name, got, c.want)
+		}
+	}
+}
+
+func TestAManagedInstanceKeepsSystemSettingsFromOtherMembers(t *testing.T) {
+	f := newManagedSettingsFixture(t, true)
+	if got := f.do(http.MethodPatch, "/api/v1/cell-settings/system", f.viewer, `{"map_http_5xx_to_error":true}`); got != http.StatusForbidden {
+		t.Errorf("viewer patching system settings: got %d, want 403", got)
+	}
+	if got := f.do(http.MethodGet, "/api/v1/cell-settings/smtp", f.viewer, ""); got != http.StatusForbidden {
+		t.Errorf("viewer reading SMTP: got %d, want 403", got)
+	}
+}
+
+func TestASelfHostedInstanceKeepsSystemSettingsWithTheOperator(t *testing.T) {
+	f := newManagedSettingsFixture(t, false)
+	if got := f.do(http.MethodPatch, "/api/v1/cell-settings/system", f.admin, `{"map_http_5xx_to_error":true}`); got != http.StatusForbidden {
+		t.Errorf("org admin patching system settings: got %d, want 403", got)
+	}
+	if got := f.do(http.MethodGet, "/api/v1/cell-settings/smtp", f.admin, ""); got != http.StatusForbidden {
+		t.Errorf("org admin reading SMTP: got %d, want 403", got)
 	}
 }
 
