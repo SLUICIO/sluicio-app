@@ -72,7 +72,7 @@ func (s *Store) CreateGroup(ctx context.Context, orgID uuid.UUID, in GroupInput)
 	in.Name = strings.TrimSpace(in.Name)
 	in.Slug = strings.TrimSpace(in.Slug)
 	if in.Name == "" || in.Slug == "" {
-		return Group{}, fmt.Errorf("identity: group name + slug required")
+		return Group{}, fmt.Errorf("identity: team name + slug required")
 	}
 	const q = `
 		INSERT INTO groups (org_id, slug, name, description)
@@ -141,7 +141,7 @@ func (s *Store) ListGroups(ctx context.Context, orgID uuid.UUID) ([]Group, error
 func (s *Store) UpdateGroup(ctx context.Context, orgID, id uuid.UUID, in GroupInput) error {
 	in.Name = strings.TrimSpace(in.Name)
 	if in.Name == "" {
-		return fmt.Errorf("identity: group name required")
+		return fmt.Errorf("identity: team name required")
 	}
 	tag, err := s.pool.Exec(ctx,
 		`UPDATE groups SET name = $3, description = $4, updated_at = now()

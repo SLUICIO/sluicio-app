@@ -81,8 +81,8 @@ export default function ConfigTransfer() {
     <section style={{ marginTop: 28, borderTop: "1px solid var(--border)", paddingTop: 20 }}>
       <h3 style={{ fontSize: 14, fontWeight: 600, margin: "0 0 4px" }}>Export &amp; import</h3>
       <p className="muted" style={{ fontSize: 13, lineHeight: 1.55, margin: "0 0 14px", maxWidth: 640 }}>
-        Move this organization's configuration between environments — integrations,
-        systems, groups &amp; policies, dashboards, health checks, templates, and more.
+        Move this organization's configuration between environments: integrations,
+        systems, teams &amp; policies, dashboards, health checks, templates, and more.
         Bundles carry no credentials. Imports are all-or-nothing: a failed import
         changes nothing.
       </p>
@@ -111,7 +111,7 @@ export default function ConfigTransfer() {
         </div>
         <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
           <input type="checkbox" checked={matchMembers} onChange={(e) => setMatchMembers(e.target.checked)} />
-          Attach group members by matching email addresses in this environment
+          Attach team members by matching email addresses in this environment
         </label>
 
         {bundle != null && !applied && (

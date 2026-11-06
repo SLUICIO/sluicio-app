@@ -176,12 +176,12 @@ func (h *Handlers) canEditGroupTemplates(r *http.Request, groupID uuid.UUID) boo
 func (h *Handlers) getGroupNotificationTemplates(w http.ResponseWriter, r *http.Request) {
 	gid, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
-		httpserver.WriteError(w, http.StatusBadRequest, "invalid group id")
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid team id")
 		return
 	}
 	orgID := middleware.OrgID(r)
 	if _, err := h.Identity.GetGroup(r.Context(), orgID, gid); err != nil {
-		httpserver.WriteError(w, http.StatusNotFound, "group not found")
+		httpserver.WriteError(w, http.StatusNotFound, "team not found")
 		return
 	}
 	set, err := h.NotifyTemplates.Get(r.Context(), orgID, &gid)
@@ -208,12 +208,12 @@ func (h *Handlers) getGroupNotificationTemplates(w http.ResponseWriter, r *http.
 func (h *Handlers) putGroupNotificationTemplates(w http.ResponseWriter, r *http.Request) {
 	gid, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
-		httpserver.WriteError(w, http.StatusBadRequest, "invalid group id")
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid team id")
 		return
 	}
 	orgID := middleware.OrgID(r)
 	if _, err := h.Identity.GetGroup(r.Context(), orgID, gid); err != nil {
-		httpserver.WriteError(w, http.StatusNotFound, "group not found")
+		httpserver.WriteError(w, http.StatusNotFound, "team not found")
 		return
 	}
 	if !h.canEditGroupTemplates(r, gid) {

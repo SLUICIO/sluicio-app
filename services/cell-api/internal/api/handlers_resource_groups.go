@@ -162,7 +162,7 @@ func (h *Handlers) decodeGroupIDs(w http.ResponseWriter, r *http.Request) ([]uui
 
 func (h *Handlers) writeSetGroupsError(w http.ResponseWriter, err error) {
 	if errors.Is(err, identity.ErrNotFound) {
-		httpserver.WriteError(w, http.StatusBadRequest, "one or more groups do not exist in this organization")
+		httpserver.WriteError(w, http.StatusBadRequest, "one or more teams do not exist in this organization")
 		return
 	}
 	h.Logger.Error("set resource groups failed", "err", err)

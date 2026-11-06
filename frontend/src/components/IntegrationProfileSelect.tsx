@@ -4,7 +4,7 @@
 // integration, overriding the default resolution. Leaving it on "Inherit"
 // falls back to the owning team's default profile, then the org-wide
 // default. Profiles themselves (channels + behaviour) are managed per-team
-// in Settings → Groups and org-wide on the Alerts page.
+// in Settings → Teams and org-wide on the Alerts page.
 
 import { useEffect, useState } from "react";
 import { api } from "../api/client";

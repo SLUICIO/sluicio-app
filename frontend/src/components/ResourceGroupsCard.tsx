@@ -4,7 +4,7 @@
 // (RBAC v2 phase 1). Members of an attached group can see the resource
 // and its underlying services (view only). Everyone sees the attached
 // list; org admins get a checkbox editor. This is the Community way to
-// grant visibility — the richer policy kinds live in Settings → Groups
+// grant visibility — the richer policy kinds live in Settings → Teams
 // (Enterprise).
 
 import { useEffect, useState } from "react";
@@ -74,13 +74,13 @@ export default function ResourceGroupsCard({
   return (
     <div className="card" style={{ marginBottom: 16, padding: "12px 16px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-        <span style={{ fontSize: 13, fontWeight: 600 }}>Group access</span>
+        <span style={{ fontSize: 13, fontWeight: 600 }}>Team access</span>
         {saved && <span className="muted" style={{ fontSize: 12 }}>saved ✓</span>}
       </div>
       <p className="muted" style={{ fontSize: 12, margin: "0 0 10px", lineHeight: 1.5 }}>
-        Members of these groups can view this {kind} and its services.
-        Non-admins see only what their groups grant. Finer-grained policies
-        live in Settings → Groups.
+        Members of these teams can view this {kind} and its services.
+        Non-admins see only what their teams grant. Finer-grained policies
+        live in Settings → Teams.
       </p>
 
       {error && <div className="alert alert--error" style={{ marginBottom: 8 }}>{error}</div>}
@@ -88,7 +88,7 @@ export default function ResourceGroupsCard({
         <div className="placeholder">Loading…</div>
       ) : !isAdmin ? (
         attached.length === 0 ? (
-          <span className="muted" style={{ fontSize: 13 }}>No groups attached.</span>
+          <span className="muted" style={{ fontSize: 13 }}>No teams attached.</span>
         ) : (
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
             {attached.map((g) => (
@@ -112,7 +112,7 @@ export default function ResourceGroupsCard({
         <div className="placeholder">Loading…</div>
       ) : allGroups.length === 0 ? (
         <span className="muted" style={{ fontSize: 13 }}>
-          No groups yet — create one in Settings → Groups first.
+          No teams yet. Create one in Settings → Teams first.
         </span>
       ) : (
         <>
@@ -144,7 +144,7 @@ export default function ResourceGroupsCard({
             onClick={save}
             disabled={busy || !dirty}
           >
-            {busy ? "Saving…" : "Save group access"}
+            {busy ? "Saving…" : "Save team access"}
           </button>
         </>
       )}

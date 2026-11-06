@@ -65,17 +65,17 @@ test("protocol: group-granted visibility of one integration", async ({ page }) =
 
   // 4. Create groupA and add userA to it.
   await page.goto("/settings?tab=groups");
-  await page.getByRole("button", { name: "+ New group" }).click();
+  await page.getByRole("button", { name: "+ New team" }).click();
   await page.getByLabel(/^Name/).first().fill(GROUP);
-  await page.getByRole("button", { name: /Create group/ }).click();
+  await page.getByRole("button", { name: /Create team/ }).click();
   // Open the group's blade (rows are the trigger) and add the member.
   await page.getByRole("row", { name: new RegExp(GROUP) }).click();
   await page.getByRole("button", { name: "+ Add member" }).click();
   const memberSelect = page.getByLabel("Org member");
   await memberSelect.selectOption({ label: USER_EMAIL });
   // "Read rights" — viewer in the group, not the editor default.
-  await page.getByLabel("Role in group").selectOption("viewer");
-  await page.getByRole("button", { name: "Add to group" }).click();
+  await page.getByLabel("Role in team").selectOption("viewer");
+  await page.getByRole("button", { name: "Add to team" }).click();
   await expect(page.getByText(USER_EMAIL).first()).toBeVisible();
   await page.keyboard.press("Escape");
 
@@ -83,9 +83,9 @@ test("protocol: group-granted visibility of one integration", async ({ page }) =
   await page.goto("/integrations");
   await page.getByRole("link", { name: INTEG }).click();
   await page.goto(page.url().replace(/\/?$/, "") + "/settings?tab=access");
-  const groupCard = page.locator(".card", { hasText: "Group access" });
+  const groupCard = page.locator(".card", { hasText: "Team access" });
   await groupCard.locator("label", { hasText: GROUP }).locator("input[type=checkbox]").check();
-  await groupCard.getByRole("button", { name: /Save group access/ }).click();
+  await groupCard.getByRole("button", { name: /Save team access/ }).click();
   await expect(groupCard.getByText("saved ✓")).toBeVisible();
 
   // 6. Log out. Sign-out asks a native confirm() — accept it (Playwright

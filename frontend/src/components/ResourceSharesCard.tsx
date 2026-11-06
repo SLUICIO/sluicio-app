@@ -60,8 +60,8 @@ export default function ResourceSharesCard({
         <UpgradeNotice title="Resource sharing is an Enterprise feature" expired={status?.expired}>
           <p className="muted" style={{ margin: 0, fontSize: 13 }}>
             An Enterprise license lets you share this {noun0} with a member or
-            group as view-only. In the Community edition, use groups + the
-            Group access card to grant visibility.
+            team as view-only. In the Community edition, use teams + the
+            Team access card to grant visibility.
           </p>
         </UpgradeNotice>
       </div>
@@ -102,7 +102,7 @@ export default function ResourceSharesCard({
       <p className="muted" style={{ fontSize: 12, margin: "0 0 10px", lineHeight: 1.5 }}>
         {kind === "integrations" ? (
           <>
-            Share this integration with a member or group - view only. They'll
+            Share this integration with a member or team - view only. They'll
             see this integration and its messages, and nothing else on the
             services it runs on: not the services themselves, not their logs or
             metrics, and not the other integrations sharing them. They can't
@@ -110,7 +110,7 @@ export default function ResourceSharesCard({
           </>
         ) : (
           <>
-            Share this system with a member or group - view only. They'll see it
+            Share this system with a member or team - view only. They'll see it
             and its services' health, traces, logs and metrics; they can't change
             anything. Recipients are notified.
           </>
@@ -128,7 +128,7 @@ export default function ResourceSharesCard({
                 <div key={sh.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
                   <span style={{ flex: 1 }}>
                     {sh.grantee_name}
-                    <span className="muted" style={{ fontSize: 11, marginLeft: 6 }}>{sh.grantee_kind}</span>
+                    <span className="muted" style={{ fontSize: 11, marginLeft: 6 }}>{sh.grantee_kind === "group" ? "team" : sh.grantee_kind}</span>
                     {/* A share made before the grant narrowed still carries the
                         member services. Saying so is the only way to tell it
                         apart from a new one, which looks identical. */}
@@ -156,7 +156,7 @@ export default function ResourceSharesCard({
               onChange={(e) => setGranteeKind(e.target.value as "user" | "group")}
             >
               <option value="user">member</option>
-              <option value="group">group</option>
+              <option value="group">team</option>
             </select>
             {granteeKind === "user" ? (
               <input
@@ -175,7 +175,7 @@ export default function ResourceSharesCard({
                 onChange={(e) => setGroupId(e.target.value)}
                 required
               >
-                <option value="">Pick a group…</option>
+                <option value="">Pick a team…</option>
                 {groups.map((g) => (
                   <option key={g.id} value={g.id}>{g.name}</option>
                 ))}

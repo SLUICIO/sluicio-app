@@ -107,7 +107,7 @@ function OrganizationsCard() {
   const remove = async (o: OperatorOrg) => {
     if (
       !window.confirm(
-        `Delete organization "${o.name}"? This cascades through its members, groups, service accounts, and tokens. This cannot be undone.`,
+        `Delete organization "${o.name}"? This cascades through its members, teams, service accounts, and tokens. This cannot be undone.`,
       )
     )
       return;

@@ -92,7 +92,7 @@ func (h *Handlers) resolveShareGrantee(r *http.Request, body createShareBody) (k
 		}
 		g, gerr2 := h.Identity.GetGroup(r.Context(), orgID, gid)
 		if gerr2 != nil {
-			return "", uuid.Nil, "", "", errors.New("no such group in this organization")
+			return "", uuid.Nil, "", "", errors.New("no such team in this organization")
 		}
 		return "group", g.ID, g.Name, "", nil
 	default:

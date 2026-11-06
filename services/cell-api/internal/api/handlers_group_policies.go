@@ -30,12 +30,12 @@ import (
 func (h *Handlers) listGroupPolicies(w http.ResponseWriter, r *http.Request) {
 	groupID, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
-		httpserver.WriteError(w, http.StatusBadRequest, "invalid group id")
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid team id")
 		return
 	}
 	// Sanity: belongs to caller's org.
 	if _, err := h.Identity.GetGroup(r.Context(), middleware.OrgID(r), groupID); err != nil {
-		httpserver.WriteError(w, http.StatusNotFound, "group not found")
+		httpserver.WriteError(w, http.StatusNotFound, "team not found")
 		return
 	}
 	policies, err := h.Identity.ListPoliciesForGroup(r.Context(), groupID)
@@ -51,11 +51,11 @@ func (h *Handlers) listGroupPolicies(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) createGroupPolicy(w http.ResponseWriter, r *http.Request) {
 	groupID, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
-		httpserver.WriteError(w, http.StatusBadRequest, "invalid group id")
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid team id")
 		return
 	}
 	if _, err := h.Identity.GetGroup(r.Context(), middleware.OrgID(r), groupID); err != nil {
-		httpserver.WriteError(w, http.StatusNotFound, "group not found")
+		httpserver.WriteError(w, http.StatusNotFound, "team not found")
 		return
 	}
 	var body identity.AccessPolicyInput
@@ -69,7 +69,7 @@ func (h *Handlers) createGroupPolicy(w http.ResponseWriter, r *http.Request) {
 		// idempotent success — consistent with the other
 		// already-exists surfaces in this API.
 		if errors.Is(err, identity.ErrPolicyExists) {
-			httpserver.WriteError(w, http.StatusConflict, "an identical policy already exists on this group")
+			httpserver.WriteError(w, http.StatusConflict, "an identical policy already exists on this team")
 			return
 		}
 		// CreatePolicy's own validation errors go straight back as 400.
@@ -89,7 +89,7 @@ func (h *Handlers) createGroupPolicy(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) updateGroupPolicy(w http.ResponseWriter, r *http.Request) {
 	groupID, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
-		httpserver.WriteError(w, http.StatusBadRequest, "invalid group id")
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid team id")
 		return
 	}
 	policyID, err := uuid.Parse(r.PathValue("policy_id"))
@@ -98,7 +98,7 @@ func (h *Handlers) updateGroupPolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := h.Identity.GetGroup(r.Context(), middleware.OrgID(r), groupID); err != nil {
-		httpserver.WriteError(w, http.StatusNotFound, "group not found")
+		httpserver.WriteError(w, http.StatusNotFound, "team not found")
 		return
 	}
 	var body identity.AccessPolicyInput
@@ -115,7 +115,7 @@ func (h *Handlers) updateGroupPolicy(w http.ResponseWriter, r *http.Request) {
 		// Editing a policy into the shape of one the group already holds
 		// is the same conflict as creating a duplicate.
 		if errors.Is(err, identity.ErrPolicyExists) {
-			httpserver.WriteError(w, http.StatusConflict, "an identical policy already exists on this group")
+			httpserver.WriteError(w, http.StatusConflict, "an identical policy already exists on this team")
 			return
 		}
 		httpserver.WriteError(w, http.StatusBadRequest, err.Error())
@@ -130,7 +130,7 @@ func (h *Handlers) updateGroupPolicy(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) deleteGroupPolicy(w http.ResponseWriter, r *http.Request) {
 	groupID, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
-		httpserver.WriteError(w, http.StatusBadRequest, "invalid group id")
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid team id")
 		return
 	}
 	policyID, err := uuid.Parse(r.PathValue("policy_id"))
@@ -141,7 +141,7 @@ func (h *Handlers) deleteGroupPolicy(w http.ResponseWriter, r *http.Request) {
 	// Sanity: group is in caller's org. (DeletePolicy doesn't enforce
 	// org scoping; the route's group_id path arg + GetGroup call does.)
 	if _, err := h.Identity.GetGroup(r.Context(), middleware.OrgID(r), groupID); err != nil {
-		httpserver.WriteError(w, http.StatusNotFound, "group not found")
+		httpserver.WriteError(w, http.StatusNotFound, "team not found")
 		return
 	}
 	if err := h.Identity.DeletePolicy(r.Context(), policyID); err != nil {

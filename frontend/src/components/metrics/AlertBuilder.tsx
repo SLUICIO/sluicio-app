@@ -504,8 +504,8 @@ export default function AlertBuilder({
             {team
               ? "Only members of this team (and org admins) will see and manage this alert."
               : groups.length === 0
-                ? "No teams yet — create one in Settings → Groups to scope alerts."
-                : "Optional — assign to a team to limit who can see and manage it."}
+                ? "No teams yet. Create one in Settings → Teams to scope alerts."
+                : "Optional: assign to a team to limit who can see and manage it."}
           </span>
         </div>
 

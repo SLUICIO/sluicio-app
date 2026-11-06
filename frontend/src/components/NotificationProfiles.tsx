@@ -6,7 +6,7 @@
 // channels. When an alert or unacknowledged error fires it resolves to one
 // profile — the integration's assigned profile, else the owning team's
 // default, else the org-wide default — and delivers to that profile's
-// channels. The same control drives the team scope (Settings → Groups) and
+// channels. The same control drives the team scope (Settings → Teams) and
 // the org scope (Alerts page).
 
 import { useEffect, useState } from "react";

@@ -54,7 +54,7 @@ func (h *Handlers) createGroupAdmin(w http.ResponseWriter, r *http.Request) {
 	g, err := h.Identity.CreateGroup(r.Context(), middleware.OrgID(r), body)
 	if err != nil {
 		if errors.Is(err, identity.ErrGroupSlugExists) {
-			httpserver.WriteError(w, http.StatusConflict, "a group with that slug already exists")
+			httpserver.WriteError(w, http.StatusConflict, "a team with that slug already exists")
 			return
 		}
 		httpserver.WriteError(w, http.StatusBadRequest, err.Error())
@@ -68,13 +68,13 @@ func (h *Handlers) createGroupAdmin(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) getGroupAdmin(w http.ResponseWriter, r *http.Request) {
 	id, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
-		httpserver.WriteError(w, http.StatusBadRequest, "invalid group id")
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid team id")
 		return
 	}
 	g, err := h.Identity.GetGroup(r.Context(), middleware.OrgID(r), id)
 	if err != nil {
 		if errors.Is(err, identity.ErrNotFound) {
-			httpserver.WriteError(w, http.StatusNotFound, "group not found")
+			httpserver.WriteError(w, http.StatusNotFound, "team not found")
 			return
 		}
 		h.Logger.Error("get group failed", "err", err)
@@ -88,7 +88,7 @@ func (h *Handlers) getGroupAdmin(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) updateGroupAdmin(w http.ResponseWriter, r *http.Request) {
 	id, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
-		httpserver.WriteError(w, http.StatusBadRequest, "invalid group id")
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid team id")
 		return
 	}
 	var body identity.GroupInput
@@ -98,7 +98,7 @@ func (h *Handlers) updateGroupAdmin(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.Identity.UpdateGroup(r.Context(), middleware.OrgID(r), id, body); err != nil {
 		if errors.Is(err, identity.ErrNotFound) {
-			httpserver.WriteError(w, http.StatusNotFound, "group not found")
+			httpserver.WriteError(w, http.StatusNotFound, "team not found")
 			return
 		}
 		httpserver.WriteError(w, http.StatusBadRequest, err.Error())
@@ -112,12 +112,12 @@ func (h *Handlers) updateGroupAdmin(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) deleteGroupAdmin(w http.ResponseWriter, r *http.Request) {
 	id, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
-		httpserver.WriteError(w, http.StatusBadRequest, "invalid group id")
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid team id")
 		return
 	}
 	if err := h.Identity.DeleteGroup(r.Context(), middleware.OrgID(r), id); err != nil {
 		if errors.Is(err, identity.ErrNotFound) {
-			httpserver.WriteError(w, http.StatusNotFound, "group not found")
+			httpserver.WriteError(w, http.StatusNotFound, "team not found")
 			return
 		}
 		h.Logger.Error("delete group failed", "err", err)
@@ -132,12 +132,12 @@ func (h *Handlers) deleteGroupAdmin(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) listGroupMembersAdmin(w http.ResponseWriter, r *http.Request) {
 	id, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
-		httpserver.WriteError(w, http.StatusBadRequest, "invalid group id")
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid team id")
 		return
 	}
 	// Sanity: belongs to caller's org.
 	if _, err := h.Identity.GetGroup(r.Context(), middleware.OrgID(r), id); err != nil {
-		httpserver.WriteError(w, http.StatusNotFound, "group not found")
+		httpserver.WriteError(w, http.StatusNotFound, "team not found")
 		return
 	}
 	out, err := h.Identity.ListGroupMembers(r.Context(), id)
@@ -159,11 +159,11 @@ func (h *Handlers) listGroupMembersAdmin(w http.ResponseWriter, r *http.Request)
 func (h *Handlers) addGroupMemberAdmin(w http.ResponseWriter, r *http.Request) {
 	groupID, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
-		httpserver.WriteError(w, http.StatusBadRequest, "invalid group id")
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid team id")
 		return
 	}
 	if _, err := h.Identity.GetGroup(r.Context(), middleware.OrgID(r), groupID); err != nil {
-		httpserver.WriteError(w, http.StatusNotFound, "group not found")
+		httpserver.WriteError(w, http.StatusNotFound, "team not found")
 		return
 	}
 	var body struct {
@@ -201,7 +201,7 @@ func (h *Handlers) addGroupMemberAdmin(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := h.Identity.AddGroupServiceAccount(r.Context(), saID, groupID, role); err != nil {
 			if errors.Is(err, identity.ErrAlreadyMember) {
-				httpserver.WriteError(w, http.StatusConflict, "service account is already a member of this group")
+				httpserver.WriteError(w, http.StatusConflict, "service account is already a member of this team")
 				return
 			}
 			h.Logger.Error("add group service account failed", "err", err)
@@ -225,7 +225,7 @@ func (h *Handlers) addGroupMemberAdmin(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.Identity.AddGroupMember(r.Context(), userID, groupID, role); err != nil {
 		if errors.Is(err, identity.ErrAlreadyMember) {
-			httpserver.WriteError(w, http.StatusConflict, "user is already a member of this group")
+			httpserver.WriteError(w, http.StatusConflict, "user is already a member of this team")
 			return
 		}
 		h.Logger.Error("add group member failed", "err", err)
@@ -240,7 +240,7 @@ func (h *Handlers) addGroupMemberAdmin(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) updateGroupMemberRoleAdmin(w http.ResponseWriter, r *http.Request) {
 	groupID, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
-		httpserver.WriteError(w, http.StatusBadRequest, "invalid group id")
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid team id")
 		return
 	}
 	userID, err := uuid.Parse(r.PathValue("user_id"))
@@ -249,7 +249,7 @@ func (h *Handlers) updateGroupMemberRoleAdmin(w http.ResponseWriter, r *http.Req
 		return
 	}
 	if _, err := h.Identity.GetGroup(r.Context(), middleware.OrgID(r), groupID); err != nil {
-		httpserver.WriteError(w, http.StatusNotFound, "group not found")
+		httpserver.WriteError(w, http.StatusNotFound, "team not found")
 		return
 	}
 	var body struct {
@@ -266,7 +266,7 @@ func (h *Handlers) updateGroupMemberRoleAdmin(w http.ResponseWriter, r *http.Req
 	}
 	if err := h.Identity.UpdateGroupMemberRole(r.Context(), userID, groupID, role); err != nil {
 		if errors.Is(err, identity.ErrNotFound) {
-			httpserver.WriteError(w, http.StatusNotFound, "user is not a member of this group")
+			httpserver.WriteError(w, http.StatusNotFound, "user is not a member of this team")
 			return
 		}
 		h.Logger.Error("update group role failed", "err", err)
@@ -281,7 +281,7 @@ func (h *Handlers) updateGroupMemberRoleAdmin(w http.ResponseWriter, r *http.Req
 func (h *Handlers) removeGroupMemberAdmin(w http.ResponseWriter, r *http.Request) {
 	groupID, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
-		httpserver.WriteError(w, http.StatusBadRequest, "invalid group id")
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid team id")
 		return
 	}
 	userID, err := uuid.Parse(r.PathValue("user_id"))
@@ -290,12 +290,12 @@ func (h *Handlers) removeGroupMemberAdmin(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if _, err := h.Identity.GetGroup(r.Context(), middleware.OrgID(r), groupID); err != nil {
-		httpserver.WriteError(w, http.StatusNotFound, "group not found")
+		httpserver.WriteError(w, http.StatusNotFound, "team not found")
 		return
 	}
 	if err := h.Identity.RemoveGroupMember(r.Context(), userID, groupID); err != nil {
 		if errors.Is(err, identity.ErrNotFound) {
-			httpserver.WriteError(w, http.StatusNotFound, "user is not a member of this group")
+			httpserver.WriteError(w, http.StatusNotFound, "user is not a member of this team")
 			return
 		}
 		h.Logger.Error("remove group member failed", "err", err)
@@ -312,7 +312,7 @@ func (h *Handlers) removeGroupMemberAdmin(w http.ResponseWriter, r *http.Request
 func (h *Handlers) groupAndSAFromPath(w http.ResponseWriter, r *http.Request) (groupID, saID uuid.UUID, ok bool) {
 	groupID, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
-		httpserver.WriteError(w, http.StatusBadRequest, "invalid group id")
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid team id")
 		return groupID, saID, false
 	}
 	saID, err = uuid.Parse(r.PathValue("sa_id"))
@@ -321,7 +321,7 @@ func (h *Handlers) groupAndSAFromPath(w http.ResponseWriter, r *http.Request) (g
 		return groupID, saID, false
 	}
 	if _, err := h.Identity.GetGroup(r.Context(), middleware.OrgID(r), groupID); err != nil {
-		httpserver.WriteError(w, http.StatusNotFound, "group not found")
+		httpserver.WriteError(w, http.StatusNotFound, "team not found")
 		return groupID, saID, false
 	}
 	sa, err := h.Identity.GetServiceAccount(r.Context(), saID)
@@ -352,7 +352,7 @@ func (h *Handlers) updateGroupServiceAccountRoleAdmin(w http.ResponseWriter, r *
 	}
 	if err := h.Identity.UpdateGroupServiceAccountRole(r.Context(), saID, groupID, role); err != nil {
 		if errors.Is(err, identity.ErrNotFound) {
-			httpserver.WriteError(w, http.StatusNotFound, "service account is not a member of this group")
+			httpserver.WriteError(w, http.StatusNotFound, "service account is not a member of this team")
 			return
 		}
 		h.Logger.Error("update group service-account role failed", "err", err)
@@ -371,7 +371,7 @@ func (h *Handlers) removeGroupServiceAccountAdmin(w http.ResponseWriter, r *http
 	}
 	if err := h.Identity.RemoveGroupServiceAccount(r.Context(), saID, groupID); err != nil {
 		if errors.Is(err, identity.ErrNotFound) {
-			httpserver.WriteError(w, http.StatusNotFound, "service account is not a member of this group")
+			httpserver.WriteError(w, http.StatusNotFound, "service account is not a member of this team")
 			return
 		}
 		h.Logger.Error("remove group service account failed", "err", err)
@@ -421,7 +421,7 @@ func (h *Handlers) putServiceGroupsHandler(w http.ResponseWriter, r *http.Reques
 	for _, s := range body.GroupIDs {
 		id, err := uuid.Parse(strings.TrimSpace(s))
 		if err != nil {
-			httpserver.WriteError(w, http.StatusBadRequest, "invalid group id: "+s)
+			httpserver.WriteError(w, http.StatusBadRequest, "invalid team id: "+s)
 			return
 		}
 		ids = append(ids, id)

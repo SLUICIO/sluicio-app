@@ -113,8 +113,8 @@ export default function Developers() {
         <p className="muted" style={{ fontSize: 13 }}>
           Least privilege: cap a token at <strong>read-only</strong> (or editor) when minting it, and set an
           expiry. A read-only token is exactly right for dashboards and the MCP server. Service accounts are{" "}
-          <strong>scoped</strong> by default — they see nothing until you add them to a group, so a leaked token
-          exposes only what its groups grant. Reserve org-wide accounts for trusted platform automation.
+          <strong>scoped</strong> by default: they see nothing until you add them to a team, so a leaked token
+          exposes only what its teams grant. Reserve org-wide accounts for trusted platform automation.
         </p>
       </Section>
 
@@ -144,7 +144,7 @@ export default function Developers() {
           {productName} exposes an MCP server so Claude Desktop/Code, Cursor, and other MCP clients can answer
           questions about this cell from live data (“which integrations are unhealthy?”, “show the order-bus system”).
           Pair it with a <strong>scoped viewer service-account token</strong> so the assistant sees only the services
-          (and signals) you chose to hand it, via the account's group memberships.
+          (and signals) you chose to hand it, via the account's team memberships.
         </p>
         <p className="muted" style={{ fontSize: 13 }}>
           The tools are read-only with one exception: an assistant can <strong>propose</strong> a tuning change to an

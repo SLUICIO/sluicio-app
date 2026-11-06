@@ -89,7 +89,7 @@ func (h *Handlers) saScopeFromBody(w http.ResponseWriter, r *http.Request, raw s
 		return "", false
 	}
 	if scope == identity.SAScopeOrgWide && h.forbidOrgWideServiceAccounts(r) {
-		httpserver.WriteError(w, http.StatusForbidden, "this cell disallows org-wide service accounts — grant access via group memberships instead")
+		httpserver.WriteError(w, http.StatusForbidden, "this cell disallows org-wide service accounts; grant access via team memberships instead")
 		return "", false
 	}
 	return scope, true
@@ -185,7 +185,7 @@ func (h *Handlers) updateServiceAccount(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if scope == identity.SAScopeOrgWide && existing.Scope != identity.SAScopeOrgWide && h.forbidOrgWideServiceAccounts(r) {
-		httpserver.WriteError(w, http.StatusForbidden, "this cell disallows org-wide service accounts — grant access via group memberships instead")
+		httpserver.WriteError(w, http.StatusForbidden, "this cell disallows org-wide service accounts; grant access via team memberships instead")
 		return
 	}
 	sa, err := h.Identity.UpdateServiceAccount(r.Context(), middleware.OrgID(r), id, name, strings.TrimSpace(body.Description), identity.Role(body.Role), scope)

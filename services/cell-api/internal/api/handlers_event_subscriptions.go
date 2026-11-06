@@ -42,11 +42,11 @@ var eventTypeCatalog = []eventTypeEntry{
 	{Type: "com.sluicio.alert.resolved", Description: "A firing alert resolved (with a recovery notification)", Kind: "operational"},
 	{Type: "com.sluicio.errors.opened", Description: "Unacknowledged error traces opened on a service (the error notifier paged)", Kind: "operational"},
 	{Type: "com.sluicio.service.discovered", Description: "A service appeared in the catalog for the first time", Kind: "operational"},
-	{Type: "com.sluicio.integration.*", Description: "Integration lifecycle and config changes (created, updated, deleted, matchers, groups, profile)", Kind: "config"},
-	{Type: "com.sluicio.service.*", Description: "Service-level config changes (system flag, tags, groups, metadata)", Kind: "config"},
+	{Type: "com.sluicio.integration.*", Description: "Integration lifecycle and config changes (created, updated, deleted, matchers, teams, profile)", Kind: "config"},
+	{Type: "com.sluicio.service.*", Description: "Service-level config changes (system flag, tags, teams, metadata)", Kind: "config"},
 	{Type: "com.sluicio.system.*", Description: "System entity changes", Kind: "config"},
 	{Type: "com.sluicio.alert_rule.*", Description: "Alert-rule config changes", Kind: "config"},
-	{Type: "com.sluicio.group.*", Description: "Group and membership changes (org-wide subscriptions only)", Kind: "config"},
+	{Type: "com.sluicio.group.*", Description: "Team and membership changes (org-wide subscriptions only)", Kind: "config"},
 	{Type: "com.sluicio.maintenance_window.*", Description: "Maintenance windows scheduled, updated, ended (org-wide subscriptions only)", Kind: "config"},
 	{Type: "com.sluicio.*", Description: "Everything — every event the cell emits", Kind: "config"},
 }
@@ -156,7 +156,7 @@ func (h *Handlers) createEventSubscription(w http.ResponseWriter, r *http.Reques
 			return
 		}
 		if _, err := h.Identity.GetGroup(r.Context(), middleware.OrgID(r), gid); err != nil {
-			httpserver.WriteError(w, http.StatusNotFound, "group not found")
+			httpserver.WriteError(w, http.StatusNotFound, "team not found")
 			return
 		}
 		groupID = &gid

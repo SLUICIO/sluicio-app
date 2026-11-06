@@ -229,8 +229,8 @@ export default function NotificationTemplateEditor({
       <h3 style={{ fontSize: 14, fontWeight: 600, margin: "0 0 4px" }}>Notification templates</h3>
       <p className="muted" style={{ fontSize: 13, lineHeight: 1.55, margin: "0 0 12px" }}>
         {scope === "org"
-          ? "The org's default look for alert emails and Slack messages. Teams can override any field on their group; a rule can override inline. Empty fields inherit the cell/built-in defaults."
-          : "This team's look for alert notifications on rules it owns. Empty fields inherit the org default (shown greyed). Liquid syntax; a saved template that fails to render falls back — it never blocks an alert."}
+          ? "The org's default look for alert emails and Slack messages. Teams can override any field in their team settings; a rule can override inline. Empty fields inherit the cell/built-in defaults."
+          : "This team's look for alert notifications on rules it owns. Empty fields inherit the org default (shown greyed). Liquid syntax; a saved template that fails to render falls back, so it never blocks an alert."}
       </p>
 
       {error && <div className="alert alert--error" style={{ marginBottom: 10 }}>{error}</div>}

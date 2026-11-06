@@ -977,7 +977,7 @@ function ChannelsCard({
 
           {groups.length === 0 ? (
             <p className="muted" style={{ fontSize: 12, margin: 0 }}>
-              No teams yet. Create one under <Link to="/settings?tab=groups">Settings → Groups</Link> to give it its own channels.
+              No teams yet. Create one under <Link to="/settings?tab=groups">Settings → Teams</Link> to give it its own channels.
             </p>
           ) : !team ? (
             <p className="muted" style={{ fontSize: 12, margin: 0 }}>Pick a team above to view and manage its notification channels.</p>

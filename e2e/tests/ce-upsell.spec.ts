@@ -38,7 +38,7 @@ test.describe("Enterprise features upsell in the Community edition", () => {
     }
   });
 
-  test("Group access policies", async ({ page }) => {
+  test("Team access policies", async ({ page }) => {
     const ee = await entitled(page, "rbac_advanced");
     // Self-sufficient: a fresh cell (release verification) has no groups,
     // so create one to open rather than clicking a row that may not exist.

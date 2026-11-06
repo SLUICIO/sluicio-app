@@ -1491,7 +1491,7 @@ export const api = {
   deleteClaimMapping: (id: string, mid: string) =>
     del(`/settings/auth-providers/${encodeURIComponent(id)}/mappings/${encodeURIComponent(mid)}`),
 
-  // ── Settings → Groups (access-control axis under org) ─────────────
+  // ── Settings → Teams (access-control axis under org) ─────────────
   listGroups: () => get<ListGroupsResponse>(`/settings/groups`),
   getGroup: (id: string) => get<Group>(`/settings/groups/${encodeURIComponent(id)}`),
   createGroup: (body: GroupInput) => post<Group>(`/settings/groups`, body),

@@ -80,7 +80,7 @@ const TABS: { key: TabKey; label: string; subtitle: string; enterprise?: boolean
   { key: "organization", label: "Organization", subtitle: "Org profile and announcements. Personal tokens and theme live under your Account." },
   { key: "members", label: "Members", subtitle: "People with access to this organization." },
   { key: "service-accounts", label: "Service accounts", subtitle: "Machine identities and their API tokens." },
-  { key: "groups", label: "Groups", subtitle: "Group membership drives scoped access and team dashboards." },
+  { key: "groups", label: "Teams", subtitle: "Team membership drives scoped access and team dashboards." },
   { key: "ingestion", label: "Ingestion", subtitle: "Ingest keys and ready-to-paste exporter configuration." },
   { key: "retention", label: "Retention", subtitle: "How long telemetry and audit history are kept, cell-wide." },
   { key: "reports", label: "Reports", subtitle: "What you store vs what you alert on — with trim suggestions." },
@@ -1008,7 +1008,7 @@ function ServiceAccountsTab() {
           <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12 }}>
             Visibility
             <select className="toolbar__select" value={scope} onChange={(e) => setScope(e.target.value)} title="What this account's tokens can read">
-              <option value="scoped">Scoped (via groups)</option>
+              <option value="scoped">Scoped (via teams)</option>
               <option value="org_wide">Org-wide read</option>
             </select>
           </label>
@@ -1026,14 +1026,14 @@ function ServiceAccountsTab() {
           )}
           {scope === "scoped" && role !== "admin" && (
             <div className="muted" style={{ flexBasis: "100%", fontSize: 12 }}>
-              A scoped account sees <strong>nothing</strong> until you add it to a group — its group memberships
+              A scoped account sees <strong>nothing</strong> until you add it to a team: its team memberships
               define exactly which services its tokens can read (open “Access” after creating).
             </div>
           )}
           {scope === "org_wide" && role !== "admin" && (
             <div style={{ flexBasis: "100%", fontSize: 12, color: "var(--warn)" }}>
-              ⚠ An <strong>org-wide</strong> account's tokens read every service, log, trace and message in the org
-              — hand one to an external tool or AI assistant and it sees everything. Prefer scoped + group
+              ⚠ An <strong>org-wide</strong> account's tokens read every service, log, trace and message in the org:
+              hand one to an external tool or AI assistant and it sees everything. Prefer scoped + team
               memberships.
             </div>
           )}
@@ -1058,7 +1058,7 @@ function ServiceAccountsTab() {
                     org-wide read
                   </span>
                 ) : (
-                  <span className="badge" title="Sees only what its group memberships grant">scoped</span>
+                  <span className="badge" title="Sees only what its team memberships grant">scoped</span>
                 )}
                 {sa.description && <span className="muted" style={{ fontSize: 12 }}>{sa.description}</span>}
                 {isAdmin && (
@@ -1260,14 +1260,14 @@ function ServiceAccountAccess({ sa, onChanged, onError }: { sa: ServiceAccount; 
         <label style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
           <input type="radio" name={`sa-scope-${sa.id}`} checked={sa.scope !== "org_wide"} disabled={busy} onChange={() => setScope("scoped")} />
           <span>
-            <strong>Scoped</strong> (recommended) — tokens see only what this account's group memberships grant,
-            exactly like a user. No groups → sees nothing.
+            <strong>Scoped</strong> (recommended): tokens see only what this account's team memberships grant,
+            exactly like a user. No teams → sees nothing.
           </span>
         </label>
         <label style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
           <input type="radio" name={`sa-scope-${sa.id}`} checked={sa.scope === "org_wide"} disabled={busy} onChange={() => setScope("org_wide")} />
           <span>
-            <strong style={{ color: "var(--warn)" }}>Org-wide read</strong> — tokens read every service in the org.
+            <strong style={{ color: "var(--warn)" }}>Org-wide read</strong>: tokens read every service in the org.
             For trusted platform automation only.
           </span>
         </label>
@@ -1275,7 +1275,7 @@ function ServiceAccountAccess({ sa, onChanged, onError }: { sa: ServiceAccount; 
 
       <div>
         <div style={{ fontWeight: 600, marginBottom: 4 }}>
-          Group memberships
+          Team memberships
           {sa.scope === "org_wide" && (
             <span className="muted" style={{ fontWeight: 400, marginLeft: 8 }}>
               (kept, but inactive while the account is org-wide)
@@ -1286,7 +1286,7 @@ function ServiceAccountAccess({ sa, onChanged, onError }: { sa: ServiceAccount; 
           <div className="muted">Loading…</div>
         ) : groups.length === 0 ? (
           <div className="muted">
-            No groups yet{sa.scope !== "org_wide" ? " — this account currently sees nothing" : ""}.
+            No teams yet{sa.scope !== "org_wide" ? ", so this account currently sees nothing" : ""}.
           </div>
         ) : (
           groups.map((g) => (
@@ -1319,12 +1319,12 @@ function ServiceAccountAccess({ sa, onChanged, onError }: { sa: ServiceAccount; 
         {addable.length > 0 && (
           <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6 }}>
             <select className="toolbar__select" value={addId} onChange={(e) => setAddId(e.target.value)}>
-              <option value="">Add to group…</option>
+              <option value="">Add to team…</option>
               {addable.map((g) => (
                 <option key={g.id} value={g.id}>{g.name}</option>
               ))}
             </select>
-            <select className="toolbar__select" value={addRole} onChange={(e) => setAddRole(e.target.value as AuthRole)} title="Role within the group">
+            <select className="toolbar__select" value={addRole} onChange={(e) => setAddRole(e.target.value as AuthRole)} title="Role within the team">
               <option value="viewer">viewer</option>
               <option value="editor">editor</option>
             </select>
@@ -1639,20 +1639,20 @@ function GroupsTab() {
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
         <div className="muted" style={{ fontSize: 13 }}>
-          Groups are how the org divides who-sees-what. Each group has
+          Teams are how the org divides who-sees-what. Each team has
           members + assigned services; non-admin users only see services
-          in groups they belong to. Org admins always see everything.
+          in teams they belong to. Org admins always see everything.
         </div>
         {isAdmin && (
           <button type="button" className="btn btn--primary" onClick={() => setCreating(true)}>
-            + New group
+            + New team
           </button>
         )}
       </div>
 
       {creating && (
         <EditDrawer
-          title="New group"
+          title="New team"
           width="narrow"
           onClose={() => setCreating(false)}
         >
@@ -1668,9 +1668,9 @@ function GroupsTab() {
 
       {groups.length === 0 ? (
         <div className="placeholder">
-          No groups yet.{" "}
+          No teams yet.{" "}
           {isAdmin
-            ? <>Click <b>+ New group</b> to create one.</>
+            ? <>Click <b>+ New team</b> to create one.</>
             : "Ask an org admin to create one and add you."}
         </div>
       ) : (
@@ -1690,7 +1690,7 @@ function GroupsTab() {
                 key={g.id}
                 onClick={() => setSelected(g)}
                 style={{ cursor: "pointer" }}
-                title="Group details"
+                title="Team details"
               >
                 <td className="font-medium">{g.name}</td>
                 <td className="mono">{g.slug}</td>
@@ -1748,7 +1748,7 @@ function GroupsTab() {
                   }
                 }}
               >
-                Delete group
+                Delete team
               </button>
             </div>
           )}
@@ -1827,7 +1827,7 @@ function CreateGroupForm({ onClose, onCreated }: { onClose: () => void; onCreate
           className="search__input"
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          placeholder="What this group owns / which team is behind it"
+          placeholder="What this team owns and who is behind it"
         />
       </label>
       {error && <div className="alert alert--error">{error}</div>}
@@ -1836,7 +1836,7 @@ function CreateGroupForm({ onClose, onCreated }: { onClose: () => void; onCreate
           Cancel
         </button>
         <button type="submit" className="btn btn--primary" disabled={busy || !name || !slug}>
-          {busy ? "Creating…" : "Create group"}
+          {busy ? "Creating…" : "Create team"}
         </button>
       </div>
     </form>
@@ -1953,7 +1953,7 @@ function GroupDetail({ group, isAdmin, onChanged, onGone }: { group: Group; isAd
                   <td className="mono">
                     {label}
                     {isSA && (
-                      <span className="badge" style={{ marginLeft: 8 }} title="Machine identity — this group defines what the service account can see">
+                      <span className="badge" style={{ marginLeft: 8 }} title="Machine identity: this team defines what the service account can see">
                         service account
                       </span>
                     )}
@@ -2074,7 +2074,7 @@ function PoliciesSection({
             Access policies <EnterpriseBadge />
           </div>
           <div className="muted" style={{ fontSize: 12 }}>
-            What data this group can see. Multiple policies OR together;
+            What data this team can see. Multiple policies OR together;
             an empty list means "no access" (strict default).
           </div>
         </div>
@@ -2088,9 +2088,9 @@ function PoliciesSection({
       {!rbacEntitled && (
         <UpgradeNotice title="Access policies are an Enterprise feature" expired={lic?.expired}>
           <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-            In the Community edition, grant visibility by attaching this group
-            to integrations or systems (Group access on their detail pages).
-            An Enterprise license unlocks fine-grained policies — per service,
+            In the Community edition, grant visibility by attaching this team
+            to integrations or systems (Team access on their detail pages).
+            An Enterprise license unlocks fine-grained policies: per service,
             per signal, attribute matches, and boolean expressions.
           </p>
         </UpgradeNotice>
@@ -2131,7 +2131,7 @@ function PoliciesSection({
 
       {policies && policies.length === 0 && !adding && (
         <div className="muted" style={{ fontSize: 12, padding: "8px 4px" }}>
-          No policies yet — this group has access to nothing.
+          No policies yet: this team has access to nothing.
         </div>
       )}
 
@@ -2886,7 +2886,7 @@ export function CreatePolicyForm({
               Leave off to grant the integration alone. The member services stay
               invisible as objects, and any OTHER integration they carry stays
               out of reach, which is the point on a runtime hosting several
-              flows. Turn it on when this group is also responsible for the
+              flows. Turn it on when this team is also responsible for the
               services themselves.
             </span>
           </span>
@@ -2997,8 +2997,8 @@ export function CreatePolicyForm({
           <span className="form__hint">
             Which telemetry this policy grants. All four = full visibility;
             narrowing to a subset means members see the services but only the
-            selected signals — and a signal-narrowed policy never grants
-            manage rights, even for group editors. Messages and traces are
+            selected signals, and a signal-narrowed policy never grants
+            manage rights, even for team editors. Messages and traces are
             the same flows at different depth: grant only Messages to give a
             business team the message list without the raw span data
             underneath.
@@ -3086,11 +3086,11 @@ function AddGroupMemberForm({
           <span className="form__hint">
             {isSA
               ? "A service account is a machine identity — membership here defines what its tokens can see."
-              : "Only org members not already in this group are listed."}
+              : "Only org members not already in this team are listed."}
           </span>
         </label>
         <label className="form__label">
-          Role in group
+          Role in team
           <select
             className="toolbar__select"
             value={role}
@@ -3108,7 +3108,7 @@ function AddGroupMemberForm({
           Cancel
         </button>
         <button type="submit" className="btn btn--primary" disabled={busy || !memberKey}>
-          {busy ? "Adding…" : "Add to group"}
+          {busy ? "Adding…" : "Add to team"}
         </button>
       </div>
     </form>
@@ -3783,8 +3783,8 @@ function SystemSettingsTab() {
           <span>
             Disallow org-wide service accounts
             <span className="form__hint" style={{ display: "block", fontSize: 12, fontWeight: 400 }}>
-              Compliance posture: every service account must be <strong>scoped</strong> —
-              its tokens see only what its group memberships grant, exactly like a
+              Compliance posture: every service account must be <strong>scoped</strong>,
+              so its tokens see only what its team memberships grant, exactly like a
               user. Creating or switching an account to org-wide read is rejected,
               and any existing org-wide account resolves as scoped while this is
               enabled. Admin-role accounts are unaffected (admin is admin).
@@ -4602,7 +4602,7 @@ function LicensePanel({ status }: { status: LicenseStatus | null }) {
   const { managed } = useCurrentUser();
   const features: { key: keyof LicenseStatus["features"]; label: string }[] = [
     { key: "sso", label: "Single sign-on (OIDC)" },
-    { key: "rbac_advanced", label: "Advanced RBAC (group access policies)" },
+    { key: "rbac_advanced", label: "Advanced RBAC (team access policies)" },
     { key: "audit_log", label: "Audit log" },
     { key: "retention_long", label: "Long retention" },
   ];

@@ -378,10 +378,10 @@ export default function IntegrationSettings() {
           <div className="border-b border-border px-4 py-3">
             <h2 className="text-base font-semibold">Notification profile</h2>
             <p className="text-xs text-muted mt-1">
-              The profile used for this integration's alerts and unacknowledged failures —
+              The profile used for this integration's alerts and unacknowledged failures:
               it decides the channels, grouping, and re-notify interval. Leave on “Inherit”
               to use the owning team's default, then the org-wide default. Manage profiles
-              per team in Settings → Groups and org-wide on the <Link to="/alerts">Alerts</Link> page.
+              per team in Settings → Teams and org-wide on the <Link to="/alerts">Alerts</Link> page.
             </p>
           </div>
           <div className="p-4">
