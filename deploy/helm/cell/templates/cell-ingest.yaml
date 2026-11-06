@@ -33,6 +33,8 @@ spec:
             # cell-ingest is where the storage limit is enforced.
             - name: SLUICIO_STORAGE_LIMIT_GB
               value: {{ .Values.limits.storageGB | quote }}
+            - name: SLUICIO_STORAGE_LIMIT_ACTION
+              value: {{ .Values.limits.storageAction | default "delete_oldest" | quote }}
             {{- end }}
             {{- with .Values.cellIngest.extraEnv }}
             {{- toYaml . | nindent 12 }}

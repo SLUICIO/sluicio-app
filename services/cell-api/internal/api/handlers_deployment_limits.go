@@ -66,7 +66,13 @@ type StorageStatus struct {
 	// sent then.
 	LimitBytes uint64 `json:"limit_bytes"`
 	UsedBytes  uint64 `json:"used_bytes,omitempty"`
-	// AtLimit is usage at or over the limit: telemetry is being refused.
+	// Action is what reaching the limit does: delete_oldest (the oldest
+	// day of telemetry is deleted to make room) or pause (new telemetry is
+	// refused).
+	Action imclickhouse.StorageAction `json:"action,omitempty"`
+	// AtLimit is usage at or over the limit. With pause, telemetry is
+	// being refused; with delete_oldest, it is refused only while there is
+	// no earlier day left to delete.
 	// It stays refused until usage falls below ResumesBelowBytes, which
 	// is a little under the limit so the instance does not flap at the
 	// edge; between the two it may still be refusing.
@@ -80,11 +86,12 @@ func (h *Handlers) storageStatus(ctx context.Context) (StorageStatus, error) {
 	}
 	u, err := h.storageUsage(ctx)
 	if err != nil {
-		return StorageStatus{LimitBytes: h.StorageLimit.Bytes}, err
+		return StorageStatus{LimitBytes: h.StorageLimit.Bytes, Action: h.StorageLimit.Action}, err
 	}
 	return StorageStatus{
 		LimitBytes:        h.StorageLimit.Bytes,
 		UsedBytes:         u.Bytes,
+		Action:            h.StorageLimit.Action,
 		AtLimit:           u.Bytes >= h.StorageLimit.Bytes,
 		ResumesBelowBytes: uint64(float64(h.StorageLimit.Bytes) * imclickhouse.ResumeFraction),
 	}, nil

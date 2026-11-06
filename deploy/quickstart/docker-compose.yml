@@ -82,6 +82,7 @@ services:
       SLUICIO_LICENSE_KEY: ${SLUICIO_LICENSE_KEY:-}
       # Limits on the instance; empty is no limit. See docs: storage limit.
       SLUICIO_STORAGE_LIMIT_GB: ${SLUICIO_STORAGE_LIMIT_GB:-}
+      SLUICIO_STORAGE_LIMIT_ACTION: ${SLUICIO_STORAGE_LIMIT_ACTION:-}
       SLUICIO_MONITORED_ENTITY_LIMIT: ${SLUICIO_MONITORED_ENTITY_LIMIT:-}
       SLUICIO_DEPLOYMENT_TOKEN: ${SLUICIO_DEPLOYMENT_TOKEN:-}
       SLUICIO_HEALTH_TOKEN: ${SLUICIO_HEALTH_TOKEN:-}
@@ -98,8 +99,11 @@ services:
       <<: *ch-env
       CELL_INGEST_ADDR: ":4318"
       POSTGRES_DSN: postgres://${POSTGRES_USER:-sluicio}:${POSTGRES_PASSWORD:-sluicio_dev}@postgres:5432/controlplane?sslmode=disable
-      # Enforced here: at the limit, telemetry is refused. Empty is none.
+      # Enforced here: at the limit the oldest day of telemetry is deleted,
+      # or with SLUICIO_STORAGE_LIMIT_ACTION=pause new telemetry is refused.
+      # Empty is no limit.
       SLUICIO_STORAGE_LIMIT_GB: ${SLUICIO_STORAGE_LIMIT_GB:-}
+      SLUICIO_STORAGE_LIMIT_ACTION: ${SLUICIO_STORAGE_LIMIT_ACTION:-}
     ports:
       - "${CELL_INGEST_PORT:-4318}:4318"   # OTLP/HTTP — point your OTel Collector here
 

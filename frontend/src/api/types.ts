@@ -3337,7 +3337,10 @@ export interface LimitsStatus {
   storage?: {
     limit_bytes: number;
     used_bytes?: number;
-    /** Telemetry is being refused. */
+    /** What a full instance does: delete its oldest day of telemetry to
+     *  make room (the default), or pause, refusing new telemetry. */
+    action?: "delete_oldest" | "pause";
+    /** Usage is at the limit. With pause, telemetry is being refused. */
     at_limit?: boolean;
     resumes_below_bytes?: number;
   };

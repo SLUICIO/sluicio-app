@@ -31,3 +31,29 @@ func TestStorageLimitStopsAtTheLimitAndResumesBelowIt(t *testing.T) {
 		t.Error("zero or negative GB must mean no limit")
 	}
 }
+
+func TestTheStorageLimitDeletesTheOldestUnlessToldToPause(t *testing.T) {
+	for _, c := range []struct {
+		action string
+		want   StorageAction
+		bad    bool
+	}{
+		{"", StorageDeleteOldest, false},
+		{"delete_oldest", StorageDeleteOldest, false},
+		{" Pause ", StoragePause, false},
+		{"pasue", "", true},
+	} {
+		t.Setenv(StorageLimitEnv, "50")
+		t.Setenv(StorageActionEnv, c.action)
+		l, err := StorageLimitFromEnv()
+		if c.bad {
+			if err == nil {
+				t.Errorf("%q: a mistyped action was accepted", c.action)
+			}
+			continue
+		}
+		if err != nil || l.Action != c.want {
+			t.Errorf("%q: got %q, %v; want %q", c.action, l.Action, err, c.want)
+		}
+	}
+}

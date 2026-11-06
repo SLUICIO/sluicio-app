@@ -50,7 +50,24 @@ export function DeploymentLimitsBanner() {
   const used = st?.used_bytes ?? 0;
   const banners: { tone: "error" | "warn"; text: React.ReactNode }[] = [];
 
-  if (st && st.at_limit) {
+  const pauses = st?.action === "pause";
+  if (st && st.at_limit && !pauses) {
+    // Deleting the oldest day makes room within a minute, so this is
+    // for admins only; telemetry keeps arriving unless today's data alone
+    // fills the limit.
+    if (isAdmin) {
+      banners.push({
+        tone: "warn",
+        text: (
+          <>
+            <strong>Storage limit reached.</strong> This instance holds {formatGB(used)} of its{" "}
+            {formatGB(st.limit_bytes)}, so the oldest telemetry is being deleted to make room. If today&rsquo;s
+            data alone fills the limit, new telemetry is refused until tomorrow or until the limit is raised.
+          </>
+        ),
+      });
+    }
+  } else if (st && st.at_limit) {
     banners.push({
       tone: "error",
       text: (
@@ -68,7 +85,10 @@ export function DeploymentLimitsBanner() {
       text: (
         <>
           <strong>Storage at {Math.round((used / st.limit_bytes) * 100)}%.</strong> {formatGB(used)} of{" "}
-          {formatGB(st.limit_bytes)}. When it is full, new telemetry is refused until older data ages out.
+          {formatGB(st.limit_bytes)}.{" "}
+          {pauses
+            ? "When it is full, new telemetry is refused until older data ages out."
+            : "When it is full, the oldest telemetry is deleted to make room."}
         </>
       ),
     });

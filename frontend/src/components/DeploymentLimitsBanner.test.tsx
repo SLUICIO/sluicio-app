@@ -10,11 +10,25 @@ vi.mock("../api/client", () => ({ api: { getLimits: () => Promise.resolve(state.
 const { DeploymentLimitsBanner } = await import("./DeploymentLimitsBanner");
 
 describe("the deployment limits banner", () => {
-  it("tells everyone when telemetry is being refused", async () => {
+  it("tells everyone when a pausing instance refuses telemetry", async () => {
     state.admin = false;
-    state.limits = { storage: { limit_bytes: 50e9, used_bytes: 50.2e9, at_limit: true } };
+    state.limits = { storage: { limit_bytes: 50e9, used_bytes: 50.2e9, at_limit: true, action: "pause" } };
     render(<DeploymentLimitsBanner />);
     expect((await screen.findByRole("alert")).textContent).toMatch(/Storage limit reached.*50 GB of its 50 GB.*refused/);
+  });
+
+  it("tells admins that a full instance is deleting its oldest telemetry", async () => {
+    state.limits = { storage: { limit_bytes: 50e9, used_bytes: 50.2e9, at_limit: true, action: "delete_oldest" } };
+    state.admin = true;
+    const { unmount } = render(<DeploymentLimitsBanner />);
+    expect((await screen.findByRole("status")).textContent).toMatch(/oldest telemetry is being deleted/);
+    unmount();
+    // Telemetry keeps arriving, so nobody else needs to be told.
+    state.admin = false;
+    render(<DeploymentLimitsBanner />);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("warns admins, and only admins, from 80%", async () => {

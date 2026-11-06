@@ -91,9 +91,12 @@ orgManagement:
 
 # Limits on the instance. 0 is no limit.
 limits:
-  # Telemetry on disk, in decimal GB. At the limit new telemetry is refused
-  # (OTLP 429 with Retry-After) until retention brings usage back under it.
+  # Telemetry on disk, in decimal GB. At the limit the oldest day of
+  # telemetry is deleted to make room (storageAction: delete_oldest), or
+  # new telemetry is refused (OTLP 429 with Retry-After) until retention
+  # brings usage back under it (storageAction: pause).
   storageGB: 0
+  storageAction: delete_oldest
   # Integrations and systems combined. At the limit no new one can be
   # created; nothing existing is removed if it is lowered.
   monitoredEntities: 0

@@ -94,7 +94,7 @@ func main() {
 	}
 	storage := ingest.NewStorageGate(conn, storageLimit, logger)
 	if storageLimit.Bytes > 0 {
-		logger.Info("storage limit set", "limit_bytes", storageLimit.Bytes)
+		logger.Info("storage limit set", "limit_bytes", storageLimit.Bytes, "action", storageLimit.Action)
 		go storage.Run(ctx, time.Minute)
 	}
 

@@ -83,6 +83,8 @@ spec:
             {{- if .Values.limits.storageGB }}
             - name: SLUICIO_STORAGE_LIMIT_GB
               value: {{ .Values.limits.storageGB | quote }}
+            - name: SLUICIO_STORAGE_LIMIT_ACTION
+              value: {{ .Values.limits.storageAction | default "delete_oldest" | quote }}
             {{- end }}
             {{- if .Values.limits.monitoredEntities }}
             - name: SLUICIO_MONITORED_ENTITY_LIMIT
