@@ -4,6 +4,7 @@
 // the app build uses. It remains a valid vite config for `vite build`.
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
+import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 import license from "rollup-plugin-license";
@@ -19,10 +20,13 @@ const appVersion = process.env.APP_VERSION || pkg.version;
 
 // Licences a component bundled into the app may carry (issue #41): the
 // same allowlist as the server components (scripts/thirdparty), plus
-// Python-2.0 (argparse, permissive).
+// Python-2.0 (argparse, permissive) and OFL-1.1, the SIL Open Font
+// Licence of the bundled fonts (Inter, JetBrains Mono), which allows
+// shipping them with software as long as the licence travels along.
 const ALLOWED_LICENSES = new Set([
   "MIT", "MIT-0", "ISC", "0BSD", "Zlib", "BSD-2-Clause", "BSD-3-Clause",
   "Apache-2.0", "MPL-2.0", "Unlicense", "CC0-1.0", "Python-2.0", "BlueOak-1.0.0",
+  "OFL-1.1",
 ]);
 
 // An SPDX expression is allowed when one of its OR alternatives is made
@@ -36,6 +40,30 @@ function licenseAllowed(expr: string | null): boolean {
 }
 
 type Dep = { name: string | null; version: string | null; license: string | null; licenseText: string | null; noticeText: string | null };
+
+// Packages the bundle takes only CSS and font files from. The plugin
+// follows JavaScript modules and never sees them, yet their files ship in
+// the bundle, so they are listed by hand and checked like the rest.
+const CSS_ONLY_DEPS = ["@fontsource/inter", "@fontsource/jetbrains-mono"];
+
+function cssOnlyDeps(): Dep[] {
+  const req = createRequire(import.meta.url);
+  return CSS_ONLY_DEPS.map((name) => {
+    const dir = path.dirname(req.resolve(`${name}/package.json`));
+    const meta = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8")) as { version: string; license: string };
+    if (!licenseAllowed(meta.license)) {
+      throw new Error(`${name}: licence ${meta.license} is not on the allowlist`);
+    }
+    const licenseFile = path.join(dir, "LICENSE");
+    return {
+      name,
+      version: meta.version,
+      license: meta.license,
+      licenseText: fs.existsSync(licenseFile) ? fs.readFileSync(licenseFile, "utf8") : null,
+      noticeText: null,
+    };
+  });
+}
 
 // The bundle's third-party components, written next to it as
 // third-party.json in the same shape as the server components' list, so
@@ -53,7 +81,7 @@ const thirdParty = license({
     output: {
       file: path.resolve(__dirname, "dist/third-party.json"),
       template(deps: Dep[]) {
-        const components = deps
+        const components = [...deps, ...cssOnlyDeps()]
           .map((d) => ({
             name: d.name ?? "",
             version: d.version ?? "",
