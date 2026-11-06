@@ -3,8 +3,14 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.193 — 2026-11-06
+
+- feat(ui): call groups teams everywhere (defb907)
+- feat(messages): private and team saved views, and viewers may save their own (1a557fc)
+
 ## v0.11.192 — 2026-11-03
 
+- release v0.11.192 - refresh internal changelog (39c41e5)
 - feat(nav): take Schemas and Maps out of the navigation for now (17ec153)
 
 ## v0.11.191 — 2026-11-03
