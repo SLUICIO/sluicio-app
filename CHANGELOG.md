@@ -3,8 +3,18 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.195 — 2026-11-06
+
+- fix(auth): mark the session cookie Secure over HTTPS (7f97e9a)
+- fix(frontend): bundle the fonts instead of loading them from Google (976cf83)
+- chore(helm): give limits.planURL an explicit empty default (594301f)
+- feat(limits): point to a bigger plan at the integrations and systems limit (c909fbc)
+- fix(retention): apply the licence's retention cap to what is stored (cc2ea60)
+- feat(storage): a full instance deletes its oldest telemetry by default (e9256c5)
+
 ## v0.11.194 — 2026-11-06
 
+- release v0.11.194 - refresh internal changelog (8125d95)
 - fix(deps): bump brotli to v1.2.7 and klauspost/compress to v1.20.2 (df90b5b)
 
 ## v0.11.193 — 2026-11-06
