@@ -749,6 +749,7 @@ func main() {
 
 	retentionEnforcer := retention.New(settingsStore, chConn, logger, time.Hour)
 	retentionEnforcer.Audit = auditRecorder
+	retentionEnforcer.MaxDays = handlers.LicenceRetentionCap
 	handlers.RetentionEnforcer = retentionEnforcer
 	go retentionEnforcer.Run(ctx)
 	logger.Info("retention enforcer started")

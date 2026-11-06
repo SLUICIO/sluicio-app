@@ -49,6 +49,14 @@ type Enforcer struct {
 	logger   *slog.Logger
 	interval time.Duration
 
+	// MaxDays, when wired, is the longest retention the licence allows
+	// (its max_retention_days, 0 for no cap). A stored setting above it is
+	// applied at the cap: the plan, a trial's seven days included, decides
+	// how long telemetry is kept, whatever was stored before the licence
+	// changed. Re-read every cycle, so a new licence takes effect within
+	// the hour without anyone saving the setting again.
+	MaxDays func() int
+
 	// Audit, when wired (Enterprise builds), lets the same loop prune
 	// audit_log rows past the configured audit retention. Postgres
 	// DELETE, not a CH TTL — the audit store owns the chain-safe
@@ -112,8 +120,12 @@ func (e *Enforcer) applyAll(ctx context.Context, recordApplied bool) error {
 		return fmt.Errorf("retention: load policy: %w", err)
 	}
 	var firstErr error
+	maxDays := 0
+	if e.MaxDays != nil {
+		maxDays = e.MaxDays()
+	}
 	for _, t := range settings.AllTelemetryTypes {
-		days := daysFor(policy, t)
+		days := Capped(daysFor(policy, t), maxDays)
 		if err := e.applyOne(ctx, t, days, recordApplied); err != nil {
 			e.logger.Warn("retention apply per-type failed", "type", t, "days", days, "err", err)
 			if firstErr == nil {
@@ -149,6 +161,15 @@ func (e *Enforcer) pruneAudit(ctx context.Context) error {
 		e.logger.Info("audit retention pruned", "rows", n, "older_than_days", days)
 	}
 	return nil
+}
+
+// Capped is the retention actually applied: days, unless a licence cap
+// (maxDays > 0) is lower.
+func Capped(days, maxDays int) int {
+	if maxDays > 0 && days > maxDays {
+		return maxDays
+	}
+	return days
 }
 
 // daysFor maps the policy struct into a per-type day count.

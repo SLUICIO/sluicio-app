@@ -17,6 +17,7 @@ import (
 	"github.com/sluicio/sluicio-app/pkg/license"
 	"github.com/sluicio/sluicio-app/pkg/mail"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/api/middleware"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/retention"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/settings"
 )
 
@@ -25,6 +26,16 @@ import (
 // server's hard RetentionMaxDays (or the license's own max_retention_days, if
 // lower).
 const freeRetentionCapDays = 14
+
+// LicenceRetentionCap is the licence's max_retention_days, or 0 when there
+// is no licence or it sets no cap. The retention enforcer applies stored
+// settings up to it, and the settings response shows them that way.
+func (h *Handlers) LicenceRetentionCap() int {
+	if h.License == nil {
+		return 0
+	}
+	return h.License.Limits().MaxRetentionDays
+}
 
 // effectiveRetentionMaxDays returns the retention ceiling that applies right
 // now, and whether long retention is unlocked. Without the entitlement the
@@ -142,8 +153,8 @@ func (h *Handlers) getRetention(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	maxDays, longUnlocked := h.effectiveRetentionMaxDays()
-	// On a managed instance retention is the deployment's: the licence sets
-	// it, up to its limits, and the core defaults apply when there is no
+	// On a managed instance retention is the deployment's: the licence caps
+	// it (LicenceRetentionCap), and the core defaults apply when there is no
 	// licence (or it has expired). Nobody signed in can change it, so the
 	// response says so and the UI renders it read-only.
 	managedRetention := h.Managed
@@ -154,9 +165,11 @@ func (h *Handlers) getRetention(w http.ResponseWriter, r *http.Request) {
 	}
 	auditMax, auditUnlocked := h.effectiveAuditRetentionMaxDays()
 	httpserver.WriteJSON(w, http.StatusOK, retentionResponse{
-		Traces:            toEntry(pol.Traces.Days, pol.LastAppliedAt[settings.TelemetryTraces], pol.LastEnforcedAt[settings.TelemetryTraces]),
-		Logs:              toEntry(pol.Logs.Days, pol.LastAppliedAt[settings.TelemetryLogs], pol.LastEnforcedAt[settings.TelemetryLogs]),
-		Metrics:           toEntry(pol.Metrics.Days, pol.LastAppliedAt[settings.TelemetryMetrics], pol.LastEnforcedAt[settings.TelemetryMetrics]),
+		// The days in force, which the licence may hold below what is
+		// stored (see LicenceRetentionCap).
+		Traces:            toEntry(retention.Capped(pol.Traces.Days, h.LicenceRetentionCap()), pol.LastAppliedAt[settings.TelemetryTraces], pol.LastEnforcedAt[settings.TelemetryTraces]),
+		Logs:              toEntry(retention.Capped(pol.Logs.Days, h.LicenceRetentionCap()), pol.LastAppliedAt[settings.TelemetryLogs], pol.LastEnforcedAt[settings.TelemetryLogs]),
+		Metrics:           toEntry(retention.Capped(pol.Metrics.Days, h.LicenceRetentionCap()), pol.LastAppliedAt[settings.TelemetryMetrics], pol.LastEnforcedAt[settings.TelemetryMetrics]),
 		MinDays:           settings.RetentionMinDays,
 		MaxDays:           maxDays,
 		LongRetention:     longUnlocked,
