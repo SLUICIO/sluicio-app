@@ -6,22 +6,35 @@
 // scoped, the dialog shows a "🔒 scope" line so the user knows the
 // view will be pinned to that entity.
 //
-// The dialog is pure-presentational: it collects the user's input and
-// invokes onSubmit with the values; the caller is responsible for
-// turning that into a server call.
+// The dialog collects the user's input and invokes onSubmit with the
+// values; the caller turns that into a server call. It reads the
+// caller's roles only to offer the visibilities the server will accept:
+// anyone may save a private view, a team view needs an editor role in
+// that team and an org-wide view an org editor, as for dashboards.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Filter } from "./FilterEditor";
 import type { SavedViewScope } from "./types";
+import type { MessageViewVisibility } from "../../api/types";
+import { useAccess } from "../../lib/useAccess";
+import { useCurrentUser } from "../../lib/useCurrentUser";
 
-export type SaveAsViewVisibility = "private" | "team" | "org";
+export type SaveAsViewVisibility = MessageViewVisibility;
 
 export interface SaveAsViewValues {
   name: string;
   description: string;
   visibility: SaveAsViewVisibility;
+  /** The team, when visibility is "team". */
+  groupId?: string;
   pinned: boolean;
 }
+
+const VISIBILITY_LABEL: Record<SaveAsViewVisibility, string> = {
+  private: "Private",
+  team: "Team",
+  org: "Org-wide",
+};
 
 interface Props {
   open: boolean;
@@ -61,7 +74,16 @@ export default function SaveAsViewDialog({
   const [name, setName] = useState(autoName);
   const [description, setDescription] = useState("");
   const [visibility, setVisibility] = useState<SaveAsViewVisibility>("private");
+  const [groupId, setGroupId] = useState("");
   const [pinned, setPinned] = useState(false);
+  const { editorGroups } = useAccess();
+  const { can } = useCurrentUser();
+  const allowed: Record<SaveAsViewVisibility, boolean> = {
+    private: true,
+    team: editorGroups.length > 0,
+    org: can("integration.write"),
+  };
+  const team = editorGroups.find((g) => g.id === groupId);
   const [submitting, setSubmitting] = useState(false);
 
   const nameRef = useRef<HTMLInputElement>(null);
@@ -73,6 +95,7 @@ export default function SaveAsViewDialog({
       setName(autoName);
       setDescription("");
       setVisibility("private");
+      setGroupId("");
       setPinned(false);
       setSubmitting(false);
       // Defer the focus until the dialog has mounted.
@@ -104,6 +127,7 @@ export default function SaveAsViewDialog({
         name: trimmed,
         description: description.trim(),
         visibility,
+        groupId: visibility === "team" ? groupId : undefined,
         pinned,
       });
     } finally {
@@ -191,8 +215,19 @@ export default function SaveAsViewDialog({
                   <button
                     key={v}
                     type="button"
-                    onClick={() => setVisibility(v)}
-                    className="flex-1 rounded-md border px-2 py-1.5 text-sm capitalize transition-colors"
+                    onClick={() => {
+                      setVisibility(v);
+                      if (v === "team" && !groupId) setGroupId(editorGroups[0]?.id ?? "");
+                    }}
+                    disabled={!allowed[v]}
+                    title={
+                      allowed[v]
+                        ? undefined
+                        : v === "team"
+                          ? "Needs an editor role in a team"
+                          : "Needs an org-wide editor role"
+                    }
+                    className="flex-1 rounded-md border px-2 py-1.5 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                     style={{
                       borderColor: selected
                         ? "color-mix(in oklab, var(--primary) 35%, transparent)"
@@ -205,21 +240,36 @@ export default function SaveAsViewDialog({
                     }}
                     aria-pressed={selected}
                   >
-                    {v === "private"
-                      ? "private"
-                      : v === "team"
-                        ? "team"
-                        : "org-wide"}
+                    {VISIBILITY_LABEL[v]}
                   </button>
                 );
               })}
             </div>
+            {visibility === "team" && (
+              <select
+                aria-label="Team"
+                value={groupId}
+                onChange={(e) => setGroupId(e.target.value)}
+                className="mt-2 w-full rounded border px-2 py-1.5 text-sm"
+                style={{
+                  borderColor: "var(--border)",
+                  background: "var(--surface-3)",
+                  color: "var(--ink)",
+                }}
+              >
+                {editorGroups.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.name}
+                  </option>
+                ))}
+              </select>
+            )}
             <p className="mt-1 text-xs text-muted">
               {visibility === "private"
                 ? "Only you can see this view."
                 : visibility === "team"
-                  ? "Your team can see and load this view."
-                  : "Everyone in the org can see this view."}
+                  ? `Members of ${team?.name ?? "the team"} can see and load this view.`
+                  : "Everyone in the organization can see this view."}
             </p>
           </fieldset>
 
@@ -289,8 +339,8 @@ export default function SaveAsViewDialog({
                 This view will be pinned to{" "}
                 <span className="font-semibold" style={{ color: "var(--ink)" }}>
                   {scope.integrationName}
-                </span>{" "}
-                — it will appear here and in the global search rail with an "in{" "}
+                </span>
+                . It appears here and in the global search rail with an "in{" "}
                 {scope.integrationName}" badge.
               </p>
             )}
@@ -313,7 +363,7 @@ export default function SaveAsViewDialog({
             type="button"
             className="btn btn--primary"
             onClick={handleSubmit}
-            disabled={submitting || !name.trim()}
+            disabled={submitting || !name.trim() || (visibility === "team" && !groupId)}
           >
             {submitting ? "saving…" : "💾 save view"}
           </button>

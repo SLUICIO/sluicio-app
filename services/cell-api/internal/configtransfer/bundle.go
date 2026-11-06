@@ -253,9 +253,10 @@ type ServiceSchema struct {
 }
 
 type MessageView struct {
-	Name             string          `json:"name"` // shared views only
+	Name             string          `json:"name"` // team and org-wide views; private ones stay
 	Description      string          `json:"description,omitempty"`
 	Pinned           bool            `json:"pinned"`
+	Group            *string         `json:"group,omitempty"` // slug of a team view's team
 	Filters          json.RawMessage `json:"filters,omitempty"`
 	ScopeIntegration *string         `json:"scope_integration,omitempty"` // slug
 	ScopeServiceID   *string         `json:"scope_service_id,omitempty"`

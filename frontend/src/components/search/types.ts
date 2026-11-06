@@ -3,7 +3,7 @@
 // Shared types for the Message search page.
 
 import type { Filter } from "./FilterEditor";
-import type { MessageColumn } from "../../api/types";
+import type { MessageColumn, MessageViewVisibility } from "../../api/types";
 
 // SavedViewScope pins a view to a specific entity (an integration, a
 // service, …). The same view appears on that entity's Messages tab
@@ -22,10 +22,16 @@ export interface SavedViewScope {
 export interface SavedView {
   id: string;
   name: string;
+  description?: string;
   filters: Filter[];
   mine: boolean;
   pinned: boolean;
-  sharedWith?: string[];
+  visibility: MessageViewVisibility;
+  /** The team of a team view, and its name. */
+  groupId?: string;
+  groupName?: string;
+  /** Whether you may change or delete it. A draft is yours, so true. */
+  canManage: boolean;
   resultCount?: number;
   lastEditedAt?: string;
   /** The view's own column set for the Messages table. Absent means it

@@ -30,15 +30,16 @@ func NewStore(pool *pgxpool.Pool) *Store {
 // listColumns is the SELECT list used by List/Get/Create/Update. Kept
 // in one place so a new column gets picked up consistently.
 const listColumns = `id, organization_id, owner_user_id, name,
-	COALESCE(description, ''), pinned, shared,
+	COALESCE(description, ''), pinned, shared, group_id,
+	COALESCE((SELECT g.name FROM groups g WHERE g.id = group_id), ''),
 	filters, scope_integration_id, scope_service_id,
 	last_result_count, message_columns,
 	last_edited_at, created_at, updated_at`
 
-// List returns every view visible to the given org. With ownerUserID
-// set, the returned views' Mine flag is populated for that user; an
-// empty ownerUserID leaves Mine as false (good enough for the
-// pre-auth phase).
+// List returns every view in the given org, private and team views
+// included: who may see which is the API layer's decision, as it is for
+// dashboards. With ownerUserID set, the returned views' Mine flag is
+// populated for that user.
 //
 // Order: pinned first, then most recently edited.
 func (s *Store) List(ctx context.Context, orgID uuid.UUID, ownerUserID *uuid.UUID) ([]View, error) {
@@ -99,13 +100,13 @@ func (s *Store) Create(ctx context.Context, orgID uuid.UUID, ownerUserID *uuid.U
 	q := `
 		INSERT INTO message_views
 			(organization_id, owner_user_id, name, description,
-			 pinned, shared, filters,
+			 pinned, shared, group_id, filters,
 			 scope_integration_id, scope_service_id, message_columns)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		RETURNING ` + listColumns
 	row := s.pool.QueryRow(ctx, q,
 		orgID, ownerUserID, req.Name, nilIfEmpty(req.Description),
-		req.Pinned, req.Shared, bytes,
+		req.Pinned, req.Visibility != VisibilityPrivate, req.GroupID, bytes,
 		uuidOrNil(req.Scope.IntegrationID), nilIfEmpty(req.Scope.ServiceID),
 		rawOrNil(req.MessageColumns),
 	)
@@ -117,7 +118,9 @@ func (s *Store) Create(ctx context.Context, orgID uuid.UUID, ownerUserID *uuid.U
 }
 
 // Update replaces every mutable field of the view in one statement and
-// bumps last_edited_at. Partial updates are not supported in v1.
+// bumps last_edited_at. Partial updates are not supported in v1. Who
+// sees the view (shared, group_id) is fixed at create, like a
+// dashboard's team, so it is not among the fields replaced.
 func (s *Store) Update(ctx context.Context, orgID, id uuid.UUID, ownerUserID *uuid.UUID, req UpdateRequest) (View, error) {
 	if err := ValidateAll(req.Filters); err != nil {
 		return View{}, err
@@ -133,15 +136,15 @@ func (s *Store) Update(ctx context.Context, orgID, id uuid.UUID, ownerUserID *uu
 	q := `
 		UPDATE message_views
 		SET name = $3, description = $4,
-		    pinned = $5, shared = $6, filters = $7,
-		    scope_integration_id = $8, scope_service_id = $9,
-		    message_columns = $10,
+		    pinned = $5, filters = $6,
+		    scope_integration_id = $7, scope_service_id = $8,
+		    message_columns = $9,
 		    last_edited_at = now(), updated_at = now()
 		WHERE organization_id = $1 AND id = $2
 		RETURNING ` + listColumns
 	row := s.pool.QueryRow(ctx, q,
 		orgID, id, req.Name, nilIfEmpty(req.Description),
-		req.Pinned, req.Shared, bytes,
+		req.Pinned, bytes,
 		uuidOrNil(req.Scope.IntegrationID), nilIfEmpty(req.Scope.ServiceID),
 		rawOrNil(req.MessageColumns),
 	)
@@ -206,7 +209,7 @@ func scanView(s scanner, callerID *uuid.UUID) (View, error) {
 	)
 	if err := s.Scan(
 		&v.ID, &v.OrganizationID, &ownerNullable, &v.Name,
-		&v.Description, &v.Pinned, &v.Shared,
+		&v.Description, &v.Pinned, &v.Shared, &v.GroupID, &v.GroupName,
 		&filtersBytes, &scopeIntegrate, &scopeService,
 		&resultCount, &columnsBytes,
 		&lastEdited, &createdAt, &updatedAt,
@@ -239,9 +242,15 @@ func scanView(s scanner, callerID *uuid.UUID) (View, error) {
 	if v.Filters == nil {
 		v.Filters = []Filter{}
 	}
+	v.Visibility = VisibilityOrg
+	switch {
+	case !v.Shared:
+		v.Visibility = VisibilityPrivate
+	case v.GroupID != nil:
+		v.Visibility = VisibilityTeam
+	}
 	// "Mine" is computed per request: a view belongs to the caller
-	// when the owner_user_id column matches. Until auth lands and the
-	// caller has an identity, this stays false everywhere.
+	// when the owner_user_id column matches.
 	if callerID != nil && ownerNullable != nil && *ownerNullable == *callerID {
 		v.Mine = true
 	}

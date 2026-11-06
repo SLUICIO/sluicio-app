@@ -21,7 +21,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/client";
 import TraceDrawer from "../components/TraceDrawer";
 import FilterEditor, { type Filter } from "../components/search/FilterEditor";
-import SaveAsViewDialog from "../components/search/SaveAsViewDialog";
+import SaveAsViewDialog, { type SaveAsViewValues } from "../components/search/SaveAsViewDialog";
+import { visibilityLabel } from "../components/search/viewVisibility";
 import SavedViewsRail from "../components/search/SavedViewsRail";
 import SharePermalinkButton from "../components/search/SharePermalinkButton";
 import type { SavedView } from "../components/search/types";
@@ -34,6 +35,7 @@ import type {
   MessageFilter,
   MessageView,
   TraceSearchResult,
+  UpdateMessageViewRequest,
 } from "../api/types";
 import { formatDateTime, formatDurationMs, formatRelative } from "../lib/format";
 import { hydrateFiltersFromUrl } from "../lib/messageFilterUrl";
@@ -56,11 +58,16 @@ function viewFromWire(v: MessageView): SavedView {
   return {
     id: v.id,
     name: v.name,
+    description: v.description,
     mine: v.mine,
     pinned: v.pinned,
-    sharedWith: v.shared ? ["team"] : undefined,
+    visibility: v.visibility,
+    groupId: v.groupId,
+    groupName: v.groupName,
+    canManage: v.canManage,
     resultCount: v.resultCount,
     lastEditedAt: v.lastEditedAt,
+    messageColumns: v.messageColumns,
     scope:
       v.scope?.integrationId || v.scope?.serviceId
         ? { integrationId: v.scope.integrationId, serviceId: v.scope.serviceId }
@@ -80,6 +87,21 @@ function viewFromWire(v: MessageView): SavedView {
         includeDescendants: f.includeDescendants,
         optional: f.optional,
       })),
+  };
+}
+
+// updateBody is a view's full replacement with new filters and name.
+// The update replaces every field, so the ones this page does not edit
+// (description, scope, columns) are sent back as they are, or saving a
+// scoped view here would unpin it.
+function updateBody(v: SavedView, name: string, filters: Filter[]): UpdateMessageViewRequest {
+  return {
+    name,
+    description: v.description,
+    pinned: v.pinned,
+    filters: filtersToWire(filters),
+    scope: v.scope ? { integrationId: v.scope.integrationId, serviceId: v.scope.serviceId } : undefined,
+    messageColumns: v.messageColumns,
   };
 }
 
@@ -108,6 +130,8 @@ function blankView(): SavedView {
     name: "untitled view",
     mine: true,
     pinned: false,
+    visibility: "private",
+    canManage: true,
     filters: [],
   };
 }
@@ -408,19 +432,17 @@ export default function Search() {
         const created = await api.createMessageView({
           name: activeView.name,
           pinned: activeView.pinned,
-          shared: activeView.sharedWith ? true : false,
+          visibility: "private",
           filters: filtersToWire(draftFilters),
         });
         const v = viewFromWire(created);
         setViews(views.map((x) => (x.id === activeView.id ? v : x)));
         setActiveId(v.id);
       } else {
-        const updated = await api.updateMessageView(activeView.id, {
-          name: activeView.name,
-          pinned: activeView.pinned,
-          shared: activeView.sharedWith ? true : false,
-          filters: filtersToWire(draftFilters),
-        });
+        const updated = await api.updateMessageView(
+          activeView.id,
+          updateBody(activeView, activeView.name, draftFilters),
+        );
         const v = viewFromWire(updated);
         setViews(views.map((x) => (x.id === v.id ? v : x)));
       }
@@ -431,19 +453,15 @@ export default function Search() {
     }
   };
 
-  const onSaveAsNewSubmit = async (values: {
-    name: string;
-    description: string;
-    visibility: "private" | "team" | "org";
-    pinned: boolean;
-  }) => {
+  const onSaveAsNewSubmit = async (values: SaveAsViewValues) => {
     setSaving(true);
     try {
       const created = await api.createMessageView({
         name: values.name,
         description: values.description || undefined,
         pinned: values.pinned,
-        shared: values.visibility !== "private",
+        visibility: values.visibility,
+        groupId: values.groupId,
         filters: filtersToWire(draftFilters),
         // Global Search page → unscoped view. Scoped views are
         // created from the IntegrationMessages page where the locked
@@ -471,12 +489,7 @@ export default function Search() {
     setViews(views.map((v) => (v.id === activeView.id ? renamed : v)));
     if (!isDraft(activeView)) {
       try {
-        await api.updateMessageView(activeView.id, {
-          name,
-          pinned: activeView.pinned,
-          shared: activeView.sharedWith ? true : false,
-          filters: filtersToWire(activeView.filters),
-        });
+        await api.updateMessageView(activeView.id, updateBody(activeView, name, activeView.filters));
       } catch (e) {
         setError(`Rename failed: ${String((e as Error).message ?? e)}`);
       }
@@ -517,7 +530,7 @@ export default function Search() {
               {activeView?.name ?? "—"}
             </h1>
             <p className="mt-0.5 text-xs text-muted">
-              {activeView ? (activeView.mine ? "yours" : "shared") : ""}
+              {activeView ? visibilityLabel(activeView) : ""}
               {activeView?.lastEditedAt
                 ? ` · edited ${formatRelative(activeView.lastEditedAt)}`
                 : activeView
@@ -536,7 +549,7 @@ export default function Search() {
               type="button"
               className="btn"
               onClick={onRename}
-              disabled={!activeView}
+              disabled={!activeView?.canManage}
             >
               ✎ rename
             </button>
@@ -565,7 +578,12 @@ export default function Search() {
               type="button"
               className="btn btn--primary"
               onClick={onSave}
-              disabled={!isDirty || saving}
+              disabled={!isDirty || saving || !activeView?.canManage}
+              title={
+                activeView && !activeView.canManage
+                  ? "You can't change this view. Save as new to keep your own."
+                  : undefined
+              }
             >
               {saving ? "saving…" : "💾 save"}
             </button>

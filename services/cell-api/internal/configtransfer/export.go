@@ -60,7 +60,7 @@ func Export(ctx context.Context, tx pgx.Tx, orgID string, appVersion string) (*B
 		}},
 		{"access_policies", func() error { return exportPolicies(ctx, tx, orgID, b, groupSlug, integSlug, systemName) }},
 		{"service_config", func() error { return exportServiceConfig(ctx, tx, orgID, b, tagSlug, fieldKey, schemaKey) }},
-		{"message_views", func() error { return exportMessageViews(ctx, tx, orgID, b, integSlug) }},
+		{"message_views", func() error { return exportMessageViews(ctx, tx, orgID, b, groupSlug, integSlug) }},
 		{"templates", func() error { return exportTemplates(ctx, tx, orgID, b) }},
 		{"alert_rules", func() error { return exportAlertRules(ctx, tx, orgID, b, integSlug, groupSlug, channelName) }},
 		{"dashboards", func() error { return exportDashboards(ctx, tx, orgID, b, groupSlug, integSlug) }},
@@ -720,12 +720,12 @@ func exportServiceConfig(ctx context.Context, tx pgx.Tx, org string, b *Bundle, 
 	return srows.Err()
 }
 
-func exportMessageViews(ctx context.Context, tx pgx.Tx, org string, b *Bundle, integSlug map[string]string) error {
-	// Shared views only — personal (unshared) views belong to a person,
-	// and people don't travel between environments.
+func exportMessageViews(ctx context.Context, tx pgx.Tx, org string, b *Bundle, groupSlug, integSlug map[string]string) error {
+	// Team and org-wide views only. A private view belongs to a person,
+	// and people don't travel between environments; teams do, by slug.
 	rows, err := tx.Query(ctx, `
 		SELECT name, COALESCE(description,''), pinned, COALESCE(filters,'null'::jsonb)::text,
-		       scope_integration_id, scope_service_id
+		       scope_integration_id, scope_service_id, group_id
 		FROM message_views WHERE organization_id=$1 AND shared ORDER BY name`, org)
 	if err != nil {
 		return err
@@ -734,9 +734,14 @@ func exportMessageViews(ctx context.Context, tx pgx.Tx, org string, b *Bundle, i
 	for rows.Next() {
 		var v MessageView
 		var filters string
-		var integID *string
-		if err := rows.Scan(&v.Name, &v.Description, &v.Pinned, &filters, &integID, &v.ScopeServiceID); err != nil {
+		var integID, gid *string
+		if err := rows.Scan(&v.Name, &v.Description, &v.Pinned, &filters, &integID, &v.ScopeServiceID, &gid); err != nil {
 			return err
+		}
+		if gid != nil {
+			if s, ok := groupSlug[*gid]; ok {
+				v.Group = &s
+			}
 		}
 		if filters != "null" {
 			v.Filters = json.RawMessage(filters)

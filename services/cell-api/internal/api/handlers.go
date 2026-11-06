@@ -1477,12 +1477,12 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/messages/fields", h.fieldsCatalog)
 	mux.HandleFunc("POST /api/v1/messages/search", h.searchMessages)
 	mux.HandleFunc("GET /api/v1/message-views", h.listMessageViews)
-	// Saved views are org-visible, so mutations take the same editor+
-	// gate as dashboards — viewers read views, they don't shape them.
-	mux.HandleFunc("POST /api/v1/message-views", h.writeOrg(h.createMessageView))
+	// Saved views are private, a team's or org-wide; the handlers decide
+	// per view who may write, so a viewer can keep views of their own.
+	mux.HandleFunc("POST /api/v1/message-views", h.createMessageView)
 	mux.HandleFunc("GET /api/v1/message-views/{id}", h.getMessageView)
-	mux.HandleFunc("PUT /api/v1/message-views/{id}", h.writeOrg(h.updateMessageView))
-	mux.HandleFunc("DELETE /api/v1/message-views/{id}", h.writeOrg(h.deleteMessageView))
+	mux.HandleFunc("PUT /api/v1/message-views/{id}", h.updateMessageView)
+	mux.HandleFunc("DELETE /api/v1/message-views/{id}", h.deleteMessageView)
 
 	// Dashboards: per-user, named, customizable Home-page layouts.
 	// See handlers_dashboards.go.

@@ -592,7 +592,7 @@ func (r *resolver) importGroups(groups []Group) func() error {
 			}
 		}
 		if skipped > 0 {
-			r.rep.warnf("groups: %d member(s) not attached (no matching user in the target org, or email matching disabled)", skipped)
+			r.rep.warnf("teams: %d member(s) not attached (no matching user in the target org, or email matching disabled)", skipped)
 		}
 		_ = matched
 		return nil
@@ -980,7 +980,7 @@ func (r *resolver) importMessageViews(views []MessageView) func() error {
 		sec := r.rep.section("message_views")
 		defer r.rep.save("message_views", sec)
 		for _, v := range views {
-			var integID any
+			var integID, gid any
 			if v.ScopeIntegration != nil {
 				id, err := r.integration(*v.ScopeIntegration)
 				if err != nil {
@@ -988,21 +988,28 @@ func (r *resolver) importMessageViews(views []MessageView) func() error {
 				}
 				integID = id
 			}
+			if v.Group != nil {
+				id, err := r.group(*v.Group)
+				if err != nil {
+					return err
+				}
+				gid = id
+			}
 			_, err := r.upsert(sec, "message view", v.Name,
 				`SELECT id FROM message_views WHERE organization_id=$1 AND shared AND name=$2`, []any{r.org, v.Name},
 				func() (string, error) {
 					var id string
 					err := r.tx.QueryRow(r.ctx, `
-						INSERT INTO message_views (organization_id, owner_user_id, name, description, pinned, shared, filters, scope_integration_id, scope_service_id)
-						VALUES ($1,$2,$3,$4,$5,true,COALESCE($6::jsonb,'{}'::jsonb),$7,$8) RETURNING id`,
-						r.org, r.opts.ActorUserID, v.Name, v.Description, v.Pinned, jsonArg(v.Filters), integID, v.ScopeServiceID).Scan(&id)
+						INSERT INTO message_views (organization_id, owner_user_id, name, description, pinned, shared, filters, scope_integration_id, scope_service_id, group_id)
+						VALUES ($1,$2,$3,$4,$5,true,COALESCE($6::jsonb,'{}'::jsonb),$7,$8,$9) RETURNING id`,
+						r.org, r.opts.ActorUserID, v.Name, v.Description, v.Pinned, jsonArg(v.Filters), integID, v.ScopeServiceID, gid).Scan(&id)
 					return id, err
 				},
 				func(id string) error {
 					_, err := r.tx.Exec(r.ctx, `
 						UPDATE message_views SET description=$2, pinned=$3, filters=COALESCE($4::jsonb,'{}'::jsonb),
-						  scope_integration_id=$5, scope_service_id=$6, updated_at=now() WHERE id=$1`,
-						id, v.Description, v.Pinned, jsonArg(v.Filters), integID, v.ScopeServiceID)
+						  scope_integration_id=$5, scope_service_id=$6, group_id=$7, updated_at=now() WHERE id=$1`,
+						id, v.Description, v.Pinned, jsonArg(v.Filters), integID, v.ScopeServiceID, gid)
 					return err
 				})
 			if err != nil {

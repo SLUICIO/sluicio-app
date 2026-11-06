@@ -1367,13 +1367,24 @@ export interface MessageViewScope {
   serviceId?: string;
 }
 
+/** Who sees a saved view: only the person who saved it, one team, or
+ *  everyone in the organization. Fixed when the view is created. */
+export type MessageViewVisibility = "private" | "team" | "org";
+
 export interface MessageView {
   id: string;
   name: string;
   description?: string;
   mine: boolean;
   pinned: boolean;
+  /** False for a private view. Kept for older clients; read visibility. */
   shared: boolean;
+  visibility: MessageViewVisibility;
+  /** The team of a team view, and its name. */
+  groupId?: string;
+  groupName?: string;
+  /** Whether you may change or delete it. */
+  canManage: boolean;
   filters: MessageFilter[];
   // Always emitted by the server (even when empty) so the UI can do
   // `view.scope.integrationId` without a presence check.
@@ -1393,18 +1404,21 @@ export interface MessageViewsResponse {
   views: MessageView[];
 }
 
-export interface CreateMessageViewRequest {
+export interface UpdateMessageViewRequest {
   name: string;
   description?: string;
   pinned: boolean;
-  shared: boolean;
   filters: MessageFilter[];
   scope?: MessageViewScope;
   /** Omit to leave the view inheriting; send [] to show no columns. */
   messageColumns?: MessageColumn[];
 }
 
-export interface UpdateMessageViewRequest extends CreateMessageViewRequest {}
+export interface CreateMessageViewRequest extends UpdateMessageViewRequest {
+  visibility: MessageViewVisibility;
+  /** Required for a team view. */
+  groupId?: string;
+}
 
 export interface MessageAttributeKey {
   key: string;

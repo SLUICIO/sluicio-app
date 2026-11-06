@@ -174,6 +174,20 @@ func (s Scope) IsZero() bool {
 	return s.IntegrationID == "" && s.ServiceID == ""
 }
 
+// Visibility says who sees a saved view. It is derived from the stored
+// shared flag and team rather than stored itself, so the two cannot
+// disagree.
+type Visibility string
+
+const (
+	// VisibilityPrivate: only the person who saved it.
+	VisibilityPrivate Visibility = "private"
+	// VisibilityTeam: the members of one team (GroupID).
+	VisibilityTeam Visibility = "team"
+	// VisibilityOrg: everyone in the organization.
+	VisibilityOrg Visibility = "org"
+)
+
 // View is one persisted saved view. JSON tags match the frontend's
 // SavedView interface so the wire format stays a direct mirror of
 // what the FilterEditor consumes.
@@ -184,8 +198,15 @@ type View struct {
 	Name           string     `json:"name"`
 	Description    string     `json:"description,omitempty"`
 	Pinned         bool       `json:"pinned"`
-	Shared         bool       `json:"shared"`
-	Filters        []Filter   `json:"filters"`
+	// Shared is false for a private view. Kept on the wire for clients
+	// that predate Visibility.
+	Shared     bool       `json:"shared"`
+	Visibility Visibility `json:"visibility"`
+	// GroupID is the team a team view belongs to, nil otherwise.
+	GroupID *uuid.UUID `json:"groupId,omitempty"`
+	// GroupName is that team's name, for labels.
+	GroupName string   `json:"groupName,omitempty"`
+	Filters   []Filter `json:"filters"`
 	// Scope pins the view to a specific entity. The JSON object is
 	// always emitted (even when empty) so the frontend doesn't have to
 	// distinguish "field absent" from "no scope".
@@ -203,19 +224,27 @@ type View struct {
 	// validated and normalised by the API layer, which owns both.
 	MessageColumns *json.RawMessage `json:"messageColumns,omitempty"`
 	Mine           bool             `json:"mine"`
-	ResultCount    *int64           `json:"resultCount,omitempty"`
-	LastEditedAt   time.Time        `json:"lastEditedAt"`
-	CreatedAt      time.Time        `json:"createdAt"`
-	UpdatedAt      time.Time        `json:"updatedAt"`
+	// CanManage says whether the caller may change or delete the view,
+	// stamped per request by the API like a dashboard's.
+	CanManage    bool      `json:"canManage"`
+	ResultCount  *int64    `json:"resultCount,omitempty"`
+	LastEditedAt time.Time `json:"lastEditedAt"`
+	CreatedAt    time.Time `json:"createdAt"`
+	UpdatedAt    time.Time `json:"updatedAt"`
 }
 
 // CreateRequest is the body of POST /api/v1/message-views.
 type CreateRequest struct {
-	Name        string   `json:"name"`
-	Description string   `json:"description,omitempty"`
-	Pinned      bool     `json:"pinned"`
-	Shared      bool     `json:"shared"`
-	Filters     []Filter `json:"filters"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Pinned      bool   `json:"pinned"`
+	// Visibility is private, team (with GroupID) or org. When it is
+	// absent, Shared decides between private and org, as it did before
+	// teams.
+	Visibility Visibility `json:"visibility,omitempty"`
+	GroupID    *uuid.UUID `json:"groupId,omitempty"`
+	Shared     bool       `json:"shared"`
+	Filters    []Filter   `json:"filters"`
 	// Scope, if any, pins the view to a specific entity. The caller —
 	// typically the IntegrationMessages page — sets this so the saved
 	// view surfaces in both the entity's tab and the global rail.
@@ -229,12 +258,12 @@ type CreateRequest struct {
 // UpdateRequest is the body of PUT /api/v1/message-views/{id}. Every
 // mutable field is required so the API stays a straightforward
 // replace-with operation; partial updates can be added later if a
-// real reason emerges.
+// real reason emerges. Visibility is fixed at create, so a shared or
+// visibility field in the body is ignored.
 type UpdateRequest struct {
 	Name        string   `json:"name"`
 	Description string   `json:"description,omitempty"`
 	Pinned      bool     `json:"pinned"`
-	Shared      bool     `json:"shared"`
 	Filters     []Filter `json:"filters"`
 	Scope       Scope    `json:"scope,omitempty"`
 	// MessageColumns is this view's own column set. Omit the field to

@@ -15,7 +15,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/client";
 import FilterEditor, { type Filter } from "./search/FilterEditor";
-import SaveAsViewDialog from "./search/SaveAsViewDialog";
+import SaveAsViewDialog, { type SaveAsViewValues } from "./search/SaveAsViewDialog";
+import { visibilityLabel } from "./search/viewVisibility";
 import SharePermalinkButton from "./search/SharePermalinkButton";
 import { StatusPip } from "./primitives";
 import VirtualInfiniteList from "./VirtualInfiniteList";
@@ -70,9 +71,13 @@ function viewFromWire(v: MessageView): SavedView {
   return {
     id: v.id,
     name: v.name,
+    description: v.description,
     mine: v.mine,
     pinned: v.pinned,
-    sharedWith: v.shared ? ["team"] : undefined,
+    visibility: v.visibility,
+    groupId: v.groupId,
+    groupName: v.groupName,
+    canManage: v.canManage,
     resultCount: v.resultCount,
     lastEditedAt: v.lastEditedAt,
     scope:
@@ -245,18 +250,14 @@ export default function ServiceMessagesTab({ serviceName }: Props) {
     setShowOpenSaved(false);
   };
 
-  const onSaveAsView = async (values: {
-    name: string;
-    description: string;
-    visibility: "private" | "team" | "org";
-    pinned: boolean;
-  }) => {
+  const onSaveAsView = async (values: SaveAsViewValues) => {
     try {
       const created = await api.createMessageView({
         name: values.name,
         description: values.description || undefined,
         pinned: values.pinned,
-        shared: values.visibility !== "private",
+        visibility: values.visibility,
+        groupId: values.groupId,
         filters: filtersToWire(composedFilters),
         scope: { serviceId: serviceName },
       });
@@ -585,7 +586,7 @@ function OpenSavedMenu({
                   role="menuitem"
                 >
                   <span className="font-medium">{v.name}</span>
-                  <span className="ml-2 text-xs text-muted">· here</span>
+                  <span className="ml-2 text-xs text-muted">· {visibilityLabel(v)}</span>
                 </button>
               ))}
             </>
@@ -605,6 +606,7 @@ function OpenSavedMenu({
                   role="menuitem"
                 >
                   <span className="font-medium">{v.name}</span>
+                  <span className="ml-2 text-xs text-muted">· {visibilityLabel(v)}</span>
                 </button>
               ))}
             </>

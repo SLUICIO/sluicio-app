@@ -26,15 +26,23 @@ import (
 // MessageViewWire is the JSON shape returned to the frontend. It
 // mirrors the SavedView interface in the FilterEditor: id, name,
 // filters[], plus presentation hints (mine, pinned, lastEditedAt,
-// resultCount, scope).
+// resultCount, scope) and who sees and manages it (visibility, groupId,
+// canManage).
 type MessageViewWire struct {
-	ID          string                `json:"id"`
-	Name        string                `json:"name"`
-	Description string                `json:"description,omitempty"`
-	Mine        bool                  `json:"mine"`
-	Pinned      bool                  `json:"pinned"`
-	Shared      bool                  `json:"shared"`
-	Filters     []messageviews.Filter `json:"filters"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Mine        bool   `json:"mine"`
+	Pinned      bool   `json:"pinned"`
+	// Shared is false for a private view; kept for clients that predate
+	// Visibility.
+	Shared     bool                    `json:"shared"`
+	Visibility messageviews.Visibility `json:"visibility"`
+	// GroupID is the team of a team view.
+	GroupID   string                `json:"groupId,omitempty"`
+	GroupName string                `json:"groupName,omitempty"`
+	CanManage bool                  `json:"canManage"`
+	Filters   []messageviews.Filter `json:"filters"`
 	// Scope is always emitted (even when empty) so the frontend can
 	// safely read view.scope.integrationId without checking presence.
 	Scope messageviews.Scope `json:"scope"`
@@ -97,6 +105,10 @@ func normalizeViewColumns(raw *json.RawMessage) (*json.RawMessage, error) {
 }
 
 func toWire(v messageviews.View) MessageViewWire {
+	var group string
+	if v.GroupID != nil {
+		group = v.GroupID.String()
+	}
 	return MessageViewWire{
 		ID:             v.ID.String(),
 		Name:           v.Name,
@@ -104,6 +116,10 @@ func toWire(v messageviews.View) MessageViewWire {
 		Mine:           v.Mine,
 		Pinned:         v.Pinned,
 		Shared:         v.Shared,
+		Visibility:     v.Visibility,
+		GroupID:        group,
+		GroupName:      v.GroupName,
+		CanManage:      v.CanManage,
 		Filters:        v.Filters,
 		Scope:          v.Scope,
 		MessageColumns: v.MessageColumns,
@@ -114,7 +130,66 @@ func toWire(v messageviews.View) MessageViewWire {
 	}
 }
 
+// viewAccess snapshots, once per request, what decides which saved
+// views the caller sees and manages: a private view is its owner's
+// alone, whatever their role, and team and org-wide views follow the
+// same rule as dashboards (canSeeTeamScoped, canManageTeamScoped).
+type viewAccess struct {
+	all         bool // no-auth dev mode: everything visible and manageable
+	caller      *uuid.UUID
+	orgWrite    bool
+	scopeCapped bool
+	roles       map[uuid.UUID]identity.Role
+}
+
+func (h *Handlers) messageViewAccess(r *http.Request) viewAccess {
+	if h.AuthMW == nil {
+		return viewAccess{all: true}
+	}
+	orgWrite, capped, roles := h.dashboardAccessCtx(r)
+	return viewAccess{
+		caller:      middleware.Principal(r).UserID,
+		orgWrite:    orgWrite,
+		scopeCapped: capped,
+		roles:       roles,
+	}
+}
+
+func (a viewAccess) owns(v messageviews.View) bool {
+	return a.caller != nil && v.OwnerUserID != nil && *v.OwnerUserID == *a.caller
+}
+
+func (a viewAccess) canSee(v messageviews.View) bool {
+	if a.all {
+		return true
+	}
+	if v.Visibility == messageviews.VisibilityPrivate {
+		return a.owns(v)
+	}
+	return canSeeTeamScoped(v.GroupID, a.orgWrite, a.roles)
+}
+
+func (a viewAccess) canManage(v messageviews.View) bool {
+	if a.all {
+		return true
+	}
+	if v.Visibility == messageviews.VisibilityPrivate {
+		return a.owns(v)
+	}
+	return canManageTeamScoped(v.GroupID, a.orgWrite, a.scopeCapped, a.roles)
+}
+
+// stamp fills the per-caller fields of a view the caller can see.
+func (a viewAccess) stamp(v messageviews.View) messageviews.View {
+	v.Mine = a.owns(v)
+	v.CanManage = a.canManage(v)
+	return v
+}
+
 // listMessageViews: GET /api/v1/message-views
+//
+// Returns the views visible to the CALLER: their own private views,
+// their teams' views and the org-wide ones.
 func (h *Handlers) listMessageViews(w http.ResponseWriter, r *http.Request) {
 	views, err := h.MessageViews.List(r.Context(), middleware.OrgID(r), nil)
 	if err != nil {
@@ -122,34 +197,67 @@ func (h *Handlers) listMessageViews(w http.ResponseWriter, r *http.Request) {
 		httpserver.WriteError(w, http.StatusInternalServerError, "query failed")
 		return
 	}
+	access := h.messageViewAccess(r)
 	out := make([]MessageViewWire, 0, len(views))
 	for _, v := range views {
-		out = append(out, toWire(v))
+		if !access.canSee(v) {
+			continue
+		}
+		out = append(out, toWire(access.stamp(v)))
 	}
 	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"views": out})
 }
 
-// getMessageView: GET /api/v1/message-views/{id}
-func (h *Handlers) getMessageView(w http.ResponseWriter, r *http.Request) {
+// loadVisibleView fetches a view and answers 404 when the caller may not
+// see it, so someone else's private view reads as nonexistent.
+func (h *Handlers) loadVisibleView(w http.ResponseWriter, r *http.Request, access viewAccess) (messageviews.View, bool) {
 	id, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
 		httpserver.WriteError(w, http.StatusBadRequest, "invalid view id")
-		return
+		return messageviews.View{}, false
 	}
 	v, err := h.MessageViews.Get(r.Context(), middleware.OrgID(r), id, nil)
-	if errors.Is(err, messageviews.ErrNotFound) {
+	if errors.Is(err, messageviews.ErrNotFound) || (err == nil && !access.canSee(v)) {
 		httpserver.WriteError(w, http.StatusNotFound, "view not found")
-		return
+		return messageviews.View{}, false
 	}
 	if err != nil {
 		h.Logger.Error("get message view failed", "err", err)
 		httpserver.WriteError(w, http.StatusInternalServerError, "query failed")
+		return messageviews.View{}, false
+	}
+	return v, true
+}
+
+// requireManageView loads a view the caller may see and enforces the
+// manage rule.
+func (h *Handlers) requireManageView(w http.ResponseWriter, r *http.Request, access viewAccess) (messageviews.View, bool) {
+	v, ok := h.loadVisibleView(w, r, access)
+	if !ok {
+		return v, false
+	}
+	if !access.canManage(v) {
+		httpserver.WriteError(w, http.StatusForbidden, "you don't manage this view")
+		return v, false
+	}
+	return v, true
+}
+
+// getMessageView: GET /api/v1/message-views/{id}
+func (h *Handlers) getMessageView(w http.ResponseWriter, r *http.Request) {
+	access := h.messageViewAccess(r)
+	v, ok := h.loadVisibleView(w, r, access)
+	if !ok {
 		return
 	}
-	httpserver.WriteJSON(w, http.StatusOK, toWire(v))
+	httpserver.WriteJSON(w, http.StatusOK, toWire(access.stamp(v)))
 }
 
 // createMessageView: POST /api/v1/message-views
+//
+// Anyone may save a private view, a viewer included: it is theirs and
+// nobody else sees it. A team view needs an editor role in that team
+// (or an org editor), an org-wide view an org editor, as for dashboards.
 func (h *Handlers) createMessageView(w http.ResponseWriter, r *http.Request) {
 	var req messageviews.CreateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -168,13 +276,52 @@ func (h *Handlers) createMessageView(w http.ResponseWriter, r *http.Request) {
 		httpserver.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if req.Visibility == "" {
+		req.Visibility = messageviews.VisibilityPrivate
+		if req.Shared {
+			req.Visibility = messageviews.VisibilityOrg
+		}
+	}
+	access := h.messageViewAccess(r)
+	switch req.Visibility {
+	case messageviews.VisibilityPrivate:
+		req.GroupID = nil
+		if !access.all && access.caller == nil {
+			httpserver.WriteError(w, http.StatusBadRequest, "a private view needs a signed-in user")
+			return
+		}
+	case messageviews.VisibilityOrg:
+		req.GroupID = nil
+		if !access.all && !access.orgWrite {
+			httpserver.WriteError(w, http.StatusForbidden, "org-wide views require an org-wide editor role")
+			return
+		}
+	case messageviews.VisibilityTeam:
+		if req.GroupID == nil {
+			httpserver.WriteError(w, http.StatusBadRequest, "a team view needs a team")
+			return
+		}
+		if !access.all && !canManageTeamScoped(req.GroupID, access.orgWrite, access.scopeCapped, access.roles) {
+			httpserver.WriteError(w, http.StatusForbidden, "you need an editor role in that team")
+			return
+		}
+		// The team must exist in the caller's org (the foreign key alone
+		// would answer 500).
+		if _, err := h.Identity.GetGroup(r.Context(), middleware.OrgID(r), *req.GroupID); err != nil {
+			httpserver.WriteError(w, http.StatusBadRequest, "unknown team")
+			return
+		}
+	default:
+		httpserver.WriteError(w, http.StatusBadRequest, "visibility must be private, team or org")
+		return
+	}
 	cols, err := normalizeViewColumns(req.MessageColumns)
 	if err != nil {
 		httpserver.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	req.MessageColumns = cols
-	v, err := h.MessageViews.Create(r.Context(), middleware.OrgID(r), nil, req)
+	v, err := h.MessageViews.Create(r.Context(), middleware.OrgID(r), access.caller, req)
 	if err != nil {
 		// Surface validation errors as 400 — they come from
 		// messageviews.ValidateAll.
@@ -186,14 +333,16 @@ func (h *Handlers) createMessageView(w http.ResponseWriter, r *http.Request) {
 		httpserver.WriteError(w, http.StatusInternalServerError, "create failed")
 		return
 	}
-	httpserver.WriteJSON(w, http.StatusCreated, toWire(v))
+	httpserver.WriteJSON(w, http.StatusCreated, toWire(access.stamp(v)))
 }
 
 // updateMessageView: PUT /api/v1/message-views/{id}
+//
+// Who sees the view is fixed at create, like a dashboard's team.
 func (h *Handlers) updateMessageView(w http.ResponseWriter, r *http.Request) {
-	id, err := uuid.Parse(r.PathValue("id"))
-	if err != nil {
-		httpserver.WriteError(w, http.StatusBadRequest, "invalid view id")
+	access := h.messageViewAccess(r)
+	existing, ok := h.requireManageView(w, r, access)
+	if !ok {
 		return
 	}
 	var req messageviews.UpdateRequest
@@ -219,7 +368,7 @@ func (h *Handlers) updateMessageView(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.MessageColumns = cols
-	v, err := h.MessageViews.Update(r.Context(), middleware.OrgID(r), id, nil, req)
+	v, err := h.MessageViews.Update(r.Context(), middleware.OrgID(r), existing.ID, nil, req)
 	if errors.Is(err, messageviews.ErrNotFound) {
 		httpserver.WriteError(w, http.StatusNotFound, "view not found")
 		return
@@ -233,17 +382,17 @@ func (h *Handlers) updateMessageView(w http.ResponseWriter, r *http.Request) {
 		httpserver.WriteError(w, http.StatusInternalServerError, "update failed")
 		return
 	}
-	httpserver.WriteJSON(w, http.StatusOK, toWire(v))
+	httpserver.WriteJSON(w, http.StatusOK, toWire(access.stamp(v)))
 }
 
 // deleteMessageView: DELETE /api/v1/message-views/{id}
 func (h *Handlers) deleteMessageView(w http.ResponseWriter, r *http.Request) {
-	id, err := uuid.Parse(r.PathValue("id"))
-	if err != nil {
-		httpserver.WriteError(w, http.StatusBadRequest, "invalid view id")
+	access := h.messageViewAccess(r)
+	existing, ok := h.requireManageView(w, r, access)
+	if !ok {
 		return
 	}
-	err = h.MessageViews.Delete(r.Context(), middleware.OrgID(r), id)
+	err := h.MessageViews.Delete(r.Context(), middleware.OrgID(r), existing.ID)
 	if errors.Is(err, messageviews.ErrNotFound) {
 		httpserver.WriteError(w, http.StatusNotFound, "view not found")
 		return
@@ -765,7 +914,9 @@ func (h *Handlers) resolveMessageColumns(r *http.Request, viewID string, fromInt
 	if id := strings.TrimSpace(viewID); id != "" {
 		if vid, err := uuid.Parse(id); err == nil {
 			v, err := h.MessageViews.Get(r.Context(), middleware.OrgID(r), vid, nil)
-			if err == nil && v.MessageColumns != nil {
+			// A view the caller may not see lends it nothing, not even
+			// its columns.
+			if err == nil && v.MessageColumns != nil && h.messageViewAccess(r).canSee(v) {
 				var cols []integrations.MessageColumn
 				if err := json.Unmarshal(*v.MessageColumns, &cols); err == nil {
 					// Returned even when empty: this view deliberately

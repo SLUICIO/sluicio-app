@@ -1,15 +1,12 @@
 // SPDX-License-Identifier: FSL-1.1-Apache-2.0
 //
-// SavedViewsRail — left rail listing the user's saved searches plus
-// team-shared views. Active view gets an accent left-border + tinted
-// background; the "+ new view" button at the bottom appends a draft
-// view to the rail.
-//
-// Persistence is local-only for now (the cell-api doesn't yet have
-// a saved-views endpoint); this component is intentionally pure-
-// presentational so a real store can drive it later.
+// SavedViewsRail: left rail listing the views the user can see, their
+// own private ones, their teams' and the org-wide ones. Active view gets
+// an accent left-border + tinted background; the "+ new view" button at
+// the bottom appends a draft view to the rail.
 
 import type { SavedView } from "./types";
+import { visibilityLabel } from "./viewVisibility";
 
 interface Props {
   views: SavedView[];
@@ -44,7 +41,7 @@ export default function SavedViewsRail({
     >
       <header className="border-b px-4 py-3" style={{ borderColor: "var(--border)" }}>
         <h2 className="text-base font-semibold">Saved views</h2>
-        <p className="text-xs text-muted">yours + shared by your team</p>
+        <p className="text-xs text-muted">yours, your teams' and org-wide</p>
       </header>
       <ul className="flex-1 overflow-auto">
         {views.length === 0 && (
@@ -80,12 +77,12 @@ export default function SavedViewsRail({
                     {v.name}
                   </span>
                   {v.pinned && <span className="text-xs">★</span>}
-                  {v.mine && (
+                  {v.visibility !== "org" && (
                     <span
-                      className="rounded border px-1 text-[10px] uppercase tracking-wide text-muted"
+                      className="truncate rounded border px-1 text-[10px] uppercase tracking-wide text-muted"
                       style={{ borderColor: "var(--border)" }}
                     >
-                      mine
+                      {visibilityLabel(v)}
                     </span>
                   )}
                 </div>
@@ -115,7 +112,7 @@ export default function SavedViewsRail({
                 )}
               </div>
             </button>
-            {onDelete && (
+            {onDelete && v.canManage && (
               <button
                 type="button"
                 aria-label={`Delete view ${v.name}`}

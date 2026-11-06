@@ -22,7 +22,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api/client";
 import FilterEditor, { type Field, type Filter } from "../components/search/FilterEditor";
-import SaveAsViewDialog from "../components/search/SaveAsViewDialog";
+import SaveAsViewDialog, { type SaveAsViewValues } from "../components/search/SaveAsViewDialog";
+import { visibilityLabel } from "../components/search/viewVisibility";
 import SharePermalinkButton from "../components/search/SharePermalinkButton";
 import IntegrationTabs from "../components/IntegrationTabs";
 import { integrationProblemCount } from "../lib/integrationHealth";
@@ -160,9 +161,13 @@ function viewFromWire(v: MessageView): SavedView {
   return {
     id: v.id,
     name: v.name,
+    description: v.description,
     mine: v.mine,
     pinned: v.pinned,
-    sharedWith: v.shared ? ["team"] : undefined,
+    visibility: v.visibility,
+    groupId: v.groupId,
+    groupName: v.groupName,
+    canManage: v.canManage,
     resultCount: v.resultCount,
     lastEditedAt: v.lastEditedAt,
     scope: v.scope?.integrationId
@@ -596,20 +601,14 @@ export default function IntegrationMessagesPage() {
     setShowOpenSaved(false);
   };
 
-  const onSaveAsView = async (values: {
-    name: string;
-    description: string;
-    visibility: "private" | "team" | "org";
-    pinned: boolean;
-  }) => {
+  const onSaveAsView = async (values: SaveAsViewValues) => {
     try {
       const created = await api.createMessageView({
         name: values.name,
         description: values.description || undefined,
         pinned: values.pinned,
-        // visibility v1: private → shared=false, team/org → shared=true.
-        // A future MessageView API can carry the full enum.
-        shared: values.visibility !== "private",
+        visibility: values.visibility,
+        groupId: values.groupId,
         filters: filtersToWire(composedFilters),
         scope: { integrationId: id },
         // The columns you were looking at when you saved. A view is
@@ -761,6 +760,7 @@ export default function IntegrationMessagesPage() {
           <div>
             <span className="uppercase tracking-wide text-muted">view · </span>
             <span className="font-semibold">{activeView.name}</span>
+            <span className="ml-2 text-muted">{visibilityLabel(activeView)}</span>
             {activeView.lastEditedAt && (
               <span className="ml-2 text-muted">
                 edited {formatRelative(activeView.lastEditedAt)}
@@ -804,7 +804,10 @@ export default function IntegrationMessagesPage() {
         <MessageColumnsEditor
           integrationID={id}
           value={messageColumns}
-          canWrite={canWrite}
+          // A loaded view's columns are the view's, so whoever manages
+          // the view may change them; without a view they are the
+          // integration's.
+          canWrite={activeView ? activeView.canManage : canWrite}
           title={activeView ? `Columns · ${activeView.name}` : "Columns · integration default"}
           hint={
             activeView
@@ -816,8 +819,8 @@ export default function IntegrationMessagesPage() {
               ? async (cols) => {
                   const updated = await api.updateMessageView(activeView.id, {
                     name: activeView.name,
+                    description: activeView.description,
                     pinned: activeView.pinned,
-                    shared: (activeView.sharedWith?.length ?? 0) > 0,
                     filters: filtersToWire(composedFilters),
                     scope: { integrationId: id },
                     messageColumns: cols,
@@ -1232,7 +1235,7 @@ function OpenSavedMenu({
                   role="menuitem"
                 >
                   <span className="font-medium">{v.name}</span>
-                  <span className="ml-2 text-xs text-muted">· here</span>
+                  <span className="ml-2 text-xs text-muted">· {visibilityLabel(v)}</span>
                 </button>
               ))}
             </>
@@ -1252,6 +1255,7 @@ function OpenSavedMenu({
                   role="menuitem"
                 >
                   <span className="font-medium">{v.name}</span>
+                  <span className="ml-2 text-xs text-muted">· {visibilityLabel(v)}</span>
                 </button>
               ))}
             </>

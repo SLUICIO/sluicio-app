@@ -82,14 +82,22 @@ test.describe("RBAC — viewer restrictions", () => {
     expect(res.status()).toBe(403);
   });
 
-  test("viewer cannot mutate message views", async ({ browser }) => {
+  test("viewer keeps private message views but cannot share them", async ({ browser }) => {
     const page = await viewerContext(browser);
-    const create = await page.request.post("/api/v1/message-views", {
-      data: { name: "should-not-exist", filters: [] },
+    // Sharing with the whole org is an editor's call.
+    const org = await page.request.post("/api/v1/message-views", {
+      data: { name: "should-not-exist", visibility: "org", filters: [] },
     });
-    expect(create.status()).toBe(403);
-    // Reads stay open — viewers use shared views, they don't shape them.
-    expect((await page.request.get("/api/v1/message-views")).ok()).toBeTruthy();
+    expect(org.status()).toBe(403);
+    // A private view is the viewer's own, so it is theirs to save.
+    const mine = await page.request.post("/api/v1/message-views", {
+      data: { name: `e2e private ${Date.now()}`, visibility: "private", filters: [] },
+    });
+    expect(mine.status()).toBe(201);
+    const view = await mine.json();
+    expect(view.visibility).toBe("private");
+    expect(view.canManage).toBe(true);
+    expect((await page.request.delete(`/api/v1/message-views/${view.id}`)).status()).toBe(204);
   });
 
   test("viewer cannot mutate config or reach admin surfaces", async ({ browser }) => {
@@ -1117,7 +1125,7 @@ test.describe("RBAC — service-account scoping", () => {
       await row.getByRole("button", { name: "Access" }).click();
       await expect(page.getByText("this account currently sees nothing")).toBeVisible();
       // Join the group from the Access panel.
-      await page.getByRole("combobox").filter({ hasText: "Add to group…" }).selectOption({ label: groupName });
+      await page.getByRole("combobox").filter({ hasText: "Add to team…" }).selectOption({ label: groupName });
       await page.getByRole("button", { name: "Add", exact: true }).click();
       await expect(page.getByText(groupName).first()).toBeVisible();
 

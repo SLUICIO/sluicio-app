@@ -47,28 +47,39 @@ func (h *Handlers) callerGroupRoles(r *http.Request) map[uuid.UUID]identity.Role
 	return out
 }
 
-// canSeeDashboard: org-wide dashboards are visible to everyone in the
-// org; team dashboards only to members (org admins/editors see all).
-func canSeeDashboard(d dashboards.Dashboard, orgWrite bool, roles map[uuid.UUID]identity.Role) bool {
-	if d.GroupID == nil || orgWrite {
+// canSeeTeamScoped is the visibility rule for anything shared either
+// with the whole org (groupID nil) or with one team: org-wide is visible
+// to everyone in the org, a team's only to its members (org
+// admins/editors see all). Dashboards and saved views both use it, so
+// sharing with a team means the same thing for each.
+func canSeeTeamScoped(groupID *uuid.UUID, orgWrite bool, roles map[uuid.UUID]identity.Role) bool {
+	if groupID == nil || orgWrite {
 		return true
 	}
-	_, member := roles[*d.GroupID]
+	_, member := roles[*groupID]
 	return member
 }
 
-// canManageDashboard: org editors/admins manage everything; team
-// dashboards are additionally manageable by that team's group-editors.
-// Scope-capped tokens never escalate via group roles.
-func canManageDashboard(d dashboards.Dashboard, orgWrite, scopeCapped bool, roles map[uuid.UUID]identity.Role) bool {
+// canManageTeamScoped: org editors/admins manage everything; a team's
+// are additionally manageable by that team's editors. Scope-capped
+// tokens never escalate via group roles.
+func canManageTeamScoped(groupID *uuid.UUID, orgWrite, scopeCapped bool, roles map[uuid.UUID]identity.Role) bool {
 	if orgWrite {
 		return true
 	}
-	if scopeCapped || d.GroupID == nil {
+	if scopeCapped || groupID == nil {
 		return false
 	}
-	role, member := roles[*d.GroupID]
+	role, member := roles[*groupID]
 	return member && role.CanWrite()
+}
+
+func canSeeDashboard(d dashboards.Dashboard, orgWrite bool, roles map[uuid.UUID]identity.Role) bool {
+	return canSeeTeamScoped(d.GroupID, orgWrite, roles)
+}
+
+func canManageDashboard(d dashboards.Dashboard, orgWrite, scopeCapped bool, roles map[uuid.UUID]identity.Role) bool {
+	return canManageTeamScoped(d.GroupID, orgWrite, scopeCapped, roles)
 }
 
 // dashboardAccessCtx snapshots the caller's role facts once per request.
@@ -163,7 +174,7 @@ func (h *Handlers) createDashboard(w http.ResponseWriter, r *http.Request) {
 	if req.GroupID != nil {
 		// Team must exist in the caller's org (FK alone would 500).
 		if _, err := h.Identity.GetGroup(r.Context(), middleware.OrgID(r), *req.GroupID); err != nil {
-			httpserver.WriteError(w, http.StatusBadRequest, "unknown group")
+			httpserver.WriteError(w, http.StatusBadRequest, "unknown team")
 			return
 		}
 	}
