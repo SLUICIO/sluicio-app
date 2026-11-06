@@ -102,7 +102,7 @@ limits:
   monitoredEntities: 0
   # Where the customer changes plan. Linked for admins from 80% of either
   # limit and from the refusal at the limit. Empty: no link.
-  planURL: 
+  planURL: ""
 
 # Token for reading usage against those limits from outside
 # (GET /api/v1/deployment/usage, bearer). Unset: the endpoint does not
