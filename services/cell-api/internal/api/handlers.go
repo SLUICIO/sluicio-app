@@ -215,6 +215,9 @@ type Handlers struct {
 	// (SLUICIO_MONITORED_ENTITY_LIMIT); 0 is no cap. Enforced in Postgres;
 	// kept here for the refusal message and the usage report.
 	MonitoredEntityLimit int
+	// PlanURL is where the customer changes plan (SLUICIO_PLAN_URL), for
+	// the instance to point to when a limit is reached. Empty: no link.
+	PlanURL string
 	// StorageLimit caps the telemetry database's size on disk
 	// (SLUICIO_STORAGE_LIMIT_GB). cell-ingest enforces it; cell-api
 	// reports it.

@@ -186,6 +186,11 @@ func main() {
 		logger.Error("invalid monitored entity limit; refusing to start", "err", err)
 		os.Exit(1)
 	}
+	planURL, err := deploymentlimits.PlanURLFromEnv()
+	if err != nil {
+		logger.Error("invalid plan URL; refusing to start", "err", err)
+		os.Exit(1)
+	}
 	limitsStore := deploymentlimits.New(pg)
 	// Written at every start, so removing the setting removes the limit.
 	if err := limitsStore.SetMonitoredEntityLimit(ctx, entityLimit); err != nil {
@@ -196,7 +201,7 @@ func main() {
 		logger.Info("monitored entity limit set", "integrations_and_systems", entityLimit)
 	}
 	if storageLimit.Bytes > 0 {
-		logger.Info("storage limit set", "limit_bytes", storageLimit.Bytes)
+		logger.Info("storage limit set", "limit_bytes", storageLimit.Bytes, "action", storageLimit.Action)
 	}
 	bootstrapToken := strings.TrimSpace(os.Getenv("SLUICIO_BOOTSTRAP_TOKEN"))
 	identityStore.SetManaged(managed)
@@ -353,6 +358,7 @@ func main() {
 		EmailDisabled:           emailDisabled,
 		OrgManagementDisabled:   orgManagementDisabled,
 		MonitoredEntityLimit:    entityLimit,
+		PlanURL:                 planURL,
 		StorageLimit:            storageLimit,
 		DeploymentToken:         strings.TrimSpace(os.Getenv("SLUICIO_DEPLOYMENT_TOKEN")),
 		Limits:                  limitsStore,

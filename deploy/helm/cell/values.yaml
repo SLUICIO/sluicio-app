@@ -100,6 +100,9 @@ limits:
   # Integrations and systems combined. At the limit no new one can be
   # created; nothing existing is removed if it is lowered.
   monitoredEntities: 0
+  # Where the customer changes plan. Linked for admins from 80% of either
+  # limit and from the refusal at the limit. Empty: no link.
+  planURL: 
 
 # Token for reading usage against those limits from outside
 # (GET /api/v1/deployment/usage, bearer). Unset: the endpoint does not

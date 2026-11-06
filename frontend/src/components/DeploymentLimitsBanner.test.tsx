@@ -50,6 +50,15 @@ describe("the deployment limits banner", () => {
     expect((await screen.findByRole("status")).textContent).toMatch(/10 of 10 integrations and systems/);
   });
 
+  it("warns admins from 80% of the integrations and systems, with a link to change plan", async () => {
+    state.admin = true;
+    state.limits = { plan_url: "https://portal.example.com/plan", monitored_entities: { used: 20, limit: 25 } };
+    render(<DeploymentLimitsBanner />);
+    const status = await screen.findByRole("status");
+    expect(status.textContent).toMatch(/Integrations at 80%.*20 of 25/);
+    expect(screen.getByRole("link", { name: "Change plan" })).toHaveAttribute("href", "https://portal.example.com/plan");
+  });
+
   it("shows nothing when the deployment sets no limits", async () => {
     state.admin = true;
     state.limits = {};

@@ -3,11 +3,13 @@
 // Top-of-app banner for the limits the deployment sets on the instance
 // (GET /limits): storage, and integrations + systems combined.
 //
-// The storage half is the important one, and it is shown to EVERYONE
-// once the limit is reached: telemetry is being refused, so every page
+// The storage half is the important one, and a pausing instance at its
+// limit is shown to EVERYONE: telemetry is being refused, so every page
 // stops showing new data, and whoever is looking deserves to know why
-// rather than suspect their own systems. The early warning and the
-// integration count are for admins, who are the ones who can act.
+// rather than suspect their own systems. The early warnings (80%, as the
+// Acceptable Use Policy 4.3 sets) and the integration count are for
+// admins, who are the ones who can act, with a link to change plan when
+// the deployment names one.
 
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
@@ -45,6 +47,17 @@ export function DeploymentLimitsBanner() {
   }, []);
 
   if (!limits) return null;
+  // The plan sets these limits, so the way past one is a bigger plan.
+  // Offered to admins, who are the ones who can order it.
+  const changePlan =
+    isAdmin && limits.plan_url ? (
+      <>
+        {" "}
+        <a href={limits.plan_url} target="_blank" rel="noreferrer">
+          Change plan
+        </a>
+      </>
+    ) : null;
   const st = limits.storage;
   const ent = limits.monitored_entities;
   const used = st?.used_bytes ?? 0;
@@ -63,6 +76,7 @@ export function DeploymentLimitsBanner() {
             <strong>Storage limit reached.</strong> This instance holds {formatGB(used)} of its{" "}
             {formatGB(st.limit_bytes)}, so the oldest telemetry is being deleted to make room. If today&rsquo;s
             data alone fills the limit, new telemetry is refused until tomorrow or until the limit is raised.
+            {changePlan}
           </>
         ),
       });
@@ -75,7 +89,7 @@ export function DeploymentLimitsBanner() {
           <strong>Storage limit reached.</strong> This instance holds {formatGB(used)} of its{" "}
           {formatGB(st.limit_bytes)}, so new telemetry is being refused and recent data will be missing.
           It is accepted again once retention has cleared older data
-          {isAdmin ? ", or when the limit is raised" : ""}.
+          {isAdmin ? ", or when the limit is raised" : ""}.{changePlan}
         </>
       ),
     });
@@ -89,6 +103,7 @@ export function DeploymentLimitsBanner() {
           {pauses
             ? "When it is full, new telemetry is refused until older data ages out."
             : "When it is full, the oldest telemetry is deleted to make room."}
+          {changePlan}
         </>
       ),
     });
@@ -100,6 +115,18 @@ export function DeploymentLimitsBanner() {
         <>
           <strong>Integration limit reached.</strong> This instance has {ent.used} of {ent.limit}{" "}
           integrations and systems; remove one to add another. Monitoring of the existing ones continues.
+          {changePlan}
+        </>
+      ),
+    });
+  } else if (ent && isAdmin && ent.used >= ent.limit * WARN_AT) {
+    banners.push({
+      tone: "warn",
+      text: (
+        <>
+          <strong>Integrations at {Math.round((ent.used / ent.limit) * 100)}%.</strong> This instance has{" "}
+          {ent.used} of {ent.limit} integrations and systems. At the limit no new one can be added.
+          {changePlan}
         </>
       ),
     });

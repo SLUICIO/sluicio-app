@@ -28,7 +28,18 @@ func (h *Handlers) refusedByEntityLimit(w http.ResponseWriter, err error) bool {
 	if h.MonitoredEntityLimit > 0 {
 		msg = fmt.Sprintf("this instance allows at most %d integrations and systems combined; remove one to add another", h.MonitoredEntityLimit)
 	}
-	httpserver.WriteError(w, http.StatusConflict, msg)
+	// The plan sets the limit (Acceptable Use Policy 4.3), so the way past
+	// it is a bigger plan, named where the refusal is read.
+	if h.PlanURL != "" {
+		msg += ", or change plan at " + h.PlanURL
+	}
+	// The usual error body, with the link beside it for a client that
+	// wants to offer it as a button.
+	body := map[string]any{"error": map[string]any{"status": http.StatusConflict, "message": msg}}
+	if h.PlanURL != "" {
+		body["plan_url"] = h.PlanURL
+	}
+	httpserver.WriteJSON(w, http.StatusConflict, body)
 	return true
 }
 
@@ -100,6 +111,9 @@ func (h *Handlers) storageStatus(ctx context.Context) (StorageStatus, error) {
 // LimitsStatus is the deployment's limits as the app shows them. Each
 // half is absent when the deployment sets no such limit.
 type LimitsStatus struct {
+	// PlanURL is where the customer changes plan, when the deployment
+	// names one.
+	PlanURL           string         `json:"plan_url,omitempty"`
 	Storage           *StorageStatus `json:"storage,omitempty"`
 	MonitoredEntities *struct {
 		Used  int `json:"used"`
@@ -113,7 +127,7 @@ type LimitsStatus struct {
 // signed-in member: whoever is looking at a page with no new data
 // deserves the reason. Totals only, nothing per tenant.
 func (h *Handlers) getLimitsStatus(w http.ResponseWriter, r *http.Request) {
-	var out LimitsStatus
+	out := LimitsStatus{PlanURL: h.PlanURL}
 	if h.StorageLimit.Bytes > 0 {
 		st, err := h.storageStatus(r.Context())
 		if err != nil {

@@ -3334,6 +3334,8 @@ export interface AdvisorLedger {
 /** The deployment's limits on the instance (GET /limits). Each half is
  *  absent when no such limit is set. */
 export interface LimitsStatus {
+  /** Where the customer changes plan, when the deployment names one. */
+  plan_url?: string;
   storage?: {
     limit_bytes: number;
     used_bytes?: number;

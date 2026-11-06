@@ -13,6 +13,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -39,6 +40,25 @@ func MonitoredEntityLimitFromEnv() (int, error) {
 		return 0, fmt.Errorf("%s=%q: want a whole number of integrations and systems, e.g. 10", MonitoredEntityLimitEnv, raw)
 	}
 	return n, nil
+}
+
+// PlanURLEnv names where the customer changes plan, for the instance to
+// link to when a limit is reached.
+const PlanURLEnv = "SLUICIO_PLAN_URL"
+
+// PlanURLFromEnv reads SLUICIO_PLAN_URL. Unset is no link. Anything but an
+// absolute http(s) URL is an error rather than a broken link shown to
+// every admin at their limit.
+func PlanURLFromEnv() (string, error) {
+	raw := strings.TrimSpace(os.Getenv(PlanURLEnv))
+	if raw == "" {
+		return "", nil
+	}
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
+		return "", fmt.Errorf("%s=%q: want an absolute http(s) URL", PlanURLEnv, raw)
+	}
+	return raw, nil
 }
 
 // Store reads and writes the limits table.
