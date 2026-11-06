@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.194 — 2026-11-06
+
+- fix(deps): bump brotli to v1.2.7 and klauspost/compress to v1.20.2 (df90b5b)
+
 ## v0.11.193 — 2026-11-06
 
+- release v0.11.193 - refresh internal changelog (a0ed572)
 - feat(ui): call groups teams everywhere (defb907)
 - feat(messages): private and team saved views, and viewers may save their own (1a557fc)
 
