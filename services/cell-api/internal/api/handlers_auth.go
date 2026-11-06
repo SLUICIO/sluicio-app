@@ -134,7 +134,7 @@ func (h *Handlers) finishLogin(w http.ResponseWriter, r *http.Request, user iden
 		memberships = nil
 	}
 	h.recordAuthAudit(r.Context(), user, memberships, "login.succeeded", clientIP(r), nil)
-	http.SetCookie(w, sessionCookie(sess.ID, sess.ExpiresAt))
+	http.SetCookie(w, sessionCookie(r, sess.ID, sess.ExpiresAt))
 	httpserver.WriteJSON(w, http.StatusOK, loginResponse{
 		User:              user,
 		Memberships:       memberships,
@@ -575,11 +575,14 @@ func (h *Handlers) bootstrapAdmin(w http.ResponseWriter, r *http.Request) {
 //     origin while blocking CSRF from third-party form posts. Lax is
 //     the right floor for an SPA that hits /api/v1 on the same
 //     origin (via Vite's proxy in dev, same host in prod).
-//   - Secure is OFF in dev (the cell-api listens on plain http);
-//     production should toggle this on via the auth config.
+//   - Secure whenever the request came over HTTPS, directly or through
+//     a proxy that says so (X-Forwarded-Proto), so the session never
+//     travels in clear text where it does not have to (DPA Annex:
+//     encryption in transit). A self-hosted instance on plain HTTP still
+//     gets a cookie it can send back.
 //   - Max-Age derived from expires_at so the browser drops it on
 //     time even without a manual logout.
-func sessionCookie(sessionID string, expiresAt time.Time) *http.Cookie {
+func sessionCookie(r *http.Request, sessionID string, expiresAt time.Time) *http.Cookie {
 	return &http.Cookie{
 		Name:     middleware.SessionCookieName,
 		Value:    sessionID,
@@ -588,7 +591,7 @@ func sessionCookie(sessionID string, expiresAt time.Time) *http.Cookie {
 		MaxAge:   int(time.Until(expiresAt).Seconds()),
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
-		// Secure: true,  // ← enable in prod via auth config
+		Secure:   strings.HasPrefix(requestBaseURL(r), "https://"),
 	}
 }
 

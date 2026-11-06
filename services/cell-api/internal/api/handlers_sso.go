@@ -237,7 +237,7 @@ func (h *Handlers) ssoCallback(w http.ResponseWriter, r *http.Request) {
 		h.recordAuthAudit(r.Context(), user, nil, "login.succeeded", clientIP(r),
 			map[string]any{"method": "sso", "provider": p.Name})
 	}
-	http.SetCookie(w, sessionCookie(sess.ID, sess.ExpiresAt))
+	http.SetCookie(w, sessionCookie(r, sess.ID, sess.ExpiresAt))
 	http.Redirect(w, r, st.RedirectTo, http.StatusFound)
 }
 
