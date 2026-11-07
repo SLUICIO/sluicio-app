@@ -38,6 +38,24 @@ spec:
     files:
       config.d/init_db.sql: |
         CREATE DATABASE IF NOT EXISTS telemetry;
+      # ClickHouse's own log tables are not telemetry and nothing deletes
+      # them by default (deploy/clickhouse/README.md).
+      config.d/sluicio.xml: |
+        <clickhouse>
+            <logger><level>warning</level></logger>
+            <text_log remove="1"/>
+            <trace_log remove="1"/>
+            <metric_log remove="1"/>
+            <asynchronous_metric_log remove="1"/>
+            <processors_profile_log remove="1"/>
+            <query_thread_log remove="1"/>
+            <query_views_log remove="1"/>
+            <opentelemetry_span_log remove="1"/>
+            <session_log remove="1"/>
+            <query_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></query_log>
+            <part_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></part_log>
+            <error_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></error_log>
+        </clickhouse>
   templates:
     podTemplates:
       - name: ch-pod

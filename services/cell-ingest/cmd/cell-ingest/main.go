@@ -10,12 +10,15 @@ package main
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 
 	imclickhouse "github.com/sluicio/sluicio-app/pkg/clickhouse"
 	"github.com/sluicio/sluicio-app/pkg/env"
@@ -97,6 +100,7 @@ func main() {
 		logger.Info("storage limit set", "limit_bytes", storageLimit.Bytes, "action", storageLimit.Action)
 		go storage.Run(ctx, time.Minute)
 	}
+	go dropIdleSystemLogs(ctx, conn, logger)
 
 	wrap := func(signal string, h http.Handler) http.Handler {
 		return ingest.RequireIngestKey(keys, allowAnonymous, defaultOrgID, signal, logger, storage.Wrap(signal, h))
@@ -136,4 +140,27 @@ func main() {
 		os.Exit(1)
 	}
 	logger.Info("shutting down")
+}
+
+// dropIdleSystemLogs removes, every hour, ClickHouse's own log tables that
+// its configuration switched off (deploy/clickhouse/README.md): turning a
+// log off leaves its table, and gigabytes, on disk. A log still written
+// to is never dropped. Failing is only logged: it costs disk, not data.
+func dropIdleSystemLogs(ctx context.Context, conn driver.Conn, logger *slog.Logger) {
+	t := time.NewTicker(time.Hour)
+	defer t.Stop()
+	for {
+		dropped, err := imclickhouse.DropIdleSystemLogs(ctx, conn, time.Hour)
+		if err != nil {
+			logger.Warn("dropping idle ClickHouse system logs failed", "err", err)
+		}
+		if len(dropped) > 0 {
+			logger.Info("dropped idle ClickHouse system log tables", "tables", dropped)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+	}
 }

@@ -47,6 +47,10 @@ services:
 
   clickhouse:
     image: clickhouse/clickhouse-server:24.8
+    # ClickHouse's own log tables are not telemetry and nothing deletes
+    # them by default; this writes deploy/clickhouse/sluicio-logs.xml (kept
+    # inline so the file stays self-contained) before the server starts.
+    entrypoint: ["/bin/sh", "-c", "printf '%s' \"$$SLUICIO_CLICKHOUSE_CONFIG\" > /etc/clickhouse-server/config.d/sluicio.xml && exec /entrypoint.sh"]
     restart: unless-stopped
     ulimits:
       # ClickHouse wants a high nofile cap. The dev compose skips this
@@ -60,6 +64,22 @@ services:
       CLICKHOUSE_USER: ${CLICKHOUSE_USER}
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+      SLUICIO_CLICKHOUSE_CONFIG: |
+        <clickhouse>
+            <logger><level>warning</level></logger>
+            <text_log remove="1"/>
+            <trace_log remove="1"/>
+            <metric_log remove="1"/>
+            <asynchronous_metric_log remove="1"/>
+            <processors_profile_log remove="1"/>
+            <query_thread_log remove="1"/>
+            <query_views_log remove="1"/>
+            <opentelemetry_span_log remove="1"/>
+            <session_log remove="1"/>
+            <query_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></query_log>
+            <part_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></part_log>
+            <error_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></error_log>
+        </clickhouse>
     ports:
       - "127.0.0.1:8123:8123"   # HTTP — used by Sluicio's Go services
       - "127.0.0.1:9000:9000"   # native — used by clickhouse-client

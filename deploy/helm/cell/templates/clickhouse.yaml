@@ -19,6 +19,9 @@ spec:
   template:
     metadata:
       labels: {{- include "cell.selectorLabels" $ctx | nindent 8 }}
+      annotations:
+        # Restart ClickHouse when its configuration changes.
+        checksum/config: {{ .Files.Get "files/clickhouse-sluicio-logs.xml" | sha256sum }}
     spec:
       {{- include "cell.imagePullSecrets" . | nindent 6 }}
       {{- with .Values.clickhouse.podSecurityContext }}
@@ -51,6 +54,12 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /var/lib/clickhouse
+            # ClickHouse's own log tables are not telemetry and nothing
+            # deletes them by default (deploy/clickhouse/README.md).
+            - name: config
+              mountPath: /etc/clickhouse-server/config.d/sluicio.xml
+              subPath: sluicio.xml
+              readOnly: true
           readinessProbe:
             httpGet:
               path: /ping
@@ -58,6 +67,10 @@ spec:
             initialDelaySeconds: 10
             periodSeconds: 10
           resources: {{- toYaml .Values.clickhouse.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ .Release.Name }}-clickhouse-config
   volumeClaimTemplates:
     - metadata:
         name: data
@@ -69,6 +82,15 @@ spec:
         resources:
           requests:
             storage: {{ .Values.clickhouse.storage.size | quote }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-clickhouse-config
+  labels: {{- include "cell.labels" $ctx | nindent 4 }}
+data:
+  sluicio.xml: |
+{{ .Files.Get "files/clickhouse-sluicio-logs.xml" | indent 4 }}
 ---
 apiVersion: v1
 kind: Service
