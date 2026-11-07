@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.196 — 2026-11-07
+
+- fix(clickhouse): keep ClickHouse's own logs from filling the disk (8a16753)
+
 ## v0.11.195 — 2026-11-06
 
+- release v0.11.195 - refresh internal changelog (1cb2fde)
 - fix(auth): mark the session cookie Secure over HTTPS (7f97e9a)
 - fix(frontend): bundle the fonts instead of loading them from Google (976cf83)
 - chore(helm): give limits.planURL an explicit empty default (594301f)
