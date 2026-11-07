@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.197 — 2026-11-07
+
+- feat(managed): white-label for partners' managed instances, and no dead login link (6ae762f)
+
 ## v0.11.196 — 2026-11-07
 
+- release v0.11.196 - refresh internal changelog (bd6307c)
 - fix(clickhouse): keep ClickHouse's own logs from filling the disk (8a16753)
 
 ## v0.11.195 — 2026-11-06
