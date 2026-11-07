@@ -421,10 +421,15 @@ export default function Login({ onSuccess }: Props) {
               disabled={setupBusy || !email.trim() || !password || !setupConfirm} style={{ marginTop: 6 }}>
               {setupBusy ? "Setting up…" : "Create admin account"}
             </button>
-            <button type="button" className="btn btn--link"
-              onClick={() => { setError(null); setMode("login"); }} style={{ fontSize: 12.5 }}>
-              Skip — sign in with the seeded admin account
-            </button>
+            {/* The default admin exists only on a self-hosted install. On a
+                managed instance it has no password and cannot sign in, so
+                offering it would lead nowhere. */}
+            {!managed && (
+              <button type="button" className="btn btn--link"
+                onClick={() => { setError(null); setMode("login"); }} style={{ fontSize: 12.5 }}>
+                Skip: sign in with the default admin account
+              </button>
+            )}
           </form>
         ) : mode === "mfa" ? (
           <form onSubmit={submitMfa} className="form" style={{ display: "flex", flexDirection: "column", gap: 12 }}>

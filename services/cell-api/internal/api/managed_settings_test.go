@@ -42,7 +42,7 @@ type managedSettingsFixture struct {
 	viewer string
 }
 
-func newManagedSettingsFixture(t *testing.T, managed bool) *managedSettingsFixture {
+func newManagedSettingsFixture(t *testing.T, managed bool, opts ...func(*Handlers)) *managedSettingsFixture {
 	t.Helper()
 	pool, ctx := newIsolationDB(t)
 	idStore := identity.NewStore(pool)
@@ -55,6 +55,9 @@ func newManagedSettingsFixture(t *testing.T, managed bool) *managedSettingsFixtu
 		AuthMW:   &middleware.Resolver{Identity: idStore},
 		Logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
+	for _, o := range opts {
+		o(h)
+	}
 	mux := http.NewServeMux()
 	// The routes under test, wired exactly as handlers.go wires them.
 	mux.HandleFunc("PATCH /api/v1/cell-settings/retention", h.AuthMW.RequireOperator(h.patchRetention))
@@ -62,7 +65,7 @@ func newManagedSettingsFixture(t *testing.T, managed bool) *managedSettingsFixtu
 	mux.HandleFunc("PATCH /api/v1/cell-settings/system", h.operatorOrOrgAdmin(h.patchSystemSettings))
 	mux.HandleFunc("GET /api/v1/cell-settings/smtp", h.operatorOrOrgAdmin(h.getSMTP))
 	mux.HandleFunc("PATCH /api/v1/cell-settings/smtp", h.AuthMW.RequireOperator(h.patchSMTP))
-	mux.HandleFunc("PUT /api/v1/cell-settings/branding", h.AuthMW.RequireOperator(h.putBranding))
+	mux.HandleFunc("PUT /api/v1/cell-settings/branding", h.brandingEditor(h.putBranding))
 
 	orgs, err := idStore.ListOrgs(ctx)
 	if err != nil || len(orgs) == 0 {
@@ -186,5 +189,24 @@ func TestASelfHostedInstanceKeepsBothWithTheOperator(t *testing.T) {
 	}
 	if got := f.do(http.MethodGet, "/api/v1/cell-settings/security", f.admin, ""); got != http.StatusForbidden {
 		t.Errorf("org admin reading the security policy on a self-hosted install: got %d, want 403", got)
+	}
+}
+
+// White-label on a managed instance: only where the deployment grants it,
+// for a partner whose agreement includes it (PFA 6.1), and then to the
+// org admin, since there is no operator. 402 means the gate let the call
+// through to the licence check (no white_label entitlement in this test).
+func TestManagedWhiteLabelIsTheOrgAdminsOnlyWhereGranted(t *testing.T) {
+	body := `{"logo":""}`
+	f := newManagedSettingsFixture(t, true)
+	if got := f.do(http.MethodPut, "/api/v1/cell-settings/branding", f.admin, body); got != http.StatusForbidden {
+		t.Errorf("org admin on a managed instance without white-label: got %d, want 403", got)
+	}
+	f = newManagedSettingsFixture(t, true, func(h *Handlers) { h.ManagedWhiteLabel = true })
+	if got := f.do(http.MethodPut, "/api/v1/cell-settings/branding", f.admin, body); got != http.StatusPaymentRequired {
+		t.Errorf("org admin on a partner's managed instance: got %d, want through to the licence check (402)", got)
+	}
+	if got := f.do(http.MethodPut, "/api/v1/cell-settings/branding", f.viewer, body); got != http.StatusForbidden {
+		t.Errorf("viewer on a partner's managed instance: got %d, want 403", got)
 	}
 }

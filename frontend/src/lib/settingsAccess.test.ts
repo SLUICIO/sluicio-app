@@ -30,4 +30,14 @@ describe("canSeeSystemSubtab", () => {
     expect(canSeeSystemSubtab("announcements", operator)).toBe(true);
     expect(canSeeSystemSubtab("environments", managedAdmin)).toBe(true);
   });
+
+  // White-label on a managed instance is the org admin's only where the
+  // deployment grants it: a partner's instance whose agreement includes it.
+  // Everywhere else it is the operator's, on the Operator page.
+  it("offers branding only to the admin of a partner's managed instance", () => {
+    expect(canSeeSystemSubtab("branding", { ...managedAdmin, managedWhiteLabel: true })).toBe(true);
+    expect(canSeeSystemSubtab("branding", managedAdmin)).toBe(false);
+    expect(canSeeSystemSubtab("branding", { ...managedMember, managedWhiteLabel: true })).toBe(false);
+    expect(canSeeSystemSubtab("branding", operator)).toBe(false);
+  });
 });

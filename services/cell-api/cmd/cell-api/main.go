@@ -355,6 +355,7 @@ func main() {
 		// See the managed-mode block above: read from the environment once,
 		// passed everywhere it is needed.
 		Managed:                 managed,
+		ManagedWhiteLabel:       managed && env.Bool("SLUICIO_MANAGED_WHITE_LABEL", false),
 		EmailDisabled:           emailDisabled,
 		OrgManagementDisabled:   orgManagementDisabled,
 		MonitoredEntityLimit:    entityLimit,

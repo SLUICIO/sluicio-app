@@ -192,6 +192,7 @@ function fromMe(me: MeResponse): CurrentUserResponse {
     user,
     active_organization_id: me.principal.org_id || memberships[0]?.organization.id || "",
     managed: me.managed === true,
+    managed_white_label: me.managed_white_label === true,
     email_disabled: me.email_disabled === true,
     org_management_disabled: me.org_management_disabled === true,
   };

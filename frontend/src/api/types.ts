@@ -1553,6 +1553,9 @@ export interface CurrentUserResponse {
   // settings belong to the deployment, so the UI stops offering them. A
   // hint only - the server refuses them either way.
   managed?: boolean;
+  // True when the org admin may set the white-label mark on this managed
+  // instance (a partner's whose agreement includes it). A hint.
+  managed_white_label?: boolean;
   // True when email is turned off for the instance: no email channels and
   // no mail settings. Also only a hint.
   email_disabled?: boolean;
@@ -2749,6 +2752,9 @@ export interface MeResponse {
   // UI uses it to stop offering settings the deployment owns; the server
   // refuses them regardless, so this only decides what is shown.
   managed?: boolean;
+  // True when the org admin may set the white-label mark on this managed
+  // instance.
+  managed_white_label?: boolean;
   // True when email is turned off for the instance.
   email_disabled?: boolean;
   // True when the org's name and slug can't be changed from inside the

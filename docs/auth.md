@@ -160,7 +160,11 @@ it first.
     endpoint seals itself once the instance is claimed, as it always did.
   - **The claiming user becomes an admin of the org, not the instance
     operator.** A managed instance has no operator at all: the settings an
-    operator would hold belong to the platform that runs it.
+    operator would hold belong to the platform that runs it. One exception:
+    with `SLUICIO_MANAGED_WHITE_LABEL=true` the org admin sets the
+    white-label mark, under Settings -> System settings -> Branding, for an
+    instance run for a partner whose agreement includes white-label. The
+    licence's `white_label` entitlement is still required.
   - **A managed instance with no token configured refuses every claim**,
     and says so loudly in the startup log. An instance nobody can claim is
     a support call; an instance anybody can claim is somebody else's data.

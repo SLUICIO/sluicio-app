@@ -10,6 +10,8 @@ export interface SettingsViewer {
   isOperator: boolean;
   managed: boolean;
   isAdmin: boolean;
+  /** The org admin may set the white-label mark (a partner's managed instance). */
+  managedWhiteLabel?: boolean;
 }
 
 const INSTANCE_TABS = ["retention", "system", "license"];
@@ -21,6 +23,16 @@ export function canSeeSettingsTab(tab: string, viewer: SettingsViewer): boolean 
 
 // Announcements reach everyone on the instance and belong to whoever runs it,
 // so they stay hidden on a managed instance. Their routes refuse there too.
+// Branding is the operator's, on the Operator page; on a managed instance it
+// is here, for the org admin, only where the deployment grants white-label
+// (a partner's instance, PFA 6.1).
 export function canSeeSystemSubtab(sub: string, viewer: SettingsViewer): boolean {
-  return sub !== "announcements" || !viewer.managed;
+  switch (sub) {
+    case "announcements":
+      return !viewer.managed;
+    case "branding":
+      return viewer.managed && viewer.isAdmin && viewer.managedWhiteLabel === true;
+    default:
+      return true;
+  }
 }

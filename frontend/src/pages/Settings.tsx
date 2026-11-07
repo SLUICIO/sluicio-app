@@ -16,6 +16,7 @@
 // invalidate the other tabs' state.
 
 import TelemetryEnvironmentSettings from "../components/TelemetryEnvironmentSettings";
+import BrandingCard from "../components/BrandingCard";
 import { FormEvent, Fragment, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
@@ -133,13 +134,14 @@ function TabIcon({ k }: { k: TabKey }) {
 // (general knobs + SMTP + MFA + templates + announcements), so each area
 // gets its own panel. `?sub=` addresses them like `?tab=` does the page,
 // so other pages can deep-link (e.g. the email-channel hint on Alerts).
-type SystemSubKey = "general" | "environments" | "email" | "security" | "templates" | "announcements";
+type SystemSubKey = "general" | "environments" | "email" | "security" | "templates" | "branding" | "announcements";
 const SYSTEM_SUBTABS: { key: SystemSubKey; label: string }[] = [
   { key: "general", label: "General" },
   { key: "environments", label: "Environments" },
   { key: "email", label: "Email" },
   { key: "security", label: "Security" },
   { key: "templates", label: "Notification templates" },
+  { key: "branding", label: "Branding" },
   { key: "announcements", label: "Announcements" },
 ];
 
@@ -3301,9 +3303,9 @@ function RetentionTab() {
 // instance the org admin's: see lib/settingsAccess.ts.
 // Sub-tab lives in ?sub= for the same deep-link reasons as ?tab=.
 function SystemSettingsSection() {
-  const { can, isOperator, managed } = useCurrentUser();
+  const { can, isOperator, managed, managedWhiteLabel } = useCurrentUser();
   const isAdmin = can("org.manage");
-  const subtabs = SYSTEM_SUBTABS.filter((s) => canSeeSystemSubtab(s.key, { isOperator, managed, isAdmin }));
+  const subtabs = SYSTEM_SUBTABS.filter((s) => canSeeSystemSubtab(s.key, { isOperator, managed, isAdmin, managedWhiteLabel }));
   const [searchParams, setSearchParams] = useSearchParams();
   const subParam = searchParams.get("sub");
   const sub: SystemSubKey = subtabs.some((s) => s.key === subParam) ? (subParam as SystemSubKey) : "general";
@@ -3339,6 +3341,15 @@ function SystemSettingsSection() {
       {sub === "email" && <SmtpSettings isAdmin={isAdmin} />}
       {sub === "security" && <SecurityPolicy isAdmin={isAdmin} />}
       {sub === "templates" && <NotificationTemplateEditor scope="org" />}
+      {sub === "branding" && (
+        <div style={{ maxWidth: 720 }}>
+          <p className="muted" style={{ fontSize: 13, lineHeight: 1.55 }}>
+            Your logo and name in place of Sluicio&rsquo;s, on every page and sign-in screen of this instance and in
+            the emails it sends.
+          </p>
+          <BrandingCard />
+        </div>
+      )}
       {sub === "announcements" && <AnnouncementsAdmin />}
     </div>
   );

@@ -95,6 +95,12 @@ export interface CurrentUserContext {
    */
   managed: boolean;
   /**
+   * True when this managed instance's org admin may set its white-label
+   * mark: one run for a partner whose agreement includes it. A hint; the
+   * branding route enforces it.
+   */
+  managedWhiteLabel: boolean;
+  /**
    * True when email is turned off for the instance: there are no email
    * channels and no mail settings to offer. A hint; the server refuses both.
    */
@@ -167,6 +173,7 @@ export function useCurrentUser(): CurrentUserContext {
     // agree, or it offers a page that answers 403.
     isOperator: user.isOperator && data.managed !== true,
     managed: data.managed === true,
+    managedWhiteLabel: data.managed === true && data.managed_white_label === true,
     emailDisabled: data.email_disabled === true,
     orgManagementDisabled: data.org_management_disabled === true,
     signOut,

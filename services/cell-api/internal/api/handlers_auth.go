@@ -207,6 +207,9 @@ func (h *Handlers) me(w http.ResponseWriter, r *http.Request) {
 		// server would refuse. It is a HINT, not the boundary - every one of
 		// those refusals is enforced server-side too.
 		"managed": h.Managed,
+		// White-label is the org admin's on this managed instance (a
+		// partner's). A hint like managed; the branding route enforces it.
+		"managed_white_label": h.Managed && h.ManagedWhiteLabel,
 		// Email turned off for the instance: the UI stops offering email
 		// channels and mail settings. Also a hint - the server refuses both.
 		"email_disabled": h.EmailDisabled,

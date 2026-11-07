@@ -202,6 +202,12 @@ type Handlers struct {
 	// else, rather than by the people using it (SLUICIO_MANAGED). False is
 	// a self-hosted install, which behaves exactly as it always has.
 	Managed bool
+	// ManagedWhiteLabel (SLUICIO_MANAGED_WHITE_LABEL) lets the org admin of
+	// a managed instance set its white-label mark. The deployment turns it
+	// on for an instance run for a partner whose agreement includes
+	// white-label (PFA 6.1); every other managed instance keeps the
+	// Sluicio mark, since it has no operator to set one.
+	ManagedWhiteLabel bool
 	// EmailDisabled turns email off for the whole instance
 	// (SLUICIO_EMAIL_DISABLED): no email channels, no mail server to set,
 	// no mail sent. Independent of Managed.
@@ -263,6 +269,23 @@ type Handlers struct {
 // has no operator, so an operator-only route there is a setting nobody
 // can reach; handing it to the org's admin keeps the decision with the
 // org it is about.
+// brandingEditor gates the white-label mark: the operator's on a
+// self-hosted instance; on a managed one the org admin's where the
+// deployment allows it (ManagedWhiteLabel), and nobody's otherwise.
+func (h *Handlers) brandingEditor(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !h.Managed {
+			h.AuthMW.RequireOperator(next).ServeHTTP(w, r)
+			return
+		}
+		if !h.ManagedWhiteLabel {
+			httpserver.WriteError(w, http.StatusForbidden, "white-label is not available on this instance")
+			return
+		}
+		h.AuthMW.RequireRole(identity.Role.CanAdmin, next).ServeHTTP(w, r)
+	}
+}
+
 func (h *Handlers) operatorOrOrgAdmin(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if h.Managed {
@@ -1620,7 +1643,7 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	// handlers_operator.go. In single-org self-hosted the bootstrap admin
 	// is the operator, so nothing here is out of reach for that deploy.
 	if h.AuthMW != nil {
-		mux.HandleFunc("PUT /api/v1/cell-settings/branding", h.AuthMW.RequireOperator(h.putBranding))
+		mux.HandleFunc("PUT /api/v1/cell-settings/branding", h.brandingEditor(h.putBranding))
 		mux.HandleFunc("GET /api/v1/operator/orgs", h.AuthMW.RequireOperator(h.listOperatorOrgs))
 		mux.HandleFunc("POST /api/v1/operator/orgs", h.AuthMW.RequireOperator(h.createOperatorOrg))
 		mux.HandleFunc("PATCH /api/v1/operator/orgs/{id}", h.AuthMW.RequireOperator(h.updateOperatorOrg))
