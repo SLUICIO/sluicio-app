@@ -42,8 +42,8 @@ import { useCurrentUser } from "../lib/useCurrentUser";
 interface Props {
   // Source of the displayed identity. null while loading.
   detail: IntegrationDetail | null;
-  // Optional right-side header slot — Overview uses it for Clone and
-  // Delete. "Edit integration" is not passed in: it renders here for
+  // Optional right-side header slot: Clone and Delete on Overview, Clone
+  // on Edit integration. "Edit integration" is not passed in: it renders here for
   // every tab, so it does not vanish the moment you leave Overview.
   actions?: ReactNode;
   // Optional slot rendered under the stats line — Overview uses it

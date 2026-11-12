@@ -22,6 +22,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api/client";
 import IntegrationPageHeader from "../components/IntegrationPageHeader";
+import CloneIntegrationButton from "../components/integrations/CloneIntegrationButton";
 import PublicBadgeControl from "../components/PublicBadgeControl";
 import MessageColumnsEditor from "../components/integrations/MessageColumnsEditor";
 import MessageFiltersEditor from "../components/integrations/MessageFiltersEditor";
@@ -176,7 +177,13 @@ export default function IntegrationSettings() {
 
   return (
     <div className="flex flex-col gap-6">
-      <IntegrationPageHeader detail={integration} />
+      <IntegrationPageHeader
+        detail={integration}
+        actions={
+          integration &&
+          canWrite && <CloneIntegrationButton integrationId={id} name={integration.integration.name} />
+        }
+      />
       {/* The integration's OWN tab strip (Overview/Messages/Metrics/…) stays
           hidden here, mirroring the service editor, so this reads as a
           focused settings page. The strip below is a different thing: it
