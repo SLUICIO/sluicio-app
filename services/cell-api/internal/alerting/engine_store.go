@@ -502,7 +502,11 @@ type DeliveryJob struct {
 	// rather than threading it through the seven label maps the engine
 	// builds is deliberate: one join means no firing path can silently
 	// omit it, which is precisely how a per-map field gets missed.
-	RuleRunbook   string
+	RuleRunbook string
+	// RuleSpec is the owning rule's rule_spec, read at claim time so the
+	// notification can name the attribute values of the message that met
+	// the rule's filter (RuleFilterOf).
+	RuleSpec      json.RawMessage
 	IntegrationID *uuid.UUID // rule's integration scope, if any
 	// RuleGroupID is the owning rule's team (nil = org-wide) — read at
 	// claim time so the delivery worker resolves the message-template
@@ -531,7 +535,8 @@ func (s *Store) ClaimDueJobs(ctx context.Context, limit int) ([]DeliveryJob, err
 		       COALESCE(j.for_state::text, i.state::text), i.state, COALESCE(i.summary, ''), i.labels,
 		       COALESCE(r.title_template, ''), COALESCE(r.body_template, ''),
 		       COALESCE(r.signal::text, ''), COALESCE(r.rule_spec->>'kind', ''), r.integration_id,
-		       r.group_id, COALESCE(r.notification_config, '{}'::jsonb), COALESCE(r.runbook, '')
+		       r.group_id, COALESCE(r.notification_config, '{}'::jsonb), COALESCE(r.runbook, ''),
+		       COALESCE(r.rule_spec, '{}'::jsonb)
 		FROM notification_jobs j
 		JOIN notification_channels c ON c.id = j.channel_id
 		JOIN alert_instances i ON i.id = j.alert_instance_id
@@ -559,6 +564,7 @@ func (s *Store) ClaimDueJobs(ctx context.Context, limit int) ([]DeliveryJob, err
 			&j.State, &j.InstanceState, &j.Summary, &lbl,
 			&j.TitleTemplate, &j.BodyTemplate,
 			&j.RuleSignal, &j.RuleKind, &j.IntegrationID, &j.RuleGroupID, &nc, &j.RuleRunbook,
+			&j.RuleSpec,
 		); err != nil {
 			rows.Close()
 			return nil, err

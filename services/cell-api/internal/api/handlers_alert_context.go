@@ -11,6 +11,8 @@ import (
 
 	"github.com/sluicio/sluicio-app/pkg/httpserver"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/alerting"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/envctx"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/identity"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/store"
 )
 
@@ -35,6 +37,15 @@ func (h *Handlers) ResolveAlertContext(ctx context.Context, job alerting.Deliver
 		sf := &alerting.ServiceFacts{Name: name, Status: job.Labels["service_status"]}
 		if meta, err := h.serviceMetadataValues(ctx, name); err == nil && len(meta) > 0 {
 			sf.Metadata = meta
+		}
+		// Which integrations the service is in, so a service-bound alert
+		// still names the integration it concerns.
+		if job.IntegrationID == nil && h.Resolver != nil {
+			if integs, err := h.Resolver.IntegrationsFor(ctx, orgID, name); err == nil {
+				for _, in := range integs {
+					sf.Integrations = append(sf.Integrations, in.Name)
+				}
+			}
 		}
 		out.Service = sf
 	}
@@ -65,6 +76,9 @@ func (h *Handlers) ResolveAlertContext(ctx context.Context, job alerting.Deliver
 		}
 	} else if out.Service != nil {
 		excServices = []string{out.Service.Name}
+	}
+	if job.State == "firing" && h.Store != nil && len(excServices) > 0 {
+		h.resolveTriggeringMessage(ctx, job, excServices, excGroups, out)
 	}
 	if job.State == "firing" && h.Store != nil && len(excServices) > 0 {
 		now := time.Now()
@@ -149,4 +163,68 @@ func (h *Handlers) previewAlertTemplate(w http.ResponseWriter, r *http.Request) 
 	}
 	subject, body := alerting.RenderForPreview(r.Context(), kind, req.Content, alerting.SampleAlertContext())
 	httpserver.WriteJSON(w, http.StatusOK, map[string]string{"subject": subject, "body": body})
+}
+
+// triggerLookbackFloor is the least a firing notification looks back for
+// the message it is about: a check evaluated a minute ago over a one
+// minute window may have counted a message from just before.
+const triggerLookbackFloor = 15 * time.Minute
+
+// resolveTriggeringMessage fills out.Message with the newest message in
+// the rule's scope that met the rule's filter, and what it carried for
+// each of the filter's keys. A per-environment alert reads its own
+// environment; a check read across environments takes the environment
+// from that message. Best-effort, like the rest of the enrichment.
+func (h *Handlers) resolveTriggeringMessage(ctx context.Context, job alerting.DeliveryJob, services []string, groups [][]store.LogAttrFilter, out *alerting.AlertContext) {
+	f, ok := alerting.RuleFilterOf(job.RuleSignal, job.RuleKind, job.RuleSpec)
+	if !ok {
+		return
+	}
+	// Keys go into the statement as text; a rule saved through the API
+	// already passed this check, and one that did not is skipped rather
+	// than trusted.
+	var keys []string
+	for _, k := range f.Keys() {
+		if attrKeyRe.MatchString(k) {
+			keys = append(keys, k)
+		}
+	}
+	if len(keys) == 0 {
+		return
+	}
+	// A log rule on an integration reads its log sources too (#43), as
+	// the check itself does.
+	if f.Logs && job.IntegrationID != nil {
+		if svcs, g, err := h.integrationSignalScope(ctx, *job.IntegrationID, services, identity.SignalLogs); err == nil {
+			services, groups = svcs, g
+		}
+	}
+	if env, ok := job.Labels[alerting.EnvironmentLabel]; ok {
+		groups = store.WithEnvironment(groups, env)
+	}
+	window := f.Window
+	if window < triggerLookbackFloor {
+		window = triggerLookbackFloor
+	}
+	now := time.Now()
+	q := store.TriggerQuery{
+		Services: services, From: now.Add(-window), To: now,
+		Attrs: ruleAttrsToStore(f.Attrs), Groups: groups, ErrorsOnly: f.ErrorsOnly, Keys: keys,
+	}
+	read := h.Store.LatestTriggeringSpan
+	if f.Logs {
+		read = h.Store.LatestTriggeringLog
+	}
+	rec, found, err := read(ctx, q)
+	if err != nil {
+		h.Logger.Warn("alert context: triggering message failed", "err", err)
+		return
+	}
+	if !found || len(rec.Values) == 0 {
+		return
+	}
+	out.Message = &alerting.MessageFacts{TraceID: rec.TraceID, Service: rec.ServiceName, Attributes: rec.Values}
+	if _, perEnv := job.Labels[alerting.EnvironmentLabel]; !perEnv && rec.Environment != "" {
+		out.Alert.Environment = envctx.Display(rec.Environment)
+	}
 }

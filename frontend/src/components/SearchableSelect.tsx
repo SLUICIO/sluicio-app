@@ -45,6 +45,10 @@ interface Props {
   // "field" is the size of a form's text inputs (search__input), for a
   // select inside a form of fields, so the row lines up.
   variant?: "toolbar" | "field";
+  // Optional heading per option: options are passed already ordered by
+  // group, and a heading is drawn where the group changes ("Supporting
+  // telemetry", then "Other metrics"). Options without one get none.
+  groupOf?: (v: string) => string | undefined;
 }
 
 // The "add what was typed" entry, never a real option value.
@@ -63,6 +67,7 @@ export default function SearchableSelect({
   creatable = false,
   createLabel = (typed) => `Add “${typed}”`,
   variant = "toolbar",
+  groupOf,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -234,9 +239,22 @@ export default function SearchableSelect({
             />
           </div>
           <div style={{ maxHeight: coords.listMax, overflowY: "auto" }}>
-            {filtered.map((opt, i) => (
+            {filtered.map((opt, i) => {
+              const group = groupOf && opt !== "" && opt !== CREATE ? groupOf(opt) : undefined;
+              const prev = i > 0 && groupOf ? filtered[i - 1] : undefined;
+              const prevGroup = prev && prev !== "" && prev !== CREATE ? groupOf!(prev) : undefined;
+              return (
+              <div key={opt === CREATE ? "__create__" : opt || "__all__"}>
+              {group && group !== prevGroup && (
+                <div
+                  role="presentation"
+                  className="muted"
+                  style={{ padding: "8px 10px 2px", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.4 }}
+                >
+                  {group}
+                </div>
+              )}
               <button
-                key={opt === CREATE ? "__create__" : opt || "__all__"}
                 type="button"
                 role="option"
                 aria-selected={opt === value}
@@ -258,7 +276,9 @@ export default function SearchableSelect({
               >
                 {opt === "" ? allLabel : opt === CREATE ? createLabel(query.trim()) : labelFor(opt)}
               </button>
-            ))}
+              </div>
+              );
+            })}
             {realMatches === 0 && !filtered.includes(CREATE) && query.trim() !== "" && (
               <div className="muted" style={{ padding: "6px 10px", fontSize: 12 }}>
                 No matches

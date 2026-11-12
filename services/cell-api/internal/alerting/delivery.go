@@ -177,9 +177,14 @@ func messageFromJob(ctx context.Context, job DeliveryJob, product, env, company 
 	// integration / metadata) resolved at delivery time.
 	actx := contextFromJob(job, product, env, company, link)
 	enr := resolveEnrichment(ctx, job)
-	actx.Service, actx.Integration, actx.Exception = enr.Service, enr.Integration, enr.Exception
+	actx.Service, actx.Integration, actx.Exception, actx.Message = enr.Service, enr.Integration, enr.Exception, enr.Message
 	if enr.Check != nil {
 		actx.Check = enr.Check
+	}
+	// A check not read per environment learns the environment from the
+	// message it is about, when there is one.
+	if actx.Alert.Environment == "" && enr.Alert.Environment != "" {
+		actx.Alert.Environment = enr.Alert.Environment
 	}
 	content := job.Content
 	legacyTmpl := job.BodyTemplate != "" || job.TitleTemplate != ""
@@ -198,6 +203,13 @@ func messageFromJob(ctx context.Context, job DeliveryJob, product, env, company 
 	if job.TitleTemplate != "" {
 		if rendered, ok := renderTemplate(job.TitleTemplate, data); ok {
 			subject = rendered
+		}
+	}
+	// Where the alert is and what the message carried, under the
+	// summary: what Slack and PagerDuty show when no template is set.
+	if job.BodyTemplate == "" {
+		if facts := actx.factLines(); len(facts) > 0 {
+			body += "\n" + strings.Join(facts, "\n")
 		}
 	}
 	if link != "" && !strings.Contains(body, link) {

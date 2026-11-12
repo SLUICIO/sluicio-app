@@ -105,6 +105,11 @@ func SampleAlertContext() *AlertContext {
 			TraceID:    "4bf92f3577b34da6a3ce929d0e0e4736",
 			Stacktrace: "System.InvalidOperationException: Payment provider returned 503 for order ORD-10432\n   at Checkout.PaymentClient.ChargeAsync(Order order) in PaymentClient.cs:line 88\n   at Checkout.OrderHandler.HandleAsync(Order order) in OrderHandler.cs:line 41",
 		},
+		Message: &MessageFacts{
+			TraceID:    "4bf92f3577b34da6a3ce929d0e0e4736",
+			Service:    "checkout-api",
+			Attributes: map[string]string{"order.id": "ORD-10432", "payment.provider": "acme-pay"},
+		},
 		// The wordmark is the real one, not a placeholder: the preview and
 		// the variable palette are where a partner checks that their brand
 		// reaches the email, and showing them "Sluicio" there would be the

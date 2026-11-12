@@ -25,6 +25,7 @@ import type {
   RetentionResponse,
 } from "../../api/types";
 import SearchableSelect from "../SearchableSelect";
+import { orderMetricOptions, sourceMetrics } from "../../lib/metricSuggestions";
 import { EditDrawer } from "../primitives";
 import { anchorTransform, useAnchoredPosition } from "../primitives/useAnchoredPosition";
 import { CHECK_PARAM } from "../../lib/checkEditHref";
@@ -620,9 +621,43 @@ function HealthCheckEditor({
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  // On an integration, its supporting telemetry and its own services'
+  // metrics come first (lib/metricSuggestions), under headings.
+  const [metricGroupOf, setMetricGroupOf] = useState<((n: string) => string | undefined) | undefined>(undefined);
   useEffect(() => {
-    api.metricCatalog(win, {}).then((r) => setMetricNames((r.metrics ?? []).map((m) => m.name))).catch(() => setMetricNames([]));
-  }, [win]);
+    let active = true;
+    const names = (r: { metrics?: { name: string }[] }) => (r.metrics ?? []).map((m) => m.name);
+    const all = api.metricCatalog(win, {}).then(names).catch(() => [] as string[]);
+    const scoped =
+      scope === "integration" && target
+        ? api
+            .getIntegration(target)
+            .then(async (d) => {
+              const sources = (d.sources ?? []).filter((s) => s.signal === "metrics");
+              const supporting = await Promise.all(
+                sources.map(async (s) => {
+                  const origins = s.origin_kind === "service" ? [s.origin] : s.origin_services;
+                  const sent = await Promise.all(
+                    origins.map((svc) => api.metricCatalog(win, { service: svc }).then(names).catch(() => [] as string[])),
+                  );
+                  return sourceMetrics(sent.flat(), s.metric_names);
+                }),
+              );
+              const own = await api.metricCatalog(win, { integration: d.integration.name }).then(names).catch(() => [] as string[]);
+              return { supporting: supporting.flat(), own };
+            })
+            .catch(() => ({ supporting: [] as string[], own: [] as string[] }))
+        : Promise.resolve({ supporting: [] as string[], own: [] as string[] });
+    Promise.all([all, scoped]).then(([everything, { supporting, own }]) => {
+      if (!active) return;
+      const ordered = orderMetricOptions(supporting, own, everything);
+      setMetricNames(ordered.options);
+      setMetricGroupOf(() => ordered.groupOf);
+    });
+    return () => {
+      active = false;
+    };
+  }, [win, scope, target]);
 
   // Load the chosen metric's attribute keys for the filter picker. Skip the
   // attrs-reset on the first run so a rule's pre-filled attributes survive
@@ -798,6 +833,7 @@ function HealthCheckEditor({
             value={metric}
             onChange={setMetric}
             options={metricNames}
+            groupOf={metricGroupOf}
             allLabel="Choose a metric…"
             placeholder="Filter metrics…"
           />

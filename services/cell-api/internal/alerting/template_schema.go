@@ -69,6 +69,7 @@ var templateVariableDocs = map[string]varDoc{
 	"service.status":         {"ok | errors | quiet | unhealthy", "service-scoped rules"},
 	"service.error_count":    {"error traces in the current window", "service-scoped rules"},
 	"service.metadata.<key>": {"a service metadata field (also iterable: {% for kv in service.metadata %})", "service-scoped rules with the metadata block enabled"},
+	"service.integrations":   {"the names of the integrations the service is in (iterable)", "service-scoped rules, when the service is in an integration"},
 
 	"integration.name":           {"the integration's name", "integration-scoped rules"},
 	"integration.slug":           {"the integration's slug", "integration-scoped rules"},
@@ -81,6 +82,10 @@ var templateVariableDocs = map[string]varDoc{
 	"exception.service":    {"the service whose span recorded it", "when exception.type is set"},
 	"exception.trace_id":   {"the trace it was recorded in", "when exception.type is set"},
 	"exception.stacktrace": {"its stack trace, as recorded (long; cut at 16 KB at ingest)", "when exception.type is set and a stack trace was recorded"},
+
+	"message.attributes.<key>": {"what the message the alert is about carried for each key in the rule's filter (also iterable: {% for kv in message.attributes %})", "firing notifications of log, failed-trace and trace-attribute rules with a filter, when a message in scope matched it"},
+	"message.trace_id":         {"the trace that message belongs to", "when message.attributes is set"},
+	"message.service":          {"the service that recorded it", "when message.attributes is set"},
 
 	"org.company":     {"the organization's company name", "when configured"},
 	"org.environment": {"the cell's environment label", "when configured"},

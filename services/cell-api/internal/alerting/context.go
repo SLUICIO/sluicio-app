@@ -44,8 +44,11 @@ type AlertContext struct {
 	Service     *ServiceFacts     `json:"service,omitempty"`
 	Integration *IntegrationFacts `json:"integration,omitempty"`
 	Exception   *ExceptionFacts   `json:"exception,omitempty"`
-	Org         OrgFacts          `json:"org"`
-	SentAt      string            `json:"sent_at"`
+	// Message is the message the alert is about, with the values of the
+	// rule's filter keys (see MessageFacts).
+	Message *MessageFacts `json:"message,omitempty"`
+	Org     OrgFacts      `json:"org"`
+	SentAt  string        `json:"sent_at"`
 }
 
 type AlertFacts struct {
@@ -92,6 +95,9 @@ type ServiceFacts struct {
 	Status     string            `json:"status,omitempty"`
 	ErrorCount int               `json:"error_count"`
 	Metadata   map[string]string `json:"metadata,omitempty"`
+	// Integrations are the names of the integrations the service is in,
+	// so a service-bound alert still says which integration it concerns.
+	Integrations []string `json:"integrations,omitempty"`
 }
 
 type IntegrationFacts struct {
@@ -327,6 +333,11 @@ func (c *AlertContext) bindings(content NotificationContent) map[string]any {
 			integ["metadata"] = metaPairs(c.Integration.Metadata)
 		}
 	}
+	if c.Message != nil {
+		if msg, ok := m["message"].(map[string]any); ok {
+			msg["attributes"] = metaPairs(c.Message.Attributes)
+		}
+	}
 	m["include"] = map[string]any{
 		"service":              content.Service,
 		"integration":          content.Integration,
@@ -365,6 +376,11 @@ func (c *AlertContext) webhookPayload(content NotificationContent) map[string]an
 		"sent_at":  c.SentAt,
 		"source":   "sluicio",
 	}
+	// The telemetry environment the alert is about (#40), when it is
+	// about one: the receiver routes on it as people do.
+	if c.Alert.Environment != "" {
+		p["environment"] = c.Alert.Environment
+	}
 	if content.Check && c.Check != nil {
 		p["check"] = c.Check
 	}
@@ -375,12 +391,20 @@ func (c *AlertContext) webhookPayload(content NotificationContent) map[string]an
 		}
 		p["service"] = s
 	}
-	if content.Integration && c.Integration != nil {
+	// The integration is named whatever the toggles say: an alert that
+	// does not say which integration it is about sends the reader looking.
+	// The toggle still decides its metadata.
+	if c.Integration != nil {
 		i := *c.Integration
 		if !content.IntegrationMetadata {
 			i.Metadata = nil
 		}
 		p["integration"] = i
+	} else if c.Service != nil && len(c.Service.Integrations) > 0 {
+		p["integrations"] = c.Service.Integrations
+	}
+	if c.Message != nil {
+		p["message"] = c.Message
 	}
 	// Not behind a toggle: it is present only when something in scope
 	// recorded an exception, and a receiver that does not know the key
@@ -395,7 +419,7 @@ func (c *AlertContext) webhookPayload(content NotificationContent) map[string]an
 // templates used when neither the rule nor the org override them. The body is
 // a self-contained responsive HTML layout; blocks are gated on the rule's
 // content toggles so an un-toggled rule still produces a clean email.
-const DefaultEmailSubject = `{{ org.product }}{% if org.environment %} {{ org.environment }}{% endif %} — [{{ alert.state | upcase }}] {{ rule.name | default: alert.summary }}{% if org.company %} — {{ org.company }}{% endif %}`
+const DefaultEmailSubject = `{{ org.product }}{% if org.environment %} {{ org.environment }}{% endif %} — [{{ alert.state | upcase }}] {{ rule.name | default: alert.summary }}{% if integration %} · {{ integration.name }}{% endif %}{% if alert.environment %} · {{ alert.environment }}{% endif %}{% if org.company %} — {{ org.company }}{% endif %}`
 
 const DefaultEmailBody = `<!doctype html>
 <html><body style="margin:0;background:#f1f5f9;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#0f172a;">
@@ -408,6 +432,16 @@ const DefaultEmailBody = `<!doctype html>
         <tr><td style="padding:24px;">
           <div style="font-size:18px;font-weight:700;margin-bottom:4px;">{{ rule.name | default: alert.summary }}</div>
           <div style="font-size:14px;color:#475569;white-space:pre-line;">{{ alert.summary }}</div>
+          {% if integration or alert.environment or service.integrations %}
+          <div style="font-size:13px;color:#475569;margin-top:8px;">{% if integration %}Integration <b>{{ integration.name }}</b>{% elsif service.integrations %}Integration <b>{{ service.integrations | join: ", " }}</b>{% endif %}{% if alert.environment %}{% if integration or service.integrations %} · {% endif %}Environment <b>{{ alert.environment }}</b>{% endif %}</div>
+          {% endif %}
+          {% if message.attributes.size > 0 %}
+          <div style="margin-top:16px;border-top:1px solid #e2e8f0;padding-top:12px;">
+            <div style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#64748b;font-weight:600;">Message</div>
+            <table style="margin-top:6px;font-size:13px;">{% for kv in message.attributes %}<tr><td style="color:#64748b;padding-right:10px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;">{{ kv.key | escape }}</td><td>{{ kv.value | escape }}</td></tr>{% endfor %}</table>
+            {% if message.trace_id %}<div style="font-size:12px;color:#94a3b8;margin-top:4px;">trace {{ message.trace_id }}{% if message.service %} on {{ message.service | escape }}{% endif %}</div>{% endif %}
+          </div>
+          {% endif %}
           {% if include.check and check %}
           <div style="margin-top:16px;border-top:1px solid #e2e8f0;padding-top:12px;">
             <div style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#64748b;font-weight:600;">Failing check</div>
