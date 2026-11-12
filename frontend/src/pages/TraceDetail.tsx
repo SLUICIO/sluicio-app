@@ -67,6 +67,21 @@ function traceRange(spans: SpanSummary[]): Range {
   return { start, end };
 }
 
+const DETAILS_OPEN_KEY = "sluicio.trace.detailsOpen";
+
+function useIsWide(): boolean {
+  const query = "(min-width: 1024px)";
+  const [wide, setWide] = useState(() => typeof window !== "undefined" && window.matchMedia?.(query).matches === true);
+  useEffect(() => {
+    const mq = window.matchMedia?.(query);
+    if (!mq) return;
+    const on = () => setWide(mq.matches);
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, []);
+  return wide;
+}
+
 export default function TraceDetail() {
   const { traceId = "" } = useParams();
   const navigate = useNavigate();
@@ -89,6 +104,27 @@ export default function TraceDetail() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedSpan, setSelectedSpan] = useState<string | null>(null);
+  // The span details rail: folded by default, and remembered per browser
+  // once the reader unfolds it, so it does not have to be opened again
+  // on every trace.
+  const [detailsOpen, setDetailsOpenState] = useState<boolean>(() => {
+    try {
+      return window.localStorage.getItem(DETAILS_OPEN_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const setDetailsOpen = (open: boolean) => {
+    setDetailsOpenState(open);
+    try {
+      window.localStorage.setItem(DETAILS_OPEN_KEY, open ? "1" : "0");
+    } catch {
+      // Storage unavailable: the choice lasts for this page only.
+    }
+  };
+  // Side by side only from the lg breakpoint; below it the details stack
+  // under the page and there is no width to save by folding them.
+  const isWide = useIsWide();
   // Which view of the trace is on screen.
   //
   // Steps leads, because it answers the question people arrive with:
@@ -459,7 +495,14 @@ export default function TraceDetail() {
       )}
 
       {data && services.length > 0 && (
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1.5fr_1fr]">
+        <div
+          className="grid grid-cols-1 gap-4"
+          style={
+            selectedSpanRecord
+              ? { gridTemplateColumns: isWide ? `minmax(0, 1fr) ${detailsOpen ? "440px" : "44px"}` : undefined }
+              : undefined
+          }
+        >
           {/* Left: flow + waterfall (and optionally logs from the error span) */}
           {/* min-w-0: a grid item defaults to min-width:auto, so it
               refuses to shrink below its widest content. A deep trace
@@ -467,6 +510,50 @@ export default function TraceDetail() {
               column past its grid track — dragging the entire page
               right rather than staying inside its own card. */}
           <div className="flex min-w-0 flex-col gap-4">
+            {/* What the message touched, and what failed, lead the page:
+                they answer the first question before the steps do. */}
+            {hasError ? (
+              <TraceErrorPanel errorSpan={primaryErrorSpan} />
+            ) : (
+              <section
+                className="rounded-lg border bg-surface-2 p-4"
+                style={{ borderColor: "var(--border)" }}
+              >
+                <h3 className="text-base font-semibold">Services in this trace</h3>
+                <div className="mt-3 flex flex-wrap gap-1">
+                  {services.map((s) => (
+                    <ServiceRef key={s.name} className="badge" name={s.name}>
+                      {s.name}
+                      <span className="muted"> · {s.count}</span>
+                    </ServiceRef>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {errorSpans.length > 1 && (
+              <section
+                className="rounded-lg border bg-surface-2 p-4"
+                style={{ borderColor: "var(--border)" }}
+              >
+                <h3 className="text-base font-semibold">All error spans ({errorSpans.length})</h3>
+                <ul className="mt-2 space-y-1 text-sm">
+                  {errorSpans.map((s) => (
+                    <li key={s.span_id}>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedSpan(s.span_id)}
+                        className="text-left hover:underline"
+                      >
+                        <span className="font-medium">{s.service_name}</span>
+                        <span className="text-muted"> · {s.span_name}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+
             <section
               className="overflow-hidden rounded-lg border bg-surface-2"
               style={{ borderColor: "var(--border)" }}
@@ -604,63 +691,44 @@ export default function TraceDetail() {
             />
           </div>
 
-          {/* Right rail: the selected span's details sit here and are
-              sticky, so they stay beside the waterfall as the user scrolls
-              a long trace — instead of being pushed below it. Below the
-              details: the error panel (or services list). */}
-          <aside
-            className="flex flex-col gap-4 lg:sticky lg:top-20"
-            style={{ alignSelf: "start" }}
-          >
-            {selectedSpanRecord && (
-              <SpanDetailsPanel
-                span={selectedSpanRecord}
-                keyAttrs={keyAttrs}
-                onClose={() => setSelectedSpan(null)}
-              />
-            )}
-            {hasError ? (
-              <TraceErrorPanel errorSpan={primaryErrorSpan} />
-            ) : (
-              <section
-                className="rounded-lg border bg-surface-2 p-4"
-                style={{ borderColor: "var(--border)" }}
-              >
-                <h3 className="text-base font-semibold">Services in this trace</h3>
-                <div className="mt-3 flex flex-wrap gap-1">
-                  {services.map((s) => (
-                    <ServiceRef key={s.name} className="badge" name={s.name}>
-                      {s.name}
-                      <span className="muted"> · {s.count}</span>
-                    </ServiceRef>
-                  ))}
-                </div>
-              </section>
-            )}
-
-            {errorSpans.length > 1 && (
-              <section
-                className="rounded-lg border bg-surface-2 p-4"
-                style={{ borderColor: "var(--border)" }}
-              >
-                <h3 className="text-base font-semibold">All error spans ({errorSpans.length})</h3>
-                <ul className="mt-2 space-y-1 text-sm">
-                  {errorSpans.map((s) => (
-                    <li key={s.span_id}>
-                      <button
-                        type="button"
-                        onClick={() => setSelectedSpan(s.span_id)}
-                        className="text-left hover:underline"
-                      >
-                        <span className="font-medium">{s.service_name}</span>
-                        <span className="text-muted"> · {s.span_name}</span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            )}
-          </aside>
+          {/* The selected span's details, folded to a narrow rail by
+              default so the steps and the waterfall keep the width; the
+              reader unfolds it, and it stays unfolded until folded again.
+              Sticky, so they stay beside the waterfall in a long trace. */}
+          {selectedSpanRecord && (
+            <aside className="flex flex-col gap-4 lg:sticky lg:top-20" style={{ alignSelf: "start", minWidth: 0 }}>
+              {detailsOpen || !isWide ? (
+                <SpanDetailsPanel
+                  span={selectedSpanRecord}
+                  keyAttrs={keyAttrs}
+                  onClose={() => setSelectedSpan(null)}
+                  onFold={isWide ? () => setDetailsOpen(false) : undefined}
+                />
+              ) : (
+                <button
+                  type="button"
+                  className="rounded-lg border bg-surface-2"
+                  style={{
+                    borderColor: "var(--border)",
+                    width: 44,
+                    padding: "12px 0",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    gap: 8,
+                    cursor: "pointer",
+                    color: "var(--ink)",
+                  }}
+                  onClick={() => setDetailsOpen(true)}
+                  title={`Show the attributes of ${selectedSpanRecord.service_name} · ${selectedSpanRecord.span_name}`}
+                  aria-label="Show span attributes"
+                >
+                  <span aria-hidden>‹</span>
+                  <span style={{ writingMode: "vertical-rl", fontSize: 12, fontWeight: 600 }}>Attributes</span>
+                </button>
+              )}
+            </aside>
+          )}
         </div>
       )}
     </div>
@@ -675,10 +743,12 @@ function SpanDetailsPanel({
   span,
   keyAttrs,
   onClose,
+  onFold,
 }: {
   span: SpanSummary;
   keyAttrs: string[];
   onClose: () => void;
+  onFold?: () => void;
 }) {
   // A call to action is dropped rather than rendered inert for a
   // reader who cannot open a service (issue #32).
@@ -712,6 +782,18 @@ function SpanDetailsPanel({
           >
             open service →
           </Link>
+          )}
+          {onFold && (
+            <button
+              type="button"
+              className="btn btn--link"
+              style={{ padding: 0, fontSize: 14 }}
+              onClick={onFold}
+              title="Fold the attributes to the side"
+              aria-label="Fold span attributes"
+            >
+              ›
+            </button>
           )}
           <button
             type="button"

@@ -251,7 +251,10 @@ export default function TraceWaterfall({
               <StatusPip kind={isError ? "err" : "ok"} />
               <div className="min-w-0">
                 <div className="flex min-w-0 items-center gap-1.5">
-                  <span className="truncate font-medium">{h.span.service_name}</span>
+                  {/* Long names are cut to the column; hovering shows the whole name. */}
+                  <span className="truncate font-medium" title={h.span.service_name}>
+                    {h.span.service_name}
+                  </span>
                   {isMatch && (
                     <span
                       title="This span matched your search"
@@ -270,7 +273,7 @@ export default function TraceWaterfall({
                     </span>
                   )}
                 </div>
-                <div className="truncate text-xs text-muted">
+                <div className="truncate text-xs text-muted" title={h.span.span_name}>
                   {h.span.span_name}
                   {/* A hand-off is a fact about this span, and the
                       waterfall is the DEFAULT view — leaving it only in
