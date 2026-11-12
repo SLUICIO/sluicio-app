@@ -1184,8 +1184,8 @@ type MessagesSearchParams struct {
 	// Before is the keyset cursor; nil = first page.
 	Before *MessageCursor
 	// PromotedKeys are attribute keys to surface per trace, in column
-	// order (issue #23). Resolved against EVERY span of the trace, not
-	// only the matched one: the span carrying a business value is
+	// order (issue #23). Resolved against every span of the trace (of the
+	// slice, with SliceSummary), not only the matched one: the span carrying a business value is
 	// usually not the span the matcher selected, and requiring the two
 	// to coincide would push that constraint onto the customer's flow
 	// design. Capped by the caller; see integrations.MaxMessageColumns.
@@ -1206,6 +1206,17 @@ type MessagesSearchParams struct {
 	// only exclude traces where one span did both.
 	ExcludeClauses []string
 	ExcludeArgs    []any
+	// SliceSummary, when set, bounds each message's summary (duration,
+	// span and service counts, promoted columns) to the spans of the
+	// slice being read: ServiceFilter plus SliceClauses, which carry the
+	// integration's conditions and the caller's access. An integration is
+	// a slice, not a union of its services' traffic: when member A also
+	// calls C, C's spans are not this integration's, and neither its
+	// span count nor its attribute values belong in the row. Unset, the
+	// summary reads the whole trace, as a global or service search wants.
+	SliceSummary bool
+	SliceClauses []string
+	SliceArgs    []any
 }
 
 // promotedColumnSQL builds the aggregate expressions that resolve
@@ -1365,7 +1376,21 @@ func buildMessagesSearchSQL(p MessagesSearchParams) (string, []any) {
 	args = append(args, cursorArgs...)    // candidates HAVING
 	args = append(args, p.Limit)          // candidates LIMIT
 	args = append(args, whereArgs...)     // matching, the same row predicates
-	args = append(args, promotedArgs...)  // summary
+	args = append(args, promotedArgs...)  // summary SELECT
+
+	summaryWhere := "TraceId IN (SELECT TraceId FROM candidates)"
+	if p.SliceSummary {
+		if len(p.ServiceFilter) > 0 {
+			summaryWhere += " AND ServiceName IN (" + strings.TrimSuffix(strings.Repeat("?,", len(p.ServiceFilter)), ",") + ")"
+			for _, name := range p.ServiceFilter {
+				args = append(args, name)
+			}
+		}
+		for _, c := range p.SliceClauses {
+			summaryWhere += " AND (" + c + ")"
+		}
+		args = append(args, p.SliceArgs...)
+	}
 
 	sql := fmt.Sprintf(`
 		WITH candidates AS (
@@ -1413,7 +1438,7 @@ func buildMessagesSearchSQL(p MessagesSearchParams) (string, []any) {
 		           toUInt64(count())                                                                                  AS total_spans,
 		           toUInt64(length(arrayDistinct(groupArray(ServiceName))))                                           AS service_count%s
 		    FROM traces
-		    WHERE TraceId IN (SELECT TraceId FROM candidates)
+		    WHERE %s
 		    GROUP BY TraceId
 		)
 		SELECT
@@ -1435,7 +1460,7 @@ func buildMessagesSearchSQL(p MessagesSearchParams) (string, []any) {
 		INNER JOIN matching AS m ON s.TraceId = m.TraceId
 		INNER JOIN candidates AS c ON s.TraceId = c.TraceId
 		ORDER BY c.first_match DESC, c.TraceId DESC
-	`, candidateWhere, having, matchedSpanIDsExpr(len(p.Clauses) > 0), where, promotedSelects, promotedOuter)
+	`, candidateWhere, having, matchedSpanIDsExpr(len(p.Clauses) > 0), where, promotedSelects, summaryWhere, promotedOuter)
 
 	return sql, args
 }
@@ -2807,6 +2832,45 @@ func (s *Store) IntegrationProfile(ctx context.Context, resolver facetmappings.R
 		return ServiceProfileRow{}, fmt.Errorf("integration profile: %w", err)
 	}
 	return out, nil
+}
+
+// SliceSpanIDs are the spans of one trace that belong to a slice: those
+// of the given services that satisfy clause (an integration's
+// conditions). The trace view inside an integration shows these alone, so
+// member A's call into C does not put C's spans on the integration's
+// page.
+func (s *Store) SliceSpanIDs(ctx context.Context, traceID string, services []string, clause string, clauseArgs []any) (map[string]struct{}, error) {
+	out := map[string]struct{}{}
+	if traceID == "" || len(services) == 0 {
+		return out, nil
+	}
+	predicate := ""
+	if strings.TrimSpace(clause) != "" {
+		predicate = " AND (" + clause + ")"
+	}
+	q := fmt.Sprintf(`
+		SELECT DISTINCT SpanId FROM traces
+		WHERE TraceId = ? AND ServiceName IN (%s)%s`,
+		strings.TrimSuffix(strings.Repeat("?,", len(services)), ","), predicate)
+	args := make([]any, 0, 1+len(services)+len(clauseArgs))
+	args = append(args, traceID)
+	for _, n := range services {
+		args = append(args, n)
+	}
+	args = append(args, clauseArgs...)
+	rows, err := s.conn.Query(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("slice span ids: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("slice span ids: %w", err)
+		}
+		out[id] = struct{}{}
+	}
+	return out, rows.Err()
 }
 
 // TraceMatches reports whether a trace has at least one span inside the

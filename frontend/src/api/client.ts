@@ -436,8 +436,13 @@ export const api = {
       `/global-search?q=${encodeURIComponent(q)}&range=${encodeURIComponent(window)}`,
     ),
 
-  traceDetail: (traceId: string) =>
-    get<TraceDetailResponse>(`/traces/${encodeURIComponent(traceId)}`),
+  // integrationId: opened from inside an integration, the trace is that
+  // integration's slice of it (its members' spans that meet its
+  // conditions), not every service the message touched.
+  traceDetail: (traceId: string, integrationId?: string) =>
+    get<TraceDetailResponse>(
+      `/traces/${encodeURIComponent(traceId)}${integrationId ? `?integration=${encodeURIComponent(integrationId)}` : ""}`,
+    ),
 
   // The whole hand-off chain around a message — "Include all". Fetched
   // on demand rather than with the trace: the common case is one

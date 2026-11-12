@@ -210,3 +210,36 @@ func TestMessagesAreOrderedByTheTimeTheyShow(t *testing.T) {
 		t.Errorf("the summary's own minimum lost its name:\n%s", sum)
 	}
 }
+
+// Inside an integration a message's summary reads only the integration's
+// spans: member A calling C must not bring C's spans into the span count,
+// the duration or the promoted columns. Its binds follow the promoted
+// ones, in the order the summary's WHERE reads them.
+func TestSliceSummaryReadsOnlyTheSlice(t *testing.T) {
+	p := baseParams()
+	p.ServiceFilter = []string{"a", "b"}
+	p.PromotedKeys = []string{"order.id"}
+	p.SliceSummary = true
+	p.SliceClauses = []string{"SpanAttributes['flow'] = ?"}
+	p.SliceArgs = []any{"orders"}
+	sql, args := buildMessagesSearchSQL(p)
+
+	summary := between(t, sql, "summary AS (", "SELECT\n\t\t    s.TraceId")
+	if !strings.Contains(summary, "ServiceName IN (?,?)") || !strings.Contains(summary, "(SpanAttributes['flow'] = ?)") {
+		t.Fatalf("the summary is not bounded to the slice:\n%s", summary)
+	}
+	if got, want := strings.Count(sql, "?"), len(args); got != want {
+		t.Fatalf("%d placeholders, %d binds", got, want)
+	}
+	tail := args[len(args)-3:]
+	if tail[0] != "a" || tail[1] != "b" || tail[2] != "orders" {
+		t.Errorf("the summary's binds are out of order: %v", tail)
+	}
+
+	// Without it the summary still reads the whole trace.
+	p.SliceSummary = false
+	sql, _ = buildMessagesSearchSQL(p)
+	if s := between(t, sql, "summary AS (", "SELECT\n\t\t    s.TraceId"); strings.Contains(s, "ServiceName IN") {
+		t.Errorf("a search outside an integration bounds the summary:\n%s", s)
+	}
+}

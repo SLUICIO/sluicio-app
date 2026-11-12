@@ -85,9 +85,10 @@ function useIsWide(): boolean {
 export default function TraceDetail() {
   const { traceId = "" } = useParams();
   const navigate = useNavigate();
-  // ?integration=<uuid> — when present, the trace's status is
-  // scoped to that integration. A trace can participate in many
-  // integrations; one being late doesn't make it late everywhere.
+  // ?integration=<uuid> - when present, the trace shows only that
+  // integration's spans, and its status is scoped to that integration.
+  // A trace can participate in many integrations; one being late
+  // doesn't make it late everywhere.
   const [searchParams] = useSearchParams();
   const integrationContextId = searchParams.get("integration") ?? undefined;
   const spanParam = searchParams.get("span") ?? undefined;
@@ -175,7 +176,7 @@ export default function TraceDetail() {
     setLoading(true);
     setError(null);
     api
-      .traceDetail(traceId)
+      .traceDetail(traceId, integrationContextId)
       .then((d) => {
         setData(d);
         // ?span= is set when arriving from the drawer's "open full
@@ -193,7 +194,7 @@ export default function TraceDetail() {
       })
       .catch((e) => setError(String(e.message ?? e)))
       .finally(() => setLoading(false));
-  }, [traceId, spanParam]);
+  }, [traceId, spanParam, integrationContextId]);
 
   // Breadcrumb: origin first, then (when in an integration context)
   // the integration, then this trace. Without any context the default

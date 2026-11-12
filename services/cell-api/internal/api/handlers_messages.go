@@ -705,6 +705,10 @@ func (h *Handlers) searchMessages(w http.ResponseWriter, r *http.Request) {
 	// no less its own for that.
 	var messageColumns []integrations.MessageColumn
 	resolvedColumns := false
+	// The integration's own conditions, kept apart from the query's rows
+	// so each message's summary can be bounded to the slice as well.
+	var sliceClauses []string
+	var sliceArgs []any
 	if plan.IntegrationName != "" {
 		names, err := h.resolveIntegrationServices(r.Context(), plan.IntegrationName, tr)
 		if err != nil {
@@ -720,6 +724,8 @@ func (h *Handlers) searchMessages(w http.ResponseWriter, r *http.Request) {
 			if clause, cargs := store.SpanAttrGroupsClause(h.integrationGroups(r.Context(), id), tr.From, tr.To); clause != "" {
 				plan.Clauses = append(plan.Clauses, clause)
 				plan.Args = append(plan.Args, cargs...)
+				sliceClauses = append(sliceClauses, clause)
+				sliceArgs = append(sliceArgs, cargs...)
 			}
 			// Read the columns here rather than trusting the client to
 			// send them: the query and the headers then come from one
@@ -851,6 +857,13 @@ func (h *Handlers) searchMessages(w http.ResponseWriter, r *http.Request) {
 		// reader means by "messages that did not go via X".
 		ExcludeClauses: plan.ExcludeClauses,
 		ExcludeArgs:    plan.ExcludeArgs,
+		// Inside an integration, or for a reader who sees only part of
+		// the estate, a message's numbers and columns come from the spans
+		// of that slice: a member calling a service outside it does not
+		// lend the row that service's spans or attribute values.
+		SliceSummary: plan.IntegrationName != "" || !scope.Unrestricted,
+		SliceClauses: append(append([]string{}, sliceClauses...), accessClause...),
+		SliceArgs:    append(append([]any{}, sliceArgs...), accessArgs...),
 	})
 	if err != nil {
 		h.Logger.Error("messages search failed", "err", err)

@@ -3297,6 +3297,23 @@ func (h *Handlers) traceDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// Opened from inside an integration (?integration=<id or name>), the
+	// trace is that integration's slice of it: its members' spans that
+	// meet its conditions. Member A calling service C does not put C's
+	// spans on the integration's page. Opened anywhere else, the whole
+	// trace (as far as the reader may see it) is shown.
+	if ref := strings.TrimSpace(r.URL.Query().Get("integration")); ref != "" {
+		kept, ok := h.integrationSliceOfTrace(r, traceID, ref, rows)
+		if !ok {
+			httpserver.WriteError(w, http.StatusInternalServerError, "query failed")
+			return
+		}
+		rows = kept
+		if len(rows) == 0 {
+			httpserver.WriteError(w, http.StatusNotFound, "no spans of this integration in this trace")
+			return
+		}
+	}
 	// Opening one trace is the most deliberate consumption there is —
 	// someone chose this exact flow out of everything the cell holds. It
 	// is recorded against the trace's visible services (post-policy
@@ -3315,6 +3332,52 @@ func (h *Handlers) traceDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	out.ContinuedFrom, out.ContinuedInto, out.LinkedTracesHidden = h.linkedTraces(r, traceID, rows)
 	httpserver.WriteJSON(w, http.StatusOK, out)
+}
+
+// integrationSliceOfTrace keeps the rows that belong to the integration
+// named by ref (its id, or its name as other reads pass it). An unknown
+// integration keeps nothing; ok is false only when the slice could not
+// be read, so the caller fails rather than showing the whole trace.
+func (h *Handlers) integrationSliceOfTrace(r *http.Request, traceID, ref string, rows []store.SpanRow) ([]store.SpanRow, bool) {
+	id, err := uuid.Parse(ref)
+	if err != nil {
+		var found bool
+		if id, found = h.integrationIDByName(r.Context(), ref); !found {
+			return nil, true
+		}
+	}
+	members, err := h.Catalog.IntegrationServices(r.Context(), id)
+	if err != nil {
+		h.Logger.Warn("trace slice: members failed", "err", err, "integration", id)
+		return nil, false
+	}
+	if len(members) == 0 {
+		return nil, true
+	}
+	// The window bounds descendant groups; the trace's own span times,
+	// with a minute either side, cover every span it holds.
+	from, to := rows[0].Timestamp, rows[0].Timestamp
+	for _, row := range rows {
+		if row.Timestamp.Before(from) {
+			from = row.Timestamp
+		}
+		if row.Timestamp.After(to) {
+			to = row.Timestamp
+		}
+	}
+	clause, args := store.SpanAttrGroupsClause(h.integrationGroups(r.Context(), id), from.Add(-time.Minute), to.Add(time.Minute))
+	ids, err := h.Store.SliceSpanIDs(r.Context(), traceID, members, clause, args)
+	if err != nil {
+		h.Logger.Warn("trace slice: spans failed", "err", err, "integration", id)
+		return nil, false
+	}
+	kept := make([]store.SpanRow, 0, len(ids))
+	for _, row := range rows {
+		if _, ok := ids[row.SpanID]; ok {
+			kept = append(kept, row)
+		}
+	}
+	return kept, true
 }
 
 // linkedTraces resolves BOTH directions of a trace's hand-offs (issue

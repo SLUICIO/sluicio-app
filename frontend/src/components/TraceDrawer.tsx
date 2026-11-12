@@ -91,7 +91,7 @@ export default function TraceDrawer({
     setData(null);
     setSelectedSpan(null);
     api
-      .traceDetail(traceId)
+      .traceDetail(traceId, integrationContextId)
       .then((d) => {
         if (cancelled) return;
         setData(d);
@@ -101,7 +101,7 @@ export default function TraceDrawer({
     return () => {
       cancelled = true;
     };
-  }, [traceId]);
+  }, [traceId, integrationContextId]);
 
   // Initial selection lives in its own effect rather than inside the
   // fetch above, so it can depend on matchedSpanIds honestly. Folding it
