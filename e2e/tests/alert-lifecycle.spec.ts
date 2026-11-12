@@ -219,6 +219,11 @@ test.describe("Alert lifecycle — when, to whom, and how it's configured", () =
     cleanup.profiles.push(profID);
     expect((await admin.put(`/api/v1/notification-profiles/${profID}/channels`, { data: { channel_ids: [ch] } })).ok()).toBeTruthy();
     expect((await admin.put(`/api/v1/integrations/${integID}/notification-profile`, { data: { profile_id: profID } })).ok()).toBeTruthy();
+    // Off by default since v0.11.198: an integration asks to be told about
+    // its unacknowledged errors.
+    const optIn = await admin.put(`/api/v1/integrations/${integID}/error-notifications`, { data: { enabled: true } });
+    expect(optIn.ok()).toBeTruthy();
+    expect((await optIn.json()).notify_unacknowledged_errors).toBe(true);
 
     const sent = await ingestErrors(admin, ingestKey!, svc, 2);
     test.skip(!sent, `cell-ingest not reachable at ${INGEST_URL}`);
