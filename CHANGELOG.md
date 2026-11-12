@@ -3,8 +3,14 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.199 — 2026-11-12
+
+- test(e2e): the error notifier test opts its integration in (5169f13)
+- build: pin Go 1.26.11 for the net/http fix GO-2026-6859 (bdad932)
+
 ## v0.11.198 — 2026-11-12
 
+- release v0.11.198 - refresh internal changelog (2b6ef6b)
 - feat(alerting): alerts name their integration, environment and the message they are about (7db54fd)
 - fix(messages): a message read inside an integration is the integration's spans only (1f5cfd1)
 - feat(traces): span details fold to a rail, services and errors lead, full names on hover (65162a5)
