@@ -115,7 +115,8 @@ function CloneIntegrationDialog({
           }}
         >
           <p className="muted" style={{ fontSize: 12.5, margin: 0 }}>
-            Copies the matchers, tags, metadata and health checks. The new
+            Copies the matchers, tags, metadata, message columns and filters,
+            notification profile, supporting telemetry and health checks. The new
             integration starts with its public status badge off, and team access
             is copied only if you are an admin.
           </p>

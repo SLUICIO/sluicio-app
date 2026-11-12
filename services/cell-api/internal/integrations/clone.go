@@ -28,7 +28,10 @@
 //
 // What IS copied unconditionally is everything that describes the
 // integration rather than who may reach it: matchers, description, tags,
-// metadata values, and the health checks that define its healthy state.
+// metadata values, the message columns and filters, the notification
+// profile, the metric and log sources, and the health checks that define
+// its healthy state. TestCloneAccountsForEveryColumnAndTable fails when a
+// new column or table of an integration is not decided on here.
 
 package integrations
 
@@ -136,6 +139,18 @@ func (s *Store) Clone(ctx context.Context, orgID, srcID uuid.UUID, opt CloneOpti
 		return Integration{}, fmt.Errorf("insert clone: %w", err)
 	}
 
+	// The settings that are stored on the row itself, read from the
+	// source in place so their types never pass through Go.
+	if _, err := tx.Exec(ctx, `
+		UPDATE integrations dst SET
+			message_columns = src.message_columns,
+			message_filters = src.message_filters,
+			notification_profile_id = src.notification_profile_id
+		FROM integrations src
+		WHERE dst.id = $1 AND src.id = $2`, out.ID, srcID); err != nil {
+		return Integration{}, fmt.Errorf("copy settings: %w", err)
+	}
+
 	copies := []struct {
 		what string
 		sql  string
@@ -152,6 +167,10 @@ func (s *Store) Clone(ctx context.Context, orgID, srcID uuid.UUID, opt CloneOpti
 		{"metadata", `
 			INSERT INTO integration_metadata (integration_id, field_id, value)
 			SELECT $1, field_id, value FROM integration_metadata WHERE integration_id = $2`, true},
+		{"sources", `
+			INSERT INTO integration_sources (integration_id, signal, origin_kind, origin, conditions, metric_names, position)
+			SELECT $1, signal, origin_kind, origin, conditions, metric_names, position
+			FROM integration_sources WHERE integration_id = $2`, true},
 		{"group access", `
 			INSERT INTO group_access_policies (
 				group_id, kind, target_service_name, target_integration_id,
