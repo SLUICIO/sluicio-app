@@ -3,8 +3,19 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.198 — 2026-11-12
+
+- feat(alerting): alerts name their integration, environment and the message they are about (7db54fd)
+- fix(messages): a message read inside an integration is the integration's spans only (1f5cfd1)
+- feat(traces): span details fold to a rail, services and errors lead, full names on hover (65162a5)
+- fix(integrations): a clone keeps the message columns, filters, notification profile and sources (f2df487)
+- feat(integrations): Clone is offered on Edit integration too (221dfec)
+- fix(integrations): a source's metric names are chips with suggestions, and a comma no longer vanishes (4a29f60)
+- feat(alerting): unacknowledged-error notifications are a per-integration setting, off by default (eb4c677)
+
 ## v0.11.197 — 2026-11-07
 
+- release v0.11.197 - refresh internal changelog (ef952b6)
 - feat(managed): white-label for partners' managed instances, and no dead login link (6ae762f)
 
 ## v0.11.196 — 2026-11-07
