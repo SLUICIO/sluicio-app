@@ -98,9 +98,13 @@ type Integration struct {
 	// are the ones its telemetry shows. A declared environment with no
 	// traffic reads as quiet there instead of not appearing. "" is "(no
 	// environment)".
-	DeclaredEnvironments []string  `json:"declared_environments"`
-	CreatedAt            time.Time `json:"created_at"`
-	UpdatedAt      time.Time       `json:"updated_at"`
+	DeclaredEnvironments []string `json:"declared_environments"`
+	// NotifyUnacknowledgedErrors sends a notification, through the
+	// integration's profile, when its services record errors nobody has
+	// acknowledged. Off by default. Only populated by Get.
+	NotifyUnacknowledgedErrors bool      `json:"notify_unacknowledged_errors"`
+	CreatedAt                  time.Time `json:"created_at"`
+	UpdatedAt                  time.Time `json:"updated_at"`
 }
 
 // Matcher classifies a service into an integration by attribute pattern.

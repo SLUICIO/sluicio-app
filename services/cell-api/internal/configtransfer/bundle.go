@@ -181,6 +181,9 @@ type Integration struct {
 	// DeclaredEnvironments (#40); omitted when none, so older bundles
 	// stay byte-identical.
 	DeclaredEnvironments []string `json:"declared_environments,omitempty"`
+	// NotifyUnacknowledgedErrors; omitted when off, the default, so older
+	// bundles stay byte-identical.
+	NotifyUnacknowledgedErrors bool `json:"notify_unacknowledged_errors,omitempty"`
 	// Sources (#43): metric and log sources, a system origin by name;
 	// omitted when none, so older bundles stay byte-identical.
 	Sources []IntegrationSource `json:"sources,omitempty"`

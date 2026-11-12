@@ -6,7 +6,8 @@
 // scan error traces per service, and for any service whose latest error
 // post-dates both its clear-errors watermark (so it's unacknowledged) and
 // its notify watermark (so we haven't already paged about this batch),
-// resolve channels via routing (integration → global default) and deliver.
+// resolve channels through the profiles of the service's integrations that
+// asked for it (notify_unacknowledged_errors, off by default) and deliver.
 // Acknowledging (clearing) a service lets the next NEW error notify again.
 package errornotify
 
@@ -50,6 +51,12 @@ type Notifier struct {
 	// integration, to the org default (and marked sent, so its
 	// integration's channels never heard) or to nobody until a later tick.
 	IntegrationsFor func(ctx context.Context, serviceName string) ([]uuid.UUID, error)
+	// NotifyingIntegrations, when set, keeps the integrations that have
+	// asked to be notified about unacknowledged errors
+	// (notify_unacknowledged_errors). Off by default: unset, or for an
+	// integration that has not turned it on, nobody is notified, and the
+	// errors stay on the Errors page.
+	NotifyingIntegrations func(ctx context.Context, ids []uuid.UUID) ([]uuid.UUID, error)
 	// catalogIntegrations is the catalog's membership of a service.
 	catalogIntegrations func(ctx context.Context, serviceName string) ([]uuid.UUID, error)
 }
@@ -88,21 +95,36 @@ func (n *Notifier) Run(ctx context.Context) {
 	}
 }
 
-// integrationOf is the integration a service's errors are routed through:
-// the first its service rules put it in, else the catalog's membership,
-// nil for none.
-func (n *Notifier) integrationOf(ctx context.Context, service string) *uuid.UUID {
+// integrationsOf are the integrations a service belongs to: those its
+// service rules put it in, else the catalog's membership; none for a
+// service in no integration.
+func (n *Notifier) integrationsOf(ctx context.Context, service string) []uuid.UUID {
 	if n.IntegrationsFor != nil {
 		if ids, err := n.IntegrationsFor(ctx, service); err == nil && len(ids) > 0 {
-			return &ids[0]
+			return ids
 		} else if err != nil {
 			n.log.Warn("errornotify: integration rules failed; using the catalog", "service", service, "err", err)
 		}
 	}
 	if ids, err := n.catalogIntegrations(ctx, service); err == nil && len(ids) > 0 {
-		return &ids[0]
+		return ids
 	}
 	return nil
+}
+
+// notifying are those of ids that asked to be notified about
+// unacknowledged errors. ok is false when the question cannot be answered,
+// so the batch waits for a later tick rather than being settled either way.
+func (n *Notifier) notifying(ctx context.Context, ids []uuid.UUID) (on []uuid.UUID, ok bool) {
+	if len(ids) == 0 || n.NotifyingIntegrations == nil {
+		return nil, true
+	}
+	on, err := n.NotifyingIntegrations(ctx, ids)
+	if err != nil {
+		n.log.Warn("errornotify: reading the integrations' notify setting failed", "err", err)
+		return nil, false
+	}
+	return on, true
 }
 
 func (n *Notifier) once(ctx context.Context) {
@@ -147,25 +169,49 @@ func (n *Notifier) once(ctx context.Context) {
 		if ns, ok := notified[st.ServiceName]; ok && ns.NotifiedAt.After(watermark) {
 			continue
 		}
-		// Route: the service's integration (first), else the global default.
-		integ := n.integrationOf(ctx, st.ServiceName)
-		chIDs, rerr := n.routes.Resolve(ctx, n.org, nil, integ, nil)
-		if rerr != nil {
-			n.log.Warn("errornotify: resolve channels failed", "service", st.ServiceName, "err", rerr)
+		// Only integrations that asked to be told (off by default), through
+		// each one's profile. Nobody asked: the batch is marked so it is
+		// not reconsidered every tick, and the errors stay on the Errors
+		// page; a later new error after acknowledging is weighed afresh.
+		all := n.integrationsOf(ctx, st.ServiceName)
+		on, ok := n.notifying(ctx, all)
+		if !ok {
 			continue
 		}
-		if len(chIDs) == 0 {
-			// Nothing configured anywhere — leave un-notified so it pages as
-			// soon as a default/integration channel is set up.
+		var first *uuid.UUID
+		if len(all) > 0 {
+			first = &all[0]
+		}
+		if len(on) == 0 {
+			if n.EmitEvent != nil {
+				n.EmitEvent(ctx, st.ServiceName, st.ErrorTraces, first)
+			}
+			if mErr := n.routes.MarkNotified(ctx, n.org, st.ServiceName, st.LastErrorAt); mErr != nil {
+				n.log.Warn("errornotify: mark seen failed", "service", st.ServiceName, "err", mErr)
+			}
 			continue
 		}
-		targets := make([]alerting.NotificationChannel, 0, len(chIDs))
-		for _, id := range chIDs {
-			if c, ok := chByID[id]; ok {
-				targets = append(targets, c)
+		integ := &on[0]
+		seen := map[uuid.UUID]bool{}
+		var targets []alerting.NotificationChannel
+		resolveFailed := false
+		for i := range on {
+			chIDs, rerr := n.routes.Resolve(ctx, n.org, nil, &on[i], nil)
+			if rerr != nil {
+				n.log.Warn("errornotify: resolve channels failed", "service", st.ServiceName, "err", rerr)
+				resolveFailed = true
+				break
+			}
+			for _, id := range chIDs {
+				if c, ok := chByID[id]; ok && !seen[id] {
+					seen[id] = true
+					targets = append(targets, c)
+				}
 			}
 		}
-		if len(targets) == 0 {
+		if resolveFailed || len(targets) == 0 {
+			// Nothing configured: leave un-notified so it pages as soon as
+			// a channel is set up.
 			continue
 		}
 		// Lead the title + body with the deployment context (environment +

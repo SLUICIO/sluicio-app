@@ -507,6 +507,8 @@ export const api = {
     get<{ environments: IntegrationEnvironment[]; open_on: "production" | "all" }>(
       `/services/${encodeURIComponent(name)}/environments?range=${encodeURIComponent(window)}&env=`,
     ),
+  setErrorNotifications: (id: string, enabled: boolean) =>
+    put<{ notify_unacknowledged_errors: boolean }>(`/integrations/${encodeURIComponent(id)}/error-notifications`, { enabled }),
   setDeclaredEnvironments: (id: string, environments: string[]) =>
     put<{ declared: string[] }>(`/integrations/${encodeURIComponent(id)}/declared-environments`, { environments }),
   // Every environment seen across what the caller can see, for the

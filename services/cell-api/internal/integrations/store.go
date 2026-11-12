@@ -58,13 +58,13 @@ func (s *Store) Get(ctx context.Context, orgID, id uuid.UUID) (IntegrationWithMa
 	const q = `
 		SELECT id, organization_id, slug, name, COALESCE(description, ''), badge_public, rule_match,
 		       COALESCE(message_columns, '[]'::jsonb), COALESCE(message_filters, '[]'::jsonb),
-		       declared_environments, created_at, updated_at
+		       declared_environments, notify_unacknowledged_errors, created_at, updated_at
 		FROM integrations
 		WHERE organization_id = $1 AND id = $2
 	`
 	var i Integration
 	var cols, filters []byte
-	err := s.pool.QueryRow(ctx, q, orgID, id).Scan(&i.ID, &i.OrganizationID, &i.Slug, &i.Name, &i.Description, &i.BadgePublic, &i.RuleMatch, &cols, &filters, &i.DeclaredEnvironments, &i.CreatedAt, &i.UpdatedAt)
+	err := s.pool.QueryRow(ctx, q, orgID, id).Scan(&i.ID, &i.OrganizationID, &i.Slug, &i.Name, &i.Description, &i.BadgePublic, &i.RuleMatch, &cols, &filters, &i.DeclaredEnvironments, &i.NotifyUnacknowledgedErrors, &i.CreatedAt, &i.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return IntegrationWithMatchers{}, ErrNotFound
 	}
@@ -170,6 +170,32 @@ func (s *Store) SetDeclaredEnvironments(ctx context.Context, orgID, id uuid.UUID
 		return ErrNotFound
 	}
 	return nil
+}
+
+// SetNotifyUnacknowledgedErrors turns the unacknowledged-errors
+// notification on or off for one integration.
+func (s *Store) SetNotifyUnacknowledgedErrors(ctx context.Context, orgID, id uuid.UUID, on bool) error {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE integrations SET notify_unacknowledged_errors = $3, updated_at = now()
+		 WHERE organization_id = $1 AND id = $2`, orgID, id, on)
+	if err != nil {
+		return fmt.Errorf("set error notifications: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// NotifyingUnacknowledgedErrors keeps those of ids whose integration has
+// the unacknowledged-errors notification on, for the error notifier.
+func (s *Store) NotifyingUnacknowledgedErrors(ctx context.Context, ids []uuid.UUID) ([]uuid.UUID, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT id FROM integrations WHERE id = ANY($1) AND notify_unacknowledged_errors`, ids)
+	if err != nil {
+		return nil, fmt.Errorf("error notification setting: %w", err)
+	}
+	return pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
 }
 
 // DeclaredEnvironmentsFor returns one integration's declared

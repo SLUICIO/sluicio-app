@@ -544,6 +544,7 @@ func main() {
 		}
 		return ids, err
 	}
+	errorNotifier.NotifyingIntegrations = integrationStore.NotifyingUnacknowledgedErrors
 	go errorNotifier.Run(bgCtx)
 	logger.Info("alert engine started")
 

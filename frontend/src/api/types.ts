@@ -794,6 +794,9 @@ export interface Integration {
   /** Environments the integration is expected to run in (issue #40).
    *  "" is "(no environment)". A declared one with no traffic reads quiet. */
   declared_environments?: string[];
+  /** A notification goes out, through the integration's profile, when its
+   *  services record errors nobody has acknowledged. Off by default. */
+  notify_unacknowledged_errors?: boolean;
   /** Status per environment, worst first, when the list was asked for it. */
   environments?: EnvironmentStatus[];
 }

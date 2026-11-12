@@ -205,6 +205,35 @@ func (h *Handlers) putDeclaredEnvironments(w http.ResponseWriter, r *http.Reques
 	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"declared": nonNilStrings(full.Integration.DeclaredEnvironments)})
 }
 
+// putErrorNotifications: PUT /api/v1/integrations/{id}/error-notifications
+//
+// Turns on or off the notification sent, through the integration's
+// profile, when its services record errors nobody has acknowledged.
+func (h *Handlers) putErrorNotifications(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid integration id")
+		return
+	}
+	var body struct {
+		Enabled *bool `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Enabled == nil {
+		httpserver.WriteError(w, http.StatusBadRequest, `send {"enabled": true} or {"enabled": false}`)
+		return
+	}
+	if err := h.Integrations.SetNotifyUnacknowledgedErrors(r.Context(), middleware.OrgID(r), id, *body.Enabled); err != nil {
+		if errors.Is(err, integrations.ErrNotFound) {
+			httpserver.WriteError(w, http.StatusNotFound, "integration not found")
+			return
+		}
+		httpserver.WriteError(w, http.StatusInternalServerError, "update failed")
+		return
+	}
+	h.recordAudit(r, "integration.error_notifications_updated", "integration", id.String(), map[string]any{"enabled": *body.Enabled})
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"notify_unacknowledged_errors": *body.Enabled})
+}
+
 // listEnvironments: GET /api/v1/environments
 //
 // The environments the caller's visible services sent telemetry from in

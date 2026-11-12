@@ -739,16 +739,16 @@ func (r *resolver) importIntegrations(integrations []Integration) func() error {
 					var id string
 					err := r.tx.QueryRow(r.ctx, `
 						INSERT INTO integrations (organization_id, slug, name, description, badge_public, rule_match, notification_profile_id,
-						  declared_environments)
-						VALUES ($1,$2,$3,$4,$5,COALESCE(NULLIF($6,''),'any'),$7,COALESCE($8::text[],'{}')) RETURNING id`,
-						r.org, in.Slug, in.Name, in.Description, in.BadgePublic, in.RuleMatch, pid, in.DeclaredEnvironments).Scan(&id)
+						  declared_environments, notify_unacknowledged_errors)
+						VALUES ($1,$2,$3,$4,$5,COALESCE(NULLIF($6,''),'any'),$7,COALESCE($8::text[],'{}'),$9) RETURNING id`,
+						r.org, in.Slug, in.Name, in.Description, in.BadgePublic, in.RuleMatch, pid, in.DeclaredEnvironments, in.NotifyUnacknowledgedErrors).Scan(&id)
 					return id, err
 				},
 				func(id string) error {
 					_, err := r.tx.Exec(r.ctx, `
 						UPDATE integrations SET name=$2, description=$3, badge_public=$4, rule_match=COALESCE(NULLIF($5,''),'any'), notification_profile_id=$6,
-						  declared_environments=COALESCE($7::text[],'{}'), updated_at=now() WHERE id=$1`,
-						id, in.Name, in.Description, in.BadgePublic, in.RuleMatch, pid, in.DeclaredEnvironments)
+						  declared_environments=COALESCE($7::text[],'{}'), notify_unacknowledged_errors=$8, updated_at=now() WHERE id=$1`,
+						id, in.Name, in.Description, in.BadgePublic, in.RuleMatch, pid, in.DeclaredEnvironments, in.NotifyUnacknowledgedErrors)
 					return err
 				})
 			if err != nil {

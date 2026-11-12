@@ -378,7 +378,7 @@ export default function IntegrationSettings() {
           <div className="border-b border-border px-4 py-3">
             <h2 className="text-base font-semibold">Notification profile</h2>
             <p className="text-xs text-muted mt-1">
-              The profile used for this integration's alerts and unacknowledged failures:
+              The profile used for this integration's alerts, and for its unacknowledged errors when that is on below:
               it decides the channels, grouping, and re-notify interval. Leave on “Inherit”
               to use the owning team's default, then the org-wide default. Manage profiles
               per team in Settings → Teams and org-wide on the <Link to="/alerts">Alerts</Link> page.
@@ -386,6 +386,15 @@ export default function IntegrationSettings() {
           </div>
           <div className="p-4">
             <IntegrationProfileSelect integrationId={id} canWrite={canWrite} />
+            {integration && (
+              <ErrorNotificationToggle
+                integrationId={id}
+                enabled={integration.integration.notify_unacknowledged_errors === true}
+                canWrite={canWrite}
+                onSaved={refresh}
+                onError={setError}
+              />
+            )}
           </div>
         </section>
 
@@ -1139,5 +1148,55 @@ function IntegrationDetailsEditor({
         )}
       </form>
     </section>
+  );
+}
+
+// ErrorNotificationToggle: whether this integration's profile is notified
+// when its services record errors nobody has acknowledged. Off by
+// default; the errors stay on the Errors page either way.
+function ErrorNotificationToggle({
+  integrationId,
+  enabled,
+  canWrite,
+  onSaved,
+  onError,
+}: {
+  integrationId: string;
+  enabled: boolean;
+  canWrite: boolean;
+  onSaved: () => void;
+  onError: (msg: string | null) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const toggle = async (on: boolean) => {
+    setBusy(true);
+    onError(null);
+    try {
+      await api.setErrorNotifications(integrationId, on);
+      onSaved();
+    } catch (e) {
+      onError(`Could not save the error notification setting: ${String((e as Error).message ?? e)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 13, cursor: canWrite ? "pointer" : "default", marginTop: 14 }}>
+      <input
+        type="checkbox"
+        checked={enabled}
+        disabled={!canWrite || busy}
+        onChange={(e) => toggle(e.target.checked)}
+        style={{ marginTop: 3 }}
+      />
+      <span>
+        Notify about unacknowledged errors
+        <span className="text-xs text-muted" style={{ display: "block", marginTop: 2 }}>
+          When this integration&rsquo;s services record errors nobody has acknowledged, send one notification
+          through this profile, and again after they are acknowledged and new ones arrive. Off: the errors stay
+          on the Errors page without a notification.
+        </span>
+      </span>
+    </label>
   );
 }

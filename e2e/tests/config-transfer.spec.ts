@@ -36,7 +36,7 @@ test.describe("Config export & import", () => {
     format_version: number;
     sections: {
       tags?: { slug: string; name: string }[];
-      integrations?: { slug: string; name: string; matchers?: unknown[]; tags?: string[] }[];
+      integrations?: { slug: string; name: string; matchers?: unknown[]; tags?: string[]; notify_unacknowledged_errors?: boolean }[];
       groups?: { slug: string }[];
     };
   };
@@ -52,6 +52,10 @@ test.describe("Config export & import", () => {
         matchers: [{ operator: "equals", value: "e2e-ct-service" }],
       },
     });
+    // Off by default; turned on so the export has to carry it.
+    const listed = await (await source.get("/api/v1/integrations")).json();
+    const sourceInteg = (listed.integrations ?? []).find((i: { slug: string }) => i.slug === "e2e-ct-integ");
+    await source.put(`/api/v1/integrations/${sourceInteg.id}/error-notifications`, { data: { enabled: true } });
     // Fresh target org via the operator surface. Delete a leftover
     // first (a previous run's worker dying before afterAll leaves the
     // org POPULATED, and a polluted target turns the strict dry-run
@@ -97,6 +101,7 @@ test.describe("Config export & import", () => {
     const integ = (bundle.sections.integrations ?? []).find((i) => i.slug === "e2e-ct-integ");
     expect(integ).toBeTruthy();
     expect(integ!.matchers?.length).toBe(1);
+    expect(integ!.notify_unacknowledged_errors).toBe(true);
   });
 
   test("dry-run reports changes and applies nothing", async () => {
@@ -114,7 +119,10 @@ test.describe("Config export & import", () => {
     const res = await target.post("/api/v1/settings/config-import?mode=strict&dry_run=false", { data: bundle });
     expect(res.status()).toBe(200);
     const integs = await (await target.get("/api/v1/integrations")).json();
-    expect((integs.integrations ?? []).some((i: { slug: string }) => i.slug === "e2e-ct-integ")).toBe(true);
+    const imported = (integs.integrations ?? []).find((i: { slug: string }) => i.slug === "e2e-ct-integ");
+    expect(imported).toBeTruthy();
+    const detail = await (await target.get(`/api/v1/integrations/${imported.id}`)).json();
+    expect(detail.integration.notify_unacknowledged_errors).toBe(true);
     const again = await target.post("/api/v1/settings/config-import?mode=strict&dry_run=false", { data: bundle });
     expect(again.status()).toBe(409);
   });

@@ -106,11 +106,12 @@ func (s *Store) Clone(ctx context.Context, orgID, srcID uuid.UUID, opt CloneOpti
 		srcDescription string
 		srcRuleMatch   string
 		srcEnvs        []string
+		srcNotify      bool
 	)
 	err = tx.QueryRow(ctx,
-		`SELECT description, rule_match, declared_environments FROM integrations WHERE id = $1 AND organization_id = $2`,
+		`SELECT description, rule_match, declared_environments, notify_unacknowledged_errors FROM integrations WHERE id = $1 AND organization_id = $2`,
 		srcID, orgID,
-	).Scan(&srcDescription, &srcRuleMatch, &srcEnvs)
+	).Scan(&srcDescription, &srcRuleMatch, &srcEnvs, &srcNotify)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Integration{}, ErrSourceNotFound
 	}
@@ -122,11 +123,11 @@ func (s *Store) Clone(ctx context.Context, orgID, srcID uuid.UUID, opt CloneOpti
 	// badge_public is left at its column default: a clone never inherits
 	// a public endpoint (see the file comment).
 	err = tx.QueryRow(ctx, `
-		INSERT INTO integrations (organization_id, slug, name, description, rule_match, declared_environments)
-		VALUES ($1, $2, $3, $4, $5, $6)
-		RETURNING id, organization_id, slug, name, description, rule_match, declared_environments, created_at, updated_at`,
-		orgID, slug, name, srcDescription, srcRuleMatch, srcEnvs,
-	).Scan(&out.ID, &out.OrganizationID, &out.Slug, &out.Name, &out.Description, &out.RuleMatch, &out.DeclaredEnvironments, &out.CreatedAt, &out.UpdatedAt)
+		INSERT INTO integrations (organization_id, slug, name, description, rule_match, declared_environments, notify_unacknowledged_errors)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		RETURNING id, organization_id, slug, name, description, rule_match, declared_environments, notify_unacknowledged_errors, created_at, updated_at`,
+		orgID, slug, name, srcDescription, srcRuleMatch, srcEnvs, srcNotify,
+	).Scan(&out.ID, &out.OrganizationID, &out.Slug, &out.Name, &out.Description, &out.RuleMatch, &out.DeclaredEnvironments, &out.NotifyUnacknowledgedErrors, &out.CreatedAt, &out.UpdatedAt)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {

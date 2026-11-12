@@ -1287,6 +1287,7 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	// Environments (issue #40).
 	mux.HandleFunc("GET /api/v1/integrations/{id}/environments", h.integrationEnvironments)
 	mux.HandleFunc("PUT /api/v1/integrations/{id}/declared-environments", h.writeService(h.putDeclaredEnvironments))
+	mux.HandleFunc("PUT /api/v1/integrations/{id}/error-notifications", h.writeService(h.putErrorNotifications))
 	mux.HandleFunc("GET /api/v1/environments", h.listEnvironments)
 	mux.HandleFunc("PUT /api/v1/systems/{id}/badge", h.writeService(h.putSystemBadge))
 	mux.HandleFunc("PUT /api/v1/services/{name}/badge", h.writeService(h.putServiceBadge))
