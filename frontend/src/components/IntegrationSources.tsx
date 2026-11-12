@@ -363,24 +363,13 @@ export default function IntegrationSources({
                   + condition
                 </button>
                 {s.signal === "metrics" && (
-                  <label className="flex items-center gap-2">
-                    <span className="text-muted">metrics</span>
-                    <input
-                      className="search__input"
-                      style={{ width: 260, flex: "0 0 260px" }}
-                      placeholder="all; or rabbitmq.queue.*, comma separated"
-                      value={s.metric_names.join(", ")}
-                      onChange={(e) =>
-                        update(i, {
-                          metric_names: e.target.value
-                            .split(",")
-                            .map((x) => x.trim())
-                            .filter(Boolean),
-                        })
-                      }
-                      aria-label="Metric names"
-                    />
-                  </label>
+                  <MetricNamesPicker
+                    value={s.metric_names}
+                    onChange={(metric_names) => update(i, { metric_names })}
+                    originKind={s.origin_kind}
+                    origin={s.origin}
+                    systems={systems}
+                  />
                 )}
               </div>
             </div>
@@ -453,6 +442,87 @@ export function SourcesNote({
         </Link>
       )}
 
+    </div>
+  );
+}
+
+/** The metric names a source keeps, as chips beside a picker of the names
+ *  its origin has sent (a service's, or a system's members'), or every
+ *  metric before an origin is chosen. A glob such as rabbitmq.queue.* is
+ *  typed and added as is. None kept means all of the origin's metrics. */
+export function MetricNamesPicker({
+  value,
+  onChange,
+  originKind,
+  origin,
+  systems,
+}: {
+  value: string[];
+  onChange: (names: string[]) => void;
+  originKind: IntegrationSource["origin_kind"];
+  origin: string;
+  systems: System[];
+}) {
+  const [names, setNames] = useState<string[]>([]);
+  const origins =
+    originKind === "service"
+      ? origin.trim()
+        ? [origin.trim()]
+        : []
+      : (systems.find((sy) => sy.id === origin)?.members ?? []);
+  const key = origins.join("\n");
+
+  useEffect(() => {
+    let active = true;
+    const reads =
+      origins.length === 0
+        ? [api.listMetricCatalog("24h").then((r) => r.metrics ?? [])]
+        : origins.map((svc) =>
+            api
+              .listServiceMetricNames(svc, "24h")
+              .then((r) => r.metrics ?? [])
+              .catch(() => []),
+          );
+    Promise.all(reads)
+      .then((lists) => active && setNames([...new Set(lists.flat().map((m) => m.name))].sort()))
+      .catch(() => active && setNames([]));
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+
+  return (
+    <div className="flex flex-wrap items-center gap-2" data-testid="source-metric-names">
+      <span className="text-muted">metrics</span>
+      {value.length === 0 && <span className="text-muted">all</span>}
+      {value.map((n) => (
+        <span key={n} className="badge font-mono" style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+          {n}
+          <button
+            type="button"
+            aria-label={`Remove ${n}`}
+            onClick={() => onChange(value.filter((x) => x !== n))}
+            style={{ background: "none", border: 0, cursor: "pointer", color: "var(--muted)", padding: 0 }}
+          >
+            ×
+          </button>
+        </span>
+      ))}
+      <SearchableSelect
+        value=""
+        onChange={(v) => {
+          const n = v.trim();
+          if (n && !value.includes(n)) onChange([...value, n]);
+        }}
+        options={names.filter((n) => !value.includes(n))}
+        withoutAll
+        creatable
+        variant="field"
+        allLabel="Add a metric…"
+        placeholder="Search, or type a name or rabbitmq.queue.*"
+        createLabel={(typed) => `Add “${typed}”`}
+      />
     </div>
   );
 }
