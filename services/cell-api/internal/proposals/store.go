@@ -69,10 +69,13 @@ type Change struct {
 
 // Proposal is one stored change request.
 type Proposal struct {
-	ID          uuid.UUID  `json:"id"`
-	OrgID       uuid.UUID  `json:"-"`
-	TargetKind  string     `json:"target_kind"`
-	TargetID    *uuid.UUID `json:"target_id,omitempty"` // nil = create new
+	ID         uuid.UUID `json:"id"`
+	OrgID      uuid.UUID `json:"-"`
+	TargetKind string    `json:"target_kind"`
+	// TargetID is the entity an update changes, or where a create puts
+	// what it makes (the integration of a new rule); nil for a create
+	// that goes nowhere in particular.
+	TargetID    *uuid.UUID `json:"target_id,omitempty"`
 	TargetLabel string     `json:"target_label"`
 
 	Changes   []Change `json:"changes"`
@@ -145,7 +148,11 @@ func (s *Store) Create(ctx context.Context, p Proposal, ttl time.Duration) (Prop
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if p.TargetID != nil {
+	// An update supersedes the pending update of the same target. A
+	// create names where it goes (an integration) in TargetID too, but
+	// two new rules on one integration are two proposals: only its dedup
+	// key collapses repeats.
+	if p.TargetID != nil && p.DedupKey == "" {
 		if _, err := tx.Exec(ctx,
 			`UPDATE proposals SET state='superseded', updated_at=now()
 			 WHERE org_id=$1 AND target_kind=$2 AND target_id=$3 AND state='pending'`,

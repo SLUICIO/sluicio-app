@@ -269,6 +269,11 @@ type completionFiringResponse struct {
 	// HandledAt is set when an operator marked the delayed trace as
 	// handled; the UI renders it benign (no longer warning/error).
 	HandledAt *string `json:"handled_at,omitempty"`
+	// Stage is the 1-based stage the trace stalled at (0: a firing from
+	// before stages, meaning the last one), and WaitingFor the span(s)
+	// it had not reached.
+	Stage      int    `json:"stage"`
+	WaitingFor string `json:"waiting_for,omitempty"`
 }
 
 // firingToResponse converts a tracecompletion.Firing into the wire
@@ -286,6 +291,8 @@ func firingToResponse(f tracecompletion.Firing) completionFiringResponse {
 		StartedAt:       f.StartedAt.UTC().Format("2006-01-02T15:04:05Z"),
 		LastEvaluatedAt: f.LastEvaluatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 		Summary:         f.Summary,
+		Stage:           f.Stage,
+		WaitingFor:      f.WaitingFor,
 	}
 	if f.EndedAt != nil {
 		s := f.EndedAt.UTC().Format("2006-01-02T15:04:05Z")

@@ -465,6 +465,23 @@
         ]
       }
     },
+    "/api/v1/alert-rules/backtest": {
+      "post": {
+        "operationId": "post_api_v1_alert_rules_backtest",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Create alert-rule",
+        "tags": [
+          "alert-rules"
+        ]
+      }
+    },
     "/api/v1/alert-rules/preview": {
       "post": {
         "operationId": "post_api_v1_alert_rules_preview",
@@ -4133,6 +4150,23 @@
         ]
       }
     },
+    "/api/v1/notification-routing": {
+      "get": {
+        "operationId": "get_api_v1_notification_routing",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "List notification-routing",
+        "tags": [
+          "notification-routing"
+        ]
+      }
+    },
     "/api/v1/oauth/authorize": {
       "get": {
         "operationId": "get_api_v1_oauth_authorize",
@@ -4627,6 +4661,23 @@
           }
         },
         "summary": "Create proposal",
+        "tags": [
+          "proposals"
+        ]
+      }
+    },
+    "/api/v1/proposals/options": {
+      "get": {
+        "operationId": "get_api_v1_proposals_options",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "List proposals",
         "tags": [
           "proposals"
         ]
@@ -8035,6 +8086,9 @@
     },
     {
       "name": "notification-profiles"
+    },
+    {
+      "name": "notification-routing"
     },
     {
       "name": "oauth"

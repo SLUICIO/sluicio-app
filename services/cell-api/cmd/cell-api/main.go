@@ -875,6 +875,7 @@ func main() {
 			"days", d, "default_days", int(advisor.ObservationWindow.Hours()/24))
 	}
 	handlers.AdvisorEngine = advisorEngine
+	handlers.AlertEngine = alertEngine
 	go advisorEngine.Run(bgCtx)
 	logger.Info("advisor started")
 

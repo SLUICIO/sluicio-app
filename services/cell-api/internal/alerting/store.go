@@ -1162,3 +1162,73 @@ func dedupe(ids []uuid.UUID) []uuid.UUID {
 	}
 	return out
 }
+
+// RuleState is where a rule stands now, for a reader that lists rules
+// rather than incidents: whether it is firing (and since when), and the
+// last value a metric check read.
+type RuleState struct {
+	// State is "firing", "ok" or "disabled". A check that has never had
+	// data reads as "ok": the engine opens nothing without a breach.
+	State           string     `json:"state"`
+	FiringInstances int        `json:"firing_instances"`
+	FiringSince     *time.Time `json:"firing_since,omitempty"`
+	// LastEvaluatedAt is when the engine last looked at a firing
+	// instance, or last recorded a reading; empty when it has done
+	// neither.
+	LastEvaluatedAt *time.Time `json:"last_evaluated_at,omitempty"`
+	Value           *float64   `json:"value,omitempty"`
+}
+
+// RuleStates returns every rule's state in the org, keyed by rule id.
+func (s *Store) RuleStates(ctx context.Context, orgID uuid.UUID) (map[uuid.UUID]RuleState, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT r.id, r.enabled,
+		       COALESCE(f.n, 0), f.since, f.evaluated,
+		       ar.value, ar.observed_at
+		FROM alert_rules r
+		LEFT JOIN (
+			SELECT alert_rule_id, count(*) AS n, min(started_at) AS since, max(last_evaluated_at) AS evaluated
+			FROM alert_instances WHERE state = 'firing'
+			GROUP BY alert_rule_id
+		) f ON f.alert_rule_id = r.id
+		LEFT JOIN alert_rule_readings ar ON ar.alert_rule_id = r.id
+		WHERE r.organization_id = $1`, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("rule states: %w", err)
+	}
+	defer rows.Close()
+	out := map[uuid.UUID]RuleState{}
+	for rows.Next() {
+		var (
+			id                    uuid.UUID
+			enabled               bool
+			st                    RuleState
+			since, evaluated, obs *time.Time
+		)
+		if err := rows.Scan(&id, &enabled, &st.FiringInstances, &since, &evaluated, &st.Value, &obs); err != nil {
+			return nil, err
+		}
+		st.FiringSince = since
+		switch {
+		case !enabled:
+			st.State = "disabled"
+		case st.FiringInstances > 0:
+			st.State = "firing"
+		default:
+			st.State = "ok"
+		}
+		st.LastEvaluatedAt = latest(evaluated, obs)
+		out[id] = st
+	}
+	return out, rows.Err()
+}
+
+func latest(a, b *time.Time) *time.Time {
+	if a == nil {
+		return b
+	}
+	if b != nil && b.After(*a) {
+		return b
+	}
+	return a
+}

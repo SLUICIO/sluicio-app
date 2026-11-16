@@ -40,6 +40,7 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 ## alert-rules
 - GET /api/v1/alert-rules — List alert-rules
 - POST /api/v1/alert-rules/preview — Create alert-rule
+- POST /api/v1/alert-rules/backtest — Create alert-rule
 - GET /api/v1/alert-rules/{id} — Get alert-rule
 - POST /api/v1/alert-rules — Create alert-rule
 - PUT /api/v1/alert-rules/{id} — Update alert-rule
@@ -347,6 +348,9 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 - DELETE /api/v1/notification-profiles/{id} — Delete notification-profile
 - PUT /api/v1/notification-profiles/{id}/channels — Update notification-profile
 
+## notification-routing
+- GET /api/v1/notification-routing — List notification-routing
+
 ## oauth
 - POST /api/v1/oauth/register — Create oauth
 - GET /api/v1/oauth/authorize — List oauth
@@ -380,6 +384,7 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 - POST /api/v1/proposals — Create proposal
 - GET /api/v1/proposals — List proposals
 - GET /api/v1/proposals/{id} — Get proposal
+- GET /api/v1/proposals/options — List proposals
 - POST /api/v1/proposals/{id}/approve — Create proposal
 - POST /api/v1/proposals/{id}/reject — Create proposal
 

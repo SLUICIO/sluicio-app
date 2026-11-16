@@ -44,11 +44,22 @@ type proposalTarget struct {
 	// rejected at create time — an agent must not be able to smuggle an
 	// arbitrary field past review by burying it in a long diff.
 	fields map[string]bool
+	// creates marks a kind that makes something new: every change's
+	// before is null, and a dedup key stands in for superseding.
+	creates bool
+	// needsTarget: target_id is required (the entity changed, or the
+	// integration a new rule goes on). A new health check has none.
+	needsTarget bool
+	// check, when set, validates the proposed values as they are filed,
+	// so the inbox only holds changes a reviewer could approve. It
+	// returns the inbox label and, for a create, the dedup key.
+	check func(h *Handlers, r *http.Request, id *uuid.UUID, changes []proposals.Change) (label, dedup string, err error)
 	// snapshot returns the current value of each tunable field plus a
 	// human label for the inbox.
 	snapshot func(h *Handlers, ctx context.Context, orgID, id uuid.UUID) (map[string]json.RawMessage, string, error)
-	// apply writes the approved values through the normal store path.
-	apply func(h *Handlers, ctx context.Context, orgID, id uuid.UUID, changes []proposals.Change) error
+	// apply writes the approved values, as the reviewer whose request r
+	// is.
+	apply func(h *Handlers, r *http.Request, id *uuid.UUID, changes []proposals.Change) error
 }
 
 // alertRuleTunables are the knobs an agent may propose changing on an
@@ -71,8 +82,9 @@ var alertRuleTunables = map[string]bool{
 }
 
 var proposalTargets = map[string]proposalTarget{
-	"alert_rule": {
-		fields: alertRuleTunables,
+	proposalAlertRule: {
+		fields:      alertRuleTunables,
+		needsTarget: true,
 		snapshot: func(h *Handlers, ctx context.Context, orgID, id uuid.UUID) (map[string]json.RawMessage, string, error) {
 			r, err := h.Alerts.GetRule(ctx, orgID, id)
 			if err != nil {
@@ -91,8 +103,9 @@ var proposalTargets = map[string]proposalTarget{
 			put("enabled", r.Enabled)
 			return out, r.Name, nil
 		},
-		apply: func(h *Handlers, ctx context.Context, orgID, id uuid.UUID, changes []proposals.Change) error {
-			r, err := h.Alerts.GetRule(ctx, orgID, id)
+		apply: func(h *Handlers, req *http.Request, id *uuid.UUID, changes []proposals.Change) error {
+			ctx, orgID := req.Context(), middleware.OrgID(req)
+			r, err := h.Alerts.GetRule(ctx, orgID, *id)
 			if err != nil {
 				return err
 			}
@@ -176,27 +189,52 @@ func (h *Handlers) createProposal(w http.ResponseWriter, r *http.Request) {
 		httpserver.WriteError(w, http.StatusBadRequest, "at least one change is required")
 		return
 	}
+	if target.creates && len(body.Changes) != 1 {
+		httpserver.WriteError(w, http.StatusBadRequest, "a "+body.TargetKind+" proposal carries one change, the rule")
+		return
+	}
 	for _, c := range body.Changes {
 		if !target.fields[c.Field] {
 			httpserver.WriteError(w, http.StatusBadRequest, "field is not proposable on "+body.TargetKind+": "+c.Field)
 			return
 		}
 	}
-	targetID, err := uuid.Parse(strings.TrimSpace(body.TargetID))
-	if err != nil {
-		httpserver.WriteError(w, http.StatusBadRequest, "target_id is required")
-		return
+	var targetID *uuid.UUID
+	if target.needsTarget {
+		id, err := uuid.Parse(strings.TrimSpace(body.TargetID))
+		if err != nil {
+			httpserver.WriteError(w, http.StatusBadRequest, "target_id is required")
+			return
+		}
+		targetID = &id
 	}
 	orgID := middleware.OrgID(r)
+
+	var label, dedup string
+	if target.check != nil {
+		l, d, err := target.check(h, r, targetID, body.Changes)
+		if err != nil {
+			httpserver.WriteError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		label, dedup = l, d
+	}
 
 	// Snapshot now, and overwrite whatever `before` the caller sent. An
 	// agent's view can be stale or simply wrong, and `before` is the
 	// drift check's input — accepting it unverified would let a caller
 	// disable the very guard that protects the human's edits.
-	current, label, err := target.snapshot(h, r.Context(), orgID, targetID)
+	snapID := uuid.Nil
+	if targetID != nil {
+		snapID = *targetID
+	}
+	current, snapLabel, err := target.snapshot(h, r.Context(), orgID, snapID)
 	if err != nil {
 		httpserver.WriteError(w, http.StatusNotFound, "target not found")
 		return
+	}
+	if label == "" {
+		label = snapLabel
 	}
 	changes := make([]proposals.Change, 0, len(body.Changes))
 	for _, c := range body.Changes {
@@ -211,11 +249,13 @@ func (h *Handlers) createProposal(w http.ResponseWriter, r *http.Request) {
 	p := proposals.Proposal{
 		OrgID:       orgID,
 		TargetKind:  body.TargetKind,
-		TargetID:    &targetID,
+		TargetID:    targetID,
 		TargetLabel: label,
 		Changes:     changes,
 		Rationale:   strings.TrimSpace(body.Rationale),
+		DedupKey:    dedup,
 	}
+
 	pr := middleware.Principal(r)
 	if pr.ServiceAccountID != nil {
 		p.ProposedByKind, p.ProposedByID, p.Via = "service_account", pr.ServiceAccountID, "mcp"
@@ -225,6 +265,10 @@ func (h *Handlers) createProposal(w http.ResponseWriter, r *http.Request) {
 	p.ProposedByLabel = h.actorLabel(r)
 
 	out, err := h.Proposals.Create(r.Context(), p, h.proposalTTL(r.Context(), orgID))
+	if errors.Is(err, proposals.ErrDuplicatePending) {
+		httpserver.WriteError(w, http.StatusConflict, "the same proposal is already waiting for review")
+		return
+	}
 	if err != nil {
 		h.Logger.Error("create proposal failed", "err", err)
 		httpserver.WriteError(w, http.StatusInternalServerError, "save failed")
@@ -315,8 +359,12 @@ func (h *Handlers) getProposal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resp := map[string]any{"proposal": p}
-	if t, ok := proposalTargets[p.TargetKind]; ok && p.TargetID != nil && p.Pending() {
-		if current, _, sErr := t.snapshot(h, r.Context(), orgID, *p.TargetID); sErr == nil {
+	if t, ok := proposalTargets[p.TargetKind]; ok && (p.TargetID != nil || !t.needsTarget) && p.Pending() {
+		snapID := uuid.Nil
+		if p.TargetID != nil {
+			snapID = *p.TargetID
+		}
+		if current, _, sErr := t.snapshot(h, r.Context(), orgID, snapID); sErr == nil {
 			resp["drifted_fields"] = proposals.CheckDrift(p.Changes, current)
 		} else {
 			resp["target_missing"] = true
@@ -382,11 +430,15 @@ func (h *Handlers) decideProposal(w http.ResponseWriter, r *http.Request, decisi
 	// before the state flip: a proposal recorded as approved whose apply
 	// failed would be a lie in the audit trail.
 	if decision == "approved" {
-		if p.TargetID == nil {
+		if p.TargetID == nil && target.needsTarget {
 			httpserver.WriteError(w, http.StatusBadRequest, "proposal has no target")
 			return
 		}
-		current, _, sErr := target.snapshot(h, r.Context(), orgID, *p.TargetID)
+		snapID := uuid.Nil
+		if p.TargetID != nil {
+			snapID = *p.TargetID
+		}
+		current, _, sErr := target.snapshot(h, r.Context(), orgID, snapID)
 		if sErr != nil {
 			httpserver.WriteError(w, http.StatusConflict, "the target no longer exists")
 			return
@@ -399,7 +451,7 @@ func (h *Handlers) decideProposal(w http.ResponseWriter, r *http.Request, decisi
 			})
 			return
 		}
-		if aErr := target.apply(h, r.Context(), orgID, *p.TargetID, p.Changes); aErr != nil {
+		if aErr := target.apply(h, r, p.TargetID, p.Changes); aErr != nil {
 			h.Logger.Error("apply proposal failed", "err", aErr, "proposal", id)
 			httpserver.WriteError(w, http.StatusBadRequest, "could not apply: "+aErr.Error())
 			return

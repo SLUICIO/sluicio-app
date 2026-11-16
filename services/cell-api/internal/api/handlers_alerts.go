@@ -269,7 +269,19 @@ func (h *Handlers) listAlertRules(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, rule)
 	}
-	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"rules": out})
+	// Where each listed rule stands now, beside the list rather than in
+	// it so the rule objects keep the shape PUT takes back.
+	states := map[string]alerting.RuleState{}
+	if all, err := h.Alerts.RuleStates(r.Context(), middleware.OrgID(r)); err != nil {
+		h.Logger.Warn("alert rule states failed", "err", err)
+	} else {
+		for _, rule := range out {
+			if st, ok := all[rule.ID]; ok {
+				states[rule.ID.String()] = st
+			}
+		}
+	}
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"rules": out, "states": states})
 }
 
 // createAlertRule: POST /api/v1/alert-rules
@@ -327,7 +339,16 @@ func (h *Handlers) getAlertRule(w http.ResponseWriter, r *http.Request) {
 		httpserver.WriteError(w, http.StatusNotFound, "rule not found")
 		return
 	}
-	httpserver.WriteJSON(w, http.StatusOK, rule)
+	resp := struct {
+		alerting.AlertRule
+		State *alerting.RuleState `json:"state,omitempty"`
+	}{AlertRule: rule}
+	if all, err := h.Alerts.RuleStates(r.Context(), middleware.OrgID(r)); err == nil {
+		if st, ok := all[rule.ID]; ok {
+			resp.State = &st
+		}
+	}
+	httpserver.WriteJSON(w, http.StatusOK, resp)
 }
 
 // updateAlertRule: PUT /api/v1/alert-rules/{id}

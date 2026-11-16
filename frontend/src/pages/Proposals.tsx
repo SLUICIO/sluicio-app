@@ -17,13 +17,39 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api/client";
-import type { Proposal, ProposalDetail, ProposalState } from "../api/types";
+import type { Proposal, ProposalChange, ProposalDetail, ProposalState } from "../api/types";
+import { diffValue, isCreateProposal, proposalKindLabel, proposedRuleLines } from "../lib/proposalView";
 
-/** Renders a stored JSON value compactly for the diff. */
-function val(v: unknown): string {
-  if (v === null || v === undefined) return "—";
-  if (typeof v === "string") return v;
-  return JSON.stringify(v);
+/** One side of a diff: inline when short, a block when it is a list or object. */
+function DiffValue({ v, className }: { v: unknown; className: string }) {
+  const { text, block } = diffValue(v);
+  if (!block) return <span className={className}>{text}</span>;
+  return (
+    <pre className={className} style={{ margin: 0, whiteSpace: "pre-wrap", flexBasis: "100%" }}>
+      {text}
+    </pre>
+  );
+}
+
+/** A proposal that creates a check or a completion rule: what it would be, then the request. */
+function ProposedRule({ kind, change }: { kind: string; change: ProposalChange }) {
+  const lines = proposedRuleLines(kind, change.after);
+  return (
+    <div className="prop-diff">
+      {lines.map((l) => (
+        <div key={l.label} className="prop-diff__row">
+          <span className="prop-diff__field">{l.label}</span>
+          <span className="prop-diff__after">{l.value}</span>
+        </div>
+      ))}
+      <details>
+        <summary className="muted" style={{ cursor: "pointer", fontSize: 12 }}>
+          The request approving sends
+        </summary>
+        <pre style={{ margin: "6px 0 0", whiteSpace: "pre-wrap", fontSize: 12 }}>{JSON.stringify(change.after, null, 2)}</pre>
+      </details>
+    </div>
+  );
 }
 
 /** Field names are stored as API keys; show them as prose. */
@@ -161,8 +187,9 @@ export default function Proposals() {
         <div className="placeholder">
           <b>{filter === "pending" ? "No proposals waiting" : "No proposals yet"}</b>
           <p className="muted" style={{ marginTop: 6 }}>
-            When an agent suggests a change — tuning a noisy check, for instance — it appears
-            here for review instead of being applied.
+            When an agent suggests a change (tuning a noisy check, a new health check or
+            completion rule, an integration's settings) it appears here for review instead of
+            being applied.
           </p>
         </div>
       ) : (
@@ -176,9 +203,10 @@ export default function Proposals() {
               <div key={p.id} className="prop-card">
                 <div className="prop-card__head">
                   <div>
-                    <div className="prop-card__title">{p.target_label || p.target_kind}</div>
+                    <div className="prop-card__title">{p.target_label || proposalKindLabel(p.target_kind)}</div>
                     <div className="prop-card__meta">
                       <StatePill state={p.state} />
+                      <span className="prop-chip">{proposalKindLabel(p.target_kind)}</span>
                       <span>
                         {p.proposed_by_kind === "service_account" ? "agent" : "user"} ·{" "}
                         {p.proposed_by_label}
@@ -189,26 +217,34 @@ export default function Proposals() {
                   </div>
                 </div>
 
-                <div className="prop-diff">
-                  {p.changes.map((c) => {
-                    const isDrifted = drifted.includes(c.field);
-                    return (
-                      <div key={c.field} className={`prop-diff__row${isDrifted ? " is-drifted" : ""}`}>
-                        <span className="prop-diff__field">{fieldLabel(c.field)}</span>
-                        <span className="prop-diff__before">{val(c.before)}</span>
-                        <span className="prop-diff__arrow" aria-hidden>
-                          →
-                        </span>
-                        <span className="prop-diff__after">{val(c.after)}</span>
-                        {isDrifted && (
-                          <span className="prop-diff__warn" title="This field changed after the proposal was filed">
-                            changed since proposed
-                          </span>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
+                {isCreateProposal(p.target_kind) && p.changes[0] ? (
+                  <ProposedRule kind={p.target_kind} change={p.changes[0]} />
+                ) : (
+                  <div className="prop-diff">
+                    {p.changes.map((c) => {
+                      const isDrifted = drifted.includes(c.field);
+                      // Structured values stack, old above new, with no arrow between.
+                      const stacked = diffValue(c.before).block || diffValue(c.after).block;
+                      return (
+                        <div key={c.field} className={`prop-diff__row${isDrifted ? " is-drifted" : ""}`}>
+                          <span className="prop-diff__field">{fieldLabel(c.field)}</span>
+                          <DiffValue v={c.before} className="prop-diff__before" />
+                          {!stacked && (
+                            <span className="prop-diff__arrow" aria-hidden>
+                              →
+                            </span>
+                          )}
+                          <DiffValue v={c.after} className="prop-diff__after" />
+                          {isDrifted && (
+                            <span className="prop-diff__warn" title="This field changed after the proposal was filed">
+                              changed since proposed
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
 
                 <div className="prop-rationale">
                   <span className="prop-rationale__label">Why</span>

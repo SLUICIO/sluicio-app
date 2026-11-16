@@ -98,6 +98,13 @@ type Handlers struct {
 	// evaluates them. Both nil on a cell without ClickHouse.
 	Advisor       *advisor.Store
 	AdvisorEngine *advisor.Engine
+	// AlertEngine dry-runs a check against stored telemetry
+	// (POST /alert-rules/backtest). nil disables that route.
+	AlertEngine *alerting.Engine
+	// mux is the router Mount filled, kept so an approved proposal can
+	// replay the request a person would have made, through the same
+	// route and the same permission gates.
+	mux *http.ServeMux
 	// advisorRunAt rate-limits manual evaluations per org — a full run
 	// samples a month of spans.
 	advisorRunMu sync.Mutex
@@ -1203,6 +1210,7 @@ func (h *Handlers) resolveFacets(allFacets, autoMatched []servicetypes.ServiceFa
 
 // Mount registers the API routes on the given mux.
 func (h *Handlers) Mount(mux *http.ServeMux) {
+	h.mux = mux
 	mux.HandleFunc("GET /api/v1/license", h.licenseStatus)
 	mux.HandleFunc("GET /api/v1/services", h.listServices)
 	mux.HandleFunc("GET /api/v1/systems", h.listSystems)
@@ -1430,6 +1438,7 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	// (Trace-completion rule mutations stay admin-gated; see below.)
 	mux.HandleFunc("GET /api/v1/alert-rules", h.listAlertRules)
 	mux.HandleFunc("POST /api/v1/alert-rules/preview", h.previewAlertRule)
+	mux.HandleFunc("POST /api/v1/alert-rules/backtest", h.backtestAlertRule)
 	mux.HandleFunc("GET /api/v1/alert-rules/{id}", h.getAlertRule)
 	mux.HandleFunc("GET /api/v1/alert-instances", h.listAlertInstances)
 	mux.HandleFunc("GET /api/v1/alert-deliveries", h.listAlertDeliveries)
@@ -1442,6 +1451,8 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/alert-templates/preview", h.previewAlertTemplate)
 	// Notification profiles (per-team / org-wide behaviour + channels).
 	mux.HandleFunc("GET /api/v1/notification-profiles", h.listNotificationProfiles)
+	// Who checks reach, without the channels' credentials or addresses.
+	mux.HandleFunc("GET /api/v1/notification-routing", h.notificationRouting)
 	mux.HandleFunc("GET /api/v1/integrations/{id}/notification-profile", h.getIntegrationProfile)
 	if h.AuthMW != nil {
 		mux.HandleFunc("POST /api/v1/notification-profiles", h.AuthMW.RequireRole(identity.Role.CanWrite, h.createNotificationProfile))
@@ -1835,6 +1846,8 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 		mux.HandleFunc("POST /api/v1/proposals", h.createProposal)
 		mux.HandleFunc("GET /api/v1/proposals", h.listProposals)
 		mux.HandleFunc("GET /api/v1/proposals/{id}", h.getProposal)
+		// What a proposal may contain, read by the agent writing one.
+		mux.HandleFunc("GET /api/v1/proposals/options", h.proposalOptions)
 		mux.HandleFunc("POST /api/v1/proposals/{id}/approve", h.writeAnywhere(h.approveProposal))
 		mux.HandleFunc("POST /api/v1/proposals/{id}/reject", h.writeAnywhere(h.rejectProposal))
 		mux.HandleFunc("GET /api/v1/event-subscriptions", h.listEventSubscriptions)

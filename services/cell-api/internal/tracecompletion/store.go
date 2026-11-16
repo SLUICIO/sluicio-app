@@ -52,6 +52,10 @@ type RuleInput struct {
 	ChannelIDs    []uuid.UUID
 }
 
+// Validate is the input gate for a caller that checks a rule before
+// creating it, such as a proposal filed for a reviewer.
+func (in RuleInput) Validate() error { return in.validate() }
+
 // validateInput is the input gate. Bad data fails fast at the HTTP
 // boundary rather than at evaluation time.
 func (in RuleInput) validate() error {
@@ -369,6 +373,11 @@ type Firing struct {
 	// stays state='firing' (so it's never re-fired) but no longer counts
 	// as delayed and is rendered benign.
 	HandledAt *time.Time
+	// Stage is the 1-based stage the trace stalled at; 0 for a firing
+	// from before stages, which means the rule's last one. WaitingFor
+	// names the span(s) it had not reached when it fired.
+	Stage      int
+	WaitingFor string
 }
 
 // ListFirings returns alert_instances for any trace-completion rule on
@@ -388,7 +397,8 @@ func (s *Store) ListFirings(ctx context.Context, orgID, integrationID uuid.UUID,
 		    i.started_at, i.last_evaluated_at, i.ended_at,
 		    COALESCE(i.summary, ''),
 		    i.labels->>'started_at' AS trace_started_at,
-		    i.handled_at
+		    i.handled_at,
+		    COALESCE(i.labels->>'stage_name', '')
 		FROM alert_instances i
 		JOIN alert_rules r ON r.id = i.alert_rule_id
 		WHERE r.organization_id = $1
@@ -411,7 +421,7 @@ func (s *Store) ListFirings(ctx context.Context, orgID, integrationID uuid.UUID,
 			&f.InstanceID, &f.RuleID, &f.RuleName, &f.IntegrationID, &f.Severity,
 			&f.TraceID, &f.State,
 			&f.StartedAt, &f.LastEvaluatedAt, &f.EndedAt,
-			&f.Summary, &traceStarted, &f.HandledAt,
+			&f.Summary, &traceStarted, &f.HandledAt, &f.WaitingFor,
 		); err != nil {
 			return nil, err
 		}
@@ -423,7 +433,7 @@ func (s *Store) ListFirings(ctx context.Context, orgID, integrationID uuid.UUID,
 		// fingerprint is the bare trace_id for legacy firings and
 		// trace_id#stage for multi-stage ones; the wire/UI TraceID is
 		// always the bare id.
-		f.TraceID, _ = parseFingerprint(f.TraceID)
+		f.TraceID, f.Stage = parseFingerprint(f.TraceID)
 		out = append(out, f)
 	}
 	return out, rows.Err()
@@ -445,7 +455,8 @@ func (s *Store) ListFiringsForTrace(ctx context.Context, orgID uuid.UUID, traceI
 		    i.started_at, i.last_evaluated_at, i.ended_at,
 		    COALESCE(i.summary, ''),
 		    i.labels->>'started_at' AS trace_started_at,
-		    i.handled_at
+		    i.handled_at,
+		    COALESCE(i.labels->>'stage_name', '')
 		FROM alert_instances i
 		JOIN alert_rules r ON r.id = i.alert_rule_id
 		WHERE r.organization_id = $1
@@ -466,7 +477,7 @@ func (s *Store) ListFiringsForTrace(ctx context.Context, orgID uuid.UUID, traceI
 			&f.InstanceID, &f.RuleID, &f.RuleName, &f.IntegrationID, &f.Severity,
 			&f.TraceID, &f.State,
 			&f.StartedAt, &f.LastEvaluatedAt, &f.EndedAt,
-			&f.Summary, &traceStarted, &f.HandledAt,
+			&f.Summary, &traceStarted, &f.HandledAt, &f.WaitingFor,
 		); err != nil {
 			return nil, err
 		}
@@ -478,7 +489,7 @@ func (s *Store) ListFiringsForTrace(ctx context.Context, orgID uuid.UUID, traceI
 		// fingerprint is the bare trace_id for legacy firings and
 		// trace_id#stage for multi-stage ones; the wire/UI TraceID is
 		// always the bare id.
-		f.TraceID, _ = parseFingerprint(f.TraceID)
+		f.TraceID, f.Stage = parseFingerprint(f.TraceID)
 		out = append(out, f)
 	}
 	return out, rows.Err()
