@@ -3,8 +3,17 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.202 — 2026-11-16
+
+- feat(mcp): tools to read checks, completion rules and routing, dry-run a check and propose configuration (420a767)
+- feat(proposals): propose new checks, completion rules and integration settings, and dry-run a check (5994f2b)
+- feat(frontend): the easter egg's bells keep ringing where they land (925a701)
+- feat(frontend): the easter egg's bells stay where they land (93ac3b1)
+- feat(frontend): a temporary easter egg on the notification bell (55953be)
+
 ## v0.11.201 — 2026-11-16
 
+- release v0.11.201 - refresh internal changelog (5c5a00e)
 - test(e2e): an integration's Add health check menu has a fourth option (c3ab0de)
 
 ## v0.11.200 — 2026-11-16
