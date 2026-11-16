@@ -39,15 +39,20 @@ async function isReachable(item: Locator): Promise<{ ok: boolean; blocker: strin
   });
 }
 
-async function assertMenuFullyClickable(page: Page) {
+async function openMenu(page: Page) {
   const btn = page.getByRole("button", { name: "+ Add health check" });
   await btn.scrollIntoViewIfNeeded();
   await btn.click();
+}
+
+// An integration's menu has a fourth option, a trace-completion rule.
+async function assertMenuFullyClickable(page: Page, count: number) {
+  await openMenu(page);
 
   const items = page.getByRole("menuitem");
-  await expect(items).toHaveCount(3);
+  await expect(items).toHaveCount(count);
 
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < count; i++) {
     const item = items.nth(i);
     const label = (await item.innerText()).trim();
     const { ok, blocker } = await isReachable(item);
@@ -70,7 +75,20 @@ test.describe("Add health check menu", () => {
     // supported deep link, so this stays a navigation rather than a click
     // sequence that would break again on the next grouping change.
     await page.goto(`/integrations/${id}/settings?tab=alerting`);
-    await assertMenuFullyClickable(page);
+    await assertMenuFullyClickable(page, 4);
+  });
+
+  test("an integration's menu starts a trace-completion rule", async ({ page }) => {
+    // Completion rules are listed further down the page; the menu is
+    // where someone adding a check looks for one, so it opens that form.
+    await logIn(page);
+    const list = await (await page.request.get("/api/v1/integrations?range=30d")).json();
+    const id = (list.integrations ?? [])[0]?.id as string | undefined;
+    test.skip(!id, "cell has no integrations");
+    await page.goto(`/integrations/${id}/settings?tab=alerting`);
+    await openMenu(page);
+    await page.getByRole("menuitem", { name: /Trace completion/ }).click();
+    await expect(page.getByText("New trace-completion rule")).toBeVisible();
   });
 
   test("every option is clickable on a system", async ({ page }) => {
@@ -84,7 +102,7 @@ test.describe("Add health check menu", () => {
     const id = (await created.json()).id as string;
     try {
       await page.goto(`/systems/${id}`);
-      await assertMenuFullyClickable(page);
+      await assertMenuFullyClickable(page, 3);
     } finally {
       await page.request.delete(`/api/v1/systems/${id}`);
     }
