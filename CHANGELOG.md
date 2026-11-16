@@ -3,8 +3,15 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.200 — 2026-11-16
+
+- fix(integrations): health checks on an integration look like the sections beside it (c518823)
+- fix(flow): size service nodes from the name as the browser wraps it (b1b6f81)
+- feat(tracecompletion): stages match a span by service, and can require all of them (9d4a9cc)
+
 ## v0.11.199 — 2026-11-12
 
+- release v0.11.199 - refresh internal changelog (c0aa520)
 - test(e2e): the error notifier test opts its integration in (5169f13)
 - build: pin Go 1.26.11 for the net/http fix GO-2026-6859 (bdad932)
 
