@@ -35,4 +35,20 @@ describe("maxNameLines", () => {
   it("handles an empty flow without asking for half a line", () => {
     expect(maxNameLines([])).toBe(1);
   });
+
+  // 8px a character is about 14px semibold in the app's font; the node
+  // has 152px for the name.
+  const measured = (t: string) => t.length * 8;
+
+  it("breaks after a hyphen the way the browser does", () => {
+    // 20 characters, 160px: the browser breaks after "part-", which a
+    // count of 24 characters a line missed and the trace count spilled
+    // out of the node.
+    expect(maxNameLines(["wms-loader-part-sync"], measured)).toBe(2);
+    expect(maxNameLines(["erp-loader-sync"], measured)).toBe(1);
+  });
+
+  it("breaks a part wider than a line anywhere", () => {
+    expect(maxNameLines(["a-" + "x".repeat(25)], measured)).toBe(2);
+  });
 });

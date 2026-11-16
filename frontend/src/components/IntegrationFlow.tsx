@@ -12,7 +12,7 @@
 // health checks is firing, with an "unhealthy" badge. Raw trace errors don't
 // colour nodes or edges — they're visible on the Errors page, not here.
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import ReactFlow, {
   Background,
   BackgroundVariant,
@@ -72,10 +72,8 @@ const NAME_LINE_H = 18;
 // that has to stay small enough to see the flow through.
 const MAX_NAME_LINES = 2;
 // Characters that fit on one line of the name at 14px semibold in a
-// 180px node, measured against the real font rather than guessed: a
-// 24-character name fills the width. Used only to decide how tall a
-// node has to be - the browser does the actual wrapping, and it wraps
-// at the hyphens these names are full of.
+// 180px node, on average. Only the fallback where text cannot be
+// measured (see maxNameLines).
 const NAME_CHARS_PER_LINE = 24;
 const COL_GAP = 80;
 const ROW_GAP = 28;
@@ -377,7 +375,21 @@ function Inner({
   // row of boxes at different heights reads as a hierarchy that is not
   // there. One long name costs every node 18px, which is cheaper than
   // the reader not being able to tell two services apart.
-  const nameLines = useMemo(() => maxNameLines(rawNodes.map((n) => n.service_name)), [rawNodes]);
+  // Measured in the real font, so again once the web font has loaded:
+  // the fallback font can fit a name the real one has to wrap.
+  const [fontsReady, setFontsReady] = useState(false);
+  useEffect(() => {
+    let active = true;
+    document.fonts?.ready.then(() => active && setFontsReady(true));
+    return () => {
+      active = false;
+    };
+  }, []);
+  const nameLines = useMemo(
+    () => maxNameLines(rawNodes.map((n) => n.service_name), canvasMeasure()),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rawNodes, fontsReady],
+  );
   const nodeH = (hasSchemas ? NODE_H_SCHEMA : NODE_H) + (nameLines - 1) * NAME_LINE_H;
 
   const positions = useMemo(
@@ -554,17 +566,60 @@ export default function IntegrationFlow(props: Props) {
 }
 
 /**
- * How many lines the longest of these service names needs.
+ * How many lines the longest of these service names needs, capped at
+ * MAX_NAME_LINES because past that the node stops being a node.
  *
- * An estimate on purpose: the browser does the wrapping, and it breaks
- * at hyphens, so counting characters over-states for a name that breaks
- * early and under-states for none. Over-stating adds a line of air;
- * under-stating clips the name, which is the thing being fixed. So it
- * rounds up, and it is capped at MAX_NAME_LINES because past that the
- * node stops being a node.
+ * It lays each name out the way the browser will: breaking after a
+ * hyphen, and anywhere inside a part too wide for a line. measure is
+ * the rendered width of a piece of text; the component passes one that
+ * measures with the real font. A character count stood in for it and
+ * under-stated a name like wms-loader-part-sync, which the browser
+ * breaks after "part-": the node stayed one line tall and its trace
+ * count spilled out of the box.
  */
-export function maxNameLines(names: string[]): number {
-  const longest = names.reduce((m, n) => Math.max(m, n.length), 0);
-  const lines = Math.ceil(longest / NAME_CHARS_PER_LINE);
-  return Math.min(MAX_NAME_LINES, Math.max(1, lines));
+export function maxNameLines(names: string[], measure: (s: string) => number = estimateWidth): number {
+  const lines = names.reduce((m, n) => Math.max(m, linesOf(n, measure)), 1);
+  return Math.min(MAX_NAME_LINES, lines);
+}
+
+// The width a name has inside a node: the node less its padding and the
+// 2px border a selected node gets, so selecting one never re-wraps it.
+const NAME_WIDTH = NODE_W - 2 * 12 - 2 * 2;
+
+function linesOf(name: string, measure: (s: string) => number): number {
+  if (!name) return 1;
+  let lines = 1;
+  let used = 0;
+  for (const part of name.split(/(?<=-)/)) {
+    const w = measure(part);
+    if (used > 0 && used + w <= NAME_WIDTH) {
+      used += w;
+      continue;
+    }
+    if (used > 0) lines++;
+    // A part wider than a line breaks anywhere (overflowWrap: anywhere).
+    const extra = Math.max(0, Math.ceil(w / NAME_WIDTH) - 1);
+    lines += extra;
+    used = w - extra * NAME_WIDTH;
+  }
+  return lines;
+}
+
+// Without a canvas (tests, very old browsers): a character's average
+// width at 14px semibold.
+function estimateWidth(s: string): number {
+  return s.length * (NAME_WIDTH / NAME_CHARS_PER_LINE);
+}
+
+// canvasMeasure measures text in the node name's own font, or returns
+// undefined where there is no 2D canvas.
+function canvasMeasure(): ((s: string) => number) | undefined {
+  try {
+    const ctx = document.createElement("canvas").getContext("2d");
+    if (!ctx) return undefined;
+    ctx.font = `600 14px ${getComputedStyle(document.body).fontFamily}`;
+    return (s) => ctx.measureText(s).width;
+  } catch {
+    return undefined;
+  }
 }
