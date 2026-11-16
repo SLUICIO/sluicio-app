@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.203 — 2026-11-16
+
+- fix(traces): a trace with no spans says why instead of "not found" (6b6e6b9)
+
 ## v0.11.202 — 2026-11-16
 
+- release v0.11.202 - refresh internal changelog (acbd901)
 - feat(mcp): tools to read checks, completion rules and routing, dry-run a check and propose configuration (420a767)
 - feat(proposals): propose new checks, completion rules and integration settings, and dry-run a check (5994f2b)
 - feat(frontend): the easter egg's bells keep ringing where they land (925a701)
