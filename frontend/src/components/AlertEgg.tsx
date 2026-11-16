@@ -2,7 +2,9 @@
 //
 // TEMPORARY easter egg: with ?alertegg=true in the URL and at least one
 // unread notification, the top-bar bell shakes, swells until it bursts,
-// and showers the screen with small bells. Self-contained (its own
+// and showers the screen with small bells, which stay where they land
+// until the page is left. They let clicks through, and the bell itself
+// comes back once they have landed. Self-contained (its own
 // styles, a portal, no global CSS) so removing it is deleting this file
 // and its two lines in DigestBell.
 
@@ -13,7 +15,7 @@ const SWELL_MS = 2600;
 const SHOWER_MS = 3200;
 const BELLS = 140;
 
-type Phase = "idle" | "swell" | "shower" | "done";
+type Phase = "idle" | "swell" | "shower" | "landed";
 
 interface Piece {
   dx: number;
@@ -50,18 +52,18 @@ export default function AlertEgg({ anchor, play }: { anchor: RefObject<HTMLEleme
 
   useEffect(() => {
     const el = anchor.current;
-    if (phase === "idle" || phase === "done" || !el) return;
+    if (phase === "idle" || phase === "landed" || !el) return;
     // The real bell steps aside while its stand-in performs.
     el.style.visibility = "hidden";
     const t = window.setTimeout(
-      () => setPhase(phase === "swell" ? "shower" : "done"),
+      () => setPhase(phase === "swell" ? "shower" : "landed"),
       phase === "swell" ? SWELL_MS : SHOWER_MS,
     );
     return () => window.clearTimeout(t);
   }, [phase, anchor]);
 
   useEffect(() => {
-    if (phase === "done" && anchor.current) anchor.current.style.visibility = "";
+    if (phase === "landed" && anchor.current) anchor.current.style.visibility = "";
   }, [phase, anchor]);
 
   // Where it bursts: part of the way from the bell to the middle of the
@@ -80,9 +82,11 @@ export default function AlertEgg({ anchor, play }: { anchor: RefObject<HTMLEleme
     const w = window.innerWidth;
     const h = window.innerHeight;
     return Array.from({ length: BELLS }, (_, i) => ({
-      dx: (Math.random() * 2 - 1) * w * 0.75,
+      // Where it comes to rest: anywhere across the screen, below the
+      // top bar, and fully on it.
+      dx: 8 + Math.random() * (w - 40) - burst.x,
       rise: -(80 + Math.random() * h * 0.35),
-      fall: h - burst.y + 40 + Math.random() * 120,
+      fall: h * 0.12 + Math.random() * (h * 0.88 - 34) - burst.y,
       rot: (Math.random() * 2 - 1) * 900,
       size: 10 + Math.random() * 16,
       delay: Math.random() * 250,
@@ -91,7 +95,7 @@ export default function AlertEgg({ anchor, play }: { anchor: RefObject<HTMLEleme
     }));
   }, [burst]);
 
-  if (!origin || !burst || phase === "idle" || phase === "done") return null;
+  if (!origin || !burst || phase === "idle") return null;
 
   return createPortal(
     <div aria-hidden style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 9999, overflow: "hidden" }}>
@@ -116,9 +120,8 @@ export default function AlertEgg({ anchor, play }: { anchor: RefObject<HTMLEleme
         @keyframes alertegg-x { from { transform: translateX(0); } to { transform: translateX(var(--dx)); } }
         @keyframes alertegg-y {
           0%   { transform: translateY(0) rotate(0deg); opacity: 1; animation-timing-function: cubic-bezier(.2,.7,.4,1); }
-          30%  { transform: translateY(var(--rise)) rotate(calc(var(--rot) * .3)); opacity: 1; animation-timing-function: cubic-bezier(.5,0,.9,.5); }
-          85%  { opacity: 1; }
-          100% { transform: translateY(var(--fall)) rotate(var(--rot)); opacity: 0; }
+          30%  { transform: translateY(var(--rise)) rotate(calc(var(--rot) * .3)); animation-timing-function: cubic-bezier(.5,0,.9,.5); }
+          100% { transform: translateY(var(--fall)) rotate(var(--rot)); }
         }
       `}</style>
       {phase === "swell" && (
@@ -138,7 +141,7 @@ export default function AlertEgg({ anchor, play }: { anchor: RefObject<HTMLEleme
           <BellSvg size={18} color="var(--primary)" />
         </div>
       )}
-      {phase === "shower" && (
+      {(phase === "shower" || phase === "landed") && (
         <>
           <div
             style={{
