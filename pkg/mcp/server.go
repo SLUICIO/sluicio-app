@@ -426,7 +426,7 @@ func argInt(args map[string]any, key string, def int) int {
 
 // buildTools is the curated, read-only tool catalogue.
 func buildTools(s *Server) []tool {
-	return []tool{
+	return append([]tool{
 		// Start here. One call that answers "what am I looking at, and is
 		// anything wrong?" — listed first because an agent reads the
 		// catalogue top-down and this is the cheapest useful opening move.
@@ -538,7 +538,7 @@ func buildTools(s *Server) []tool {
 				}
 				return s.post("/api/v1/messages/search", rangeArg(a, "24h"), map[string]any{"filters": filters, "limit": limit})
 			}},
-		{Name: "sluicio_get_integration", Output: getIntegrationOut, Description: "Get one integration by id: its matchers, member services with per-service health over the window, its metric and log sources (evidence from non-member services such as a broker's queue), tags, and aggregate status. Use an id from sluicio_list_integrations.", Schema: objSchema(map[string]any{
+		{Name: "sluicio_get_integration", Output: getIntegrationOut, Description: "Get one integration by id: its matchers, member services with per-service health over the window, its metric and log sources (evidence from non-member services such as a broker's queue), tags, aggregate status, its health checks with where each stands now (health_checks: rules and states, as sluicio_list_alert_rules) and its trace-completion rules (completion_rules, as sluicio_list_completion_rules). Use an id from sluicio_list_integrations.", Schema: objSchema(map[string]any{
 			"id":          strProp("The integration id (uuid)."),
 			"window":      strProp("Time window for the per-service stats, e.g. 1h, 24h. Default 24h."),
 			"environment": envProp,
@@ -550,7 +550,25 @@ func buildTools(s *Server) []tool {
 				}
 				q := rangeArg(a, "24h")
 				envArg(q, a)
-				return s.get("/api/v1/integrations/"+url.PathEscape(id), q)
+				raw, err := s.get("/api/v1/integrations/"+url.PathEscape(id), q)
+				if err != nil {
+					return "", err
+				}
+				// The checks and completion rules belong to the answer:
+				// a count of failing checks says nothing about the ones
+				// that are quiet, or whether a delayed message reaches
+				// anyone.
+				var payload map[string]any
+				if json.Unmarshal([]byte(raw), &payload) != nil {
+					return raw, nil
+				}
+				s.mergeInto(payload, "health_checks", "/api/v1/alert-rules", url.Values{"integration": {id}})
+				s.mergeInto(payload, "completion_rules", "/api/v1/integrations/"+url.PathEscape(id)+"/completion-rules", nil)
+				out, err := json.Marshal(payload)
+				if err != nil {
+					return raw, nil
+				}
+				return string(out), nil
 			}},
 		{Name: "sluicio_search_logs", Output: searchLogsOut, Description: "Search log events within a time window: free-text body match, OTLP severity floor (info≈9, warn≈13, error≈17, fatal≈21), scope to a service or an integration's member services, and attribute predicates. Results are RBAC-filtered to what the token may see. Returns up to `limit` logs plus a next_cursor when more match.", Schema: objSchema(map[string]any{
 			"query":        strProp("Case-insensitive substring of the log body."),
@@ -651,7 +669,7 @@ func buildTools(s *Server) []tool {
 		// it files a proposal a human must approve, which is why it can
 		// exist at all in a catalogue that is otherwise read-only.
 		{Name: "sluicio_propose_check_tuning", Output: proposeOut, Annotations: proposeAnnotations,
-			Description: "Propose a tuning change to an existing alert rule — threshold, severity, for_window or enabled. This does NOT change anything: it files a reviewable proposal that a human with edit rights approves or rejects, and only approval applies it. Use it when a check is demonstrably too noisy or too quiet and you can say why, citing what you observed (e.g. 'fired 40 times in 24h, every instance auto-resolved within 2 minutes'). The rationale is shown verbatim to the reviewer and is required. Get rule ids from sluicio_health or sluicio_alert_instances; the current values come from the rule itself, so send only the fields you want changed.",
+			Description: "Propose a tuning change to an existing alert rule — threshold, severity, for_window or enabled. This does NOT change anything: it files a reviewable proposal that a human with edit rights approves or rejects, and only approval applies it. Use it when a check is demonstrably too noisy or too quiet and you can say why, citing what you observed (e.g. 'fired 40 times in 24h, every instance auto-resolved within 2 minutes'). Dry-run the new value with sluicio_backtest_rule first and cite how often it would have fired. The rationale is shown verbatim to the reviewer and is required. Get rule ids from sluicio_list_alert_rules, sluicio_health or sluicio_alert_instances; the current values come from the rule itself, so send only the fields you want changed.",
 			Schema: objSchema(map[string]any{
 				"rule_id":   strProp("The alert rule's id (uuid), from sluicio_health or sluicio_alert_instances."),
 				"rationale": strProp("Why this change is right, citing what you observed. Shown verbatim to the human reviewer. Required."),
@@ -694,5 +712,5 @@ func buildTools(s *Server) []tool {
 					"changes":     changes,
 				})
 			}},
-	}
+	}, configTools(s)...)
 }

@@ -377,7 +377,14 @@ var (
 		"delayed_message_count": intOut("Messages that breached a completion SLA."),
 		"open_error_count":      intOut("Unacknowledged errors."),
 		"failing_check_count":   intOut("Health checks firing now."),
-		"window":                windowOut,
+		"health_checks": objOf("The integration's health checks and where each stands, as sluicio_list_alert_rules returns them.", map[string]any{
+			"rules":  arrOf("Checks bound to this integration.", ruleItem),
+			"states": objOf("Rule id → its state now.", nil),
+		}),
+		"completion_rules": objOf("Its trace-completion rules, as sluicio_list_completion_rules returns them.", map[string]any{
+			"rules": arrOf("The rules.", nil),
+		}),
+		"window": windowOut,
 	}, "integration")
 
 	searchLogsOut = outSchema(map[string]any{
@@ -483,12 +490,12 @@ var (
 	proposeOut = outSchema(map[string]any{
 		"id":           strOut("The proposal's id (uuid)."),
 		"state":        strOut("pending until a human decides. Nothing has changed yet."),
-		"target_kind":  strOut("What kind of thing it would change, e.g. alert_rule."),
+		"target_kind":  strOut("alert_rule (tuning), new_alert_rule, new_completion_rule or integration_settings."),
 		"target_id":    strOut("The target's id (uuid)."),
 		"target_label": strOut("The target's name, for quoting back to a human."),
 		"changes": arrOf("The diff a reviewer sees: current value and proposed value per field.", map[string]any{
 			"field":  strOut("The field being changed."),
-			"before": map[string]any{"description": "The current value, snapshotted by the cell."},
+			"before": map[string]any{"description": "The current value, snapshotted by the cell. null for a create."},
 			"after":  map[string]any{"description": "The proposed value."},
 		}),
 		"rationale":  strOut("The reason you gave, shown verbatim to the reviewer."),
@@ -524,8 +531,8 @@ func structuredResult(name, body string) (map[string]any, error) {
 var listProposalsOut = outSchema(map[string]any{
 	"proposals": arrOf("Proposals filed against this org, newest first.", map[string]any{
 		"id":                strOut("Proposal id (uuid)."),
-		"target_kind":       strOut("What kind of thing it changes, e.g. alert_rule."),
-		"target_id":         strOut("The thing it changes. ABSENT when the proposal would CREATE something new."),
+		"target_kind":       strOut("alert_rule (tuning), new_alert_rule, new_completion_rule or integration_settings."),
+		"target_id":         strOut("The thing it changes, or where a create goes (the integration of a new completion rule). ABSENT for a new health check."),
 		"target_label":      strOut("Human-readable name of the target, or of what would be created."),
 		"rationale":         strOut("Why it was proposed, shown verbatim to the reviewer."),
 		"state":             strOut("pending | approved | rejected | expired | superseded. Only pending awaits a decision; re-filing something rejected wastes the reviewer's attention."),
@@ -566,3 +573,152 @@ var integrationCandidatesOut = outSchema(map[string]any{
 		}),
 	}),
 })
+
+// ── configuration: checks, completion rules, routing, proposals ─────────
+
+// ruleItem is an alert rule as GET /alert-rules returns it.
+var ruleItem = map[string]any{
+	"id":                   strOut("Rule id (uuid): pass to sluicio_get_alert_rule, sluicio_backtest_rule or sluicio_propose_check_tuning."),
+	"name":                 strOut("Display name."),
+	"severity":             strOut("info | warning | critical."),
+	"enabled":              boolOut("Whether it is evaluated."),
+	"signal":               strOut("metric, log or trace."),
+	"spec":                 objOf("Metric check: metric_name, aggregation, operator, threshold, for_window, attrs, split_by.", nil),
+	"log_spec":             objOf("Log check: min_severity, body_contains, attrs, threshold, window_seconds, comparison.", nil),
+	"trace_error_spec":     objOf("Failed-trace check: threshold, window_seconds, attrs.", nil),
+	"trace_attribute_spec": objOf("Span-attribute check: threshold, window_seconds, attrs.", nil),
+	"trace_volume_spec":    objOf("Low-traffic check: fires below threshold traces in window_seconds.", nil),
+	"trace_latency_spec":   objOf("Latency check: threshold_ms, window_seconds, aggregation p95 | max.", nil),
+	"integration_id":       strOut("Bound integration (uuid), when the check is on one."),
+	"service_name":         strOut("Bound service, when the check is on one."),
+	"system_id":            strOut("Bound system (uuid), when the check is on one."),
+	"channel_ids":          strArr("Channels it sends to. Empty means its notification profile decides (see sluicio_list_notification_channels)."),
+	"runbook":              strOut("What to do when it fires."),
+	"environment_mode":     strOut("each (one evaluation per environment) or only (the listed environments)."),
+	"environments":         strArr("The environments of environment_mode only."),
+	"resolve_mode":         strOut("auto (resolves itself) or manual (fires until acknowledged)."),
+}
+
+var ruleStateItem = objOf("Where the rule stands now.", map[string]any{
+	"state":             strOut("firing | ok | disabled. A check that never had data reads ok."),
+	"firing_instances":  intOut("Open firings (one per environment or split value)."),
+	"firing_since":      strOut("When the oldest open firing started (RFC3339)."),
+	"last_evaluated_at": strOut("When the engine last looked at it, when known (RFC3339)."),
+	"value":             numOut("The last value a metric check read."),
+})
+
+var (
+	listAlertRulesOut = outSchema(map[string]any{
+		"rules":  arrOf("Alert rules, visibility-filtered. Health checks are those bound to an integration, service or system.", ruleItem),
+		"states": objOf("Rule id → its state now (state, firing_instances, firing_since, last_evaluated_at, value).", nil),
+	}, "rules")
+
+	getAlertRuleOut = outSchema(func() map[string]any {
+		props := map[string]any{"state": ruleStateItem}
+		for k, v := range ruleItem {
+			props[k] = v
+		}
+		return props
+	}(), "id")
+
+	completionStageItem = map[string]any{
+		"spans": arrOf("The spans this stage waits for.", map[string]any{
+			"service":   strOut("The service that must emit it; absent means any member service."),
+			"span_name": strOut("The span name, matched exactly."),
+		}),
+		"require":         strOut("any (one of the spans completes the stage) or all (every one must arrive)."),
+		"timeout_seconds": intOut("This stage's SLA, from the previous stage's span. 0 inherits default_timeout_seconds."),
+	}
+
+	listCompletionRulesOut = outSchema(map[string]any{
+		"rules": arrOf("The integration's trace-completion rules.", map[string]any{
+			"id":                      strOut("Rule id (uuid)."),
+			"name":                    strOut("Display name."),
+			"severity":                strOut("info | warning | critical."),
+			"enabled":                 boolOut("Whether it is evaluated."),
+			"start_span_name":         strOut("A trace carrying this span is one of the integration's messages and is evaluated. Empty evaluates every trace."),
+			"stages":                  arrOf("The ordered stages a message must reach.", completionStageItem),
+			"default_timeout_seconds": intOut("Timeout of a stage that sets none."),
+			"channel_ids":             strArr("Channels a delayed message notifies. Empty notifies no one directly."),
+		}),
+	}, "rules")
+
+	delayedMessagesOut = outSchema(map[string]any{
+		"firings": arrOf("Delayed messages, newest first.", map[string]any{
+			"trace_id":         strOut("The message (trace); pass to sluicio_get_trace."),
+			"rule_id":          strOut("The completion rule that flagged it."),
+			"rule_name":        strOut("Its name."),
+			"severity":         strOut("info | warning | critical."),
+			"stage":            intOut("The 1-based stage it is stuck at; 0 for an old firing, meaning the last stage."),
+			"waiting_for":      strOut("The span(s) it had not reached, e.g. \"wms-loader: Step.Send\"."),
+			"state":            strOut("firing (still delayed) or resolved (it arrived late)."),
+			"started_at":       strOut("When it was flagged (RFC3339)."),
+			"trace_started_at": strOut("When the stage's clock started (RFC3339)."),
+			"ended_at":         strOut("When the missing span arrived, if it did (RFC3339)."),
+			"handled_at":       strOut("When someone marked it handled (RFC3339)."),
+			"summary":          strOut("Human-readable description."),
+		}),
+	}, "firings")
+
+	notificationRoutingOut = outSchema(map[string]any{
+		"channels": arrOf("Notification channels, without credentials, URLs or addresses.", map[string]any{
+			"id":               strOut("Channel id (uuid): what a check's channel_ids names."),
+			"name":             strOut("Display name."),
+			"kind":             strOut("email | slack | webhook | pagerduty."),
+			"destination_host": strOut("The host a webhook or Slack channel posts to."),
+			"recipients":       intOut("How many addresses an e-mail channel sends to."),
+			"recent_failures":  intOut("Deliveries that failed lately; a channel with failures may reach no one."),
+			"last_failure_at":  strOut("The last failed delivery (RFC3339)."),
+		}),
+		"notification_profiles": arrOf("Profiles: which channels a check without its own channel_ids reaches.", map[string]any{
+			"id":               strOut("Profile id (uuid)."),
+			"name":             strOut("Display name."),
+			"is_default":       boolOut("The org default, used when nothing else applies."),
+			"team_id":          strOut("The team that owns it; absent for org-wide."),
+			"channel_ids":      strArr("Channels it sends to."),
+			"environment_mode": strOut("any, only or except."),
+			"environments":     strArr("The environments of only or except."),
+		}),
+		"routing": strOut("How a firing picks its channels."),
+	}, "channels")
+
+	spanNamesOut = outSchema(map[string]any{
+		"span_names": strArr("Span names, most frequent first."),
+		"services":   strArr("The integration's member services with traffic in the window."),
+	}, "span_names")
+
+	metricLabelValuesOut = outSchema(map[string]any{
+		"key": strOut("The attribute key asked for."),
+		"values": arrOf("Values, most frequent first.", map[string]any{
+			"value":  strOut("The attribute value."),
+			"events": intOut("Points carrying it in the window."),
+		}),
+	}, "values")
+
+	backtestOut = outSchema(map[string]any{
+		"firings":          intOut("How many separate times the check would have fired."),
+		"episodes":         arrOf("Each stretch it would have been firing.", map[string]any{"environment": strOut("The environment, when the check runs per environment."), "start": strOut("First breached look (RFC3339)."), "end": strOut("Last breached look (RFC3339)."), "peak": numOut("The value furthest past the threshold.")}),
+		"points":           intOut("Looks taken."),
+		"points_with_data": intOut("Looks that found data."),
+		"breached_points":  intOut("Looks that breached."),
+		"min":              numOut("Lowest value read."),
+		"max":              numOut("Highest value read."),
+		"window_seconds":   intOut("The window each look reads."),
+		"step_seconds":     intOut("Time between looks; a breach shorter than this can be missed."),
+		"from":             strOut("Start of the period (RFC3339)."),
+		"to":               strOut("End of the period (RFC3339)."),
+		"note":             strOut("What a dry run does not model."),
+	}, "firings")
+
+	proposalOptionsOut = outSchema(map[string]any{
+		"proposal_kinds":        arrOf("What can be proposed.", map[string]any{"kind": strOut("target_kind on the wire."), "target": strOut("What target_id names."), "fields": strArr("The fields a change may set."), "about": strOut("How to fill it.")}),
+		"check_types":           arrOf("Check types and their spec fields and allowed values.", nil),
+		"severities":            strArr("Allowed severities."),
+		"attribute_filter":      objOf("Shape and operators of attrs filters.", nil),
+		"matcher_operators":     strArr("Operators an integration matcher may use."),
+		"source":                objOf("Signals and origin kinds of a metric or log source.", nil),
+		"completion_rule":       objOf("Fields of a completion rule and its stages.", nil),
+		"channels":              arrOf("Channels a check may name in channel_ids.", nil),
+		"notification_profiles": arrOf("Notification profiles.", nil),
+	}, "proposal_kinds")
+)

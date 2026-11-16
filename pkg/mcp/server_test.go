@@ -9,12 +9,16 @@ import (
 )
 
 // callTool drives one tools/call through HandleMessage against a fake
-// cell-api and returns the request the tool actually made.
+// cell-api and returns the first request the tool made (a tool that
+// adds related reads, like sluicio_get_integration, makes its own read
+// first).
 func callTool(t *testing.T, name string, args map[string]any) *http.Request {
 	t.Helper()
 	var captured *http.Request
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		captured = r.Clone(r.Context())
+		if captured == nil {
+			captured = r.Clone(r.Context())
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte("{}"))
 	}))
@@ -63,6 +67,11 @@ func TestToolCatalogueCoversTheReadSurface(t *testing.T) {
 		"sluicio_metric_catalog", "sluicio_metric_series",
 		"sluicio_search_traces", "sluicio_get_trace", "sluicio_search_logs",
 		"sluicio_usage_report",
+		"sluicio_list_alert_rules", "sluicio_get_alert_rule", "sluicio_list_completion_rules",
+		"sluicio_delayed_messages", "sluicio_list_notification_channels", "sluicio_span_names",
+		"sluicio_metric_label_values", "sluicio_backtest_rule", "sluicio_proposal_options",
+		"sluicio_propose_alert_rule", "sluicio_propose_trace_completion_rule",
+		"sluicio_propose_integration_settings", "sluicio_propose_metric_source",
 	} {
 		if !names[want] {
 			t.Errorf("catalogue missing %s", want)
@@ -139,7 +148,9 @@ func TestToolAnnotationsMatchWhatToolsDo(t *testing.T) {
 		if method == "" {
 			continue // arg validation rejected it; nothing reached the wire
 		}
-		writes := method != http.MethodGet && path != "/api/v1/messages/search"
+		// messages/search and alert-rules/backtest read through POST: a
+		// search body and a rule are too big for a query string.
+		writes := method != http.MethodGet && path != "/api/v1/messages/search" && path != "/api/v1/alert-rules/backtest"
 		if writes && claimsReadOnly[name] {
 			t.Errorf("%s used %s %s but claims readOnlyHint=true — a client would skip confirmation on a real write",
 				name, method, path)

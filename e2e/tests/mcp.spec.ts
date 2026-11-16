@@ -203,6 +203,17 @@ test.describe("MCP — declared output schemas match the cell", () => {
       (await callTool(request, token, "sluicio_metric_catalog", { window: "7d" })).content[0].text,
     ).metrics;
 
+    // A check of the test's own for the rule tools and the dry run: a
+    // metric check whose threshold nothing reaches, so it never fires.
+    const ruleResp = await admin.post("/api/v1/alert-rules", {
+      data: {
+        name: `e2e mcp schema ${Date.now().toString(36)}`, severity: "info", signal: "metric",
+        spec: { metric_name: metrics?.[0]?.name ?? "queue.depth", aggregation: "avg", operator: "gt", threshold: 1e12, for_window: "5m" },
+      },
+    });
+    expect(ruleResp.ok(), `create rule: ${ruleResp.status()}`).toBeTruthy();
+    const ruleId = (await ruleResp.json()).id as string;
+
     const args: Record<string, Record<string, unknown>> = {
       sluicio_get_integration: { id: integrations[0].id },
       sluicio_get_system: { id: systems[0].id },
@@ -210,6 +221,12 @@ test.describe("MCP — declared output schemas match the cell", () => {
       sluicio_metric_series: { metric: metrics?.[0]?.name ?? "queue.depth", window: "7d" },
       sluicio_search_traces: { window: "7d", errors_only: false, limit: 5 },
       sluicio_search_logs: { window: "7d", limit: 5 },
+      sluicio_get_alert_rule: { id: ruleId },
+      sluicio_backtest_rule: { rule_id: ruleId, days: 1 },
+      sluicio_list_completion_rules: { integration_id: integrations[0].id },
+      sluicio_delayed_messages: { integration_id: integrations[0].id },
+      sluicio_span_names: { integration_id: integrations[0].id },
+      sluicio_metric_label_values: { key: "service.name", metric: metrics?.[0]?.name ?? "queue.depth" },
     };
 
     try {
@@ -258,6 +275,7 @@ test.describe("MCP — declared output schemas match the cell", () => {
       expect(problems, `declared output schemas no longer describe what cell-api returns:\n${problems.join("\n")}`)
         .toEqual([]);
     } finally {
+      await admin.delete(`/api/v1/alert-rules/${ruleId}`).catch(() => {});
       if (markedService) {
         await admin
           .put(`/api/v1/services/${encodeURIComponent(markedService)}/system`, {
