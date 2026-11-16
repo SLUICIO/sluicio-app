@@ -2,11 +2,11 @@
 //
 // TEMPORARY easter egg: with ?alertegg=true in the URL and at least one
 // unread notification, the top-bar bell shakes, swells until it bursts,
-// and showers the screen with small bells, which stay where they land
-// until the page is left. They let clicks through, and the bell itself
-// comes back once they have landed. Self-contained (its own
-// styles, a portal, no global CSS) so removing it is deleting this file
-// and its two lines in DigestBell.
+// and showers the screen with small bells, which stay where they land,
+// still ringing, until the page is reloaded. They let clicks through,
+// and the bell itself comes back once they have landed. Self-contained
+// (its own styles, a portal, no global CSS) so removing it is deleting
+// this file and its two lines in DigestBell.
 
 import { useEffect, useMemo, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
@@ -26,6 +26,10 @@ interface Piece {
   delay: number;
   duration: number;
   hue: string;
+  // The ringing that never stops: how fast this bell swings, and how
+  // far, so the pile does not shake in step.
+  ringMs: number;
+  ringDeg: number;
 }
 
 const HUES = ["var(--primary)", "var(--warn, #f59e0b)", "var(--ok, #16a34a)", "var(--err, #ef4444)", "var(--ink-2)"];
@@ -92,6 +96,8 @@ export default function AlertEgg({ anchor, play }: { anchor: RefObject<HTMLEleme
       delay: Math.random() * 250,
       duration: 2200 + Math.random() * 900,
       hue: HUES[i % HUES.length],
+      ringMs: 180 + Math.random() * 260,
+      ringDeg: 10 + Math.random() * 16,
     }));
   }, [burst]);
 
@@ -116,6 +122,10 @@ export default function AlertEgg({ anchor, play }: { anchor: RefObject<HTMLEleme
         @keyframes alertegg-flash {
           0%   { transform: translate(-50%, -50%) scale(0.2); opacity: 0.9; }
           100% { transform: translate(-50%, -50%) scale(14); opacity: 0; }
+        }
+        @keyframes alertegg-ring {
+          from { transform: rotate(calc(var(--ring) * -1)); }
+          to   { transform: rotate(var(--ring)); }
         }
         @keyframes alertegg-x { from { transform: translateX(0); } to { transform: translateX(var(--dx)); } }
         @keyframes alertegg-y {
@@ -178,7 +188,17 @@ export default function AlertEgg({ anchor, play }: { anchor: RefObject<HTMLEleme
                   } as React.CSSProperties
                 }
               >
-                <BellSvg size={p.size} color={p.hue} />
+                <div
+                  style={
+                    {
+                      "--ring": `${p.ringDeg}deg`,
+                      transformOrigin: "50% 10%",
+                      animation: `alertegg-ring ${p.ringMs}ms ease-in-out -${Math.round(p.delay % p.ringMs)}ms infinite alternate`,
+                    } as React.CSSProperties
+                  }
+                >
+                  <BellSvg size={p.size} color={p.hue} />
+                </div>
               </div>
             </div>
           ))}
