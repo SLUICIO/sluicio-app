@@ -46,19 +46,52 @@ import (
 	"time"
 )
 
-// Stage is one hop in the pipeline: the trace must emit a span whose
-// name is in SpanNames (OR-list) within TimeoutSeconds of the previous
-// stage's span. TimeoutSeconds == 0 means "inherit" — see
-// EffectiveStages.
+// Stage is one hop in the pipeline: the trace must emit the stage's
+// spans within TimeoutSeconds of the previous stage's span.
+// TimeoutSeconds == 0 means "inherit" - see EffectiveStages.
 type Stage struct {
-	// SpanNames is the OR-list of span names that satisfy this hop.
-	// Case-sensitive exact match against what the upstream emits.
+	// Spans are the spans this hop waits for. A span may name the
+	// service that must emit it: in a fan-out every subscriber often
+	// emits the same standardised span name, and only the service tells
+	// them apart.
+	Spans []SpanMatch `json:"spans,omitempty"`
+
+	// Require says whether one of Spans satisfies the hop ("any", the
+	// default) or every one of them must arrive ("all"), as when a
+	// message fans out to several subscribers that must each deliver.
+	Require string `json:"require,omitempty"`
+
+	// SpanNames is the earlier shape: an OR-list of span names from any
+	// service. Normalize folds it into Spans and mirrors Spans' names
+	// back here, so a reader that only knows span_names stays coherent.
 	SpanNames []string `json:"span_names"`
 
 	// TimeoutSeconds is this hop's SLA. 0 → fall back to the rule's
 	// DefaultTimeoutSeconds, then to the legacy TimeoutSeconds.
 	TimeoutSeconds int `json:"timeout_seconds,omitempty"`
 }
+
+// SpanMatch is one span a stage waits for. Matching is case-sensitive
+// and exact against what the upstream emits. An empty Service matches
+// the span name from any of the integration's services.
+type SpanMatch struct {
+	Service  string `json:"service,omitempty"`
+	SpanName string `json:"span_name"`
+}
+
+// Label is how a span reads in summaries and alerts: "svc: name", or
+// the bare name when any service will do.
+func (m SpanMatch) Label() string {
+	if m.Service == "" {
+		return m.SpanName
+	}
+	return m.Service + ": " + m.SpanName
+}
+
+const (
+	RequireAny = "any"
+	RequireAll = "all"
+)
 
 // RuleSpec is the JSON shape stored in alert_rules.rule_spec when
 // signal='trace'. The evaluator decodes this from the rule_spec column,
@@ -103,12 +136,31 @@ type RuleSpec struct {
 	LookbackSeconds int `json:"lookback_seconds"`
 }
 
-// EffectiveStage is a stage with its timeout resolved and its span
-// names trimmed. This is what the evaluator and validator work against
-// so legacy + new rules share one shape.
+// EffectiveStage is a stage with its timeout resolved and its spans
+// trimmed. This is what the evaluator and validator work against so
+// legacy + new rules share one shape.
 type EffectiveStage struct {
-	SpanNames      []string
+	Spans          []SpanMatch
+	All            bool
 	TimeoutSeconds int
+}
+
+// Label is the stage as it reads in summaries: its spans joined by
+// " / " when one will do, " + " when every one must arrive.
+func (es EffectiveStage) Label() string {
+	return labelOf(es.Spans, es.All)
+}
+
+func labelOf(spans []SpanMatch, all bool) string {
+	sep := " / "
+	if all {
+		sep = " + "
+	}
+	parts := make([]string, len(spans))
+	for i, m := range spans {
+		parts[i] = m.Label()
+	}
+	return strings.Join(parts, sep)
 }
 
 // Normalize canonicalises a spec in place: sets Kind, trims whitespace,
@@ -132,9 +184,16 @@ func (s *RuleSpec) Normalize() {
 		}}
 	}
 
-	// Trim every stage's span names (fresh slice, no aliasing).
+	// Each stage's spans, trimmed, with span_names folded in when a
+	// client sent only those; then span_names mirrors the spans' names.
 	for i := range s.Stages {
-		s.Stages[i].SpanNames = trimNonEmpty(s.Stages[i].SpanNames)
+		st := &s.Stages[i]
+		st.Spans = stageSpans(*st)
+		st.SpanNames = namesOf(st.Spans)
+		// Anything other than any/all is left for Validate to refuse.
+		if st.Require = strings.TrimSpace(st.Require); st.Require == "" {
+			st.Require = RequireAny
+		}
 	}
 
 	// Mirror final stage names into the legacy field so the "done" set
@@ -164,27 +223,54 @@ func (s RuleSpec) EffectiveStages() []EffectiveStage {
 	}
 	out := make([]EffectiveStage, 0, len(stages))
 	for _, st := range stages {
-		names := trimNonEmpty(st.SpanNames)
-		if len(names) == 0 {
+		spans := stageSpans(st)
+		if len(spans) == 0 {
 			continue
 		}
 		t := st.TimeoutSeconds
 		if t <= 0 {
 			t = def
 		}
-		out = append(out, EffectiveStage{SpanNames: names, TimeoutSeconds: t})
+		// "all" of a single span is the same as "any" of it.
+		all := strings.TrimSpace(st.Require) == RequireAll && len(spans) > 1
+		out = append(out, EffectiveStage{Spans: spans, All: all, TimeoutSeconds: t})
 	}
 	return out
 }
 
-// FinalStageNames returns the span names that mark the whole pipeline
-// "done" — the last stage's names. Used by the late-completion sweep.
-func (s RuleSpec) FinalStageNames() []string {
-	es := s.EffectiveStages()
-	if len(es) == 0 {
-		return nil
+// stageSpans is a stage's spans trimmed and de-duplicated, read from
+// Spans or, for a stage stored before spans existed, from SpanNames.
+func stageSpans(st Stage) []SpanMatch {
+	src := st.Spans
+	if len(src) == 0 {
+		for _, n := range st.SpanNames {
+			src = append(src, SpanMatch{SpanName: n})
+		}
 	}
-	return es[len(es)-1].SpanNames
+	out := make([]SpanMatch, 0, len(src))
+	seen := map[SpanMatch]bool{}
+	for _, m := range src {
+		m = SpanMatch{Service: strings.TrimSpace(m.Service), SpanName: strings.TrimSpace(m.SpanName)}
+		if m.SpanName == "" || seen[m] {
+			continue
+		}
+		seen[m] = true
+		out = append(out, m)
+	}
+	return out
+}
+
+// namesOf is the distinct span names of spans, in order.
+func namesOf(spans []SpanMatch) []string {
+	out := make([]string, 0, len(spans))
+	seen := map[string]bool{}
+	for _, m := range spans {
+		if !seen[m.SpanName] {
+			seen[m.SpanName] = true
+			out = append(out, m.SpanName)
+		}
+	}
+	return out
 }
 
 // Gated reports whether the rule has a start-span gate. Ungated
@@ -221,8 +307,13 @@ func (s RuleSpec) Validate() error {
 	if len(stages) == 0 {
 		return errors.New("tracecompletion: at least one stage (or closing_span_name) is required")
 	}
+	for i, st := range s.Stages {
+		if r := strings.TrimSpace(st.Require); r != "" && r != RequireAny && r != RequireAll {
+			return fmt.Errorf("tracecompletion: stage %d require must be 'any' or 'all'", i+1)
+		}
+	}
 	for i, es := range stages {
-		if len(es.SpanNames) == 0 {
+		if len(es.Spans) == 0 {
 			return fmt.Errorf("tracecompletion: stage %d must have at least one span name", i+1)
 		}
 		if es.TimeoutSeconds < 1 || es.TimeoutSeconds > 86400 {
@@ -249,18 +340,6 @@ func (s RuleSpec) Timeout() time.Duration {
 // Lookback returns the lookback as a time.Duration.
 func (s RuleSpec) Lookback() time.Duration {
 	return time.Duration(s.LookbackSeconds) * time.Second
-}
-
-// trimNonEmpty trims each string and drops the empties, returning a
-// fresh slice.
-func trimNonEmpty(in []string) []string {
-	out := make([]string, 0, len(in))
-	for _, n := range in {
-		if t := strings.TrimSpace(n); t != "" {
-			out = append(out, t)
-		}
-	}
-	return out
 }
 
 // TraceState is the per-trace classification the evaluator produces.

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -1596,12 +1597,14 @@ func (h *Handlers) removeServiceFromIntegration(w http.ResponseWriter, r *http.R
 	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"removed": removed})
 }
 
-// integrationSpanNames: GET /api/v1/integrations/{id}/span-names?range=24h
+// integrationSpanNames: GET /api/v1/integrations/{id}/span-names?range=24h[&service=]
 //
 // Distinct span names observed across the integration's matched services in
-// the window, most-frequent first. Powers the start/stage span pickers in
-// the trace-completion rule editor; an empty list (new/quiet integration)
-// just means the UI falls back to free text.
+// the window, most-frequent first, and those services. Powers the start and
+// stage span pickers in the trace-completion rule editor; an empty list
+// (new/quiet integration) just means the UI falls back to free text.
+// service narrows the names to what one member emits, for a stage span
+// that names its service; a service that is not a member has none.
 func (h *Handlers) integrationSpanNames(w http.ResponseWriter, r *http.Request) {
 	id, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
@@ -1630,13 +1633,23 @@ func (h *Handlers) integrationSpanNames(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		h.Logger.Warn("span-names: resolve services failed", "err", err)
 	}
-	names, err := h.Store.DistinctSpanNames(r.Context(), matched, tr.From, tr.To, 200, h.integrationGroups(r.Context(), id))
+	from := matched
+	if svc := strings.TrimSpace(r.URL.Query().Get("service")); svc != "" {
+		from = nil
+		if slices.Contains(matched, svc) {
+			from = []string{svc}
+		}
+	}
+	names, err := h.Store.DistinctSpanNames(r.Context(), from, tr.From, tr.To, 200, h.integrationGroups(r.Context(), id))
 	if err != nil {
 		h.Logger.Error("span-names: distinct span names failed", "err", err)
 		httpserver.WriteError(w, http.StatusInternalServerError, "query failed")
 		return
 	}
-	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"span_names": names})
+	if matched == nil {
+		matched = []string{}
+	}
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"span_names": names, "services": matched})
 }
 
 // integrationAttributeKeys: GET /api/v1/integrations/{id}/attribute-keys?range=24h

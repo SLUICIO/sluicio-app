@@ -34,7 +34,11 @@ import type {
   NotificationChannel,
   TraceCompletionRule,
   TraceCompletionRuleInput,
+  TraceCompletionSpan,
+  TraceCompletionStage,
 } from "../api/types";
+import SearchableSelect from "../components/SearchableSelect";
+import { addSpan, sameSpan, spanLabel, spansOf } from "../lib/completionStages";
 import { alertCondition, alertSignalLabel } from "../lib/alertRule";
 import { CHECK_PARAM } from "../lib/checkEditHref";
 import IntegrationProfileSelect from "../components/IntegrationProfileSelect";
@@ -276,6 +280,7 @@ export default function IntegrationSettings() {
             // Re-reads the integration so its health pill reflects the
             // check that was just added, edited or removed.
             onChanged={refresh}
+            onAddCompletion={() => setEditing("new")}
           />}
 
         <IntegrationAlertRules
@@ -498,7 +503,7 @@ function fmtSeconds(s: number): string {
 // of badges with each hop's effective timeout.
 function RulePipeline({ rule }: { rule: TraceCompletionRule }) {
   const def = rule.default_timeout_seconds || rule.timeout_seconds || 0;
-  const stages =
+  const stages: TraceCompletionStage[] =
     rule.stages && rule.stages.length > 0
       ? rule.stages
       : [{ span_names: rule.closing_span_names ?? [], timeout_seconds: rule.timeout_seconds }];
@@ -514,7 +519,16 @@ function RulePipeline({ rule }: { rule: TraceCompletionRule }) {
         return (
           <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
             <span className="muted" style={{ fontSize: 12 }}>→</span>
-            <span className="badge mono">{(st.span_names ?? []).join(" / ")}</span>
+            {spansOf(st).map((sp, j) => (
+              <span key={j} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                {j > 0 && (
+                  <span className="muted" style={{ fontSize: 12 }}>
+                    {st.require === "all" ? "+" : "/"}
+                  </span>
+                )}
+                <span className="badge mono">{spanLabel(sp)}</span>
+              </span>
+            ))}
             {t > 0 && (
               <span className="muted" style={{ fontSize: 11 }}>({fmtSeconds(t)})</span>
             )}
@@ -527,29 +541,86 @@ function RulePipeline({ rule }: { rule: TraceCompletionRule }) {
 
 // StageDraft is the editor's in-memory shape for one pipeline hop.
 interface StageDraft {
-  spans: string; // comma-separated span names
+  spans: TraceCompletionSpan[];
+  require: "any" | "all";
   inherit: boolean; // use the rule's default timeout
   timeoutN: number;
   timeoutUnit: TimeUnit;
 }
 
 function stageDraftsFromRule(rule: TraceCompletionRule | null): StageDraft[] {
-  const src =
+  const src: TraceCompletionStage[] =
     rule?.stages && rule.stages.length > 0
       ? rule.stages
       : rule
-        ? [{ span_names: rule.closing_span_names ?? ["Klart"], timeout_seconds: rule.timeout_seconds }]
-        : [{ span_names: ["Klart"], timeout_seconds: 0 }];
+        ? [{ span_names: rule.closing_span_names ?? [], timeout_seconds: rule.timeout_seconds }]
+        : [{ span_names: [], timeout_seconds: 0 }];
   return src.map((st) => {
     const explicit = !!st.timeout_seconds && st.timeout_seconds > 0;
     const t = explicit ? secondsAs(st.timeout_seconds!) : { n: 5, unit: "minutes" as TimeUnit };
     return {
-      spans: (st.span_names ?? []).join(", "),
+      spans: spansOf(st),
+      require: st.require === "all" ? "all" : "any",
       inherit: !explicit,
       timeoutN: t.n,
       timeoutUnit: t.unit,
     };
   });
+}
+
+// StageSpanPicker adds a span to a stage: optionally pick the service
+// that must emit it first, then the span name, offered from what that
+// service (or the whole integration) has emitted.
+function StageSpanPicker({
+  integrationID,
+  services,
+  allNames,
+  onAdd,
+}: {
+  integrationID: string;
+  services: string[];
+  allNames: string[];
+  onAdd: (sp: TraceCompletionSpan) => void;
+}) {
+  const [service, setService] = useState("");
+  const [names, setNames] = useState<string[] | null>(null);
+  useEffect(() => {
+    if (!service) {
+      setNames(null);
+      return;
+    }
+    let active = true;
+    api
+      .integrationSpanNames(integrationID, "24h", service)
+      .then((r) => active && setNames(r.span_names ?? []))
+      .catch(() => active && setNames([]));
+    return () => {
+      active = false;
+    };
+  }, [integrationID, service]);
+  return (
+    <>
+      <SearchableSelect
+        value={service}
+        onChange={setService}
+        options={services}
+        allLabel="Any service"
+        placeholder="Search services"
+        variant="field"
+      />
+      <SearchableSelect
+        value=""
+        onChange={(v) => onAdd(service ? { service, span_name: v } : { span_name: v })}
+        options={names ?? allNames}
+        withoutAll
+        creatable
+        allLabel="Add a span…"
+        placeholder="Search, or type a span name"
+        createLabel={(typed) => `Add “${typed}”`}
+        variant="field"
+      />
+    </>
+  );
 }
 
 function RuleForm({
@@ -579,17 +650,21 @@ function RuleForm({
   const [channelIDs, setChannelIDs] = useState<string[]>(rule?.channel_ids ?? []);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Span names seen across this integration's traces — offered as
-  // datalist suggestions on the start/stage span inputs. Empty (new or
-  // quiet integration) → the inputs are plain free text.
+  // Span names and services seen on this integration's traces, offered
+  // by the start and stage span pickers. Empty (new or quiet
+  // integration) → the pickers take what is typed.
   const [spanSuggestions, setSpanSuggestions] = useState<string[]>([]);
-  const spanListId = `span-names-${integrationID}`;
+  const [memberServices, setMemberServices] = useState<string[]>([]);
 
   useEffect(() => {
     let active = true;
     api
       .integrationSpanNames(integrationID)
-      .then((r) => active && setSpanSuggestions(r.span_names ?? []))
+      .then((r) => {
+        if (!active) return;
+        setSpanSuggestions(r.span_names ?? []);
+        setMemberServices([...(r.services ?? [])].sort());
+      })
       .catch(() => active && setSpanSuggestions([]));
     return () => {
       active = false;
@@ -600,7 +675,7 @@ function RuleForm({
     setStages((prev) => prev.map((s, i) => (i === idx ? { ...s, ...patch } : s)));
   };
   const addStage = () =>
-    setStages((prev) => [...prev, { spans: "", inherit: true, timeoutN: 5, timeoutUnit: "minutes" }]);
+    setStages((prev) => [...prev, { spans: [], require: "any", inherit: true, timeoutN: 5, timeoutUnit: "minutes" }]);
   const removeStage = (idx: number) =>
     setStages((prev) => prev.filter((_, i) => i !== idx));
   const moveStage = (idx: number, dir: -1 | 1) =>
@@ -618,16 +693,15 @@ function RuleForm({
     setError(null);
     const defaultTimeoutSeconds = toSeconds(defTimeoutN, defTimeoutUnit);
     const builtStages = stages
+      .filter((s) => s.spans.length > 0)
       .map((s) => {
-        const spanNames = s.spans
-          .split(",")
-          .map((x) => x.trim())
-          .filter(Boolean);
-        const stage: { span_names: string[]; timeout_seconds?: number } = { span_names: spanNames };
+        const stage: TraceCompletionStage = {
+          spans: s.spans,
+          require: s.spans.length > 1 ? s.require : "any",
+        };
         if (!s.inherit) stage.timeout_seconds = toSeconds(s.timeoutN, s.timeoutUnit);
         return stage;
-      })
-      .filter((s) => s.span_names.length > 0);
+      });
     if (builtStages.length === 0) {
       setError("Add at least one stage with a span name.");
       setBusy(false);
@@ -705,33 +779,24 @@ function RuleForm({
         />
       </label>
 
-      {/* Suggestions sourced from the integration's actual traces;
-          shared by the start span + every stage input. Empty datalist =
-          plain free text. */}
-      <datalist id={spanListId}>
-        {spanSuggestions.map((s) => (
-          <option key={s} value={s} />
-        ))}
-      </datalist>
-
-      <label className="form__label">
-        Start span
-        <input
-          className="search__input mono"
-          list={spanListId}
+      <div className="form__label">
+        <span>Start span</span>
+        <SearchableSelect
           value={startSpan}
-          onChange={(e) => setStartSpan(e.target.value)}
-          placeholder="Start"
+          onChange={setStartSpan}
+          options={spanSuggestions}
+          allLabel="Any start (legacy)"
+          placeholder="Search, or type a span name"
+          creatable
+          createLabel={(typed) => `Use “${typed}”`}
+          variant="field"
         />
         <span className="form__hint">
-          {spanSuggestions.length > 0
-            ? "Pick from spans seen on this integration, or type one. "
-            : ""}
           Only traces that emit this span are evaluated and counted as
-          this integration's messages. Leave empty to evaluate every
-          trace on the integration's services (legacy behaviour).
+          this integration's messages. Leave it on "Any start" to evaluate
+          every trace on the integration's services (legacy behaviour).
         </span>
-      </label>
+      </div>
 
       <div className="form__label">
         <span>Default stage timeout</span>
@@ -779,13 +844,43 @@ function RuleForm({
               }}
             >
               <span className="muted mono" style={{ fontSize: 12, minWidth: 18 }}>{i + 1}.</span>
-              <input
-                className="search__input mono"
-                list={spanListId}
-                style={{ flex: "1 1 180px" }}
-                value={s.spans}
-                onChange={(e) => updateStage(i, { spans: e.target.value })}
-                placeholder={i === 0 ? "Klart" : "To be done"}
+              <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, flex: "1 1 calc(100% - 30px)" }}>
+                {s.spans.length === 0 && <span className="muted" style={{ fontSize: 12 }}>No span yet</span>}
+                {s.spans.map((sp) => (
+                  <span
+                    key={spanLabel(sp)}
+                    className="badge mono"
+                    style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+                  >
+                    {spanLabel(sp)}
+                    <button
+                      type="button"
+                      aria-label={`Remove ${spanLabel(sp)}`}
+                      onClick={() => updateStage(i, { spans: s.spans.filter((x) => !sameSpan(x, sp)) })}
+                      style={{ background: "none", border: 0, cursor: "pointer", color: "var(--muted)", padding: 0 }}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+                {s.spans.length > 1 && (
+                  <select
+                    className="search__input"
+                    style={{ width: "auto" }}
+                    aria-label={`Stage ${i + 1} completes when`}
+                    value={s.require}
+                    onChange={(e) => updateStage(i, { require: e.target.value as "any" | "all" })}
+                  >
+                    <option value="any">any one arrives</option>
+                    <option value="all">all of them arrive</option>
+                  </select>
+                )}
+              </div>
+              <StageSpanPicker
+                integrationID={integrationID}
+                services={memberServices}
+                allNames={spanSuggestions}
+                onAdd={(sp) => updateStage(i, { spans: addSpan(s.spans, sp) })}
               />
               <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12 }}>
                 <input
@@ -837,9 +932,11 @@ function RuleForm({
           + Add stage
         </button>
         <span className="form__hint">
-          Each stage is one or more span names (comma-separated; any one
-          satisfies the hop). The trace is delayed at whichever stage
-          runs past its timeout. Match is case-sensitive.
+          Each stage waits for one or more spans. Pick a service when
+          several services emit the same span name, and choose "all of
+          them arrive" when a message fans out to several receivers that
+          must each deliver. The trace is delayed at whichever stage runs
+          past its timeout. Match is case-sensitive.
         </span>
       </div>
 

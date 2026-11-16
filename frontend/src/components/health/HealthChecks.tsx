@@ -221,6 +221,7 @@ export default function HealthChecks({
   window: win,
   reloadKey,
   onChanged,
+  onAddCompletion,
 }: {
   scope: CheckScope;
   target: string;
@@ -238,6 +239,10 @@ export default function HealthChecks({
   // showing the status it loaded with, and only a browser refresh made
   // the new state appear.
   onChanged?: () => void;
+  // Offers a trace-completion rule in the add menu. Those rules are
+  // stored and listed apart from the checks, but this menu is where
+  // someone adding a check on an integration looks for one.
+  onAddCompletion?: () => void;
 }) {
   const [rules, setRules] = useState<AlertRule[]>([]);
   // Opened once, when arriving from a ?check= deep link. A ref, not
@@ -375,10 +380,13 @@ export default function HealthChecks({
 
   // Pushed-source checks only make sense on a service, but every check
   // KIND is available on both scopes.
-  const addTypes: { kind: CheckKind; label: string }[] = [
+  const addTypes: { kind: CheckKind | "completion"; label: string }[] = [
     { kind: "metric", label: "Metric / pushed value" },
     { kind: "log", label: "Log match" },
     { kind: "trace", label: "Failed traces, response time, or low traffic" },
+    ...(onAddCompletion
+      ? [{ kind: "completion" as const, label: "Trace completion: every message reaches its stages" }]
+      : []),
   ];
 
   return (
@@ -424,7 +432,15 @@ export default function HealthChecks({
                     role="menuitem"
                     className="btn btn--sm"
                     style={{ justifyContent: "flex-start", background: "transparent", border: "none", textAlign: "left" }}
-                    onClick={() => { setCreating(t.kind); setEditing(null); setAddOpen(false); }}
+                    onClick={() => {
+                      setAddOpen(false);
+                      if (t.kind === "completion") {
+                        onAddCompletion?.();
+                        return;
+                      }
+                      setCreating(t.kind);
+                      setEditing(null);
+                    }}
                   >
                     {t.label}
                   </button>

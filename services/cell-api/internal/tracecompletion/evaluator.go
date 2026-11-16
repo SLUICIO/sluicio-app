@@ -195,6 +195,17 @@ func (e *Evaluator) sweepStaleFirings(ctx context.Context, rules []Rule) error {
 		if len(open) == 0 {
 			continue
 		}
+		// A late span counts only from the integration's own services,
+		// as it does when the trace is first evaluated.
+		services, err := e.catalog.IntegrationServices(ctx, rule.IntegrationID)
+		if err != nil {
+			e.logger.Warn("tracecompletion: integration services for the late sweep failed",
+				"rule_id", rule.ID, "err", err)
+			continue
+		}
+		if len(services) == 0 {
+			continue
+		}
 		// Group open firings by the stage they stalled at. Legacy bare
 		// fingerprints (Stage == 0) map to the final stage.
 		byStage := map[int][]OpenFiring{}
@@ -213,7 +224,7 @@ func (e *Evaluator) sweepStaleFirings(ctx context.Context, rules []Rule) error {
 			for _, of := range firings {
 				traceIDs = append(traceIDs, of.TraceID)
 			}
-			closed, err := e.findClosedTraces(ctx, stages[stage-1].SpanNames, traceIDs)
+			closed, err := e.findClosedTraces(ctx, stages[stage-1], services, traceIDs)
 			if err != nil {
 				e.logger.Warn("tracecompletion: closed-traces query failed",
 					"rule_id", rule.ID, "stage", stage, "err", err)
@@ -234,28 +245,27 @@ func (e *Evaluator) sweepStaleFirings(ctx context.Context, rules []Rule) error {
 	return nil
 }
 
-// findClosedTraces returns, for the given trace_ids, the ones that have
-// at least one span whose name is in spanNames anywhere in the traces
-// table — regardless of when the trace started.
-func (e *Evaluator) findClosedTraces(ctx context.Context, spanNames, traceIDs []string) (map[string]time.Time, error) {
-	if len(traceIDs) == 0 || len(spanNames) == 0 {
+// findClosedTraces returns, for the given trace_ids, the ones that
+// have since reached stage, and when: one of its spans for an "any"
+// stage, every one of them for an "all" stage, from the integration's
+// services and regardless of when the trace started.
+func (e *Evaluator) findClosedTraces(ctx context.Context, stage EffectiveStage, services, traceIDs []string) (map[string]time.Time, error) {
+	if len(traceIDs) == 0 || len(stage.Spans) == 0 || len(services) == 0 {
 		return nil, nil
 	}
-	q := fmt.Sprintf(`
-		SELECT TraceId, max(Timestamp) AS closed_at
-		FROM traces
-		WHERE TraceId IN (%s)
-		  AND SpanName IN (%s)
-		GROUP BY TraceId
-	`, qPlaceholders(len(traceIDs)), qPlaceholders(len(spanNames)))
-	args := make([]any, 0, len(traceIDs)+len(spanNames))
+	stages := []EffectiveStage{stage}
+	var sb strings.Builder
+	sb.WriteString("SELECT TraceId")
+	args := appendSpanColumns(&sb, nil, stages)
+	fmt.Fprintf(&sb, " FROM traces WHERE TraceId IN (%s) AND ServiceName IN (%s) GROUP BY TraceId",
+		qPlaceholders(len(traceIDs)), qPlaceholders(len(services)))
 	for _, t := range traceIDs {
 		args = append(args, t)
 	}
-	for _, n := range spanNames {
-		args = append(args, n)
+	for _, s := range services {
+		args = append(args, s)
 	}
-	rows, err := e.ch.Query(ctx, q, args...)
+	rows, err := e.ch.Query(ctx, sb.String(), args...)
 	if err != nil {
 		return nil, fmt.Errorf("clickhouse query: %w", err)
 	}
@@ -263,11 +273,13 @@ func (e *Evaluator) findClosedTraces(ctx context.Context, spanNames, traceIDs []
 	out := make(map[string]time.Time, len(traceIDs))
 	for rows.Next() {
 		var tid string
-		var closedAt time.Time
-		if err := rows.Scan(&tid, &closedAt); err != nil {
+		sp := newSightings(stages)
+		if err := rows.Scan(append([]any{&tid}, sp.dest()...)...); err != nil {
 			return nil, err
 		}
-		out[tid] = closedAt
+		if at, ok, _ := reach(stage, sp.at[0], sp.has[0]); ok {
+			out[tid] = at
+		}
 	}
 	return out, rows.Err()
 }
@@ -287,7 +299,7 @@ func (e *Evaluator) resolveStageFiring(ctx context.Context, rule Rule, fingerpri
 	stageName := ""
 	timeout := 0
 	if stage >= 1 && stage <= len(stages) {
-		stageName = strings.Join(stages[stage-1].SpanNames, " / ")
+		stageName = stages[stage-1].Label()
 		timeout = stages[stage-1].TimeoutSeconds
 	}
 	summary := fmt.Sprintf(
@@ -393,10 +405,104 @@ type traceAgg struct {
 	TraceID  string
 	StartAt  time.Time // start span first-seen; zero when ungated/absent
 	HasStart bool
-	StageAt  []time.Time // per-stage first-seen timestamp
+	StageAt  []time.Time // when each stage was reached
 	HasStage []bool
+	// Missing is, per stage of an "all" stage reached only in part,
+	// the spans that have not arrived yet.
+	Missing  [][]SpanMatch
 	TraceMin time.Time
 	LastSpan time.Time
+}
+
+// sightings is one trace's first-seen timestamp and presence of every
+// span of every stage, as scanned from ClickHouse.
+type sightings struct {
+	at  [][]time.Time
+	has [][]bool
+}
+
+func newSightings(stages []EffectiveStage) sightings {
+	sp := sightings{at: make([][]time.Time, len(stages)), has: make([][]bool, len(stages))}
+	for i, st := range stages {
+		sp.at[i] = make([]time.Time, len(st.Spans))
+		sp.has[i] = make([]bool, len(st.Spans))
+	}
+	return sp
+}
+
+// dest lists scan targets in the order appendSpanColumns selects them.
+func (sp sightings) dest() []any {
+	var out []any
+	for i := range sp.at {
+		for j := range sp.at[i] {
+			out = append(out, &sp.at[i][j], &sp.has[i][j])
+		}
+	}
+	return out
+}
+
+// foldStages turns span sightings into stage arrivals: an "any" stage
+// is reached at the first of its spans, an "all" stage at the last of
+// them, and only once every one has arrived.
+func (a *traceAgg) foldStages(stages []EffectiveStage, sp sightings) {
+	a.StageAt = make([]time.Time, len(stages))
+	a.HasStage = make([]bool, len(stages))
+	a.Missing = make([][]SpanMatch, len(stages))
+	for i, st := range stages {
+		a.StageAt[i], a.HasStage[i], a.Missing[i] = reach(st, sp.at[i], sp.has[i])
+	}
+}
+
+func reach(st EffectiveStage, at []time.Time, has []bool) (time.Time, bool, []SpanMatch) {
+	var first, last time.Time
+	var missing []SpanMatch
+	seen := 0
+	for j, m := range st.Spans {
+		if !has[j] {
+			missing = append(missing, m)
+			continue
+		}
+		seen++
+		if first.IsZero() || at[j].Before(first) {
+			first = at[j]
+		}
+		if at[j].After(last) {
+			last = at[j]
+		}
+	}
+	if !st.All {
+		return first, seen > 0, nil
+	}
+	if seen == len(st.Spans) {
+		return last, true, nil
+	}
+	if seen == 0 {
+		missing = nil // nothing arrived: the whole stage is what is missing
+	}
+	return time.Time{}, false, missing
+}
+
+// spanCond is the predicate for one span of a stage. ServiceName is
+// only compared when the span names its service.
+func spanCond(m SpanMatch) (string, []any) {
+	if m.Service == "" {
+		return "SpanName = ?", []any{m.SpanName}
+	}
+	return "(SpanName = ? AND ServiceName = ?)", []any{m.SpanName, m.Service}
+}
+
+// appendSpanColumns selects, per span of each stage, when it was first
+// seen in the trace and whether it was seen at all.
+func appendSpanColumns(sb *strings.Builder, args []any, stages []EffectiveStage) []any {
+	for i, st := range stages {
+		for j, m := range st.Spans {
+			cond, a := spanCond(m)
+			fmt.Fprintf(sb, ", minIf(Timestamp, %s) AS s%d_%d_at, countIf(%s) > 0 AS s%d_%d_has", cond, i, j, cond, i, j)
+			args = append(args, a...)
+			args = append(args, a...)
+		}
+	}
+	return args
 }
 
 // scanAndBucket scans the gated traces in [from, to] and buckets them as
@@ -439,17 +545,7 @@ func (e *Evaluator) scanTraces(ctx context.Context, spec RuleSpec, services []st
 		sb.WriteString(", countIf(SpanName = ?) > 0 AS has_start")
 		args = append(args, spec.StartSpanName)
 	}
-	for i, st := range stages {
-		ph := qPlaceholders(len(st.SpanNames))
-		fmt.Fprintf(&sb, ", minIf(Timestamp, SpanName IN (%s)) AS stage%d_at", ph, i)
-		for _, n := range st.SpanNames {
-			args = append(args, n)
-		}
-		fmt.Fprintf(&sb, ", countIf(SpanName IN (%s)) > 0 AS has_stage%d", ph, i)
-		for _, n := range st.SpanNames {
-			args = append(args, n)
-		}
-	}
+	args = appendSpanColumns(&sb, args, stages)
 	sb.WriteString(", min(Timestamp) AS trace_min")
 	sb.WriteString(", max(Timestamp) AS last_span")
 	fmt.Fprintf(&sb, " FROM traces WHERE Timestamp >= ? AND Timestamp <= ? AND ServiceName IN (%s)", qPlaceholders(len(services)))
@@ -472,22 +568,18 @@ func (e *Evaluator) scanTraces(ctx context.Context, spec RuleSpec, services []st
 
 	out := make([]traceAgg, 0)
 	for rows.Next() {
-		a := traceAgg{
-			StageAt:  make([]time.Time, len(stages)),
-			HasStage: make([]bool, len(stages)),
-		}
-		dest := make([]any, 0, 2*len(stages)+5)
-		dest = append(dest, &a.TraceID)
+		var a traceAgg
+		dest := []any{&a.TraceID}
 		if gated {
 			dest = append(dest, &a.StartAt, &a.HasStart)
 		}
-		for i := range stages {
-			dest = append(dest, &a.StageAt[i], &a.HasStage[i])
-		}
+		sp := newSightings(stages)
+		dest = append(dest, sp.dest()...)
 		dest = append(dest, &a.TraceMin, &a.LastSpan)
 		if err := rows.Scan(dest...); err != nil {
 			return nil, err
 		}
+		a.foldStages(stages, sp)
 		out = append(out, a)
 	}
 	return out, rows.Err()
@@ -521,7 +613,12 @@ func classify(spec RuleSpec, a traceAgg, now time.Time) TraceClassification {
 		threshold := now.Add(-timeout)
 		c.StartedAt = prevTs
 		c.DelayedStage = i + 1
-		c.DelayedStageName = strings.Join(stages[i].SpanNames, " / ")
+		c.DelayedStageName = stages[i].Label()
+		if i < len(a.Missing) && len(a.Missing[i]) > 0 {
+			// An "all" stage that is part-way there names only the
+			// spans still missing: which subscriber has not delivered.
+			c.DelayedStageName = labelOf(a.Missing[i], stages[i].All)
+		}
 		if !prevTs.IsZero() && !prevTs.After(threshold) {
 			c.State = StateDelayed
 		} else {

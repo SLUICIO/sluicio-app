@@ -234,7 +234,13 @@ func (s *Sweeper) sweepCompletions(ctx context.Context) error {
 			// EffectiveStages folds the legacy ClosingSpanNames into the
 			// stage list — reading both fields would double-count.
 			for _, st := range spec.EffectiveStages() {
-				s.Writer.RecordKeys(s.OrgID, SignalTrace, svc, st.SpanNames, KindCompletion)
+				for _, m := range st.Spans {
+					// A span that names its service is demand on that
+					// service alone.
+					if m.Service == "" || m.Service == svc {
+						s.Writer.Record(s.OrgID, SignalTrace, svc, m.SpanName, KindCompletion)
+					}
+				}
 			}
 		}
 	}

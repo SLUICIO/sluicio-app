@@ -1380,11 +1380,13 @@ export const api = {
     get<{ rules: TraceCompletionRule[] }>(
       `/integrations/${encodeURIComponent(integrationID)}/completion-rules`,
     ),
-  // Distinct span names across the integration's traces — suggestions for
-  // the start/stage span pickers in the rule editor.
-  integrationSpanNames: (integrationID: string, range = "24h") =>
-    get<{ span_names: string[] }>(
-      `/integrations/${encodeURIComponent(integrationID)}/span-names?range=${encodeURIComponent(range)}`,
+  // Distinct span names across the integration's traces, and its
+  // services: suggestions for the start/stage span pickers in the rule
+  // editor. service narrows the names to what that one member emits.
+  integrationSpanNames: (integrationID: string, range = "24h", service = "") =>
+    get<{ span_names: string[]; services?: string[] }>(
+      `/integrations/${encodeURIComponent(integrationID)}/span-names?range=${encodeURIComponent(range)}` +
+        (service ? `&service=${encodeURIComponent(service)}` : ""),
     ),
   // Distinct payload attribute keys seen within this integration's traffic —
   // powers the payload-field typeahead on the integration Messages tab so the

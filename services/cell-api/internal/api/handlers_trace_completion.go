@@ -31,9 +31,37 @@ import (
 // as the rest of the integration-config surface.
 
 // traceCompletionStageWire is one hop in the pipeline, on the wire.
+// spans (with an optional service each) and require are the current
+// shape; span_names alone is still accepted and means those names
+// from any service.
 type traceCompletionStageWire struct {
-	SpanNames      []string `json:"span_names"`
-	TimeoutSeconds int      `json:"timeout_seconds,omitempty"`
+	Spans          []traceCompletionSpanWire `json:"spans,omitempty"`
+	Require        string                    `json:"require,omitempty"`
+	SpanNames      []string                  `json:"span_names"`
+	TimeoutSeconds int                       `json:"timeout_seconds,omitempty"`
+}
+
+// traceCompletionSpanWire is one span a stage waits for; an empty
+// service means any of the integration's services.
+type traceCompletionSpanWire struct {
+	Service  string `json:"service,omitempty"`
+	SpanName string `json:"span_name"`
+}
+
+func stageToWire(st tracecompletion.Stage) traceCompletionStageWire {
+	spans := make([]traceCompletionSpanWire, 0, len(st.Spans))
+	for _, m := range st.Spans {
+		spans = append(spans, traceCompletionSpanWire{Service: m.Service, SpanName: m.SpanName})
+	}
+	return traceCompletionStageWire{Spans: spans, Require: st.Require, SpanNames: st.SpanNames, TimeoutSeconds: st.TimeoutSeconds}
+}
+
+func stageFromWire(st traceCompletionStageWire) tracecompletion.Stage {
+	spans := make([]tracecompletion.SpanMatch, 0, len(st.Spans))
+	for _, m := range st.Spans {
+		spans = append(spans, tracecompletion.SpanMatch{Service: m.Service, SpanName: m.SpanName})
+	}
+	return tracecompletion.Stage{Spans: spans, Require: st.Require, SpanNames: st.SpanNames, TimeoutSeconds: st.TimeoutSeconds}
 }
 
 // traceCompletionRuleInput is the wire shape used by POST and PATCH.
@@ -77,10 +105,7 @@ type traceCompletionRuleResponse struct {
 func ruleToResponse(r tracecompletion.Rule) traceCompletionRuleResponse {
 	stages := make([]traceCompletionStageWire, 0, len(r.Spec.Stages))
 	for _, st := range r.Spec.Stages {
-		stages = append(stages, traceCompletionStageWire{
-			SpanNames:      st.SpanNames,
-			TimeoutSeconds: st.TimeoutSeconds,
-		})
+		stages = append(stages, stageToWire(st))
 	}
 	return traceCompletionRuleResponse{
 		ID:                    r.ID,
@@ -446,10 +471,7 @@ func (h *Handlers) parseTraceCompletionInput(body traceCompletionRuleInput, inte
 	}
 	stages := make([]tracecompletion.Stage, 0, len(body.Stages))
 	for _, st := range body.Stages {
-		stages = append(stages, tracecompletion.Stage{
-			SpanNames:      st.SpanNames,
-			TimeoutSeconds: st.TimeoutSeconds,
-		})
+		stages = append(stages, stageFromWire(st))
 	}
 	in := tracecompletion.RuleInput{
 		IntegrationID: integID,

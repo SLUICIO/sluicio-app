@@ -2421,13 +2421,25 @@ export interface IngestKeyCreated {
 // the integration's alert channels." Stored server-side as alert_rules
 // with signal='trace'; the UI works against a typed projection.
 
-// One hop in a completion pipeline: the trace must emit a span whose
-// name is in span_names within timeout_seconds of the previous stage
-// (or the start span, for the first stage). timeout_seconds omitted /
-// 0 → inherit the rule's default_timeout_seconds.
+// One hop in a completion pipeline: the trace must emit the stage's
+// spans within timeout_seconds of the previous stage (or the start span,
+// for the first stage). require "any" (default): one of spans will do;
+// "all": every one must arrive, as when a message fans out to several
+// subscribers. timeout_seconds omitted / 0 → inherit the rule's
+// default_timeout_seconds. span_names is the earlier shape (names from
+// any service); the server mirrors spans' names into it.
 export interface TraceCompletionStage {
-  span_names: string[];
+  spans?: TraceCompletionSpan[];
+  require?: "any" | "all";
+  span_names?: string[];
   timeout_seconds?: number;
+}
+
+// One span a stage waits for. A service narrows it to the span that
+// service emits; without one, any of the integration's services will do.
+export interface TraceCompletionSpan {
+  service?: string;
+  span_name: string;
 }
 
 export interface TraceCompletionRule {

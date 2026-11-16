@@ -3,6 +3,8 @@
 package tracecompletion
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 )
@@ -162,5 +164,146 @@ func TestFingerprintRoundTrip(t *testing.T) {
 	// Legacy bare fingerprint → stage 0.
 	if tid, stage := parseFingerprint("abcdef123456"); tid != "abcdef123456" || stage != 0 {
 		t.Fatalf("legacy fingerprint parse: (%q,%d)", tid, stage)
+	}
+}
+
+// fanOutSpec is a message fanned out to two subscribers that all emit
+// the same standardised span name: start → the extractor's Step.Send
+// (30s) → every loader's Step.Send (60s).
+func fanOutSpec() RuleSpec {
+	s := RuleSpec{
+		Kind:          "trace_completion",
+		StartSpanName: "process orders",
+		Stages: []Stage{
+			{Spans: []SpanMatch{{Service: "order-publisher", SpanName: "Step.Send"}}, TimeoutSeconds: 30},
+			{Spans: []SpanMatch{
+				{Service: "erp-loader", SpanName: "Step.Send"},
+				{Service: "wms-loader", SpanName: "Step.Send"},
+			}, Require: RequireAll, TimeoutSeconds: 60},
+		},
+		LookbackSeconds: 240,
+	}
+	s.Normalize()
+	return s
+}
+
+// A stage stored before spans existed still reads as its names from
+// any service, and a stage with spans mirrors their names into
+// span_names for readers that only know those.
+func TestNormalizeSpans(t *testing.T) {
+	s := twoStageSpec()
+	if got := s.Stages[0].Spans; len(got) != 1 || got[0] != (SpanMatch{SpanName: "Klart"}) || s.Stages[0].Require != RequireAny {
+		t.Fatalf("legacy names fold into spans: %+v %q", got, s.Stages[0].Require)
+	}
+	f := fanOutSpec()
+	if got := f.Stages[1].SpanNames; len(got) != 1 || got[0] != "Step.Send" {
+		t.Fatalf("span_names mirrors the distinct names: %v", got)
+	}
+	if got := f.ClosingSpanNames; len(got) != 1 || got[0] != "Step.Send" {
+		t.Fatalf("closing names: %v", got)
+	}
+	es := f.EffectiveStages()
+	if es[0].All || !es[1].All {
+		t.Fatalf("require: %+v", es)
+	}
+	if got := es[1].Label(); got != "erp-loader: Step.Send + wms-loader: Step.Send" {
+		t.Fatalf("label %q", got)
+	}
+
+	// Spans win over stale span_names; "all" of one span is just that span.
+	one := RuleSpec{Stages: []Stage{{
+		Spans:     []SpanMatch{{Service: " a ", SpanName: " Step.Send "}, {Service: "a", SpanName: "Step.Send"}},
+		SpanNames: []string{"Old"}, Require: RequireAll, TimeoutSeconds: 10,
+	}}}
+	one.Normalize()
+	if got := one.Stages[0].Spans; len(got) != 1 || got[0] != (SpanMatch{Service: "a", SpanName: "Step.Send"}) {
+		t.Fatalf("trimmed and de-duplicated: %+v", got)
+	}
+	if one.EffectiveStages()[0].All {
+		t.Fatal("all of a single span is any")
+	}
+
+	bad := fanOutSpec()
+	bad.Stages[1].Require = "both"
+	bad.Normalize()
+	if err := bad.Validate(); err == nil {
+		t.Fatal("an unknown require is refused")
+	}
+}
+
+// The fan-out from the reported trace: a stage that requires every
+// subscriber is reached when the last of them delivers, and a trace
+// stuck part-way names the subscriber that has not.
+func TestClassifyFanOut(t *testing.T) {
+	spec := fanOutSpec()
+	stages := spec.EffectiveStages()
+	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	mk := func(extractor, erp, wms time.Duration) traceAgg {
+		a := traceAgg{TraceID: "t", HasStart: true, StartAt: now.Add(-200 * time.Second)}
+		sp := newSightings(stages)
+		set := func(i, j int, ago time.Duration) {
+			if ago >= 0 {
+				sp.at[i][j], sp.has[i][j] = now.Add(-ago), true
+			}
+		}
+		set(0, 0, extractor)
+		set(1, 0, erp)
+		set(1, 1, wms)
+		a.foldStages(stages, sp)
+		return a
+	}
+	const never = -1
+
+	if c := classify(spec, mk(150*time.Second, 120*time.Second, 100*time.Second), now); c.State != StateCompleted {
+		t.Fatalf("both loaders delivered: %s", c.State)
+	}
+	a := mk(150*time.Second, 120*time.Second, 100*time.Second)
+	if !a.StageAt[1].Equal(now.Add(-100 * time.Second)) {
+		t.Fatalf("an all stage is reached at its last span: %v", a.StageAt[1])
+	}
+
+	c := classify(spec, mk(150*time.Second, 120*time.Second, never), now)
+	if c.State != StateDelayed || c.DelayedStage != 2 || c.DelayedStageName != "wms-loader: Step.Send" {
+		t.Fatalf("wms never delivered: %s@%d %q", c.State, c.DelayedStage, c.DelayedStageName)
+	}
+	if c := classify(spec, mk(150*time.Second, never, never), now); c.DelayedStageName != "erp-loader: Step.Send + wms-loader: Step.Send" {
+		t.Fatalf("neither delivered names the whole stage: %q", c.DelayedStageName)
+	}
+	if c := classify(spec, mk(20*time.Second, never, never), now); c.State != StatePending {
+		t.Fatalf("within the loaders' 60s: %s", c.State)
+	}
+}
+
+// Only a span that names its service compares ServiceName.
+func TestSpanColumns(t *testing.T) {
+	var sb strings.Builder
+	args := appendSpanColumns(&sb, nil, fanOutSpec().EffectiveStages())
+	if got := strings.Count(sb.String(), "ServiceName = ?"); got != 6 {
+		t.Fatalf("three scoped spans, each in minIf and countIf: %d in %s", got, sb.String())
+	}
+	if len(args) != 12 {
+		t.Fatalf("args %v", args)
+	}
+	sb.Reset()
+	appendSpanColumns(&sb, nil, twoStageSpec().EffectiveStages())
+	if strings.Contains(sb.String(), "ServiceName") {
+		t.Fatalf("an unscoped span leaves the service alone: %s", sb.String())
+	}
+}
+
+// Configuration transfer copies rule_spec as stored JSON, so the new
+// fields must survive a round trip through it.
+func TestSpecJSONRoundTrip(t *testing.T) {
+	raw, err := json.Marshal(fanOutSpec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back RuleSpec
+	if err := json.Unmarshal(raw, &back); err != nil {
+		t.Fatal(err)
+	}
+	back.Normalize()
+	if got := back.EffectiveStages()[1]; !got.All || len(got.Spans) != 2 || got.Spans[1].Service != "wms-loader" {
+		t.Fatalf("round trip: %+v from %s", got, raw)
 	}
 }
