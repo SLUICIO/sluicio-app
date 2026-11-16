@@ -7,10 +7,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useCanOpenServices } from "../lib/useNavigationReach";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { api } from "../api/client";
 import type { DigestResponse } from "../api/types";
 import { formatRelative } from "../lib/format";
+import AlertEgg from "./AlertEgg";
 
 export default function DigestBell() {
   const canOpenServices = useCanOpenServices();
@@ -18,6 +19,8 @@ export default function DigestBell() {
   const [digest, setDigest] = useState<DigestResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
+  const bellRef = useRef<HTMLButtonElement | null>(null);
+  const eggRequested = new URLSearchParams(useLocation().search).get("alertegg") === "true";
 
   const load = () => {
     setLoading(true);
@@ -65,7 +68,9 @@ export default function DigestBell() {
 
   return (
     <div ref={wrapRef} className="relative">
+      <AlertEgg anchor={bellRef} play={eggRequested && count > 0} />
       <button
+        ref={bellRef}
         type="button"
         aria-haspopup="menu"
         aria-expanded={open}
