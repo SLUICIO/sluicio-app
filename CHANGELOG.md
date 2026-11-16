@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.201 — 2026-11-16
+
+- test(e2e): an integration's Add health check menu has a fourth option (c3ab0de)
+
 ## v0.11.200 — 2026-11-16
 
+- release v0.11.200 - refresh internal changelog (b785f98)
 - fix(integrations): health checks on an integration look like the sections beside it (c518823)
 - fix(flow): size service nodes from the name as the browser wraps it (b1b6f81)
 - feat(tracecompletion): stages match a span by service, and can require all of them (9d4a9cc)
