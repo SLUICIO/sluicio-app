@@ -222,6 +222,7 @@ export default function HealthChecks({
   reloadKey,
   onChanged,
   onAddCompletion,
+  frame = "card",
 }: {
   scope: CheckScope;
   target: string;
@@ -243,6 +244,10 @@ export default function HealthChecks({
   // stored and listed apart from the checks, but this menu is where
   // someone adding a check on an integration looks for one.
   onAddCompletion?: () => void;
+  // "section" draws it like the sections around it on an integration's
+  // pages (bordered box, header strip with an h2, primary add button);
+  // "card" (default) fits the cards of the service and system pages.
+  frame?: "card" | "section";
 }) {
   const [rules, setRules] = useState<AlertRule[]>([]);
   // Opened once, when arriving from a ?check= deep link. A ref, not
@@ -389,78 +394,106 @@ export default function HealthChecks({
       : []),
   ];
 
-  return (
-    <div className="card" style={{ marginTop: 16 }}>
-      <div className="card__header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <span>Health checks{rules.length > 0 ? ` · ${rules.length}` : ""}</span>
-        {!drawerOpen && (
-          <div style={{ position: "relative" }}>
+  const sectioned = frame === "section";
+  const title = `Health checks${rules.length > 0 ? ` · ${rules.length}` : ""}`;
+  const intro = (
+    <>
+      The checks that define this {scope}'s healthy state: a metric formula, a log match, failed traces, or
+      response time. Any one firing flips the health pill. Add, edit, or remove them here.
+    </>
+  );
+  const addMenu = !drawerOpen && (
+    <div style={{ position: "relative", flexShrink: 0 }}>
+      <button
+        ref={addBtnRef}
+        className={sectioned ? "btn btn--primary" : "btn btn--sm"}
+        type="button"
+        onClick={() => setAddOpen((o) => !o)}
+        aria-expanded={addOpen}
+        aria-haspopup="menu"
+      >
+        + Add health check
+      </button>
+      {addOpen && addCoords && createPortal(
+        <div
+          ref={addMenuRef}
+          role="menu"
+          style={{
+            position: "fixed",
+            top: addCoords.top,
+            left: addCoords.left,
+            transform: anchorTransform(addCoords, "right"),
+            // Above .edit-drawer-root (z 2000), matching SearchableSelect,
+            // so the menu is usable from inside an edit drawer too.
+            zIndex: 2100,
+            maxHeight: addCoords.maxHeight,
+            overflowY: "auto",
+            background: "var(--surface-2)", border: "1px solid var(--border)",
+            borderRadius: 8, padding: 4, minWidth: addCoords.minWidth,
+            boxShadow: "0 6px 24px rgba(0,0,0,0.18)",
+            display: "flex", flexDirection: "column", gap: 2,
+          }}
+        >
+          {addTypes.map((t) => (
             <button
-              ref={addBtnRef}
-              className="btn btn--sm"
+              key={t.kind}
               type="button"
-              onClick={() => setAddOpen((o) => !o)}
-              aria-expanded={addOpen}
-              aria-haspopup="menu"
+              role="menuitem"
+              className="btn btn--sm"
+              style={{ justifyContent: "flex-start", background: "transparent", border: "none", textAlign: "left" }}
+              onClick={() => {
+                setAddOpen(false);
+                if (t.kind === "completion") {
+                  onAddCompletion?.();
+                  return;
+                }
+                setCreating(t.kind);
+                setEditing(null);
+              }}
             >
-              + Add health check
+              {t.label}
             </button>
-            {addOpen && addCoords && createPortal(
-              <div
-                ref={addMenuRef}
-                role="menu"
-                style={{
-                  position: "fixed",
-                  top: addCoords.top,
-                  left: addCoords.left,
-                  transform: anchorTransform(addCoords, "right"),
-                  // Above .edit-drawer-root (z 2000), matching SearchableSelect,
-                  // so the menu is usable from inside an edit drawer too.
-                  zIndex: 2100,
-                  maxHeight: addCoords.maxHeight,
-                  overflowY: "auto",
-                  background: "var(--surface-2)", border: "1px solid var(--border)",
-                  borderRadius: 8, padding: 4, minWidth: addCoords.minWidth,
-                  boxShadow: "0 6px 24px rgba(0,0,0,0.18)",
-                  display: "flex", flexDirection: "column", gap: 2,
-                }}
-              >
-                {addTypes.map((t) => (
-                  <button
-                    key={t.kind}
-                    type="button"
-                    role="menuitem"
-                    className="btn btn--sm"
-                    style={{ justifyContent: "flex-start", background: "transparent", border: "none", textAlign: "left" }}
-                    onClick={() => {
-                      setAddOpen(false);
-                      if (t.kind === "completion") {
-                        onAddCompletion?.();
-                        return;
-                      }
-                      setCreating(t.kind);
-                      setEditing(null);
-                    }}
-                  >
-                    {t.label}
-                  </button>
-                ))}
-              </div>,
-              document.body,
-            )}
+          ))}
+        </div>,
+        document.body,
+      )}
+    </div>
+  );
+
+  return (
+    <div
+      className={sectioned ? "overflow-hidden rounded-lg border bg-surface-2" : "card"}
+      style={sectioned ? { borderColor: "var(--border)" } : { marginTop: 16 }}
+    >
+      {sectioned ? (
+        <div className="flex items-start justify-between gap-4 border-b border-border px-4 py-3">
+          <div>
+            <h2 className="text-base font-semibold">{title}</h2>
+            <p className="text-xs text-muted mt-1">{intro}</p>
           </div>
+          {addMenu}
+        </div>
+      ) : (
+        <div className="card__header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span>{title}</span>
+          {addMenu}
+        </div>
+      )}
+      <div style={{ padding: sectioned ? 16 : "12px 16px", display: "flex", flexDirection: "column", gap: 10 }}>
+        {!sectioned && (
+          <p className="muted" style={{ fontSize: 12.5, margin: 0 }}>
+            {intro}
+          </p>
         )}
-      </div>
-      <div style={{ padding: "12px 16px", display: "flex", flexDirection: "column", gap: 10 }}>
-        <p className="muted" style={{ fontSize: 12.5, margin: 0 }}>
-          The checks that define this {scope}'s healthy state — a metric formula, a log match, failed traces, or
-          response time. Any one firing flips the health pill. Add, edit, or remove them here.
-        </p>
 
         {error && <div className="alert alert--error" style={{ margin: 0 }}>{error}</div>}
 
         {loading ? (
           <div className="placeholder" style={{ margin: 0 }}>Loading…</div>
+        ) : sectioned && rules.length === 0 ? (
+          <div className="placeholder" style={{ margin: 0 }}>
+            No health checks yet. Click <b>+ Add health check</b> to define one.
+          </div>
         ) : (
           rules.length > 0 && (
             <div className="m-existing">

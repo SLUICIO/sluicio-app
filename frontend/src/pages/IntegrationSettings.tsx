@@ -281,6 +281,7 @@ export default function IntegrationSettings() {
             // check that was just added, edited or removed.
             onChanged={refresh}
             onAddCompletion={() => setEditing("new")}
+            frame="section"
           />}
 
         <IntegrationAlertRules
