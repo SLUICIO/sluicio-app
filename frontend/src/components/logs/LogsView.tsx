@@ -205,6 +205,8 @@ export default function LogsView({ forcedIntegration, forcedIntegrationId, force
   // same TraceDrawer the integration Messages view uses) — inspecting
   // a trace shouldn't navigate away from the filtered log list.
   const [openTraceId, setOpenTraceId] = useState<string | null>(null);
+  // When the log whose trace is open was written.
+  const [openTraceSeenAt, setOpenTraceSeenAt] = useState<string | undefined>(undefined);
   const [volume, setVolume] = useState<LogVolumeResponse | null>(null);
   const [volumeLoading, setVolumeLoading] = useState(true);
 
@@ -708,6 +710,7 @@ export default function LogsView({ forcedIntegration, forcedIntegrationId, force
                             onClick={(e) => {
                               e.stopPropagation();
                               setOpenTraceId(l.trace_id!);
+                              setOpenTraceSeenAt(l.timestamp);
                             }}
                           >
                             ⟿ {l.trace_id.slice(0, 8)}
@@ -741,7 +744,10 @@ export default function LogsView({ forcedIntegration, forcedIntegrationId, force
               log={selected}
               integrations={selected.service_name ? svcIntegrations.get(selected.service_name) ?? [] : []}
               onClose={() => setSelected(null)}
-              onOpenTrace={setOpenTraceId}
+              onOpenTrace={(id) => {
+                setOpenTraceId(id);
+                setOpenTraceSeenAt(selected.timestamp);
+              }}
             />
           </div>
         )}
@@ -751,6 +757,7 @@ export default function LogsView({ forcedIntegration, forcedIntegrationId, force
         traceId={openTraceId}
         onClose={() => setOpenTraceId(null)}
         integrationContextId={forcedIntegrationId}
+        seenAt={openTraceSeenAt}
       />
 
       {alertOpen && (

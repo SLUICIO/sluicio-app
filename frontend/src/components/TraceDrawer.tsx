@@ -6,6 +6,8 @@
 // tab). Deep-linking to the full /traces/:id page is still offered via
 // the "open full view" link in the header.
 
+import TraceNotFound from "./TraceNotFound";
+import { isMissingTrace, retentionDaysOf } from "../lib/missingTrace";
 import { useEffect, useMemo, useState } from "react";
 import { useCanOpenServices } from "../lib/useNavigationReach";
 import { Link } from "react-router-dom";
@@ -34,6 +36,9 @@ interface Props {
   // in integration A shouldn't visually flag here if the user is
   // looking at it through integration B.
   integrationContextId?: string;
+  // When the log that named this trace was written, if it was a log:
+  // lets a missing trace say it has most likely expired.
+  seenAt?: string;
   // Spans that satisfied the search this trace was opened from, oldest
   // first. The drawer opens on the first one that exists in the trace
   // and marks the rest, so "why did this come back?" is answered on
@@ -61,10 +66,13 @@ export default function TraceDrawer({
   onClose,
   integrationContextId,
   matchedSpanIds,
+  seenAt,
 }: Props) {
   const canOpenServices = useCanOpenServices();
   const [data, setData] = useState<TraceDetailResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Set when the trace has no spans here; how long traces are kept.
+  const [missing, setMissing] = useState<{ retentionDays?: number } | null>(null);
   const [loading, setLoading] = useState(false);
   const [selectedSpan, setSelectedSpan] = useState<string | null>(null);
   const [firings, setFirings] = useState<TraceCompletionFiring[]>([]);
@@ -88,6 +96,7 @@ export default function TraceDrawer({
     let cancelled = false;
     setLoading(true);
     setError(null);
+    setMissing(null);
     setData(null);
     setSelectedSpan(null);
     api
@@ -96,7 +105,11 @@ export default function TraceDrawer({
         if (cancelled) return;
         setData(d);
       })
-      .catch((e) => !cancelled && setError(String(e.message ?? e)))
+      .catch((e) => {
+        if (cancelled) return;
+        if (isMissingTrace(e)) setMissing({ retentionDays: retentionDaysOf(e) });
+        else setError(String(e.message ?? e));
+      })
       .finally(() => !cancelled && setLoading(false));
     return () => {
       cancelled = true;
@@ -311,6 +324,11 @@ export default function TraceDrawer({
             narrow for the side-by-side rail the full trace page uses). */}
         <div className="flex min-h-0 flex-1 flex-col">
           {error && <div className="alert alert--error m-3">{error}</div>}
+          {missing && traceId && (
+            <div className="m-3">
+              <TraceNotFound traceId={traceId} retentionDays={missing.retentionDays} seenAt={seenAt} />
+            </div>
+          )}
           {loading && !data && <div className="px-4 py-6 text-sm text-muted">Loading trace…</div>}
 
           {data && data.spans.length > 0 && (

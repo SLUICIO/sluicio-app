@@ -12,11 +12,15 @@ export function useTraceHref(): (
   traceId: string,
   integrationId?: string,
   spanId?: string,
+  seenAt?: string,
 ) => string {
   const location = useLocation();
-  return (traceId, integrationId, spanId) => {
+  return (traceId, integrationId, spanId, seenAt) => {
     const params = new URLSearchParams();
     if (integrationId) params.set("integration", integrationId);
+    // When the log that links here was written, so the trace page can
+    // tell an expired trace from one that never arrived.
+    if (seenAt) params.set("seen", seenAt);
     // Carry the span the user is looking at, so following "open full
     // view" lands on it. Without this, stepping up from the drawer to
     // the full page silently drops the selection and the user has to

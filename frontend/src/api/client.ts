@@ -170,6 +170,9 @@ import type {
 import { getActiveOrgSlug } from "../lib/activeOrg";
 import { envToParam, getActiveEnvironments, readsIntegrationData } from "../lib/activeEnvironment";
 
+/** An API error: the HTTP status and the parsed body of the answer. */
+export type ApiError = Error & { status?: number; body?: unknown };
+
 const BASE = "/api/v1";
 
 async function request<T>(
@@ -203,9 +206,11 @@ async function request<T>(
   });
   if (!res.ok) {
     let detail = res.statusText;
+    let body: unknown;
     try {
-      const body = await res.json();
-      if (body?.error?.message) detail = body.error.message;
+      body = await res.json();
+      const msg = (body as { error?: { message?: string } } | null)?.error?.message;
+      if (msg) detail = msg;
     } catch {
       /* ignore */
     }
@@ -215,8 +220,11 @@ async function request<T>(
     // one that tries will silently fall through to an error banner —
     // which is exactly what the Advisor panel did, showing a raw
     // "402 Payment Required" where the upsell should have been.
-    const err = new Error(`${res.status} ${detail}`) as Error & { status?: number };
+    const err = new Error(`${res.status} ${detail}`) as ApiError;
     err.status = res.status;
+    // The whole answer too, for an error that explains itself beyond its
+    // message (a missing trace says how long traces are kept).
+    err.body = body;
     throw err;
   }
   if (res.status === 204) return undefined as unknown as T;

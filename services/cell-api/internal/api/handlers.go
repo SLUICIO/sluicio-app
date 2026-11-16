@@ -3250,6 +3250,42 @@ func (h *Handlers) serviceTraces(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// writeTraceNotFound answers a trace id with no spans the reader may
+// see. A log or a link can name a trace that was never sent here or has
+// expired, so the answer carries how long traces are kept, for the page
+// to explain which is likely. It costs one settings read, on this path
+// only. It never says more than that: a trace hidden by access must
+// read the same as one that does not exist.
+func (h *Handlers) writeTraceNotFound(w http.ResponseWriter, r *http.Request) {
+	// missing tells this apart from the other 404 of this route, a trace
+	// that exists but has no spans of the integration it was opened in.
+	body := map[string]any{
+		"error":   map[string]any{"message": "no spans found for this trace", "status": http.StatusNotFound},
+		"missing": true,
+	}
+	if days := h.traceRetentionDays(r.Context()); days > 0 {
+		body["trace_retention_days"] = days
+	}
+	httpserver.WriteJSON(w, http.StatusNotFound, body)
+}
+
+// traceRetentionDays is how long traces are kept now: the setting,
+// capped by the licence. 0 when it cannot be read.
+func (h *Handlers) traceRetentionDays(ctx context.Context) int {
+	if h.Settings == nil {
+		return 0
+	}
+	policy, err := h.Settings.GetRetention(ctx)
+	if err != nil {
+		return 0
+	}
+	days := policy.Traces.Days
+	if maxDays, _ := h.effectiveRetentionMaxDays(); maxDays > 0 && days > maxDays {
+		days = maxDays
+	}
+	return days
+}
+
 // traceDetail: GET /api/v1/traces/{traceId}
 func (h *Handlers) traceDetail(w http.ResponseWriter, r *http.Request) {
 	traceID := strings.ToLower(strings.TrimSpace(r.PathValue("traceId")))
@@ -3269,7 +3305,7 @@ func (h *Handlers) traceDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(rows) == 0 {
-		httpserver.WriteError(w, http.StatusNotFound, "no spans found for this trace")
+		h.writeTraceNotFound(w, r)
 		return
 	}
 	truncated := false
@@ -3306,7 +3342,7 @@ func (h *Handlers) traceDetail(w http.ResponseWriter, r *http.Request) {
 		}
 		rows = kept
 		if len(rows) == 0 {
-			httpserver.WriteError(w, http.StatusNotFound, "no spans found for this trace")
+			h.writeTraceNotFound(w, r)
 			return
 		}
 	}

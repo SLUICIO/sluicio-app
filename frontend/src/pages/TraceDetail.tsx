@@ -29,6 +29,8 @@ import { pickKeyEntries, useKeyAttributes } from "../lib/keyAttributes";
 import { usePageTitle } from "../lib/usePageTitle";
 import { useBreadcrumbTrail, type Crumb } from "../lib/breadcrumb";
 import { flowFromSpans } from "../lib/serviceFlow";
+import TraceNotFound from "../components/TraceNotFound";
+import { isMissingTrace, retentionDaysOf } from "../lib/missingTrace";
 
 interface Range {
   start: number;
@@ -92,6 +94,9 @@ export default function TraceDetail() {
   const [searchParams] = useSearchParams();
   const integrationContextId = searchParams.get("integration") ?? undefined;
   const spanParam = searchParams.get("span") ?? undefined;
+  // When the log that linked here was written, so a missing trace can
+  // say it has most likely expired.
+  const seenParam = searchParams.get("seen") ?? undefined;
   // ?from=<path> — the in-app page (path + query) the user opened this
   // trace from, forwarded by the TraceDrawer's "open full view" and the
   // list pages' trace links. Drives the breadcrumb so the trail reads
@@ -103,6 +108,8 @@ export default function TraceDetail() {
   usePageTitle(traceId ? `Trace · ${traceId.slice(0, 12)}` : "Trace");
   const [data, setData] = useState<TraceDetailResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Set when the trace has no spans here; how long traces are kept.
+  const [missing, setMissing] = useState<{ retentionDays?: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedSpan, setSelectedSpan] = useState<string | null>(null);
   // The span details rail: folded by default, and remembered per browser
@@ -175,6 +182,7 @@ export default function TraceDetail() {
   useEffect(() => {
     setLoading(true);
     setError(null);
+    setMissing(null);
     api
       .traceDetail(traceId, integrationContextId)
       .then((d) => {
@@ -192,7 +200,10 @@ export default function TraceDetail() {
           setSelectedSpan(spanParam);
         }
       })
-      .catch((e) => setError(String(e.message ?? e)))
+      .catch((e) => {
+        if (isMissingTrace(e)) setMissing({ retentionDays: retentionDaysOf(e) });
+        else setError(String(e.message ?? e));
+      })
       .finally(() => setLoading(false));
   }, [traceId, spanParam, integrationContextId]);
 
@@ -424,6 +435,7 @@ export default function TraceDetail() {
       )}
 
       {error && <div className="alert alert--error">{error}</div>}
+      {missing && <TraceNotFound traceId={traceId} retentionDays={missing.retentionDays} seenAt={seenParam} />}
       {loading && !data && <div className="placeholder">Loading…</div>}
 
       {activeFiringSeverity && (

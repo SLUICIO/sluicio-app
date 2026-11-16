@@ -144,7 +144,7 @@ export default function LogDetailsDrawer({
                 View trace →
               </button>
             ) : (
-              <Link className="btn btn--primary" to={traceHref(log.trace_id)}>
+              <Link className="btn btn--primary" to={traceHref(log.trace_id, undefined, undefined, log.timestamp)}>
                 View full trace →
               </Link>
             )
