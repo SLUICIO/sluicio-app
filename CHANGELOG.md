@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.207 — 2026-11-17
+
+- fix(environments): the environment chosen follows you through the menus (09ef2a5)
+
 ## v0.11.206 — 2026-11-17
 
+- release v0.11.206 - refresh internal changelog (5c94e67)
 - fix(ui): every alert blade is built like the health check editors (49bc6c7)
 
 ## v0.11.205 — 2026-11-17
