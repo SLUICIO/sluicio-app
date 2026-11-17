@@ -3,8 +3,14 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.204 — 2026-11-17
+
+- fix(trace-completion): a trace is complete only when every stage is reached (0abe05c)
+- fix(trace-completion): offer every member in the stage service picker (599dc32)
+
 ## v0.11.203 — 2026-11-16
 
+- release v0.11.203 - refresh internal changelog (12b5a7c)
 - fix(traces): a trace with no spans says why instead of "not found" (6b6e6b9)
 
 ## v0.11.202 — 2026-11-16
