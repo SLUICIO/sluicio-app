@@ -1600,11 +1600,16 @@ func (h *Handlers) removeServiceFromIntegration(w http.ResponseWriter, r *http.R
 // integrationSpanNames: GET /api/v1/integrations/{id}/span-names?range=24h[&service=]
 //
 // Distinct span names observed across the integration's matched services in
-// the window, most-frequent first, and those services. Powers the start and
-// stage span pickers in the trace-completion rule editor; an empty list
-// (new/quiet integration) just means the UI falls back to free text.
-// service narrows the names to what one member emits, for a stage span
-// that names its service; a service that is not a member has none.
+// the window, most-frequent first, and the integration's member services.
+// Powers the start and stage span pickers in the trace-completion rule
+// editor; an empty list (new/quiet integration) just means the UI falls
+// back to free text. service narrows the names to what one member emits,
+// for a stage span that names its service; a service that is not a member
+// has none.
+//
+// The services are the persisted membership, like the service flow, not
+// the members that happened to send in the window: a member that runs
+// once a day or less was missing from the stage service picker.
 func (h *Handlers) integrationSpanNames(w http.ResponseWriter, r *http.Request) {
 	id, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
@@ -1615,24 +1620,15 @@ func (h *Handlers) integrationSpanNames(w http.ResponseWriter, r *http.Request) 
 		httpserver.WriteError(w, http.StatusNotFound, "integration not found")
 		return
 	}
-	if _, ok := h.gateIntegrationMembers(w, r, id); !ok {
+	members, ok := h.gateIntegrationMembers(w, r, id)
+	if !ok {
 		return
 	}
 	// Default to a wide window so even low-traffic integrations surface
 	// their span vocabulary.
 	tr := ParseRange(r, 24*time.Hour)
-	windowRows, err := h.Store.ListServices(r.Context(), tr.From, tr.To)
-	if err != nil {
-		h.Logger.Warn("span-names: list services failed", "err", err)
-	}
-	candidates := make([]string, 0, len(windowRows))
-	for _, wrow := range windowRows {
-		candidates = append(candidates, wrow.ServiceName)
-	}
-	matched, err := h.Resolver.ServicesForIntegration(r.Context(), id, candidates)
-	if err != nil {
-		h.Logger.Warn("span-names: resolve services failed", "err", err)
-	}
+	matched := slices.Clone(members)
+	slices.Sort(matched)
 	from := matched
 	if svc := strings.TrimSpace(r.URL.Query().Get("service")); svc != "" {
 		from = nil
