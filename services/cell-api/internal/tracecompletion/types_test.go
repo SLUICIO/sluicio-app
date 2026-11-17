@@ -115,10 +115,26 @@ func TestClassify(t *testing.T) {
 		return a
 	}
 
-	t.Run("completed when final stage present", func(t *testing.T) {
-		a := mk(func(a *traceAgg) { a.HasStage[1] = true; a.StageAt[1] = now })
+	t.Run("completed when every stage is reached", func(t *testing.T) {
+		a := mk(func(a *traceAgg) {
+			a.HasStage[0], a.StageAt[0] = true, now.Add(-5*time.Second)
+			a.HasStage[1], a.StageAt[1] = true, now
+		})
 		if c := classify(spec, a, now); c.State != StateCompleted {
 			t.Fatalf("want completed, got %s", c.State)
+		}
+	})
+
+	// Stages are AND-ed: the last one arriving does not excuse an earlier
+	// one that never did ("A, then B1 or B2" with no A is not done).
+	t.Run("final stage alone stalls at the missing earlier stage", func(t *testing.T) {
+		a := mk(func(a *traceAgg) {
+			a.StartAt, a.TraceMin = now.Add(-time.Hour), now.Add(-time.Hour)
+			a.HasStage[1], a.StageAt[1] = true, now
+		})
+		c := classify(spec, a, now)
+		if c.State != StateDelayed || c.DelayedStage != 1 {
+			t.Fatalf("want delayed at stage 1, got %s at %d", c.State, c.DelayedStage)
 		}
 	})
 

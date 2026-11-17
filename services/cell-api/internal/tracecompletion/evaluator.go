@@ -585,10 +585,12 @@ func (e *Evaluator) scanTraces(ctx context.Context, spec RuleSpec, services []st
 	return out, rows.Err()
 }
 
-// classify buckets one trace as of `now`. A trace is completed once the
-// final stage's span is present; otherwise it stalls at the first stage
-// whose span is absent — delayed if that stage's clock (starting from
-// the prior stage / start span) has run past its timeout, else pending.
+// classify buckets one trace as of `now`. A trace is completed once
+// every stage has been reached; otherwise it stalls at the first stage
+// that has not, delayed if that stage's clock (starting from the prior
+// stage / start span) has run past its timeout, else pending. The final
+// stage alone is not enough: stages are AND-ed, so "A, then B1 or B2"
+// must not count a trace where B1 arrived but A never did.
 func classify(spec RuleSpec, a traceAgg, now time.Time) TraceClassification {
 	stages := spec.EffectiveStages()
 	c := TraceClassification{TraceID: a.TraceID, LastSpanAt: a.LastSpan}
@@ -598,11 +600,6 @@ func classify(spec RuleSpec, a traceAgg, now time.Time) TraceClassification {
 		return c
 	}
 	base := stageBaseline(spec, a)
-	if a.HasStage[n-1] {
-		c.State = StateCompleted
-		c.StartedAt = base
-		return c
-	}
 	prevTs := base
 	for i := 0; i < n; i++ {
 		if a.HasStage[i] {

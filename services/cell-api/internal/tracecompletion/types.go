@@ -110,7 +110,7 @@ type RuleSpec struct {
 	StartSpanName string `json:"start_span_name,omitempty"`
 
 	// Stages is the ordered list of hops after the start span. A trace
-	// is "completed" once the final stage's span appears; it is
+	// is "completed" once every stage has been reached; it is
 	// "delayed" if any hop's timeout elapses before that hop's span
 	// arrives.
 	Stages []Stage `json:"stages,omitempty"`
@@ -346,7 +346,7 @@ func (s RuleSpec) Lookback() time.Duration {
 type TraceState string
 
 const (
-	// StateCompleted means the final stage's span has been seen.
+	// StateCompleted means every stage has been reached.
 	StateCompleted TraceState = "completed"
 	// StatePending means the trace is gated-in and in flight: it hasn't
 	// reached its current stage's span yet, but is still within that

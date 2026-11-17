@@ -936,8 +936,9 @@ function RuleForm({
           Each stage waits for one or more spans. Pick a service when
           several services emit the same span name, and choose "all of
           them arrive" when a message fans out to several receivers that
-          must each deliver. The trace is delayed at whichever stage runs
-          past its timeout. Match is case-sensitive.
+          must each deliver. A trace is complete only when every stage is
+          reached, and delayed at whichever stage runs past its timeout.
+          Match is case-sensitive.
         </span>
       </div>
 
