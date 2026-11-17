@@ -18,7 +18,7 @@
 // open in alert_instances even if the closing span eventually arrives.
 // That matches "you missed the SLA" semantic.
 
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, Fragment, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api/client";
 import IntegrationPageHeader from "../components/IntegrationPageHeader";
@@ -38,6 +38,7 @@ import type {
   TraceCompletionStage,
 } from "../api/types";
 import SearchableSelect from "../components/SearchableSelect";
+import { formatDurationSeconds } from "../lib/format";
 import { addSpan, sameSpan, spanLabel, spansOf } from "../lib/completionStages";
 import { alertCondition, alertSignalLabel } from "../lib/alertRule";
 import { CHECK_PARAM } from "../lib/checkEditHref";
@@ -781,25 +782,6 @@ function RuleForm({
       </label>
 
       <div className="form__label">
-        <span>Start span</span>
-        <SearchableSelect
-          value={startSpan}
-          onChange={setStartSpan}
-          options={spanSuggestions}
-          allLabel="Any start (legacy)"
-          placeholder="Search, or type a span name"
-          creatable
-          createLabel={(typed) => `Use “${typed}”`}
-          variant="field"
-        />
-        <span className="form__hint">
-          Only traces that emit this span are evaluated and counted as
-          this integration's messages. Leave it on "Any start" to evaluate
-          every trace on the integration's services (legacy behaviour).
-        </span>
-      </div>
-
-      <div className="form__label">
         <span>Default stage timeout</span>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
           <input
@@ -822,18 +804,50 @@ function RuleForm({
           </select>
         </div>
         <span className="form__hint">
-          Used by any stage left on "default". Each stage's clock starts
-          from the previous stage's span (or the start span, for the
-          first stage).
+          How long each stage below may take, unless the stage sets its own.
         </span>
       </div>
 
       <div className="form__label">
-        <span>Stages</span>
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <span>Flow</span>
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <div
+            data-testid="completion-start"
+            style={{
+              display: "flex",
+              gap: 6,
+              alignItems: "center",
+              flexWrap: "wrap",
+              padding: 8,
+              border: "1px solid var(--border)",
+              borderRadius: 6,
+            }}
+          >
+            <span className="muted" style={{ fontSize: 12, minWidth: 40 }}>Start</span>
+            <div style={{ flex: "1 1 280px" }}>
+              <SearchableSelect
+                value={startSpan}
+                onChange={setStartSpan}
+                options={spanSuggestions}
+                allLabel="Any trace (no start span)"
+                placeholder="Search, or type a span name"
+                creatable
+                createLabel={(typed) => `Use “${typed}”`}
+                variant="field"
+              />
+            </div>
+            <span className="muted" style={{ fontSize: 12, flexBasis: "100%" }}>
+              {startSpan
+                ? "Every trace with this span is followed, and the clock starts when it begins. Traces without it are ignored."
+                : "Every trace on the integration's services is followed, from its first span. Pick a start span to follow only the messages this rule is about."}
+            </span>
+          </div>
           {stages.map((s, i) => (
+            <Fragment key={i}>
+            <div className="muted" style={{ fontSize: 12, paddingLeft: 12 }} data-testid="completion-within">
+              ↓ then within {formatDurationSeconds(s.inherit ? toSeconds(defTimeoutN, defTimeoutUnit) : toSeconds(s.timeoutN, s.timeoutUnit))}
+            </div>
             <div
-              key={i}
               style={{
                 display: "flex",
                 gap: 6,
@@ -927,18 +941,20 @@ function RuleForm({
                 </button>
               </div>
             </div>
+            </Fragment>
           ))}
         </div>
         <button type="button" className="btn" style={{ alignSelf: "flex-start", marginTop: 6 }} onClick={addStage}>
           + Add stage
         </button>
         <span className="form__hint">
-          Each stage waits for one or more spans. Pick a service when
-          several services emit the same span name, and choose "all of
-          them arrive" when a message fans out to several receivers that
-          must each deliver. A trace is complete only when every stage is
-          reached, and delayed at whichever stage runs past its timeout.
-          Match is case-sensitive.
+          Read it top to bottom: after the start, each stage must arrive
+          within its time of the stage before it, or the trace is delayed
+          at that stage. A trace is complete only when every stage is
+          reached. Pick a service when several services emit the same
+          span name, and choose "all of them arrive" when a message fans
+          out to several receivers that must each deliver. Match is
+          case-sensitive.
         </span>
       </div>
 
