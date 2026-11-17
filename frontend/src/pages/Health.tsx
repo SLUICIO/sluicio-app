@@ -131,7 +131,8 @@ export default function Health() {
   // ── data loading ────────────────────────────────────────────────
 
   // Environments (issue #40): the dashboard's own, unless the reader
-  // switched to another for a moment (?env=, never saved). One
+  // switched to another (?env=, remembered for the tab, never saved on
+  // the dashboard). One
   // environment narrows every card to it; several add a row per
   // environment to each card.
   const [viewEnv, setViewEnv] = useEnvironmentParam();

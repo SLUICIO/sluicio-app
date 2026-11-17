@@ -53,7 +53,7 @@ export function ListEnvironmentPicker({
   window,
 }: {
   env: string | null;
-  setEnv: (e: string | null) => void;
+  setEnv: (env: string | null, explicitAll?: boolean) => void;
   window: string;
 }) {
   const [envs, setEnvs] = useState<string[] | null>(null);
@@ -77,7 +77,9 @@ export function ListEnvironmentPicker({
       aria-label="Environment"
       data-testid="list-environment-picker"
       value={env === null ? "\u0000all" : env}
-      onChange={(e) => setEnv(e.target.value === "\u0000all" ? null : e.target.value)}
+      // "All environments" is written out (?env=*) so it is remembered
+      // as a choice, like the integration page's picker.
+      onChange={(e) => (e.target.value === "\u0000all" ? setEnv(null, true) : setEnv(e.target.value))}
     >
       <option value={"\u0000all"}>All environments</option>
       {names.map((n) => (

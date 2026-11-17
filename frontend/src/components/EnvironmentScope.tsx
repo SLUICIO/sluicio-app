@@ -12,14 +12,16 @@
 // so the first thing read is production rather than production and test
 // mixed. Only those its messages run in, or that it declares: one that
 // only logs or metrics come from would open on an empty Messages tab.
-// One read of its environments decides, before anything below fetches;
+// The environments last chosen in this tab come first (see
+// activeEnvironment). Otherwise one read of its environments decides,
+// before anything below fetches;
 // an integration without any, or a cell set to open on all, opens on all
 // environments.
 
 import { Fragment, useEffect, useState } from "react";
 import { Outlet, useMatch, useSearchParams } from "react-router-dom";
 import type { IntegrationEnvironment } from "../api/types";
-import { envToParam, envsFromParams, setActiveEnvironments } from "../lib/activeEnvironment";
+import { envToParam, envsFromParams, rememberedEnvironmentParams, setActiveEnvironments } from "../lib/activeEnvironment";
 import { useTimeWindow } from "../lib/useTimeWindow";
 import { environmentsOnce, type EnvironmentSubject } from "./EnvironmentPicker";
 
@@ -52,6 +54,21 @@ export default function EnvironmentScope() {
 
   useEffect(() => {
     if (!needsDefault || !subject || settled === subjectKey) return;
+    // The environments last chosen in this tab win over the page's
+    // default, so moving through the menus keeps them.
+    const remembered = rememberedEnvironmentParams();
+    if (remembered !== null) {
+      setParams(
+        (prev) => {
+          const p = new URLSearchParams(prev);
+          p.delete("env");
+          for (const e of remembered) p.append("env", e);
+          return p;
+        },
+        { replace: true },
+      );
+      return;
+    }
     let cancelled = false;
     environmentsOnce(subject, window)
       .then((r) => {

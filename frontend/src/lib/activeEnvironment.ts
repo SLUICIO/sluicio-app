@@ -10,11 +10,16 @@
 // "All environments" chosen there is ?env=*. Elsewhere the absence of the
 // parameter is all environments.
 //
+// The last environment chosen is remembered for the tab (sessionStorage,
+// like the time range), so the menus do not drop it: a page opened
+// without ?env picks it up. Choosing all environments (or a dashboard's
+// own) forgets it, and pages open on their defaults again.
+//
 // Which environments are production is a role (the settings list), not a
 // name: "@production" stands for all of them in a dashboard's, a check's
 // or a notification profile's list of environments.
 
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 
 /** How ?env= asks for telemetry that carries no environment. */
@@ -28,6 +33,38 @@ export const ALL_ENVIRONMENTS_PARAM = "*";
 export const PRODUCTION_TOKEN = "@production";
 
 let current: string[] | null = null;
+
+const ENV_STORAGE_KEY = "conduit:env";
+
+/** The ?env= values last chosen in this tab, or null when none is
+ *  remembered. */
+export function rememberedEnvironmentParams(): string[] | null {
+  try {
+    const raw = window.sessionStorage.getItem(ENV_STORAGE_KEY);
+    if (!raw) return null;
+    const v = JSON.parse(raw);
+    return Array.isArray(v) && v.length > 0 && v.every((x) => typeof x === "string") ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Remembers a choice as ?env= values; null forgets it. */
+export function rememberEnvironmentParams(values: string[] | null): void {
+  try {
+    if (values === null || values.length === 0) window.sessionStorage.removeItem(ENV_STORAGE_KEY);
+    else window.sessionStorage.setItem(ENV_STORAGE_KEY, JSON.stringify(values));
+  } catch {
+    /* private mode or storage disabled: the choice lasts as long as the URL */
+  }
+}
+
+/** What a single-environment picker (a list page, the dashboard) takes
+ *  from the remembered choice: one named environment, or nothing. A set
+ *  of several, or all, leaves the page on its default. */
+export function rememberedSingleEnvironment(remembered: string[] | null): string | null {
+  return remembered !== null && remembered.length === 1 && remembered[0] !== ALL_ENVIRONMENTS_PARAM ? remembered[0] : null;
+}
 
 /** The environments reads are narrowed to: names, "" for "(no
  *  environment)", or null for all environments. */
@@ -78,8 +115,24 @@ export function envFromParam(p: string | null): string | null {
 export function useEnvironmentParam(): [string | null, (env: string | null, explicitAll?: boolean) => void, boolean] {
   const [params, setParams] = useSearchParams();
   const env = envFromParam(params.get("env"));
+  const hasParam = params.has("env");
+  // Opened without ?env (from a menu): take the one remembered.
+  useEffect(() => {
+    if (hasParam) return;
+    const one = rememberedSingleEnvironment(rememberedEnvironmentParams());
+    if (one === null) return;
+    setParams(
+      (prev) => {
+        const p = new URLSearchParams(prev);
+        p.set("env", one);
+        return p;
+      },
+      { replace: true },
+    );
+  }, [hasParam, setParams]);
   const set = useCallback(
     (next: string | null, explicitAll = false) => {
+      rememberEnvironmentParams(next !== null ? [envToParam(next)] : explicitAll ? [ALL_ENVIRONMENTS_PARAM] : null);
       setParams(
         (prev) => {
           const p = new URLSearchParams(prev);
@@ -104,6 +157,9 @@ export function useEnvironmentSet(): [string[] | null, (envs: string[] | null, e
   const envs = envsFromParams(params);
   const set = useCallback(
     (next: string[] | null, explicitAll = false) => {
+      rememberEnvironmentParams(
+        next !== null && next.length > 0 ? next.map(envToParam) : explicitAll ? [ALL_ENVIRONMENTS_PARAM] : null,
+      );
       setParams(
         (prev) => {
           const p = new URLSearchParams(prev);

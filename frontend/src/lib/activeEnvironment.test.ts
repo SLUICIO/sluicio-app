@@ -2,7 +2,11 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  ALL_ENVIRONMENTS_PARAM,
   NO_ENVIRONMENT_PARAM,
+  rememberEnvironmentParams,
+  rememberedEnvironmentParams,
+  rememberedSingleEnvironment,
   envFromParam,
   envQuery,
   envToParam,
@@ -39,5 +43,35 @@ describe("readsIntegrationData", () => {
     // Nothing else does either.
     expect(readsIntegrationData("/services?range=1h", "GET")).toBe(false);
     expect(readsIntegrationData("/me", "GET")).toBe(false);
+  });
+});
+
+// The menus link to pages without ?env, so the environment chosen was
+// dropped on every move. The last choice is remembered for the tab.
+describe("remembered environment", () => {
+  it("remembers a choice and forgets it on all", () => {
+    rememberEnvironmentParams(["production"]);
+    expect(rememberedEnvironmentParams()).toEqual(["production"]);
+    rememberEnvironmentParams(["prod-eu", "prod-us"]);
+    expect(rememberedEnvironmentParams()).toEqual(["prod-eu", "prod-us"]);
+    rememberEnvironmentParams(null);
+    expect(rememberedEnvironmentParams()).toBeNull();
+  });
+
+  it("ignores what it cannot read", () => {
+    window.sessionStorage.setItem("conduit:env", "not json");
+    expect(rememberedEnvironmentParams()).toBeNull();
+    window.sessionStorage.setItem("conduit:env", JSON.stringify([1, 2]));
+    expect(rememberedEnvironmentParams()).toBeNull();
+    rememberEnvironmentParams(null);
+  });
+
+  it("gives a single-environment picker one named environment only", () => {
+    expect(rememberedSingleEnvironment(["production"])).toBe("production");
+    expect(rememberedSingleEnvironment([NO_ENVIRONMENT_PARAM])).toBe(NO_ENVIRONMENT_PARAM);
+    // A set it cannot show, or all, leaves the page on its default.
+    expect(rememberedSingleEnvironment(["prod-eu", "prod-us"])).toBeNull();
+    expect(rememberedSingleEnvironment([ALL_ENVIRONMENTS_PARAM])).toBeNull();
+    expect(rememberedSingleEnvironment(null)).toBeNull();
   });
 });
