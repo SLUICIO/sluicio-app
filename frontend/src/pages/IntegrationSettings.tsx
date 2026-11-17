@@ -59,6 +59,13 @@ import { useProductName } from "../lib/useProductName";
 
 type TimeUnit = "seconds" | "minutes" | "hours";
 
+// The severity choice as the health check editors show it.
+const SEVERITIES: { v: TraceCompletionRule["severity"]; label: string }[] = [
+  { v: "info", label: "Info" },
+  { v: "warning", label: "Warning" },
+  { v: "critical", label: "Critical" },
+];
+
 // secondsAs converts a raw second-count to (n, unit) where n is the
 // largest whole-number quotient. Used to render the existing rule in
 // the unit the operator probably meant.
@@ -616,7 +623,6 @@ function StageSpanPicker({
         options={services}
         allLabel="Any service"
         placeholder="Search services"
-        variant="field"
       />
       <SearchableSelect
         value=""
@@ -627,7 +633,6 @@ function StageSpanPicker({
         allLabel="Add a span…"
         placeholder="Search, or type a span name"
         createLabel={(typed) => `Add “${typed}”`}
-        variant="field"
       />
     </>
   );
@@ -747,57 +752,47 @@ function RuleForm({
 
 
   return (
-    <form onSubmit={submit} className="form">
-      <div className="form__row">
-        <label className="form__label">
-          Name
-          <input
-            className="search__input"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Order processing must complete"
-            required
-            autoFocus
-          />
-        </label>
-        <label className="form__label">
-          Severity
-          <select
-            className="toolbar__select"
-            value={severity} aria-label="Severity"
-            onChange={(e) => setSeverity(e.target.value as TraceCompletionRule["severity"])}
-          >
-            <option value="info">info</option>
-            <option value="warning">warning</option>
-            <option value="critical">critical</option>
-          </select>
-        </label>
+    // The same stack of .m-field rows as the health check editors, so
+    // every blade the "+ Add health check" menu opens reads alike.
+    <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div className="m-field">
+        <label className="m-field-label">Name</label>
+        <input
+          className="search__input"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="e.g. Order processing must complete"
+          required
+          autoFocus
+        />
       </div>
 
-      <label className="form__label">
-        Description (optional)
+      <div className="m-field">
+        <label className="m-field-label">Description <span className="muted" style={{ fontWeight: 400 }}>optional</span></label>
         <input
           className="search__input"
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           placeholder="What this SLA is for"
         />
-      </label>
+      </div>
 
-      <div className="form__label">
-        <span>Default stage timeout</span>
-        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+      <div className="m-field">
+        <label className="m-field-label">Default stage timeout</label>
+        <div className="m-rule-sentence">
+          <span className="m-rs-prose">Each stage may take</span>
           <input
             type="number"
             min={1}
-            className="search__input mono"
-            style={{ width: 100, textAlign: "right" }}
+            className="m-rs-num"
+            aria-label="Default stage timeout"
             value={defTimeoutN}
             onChange={(e) => setDefTimeoutN(Math.max(1, parseInt(e.target.value, 10) || 0))}
             required
           />
           <select
-            className="toolbar__select"
+            className="m-rs-sel"
+            aria-label="Default stage timeout unit"
             value={defTimeoutUnit}
             onChange={(e) => setDefTimeoutUnit(e.target.value as TimeUnit)}
           >
@@ -805,14 +800,12 @@ function RuleForm({
             <option value="minutes">minutes</option>
             <option value="hours">hours</option>
           </select>
+          <span className="m-rs-prose">unless it sets its own</span>
         </div>
-        <span className="form__hint">
-          How long each stage below may take, unless the stage sets its own.
-        </span>
       </div>
 
-      <div className="form__label">
-        <span>Flow</span>
+      <div className="m-field">
+        <label className="m-field-label">Flow</label>
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           <div
             data-testid="completion-start"
@@ -836,8 +829,7 @@ function RuleForm({
                 placeholder="Search, or type a span name"
                 creatable
                 createLabel={(typed) => `Use “${typed}”`}
-                variant="field"
-              />
+                      />
             </div>
             <span className="muted" style={{ fontSize: 12, flexBasis: "100%" }}>
               {startSpan
@@ -883,8 +875,7 @@ function RuleForm({
                 ))}
                 {s.spans.length > 1 && (
                   <select
-                    className="search__input"
-                    style={{ width: "auto" }}
+                    className="m-rs-sel"
                     aria-label={`Stage ${i + 1} completes when`}
                     value={s.require}
                     onChange={(e) => updateStage(i, { require: e.target.value as "any" | "all" })}
@@ -913,13 +904,12 @@ function RuleForm({
                   <input
                     type="number"
                     min={1}
-                    className="search__input mono"
-                    style={{ width: 72, textAlign: "right" }}
+                    className="m-rs-num"
                     value={s.timeoutN}
                     onChange={(e) => updateStage(i, { timeoutN: Math.max(1, parseInt(e.target.value, 10) || 0) })}
                   />
                   <select
-                    className="toolbar__select"
+                    className="m-rs-sel"
                     value={s.timeoutUnit}
                     onChange={(e) => updateStage(i, { timeoutUnit: e.target.value as TimeUnit })}
                   >
@@ -950,7 +940,7 @@ function RuleForm({
         <button type="button" className="btn" style={{ alignSelf: "flex-start", marginTop: 6 }} onClick={addStage}>
           + Add stage
         </button>
-        <span className="form__hint">
+        <p className="muted" style={{ fontSize: 12, margin: "4px 0 0" }}>
           Read it top to bottom: after the start, each stage must arrive
           within its time of the stage before it, or the trace is delayed
           at that stage. A trace is complete only when every stage is
@@ -958,26 +948,45 @@ function RuleForm({
           span name, and choose "all of them arrive" when a message fans
           out to several receivers that must each deliver. Match is
           case-sensitive.
-        </span>
+        </p>
       </div>
 
-      <label className="form__label" style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-        <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
-        <span>Enabled</span>
-      </label>
-
-      <div className="form__label">
-        <span>Send to</span>
-        <SendToField value={channelIDs} onChange={setChannelIDs} channels={channels} />
+      <div className="m-field">
+        <label className="m-field-label">Severity</label>
+        <div className="m-seg">
+          {SEVERITIES.map((sv) => (
+            <button
+              key={sv.v}
+              type="button"
+              className={`m-seg-b sev-${sv.v} ${severity === sv.v ? "on" : ""}`}
+              onClick={() => setSeverity(sv.v)}
+            >
+              {sv.label}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {error && <div className="alert alert--error">{error}</div>}
+      <div className="m-field">
+        <label className="m-field-label">Status</label>
+        <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13, cursor: "pointer" }}>
+          <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
+          Enabled
+        </label>
+      </div>
 
-      <div className="form__actions">
-        <button type="button" className="btn" onClick={onClose} disabled={busy}>Cancel</button>
+      <div className="m-field">
+        <label className="m-field-label">Send to</label>
+        <SendToField value={channelIDs} onChange={setChannelIDs} channels={channels} variant="drawer" />
+      </div>
+
+      {error && <div className="alert alert--error" style={{ margin: 0 }}>{error}</div>}
+
+      <div className="m-builder-actions">
         <button type="submit" className="btn btn--primary" disabled={busy || !name.trim()}>
-          {busy ? "Saving…" : rule ? "Save changes" : "Create rule"}
+          {busy ? "Saving…" : rule ? "Save changes" : "Add health check"}
         </button>
+        <button type="button" className="btn" onClick={onClose} disabled={busy}>Cancel</button>
       </div>
     </form>
   );

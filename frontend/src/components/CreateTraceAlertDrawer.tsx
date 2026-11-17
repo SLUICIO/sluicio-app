@@ -14,6 +14,13 @@ import SendToField from "./SendToField";
 import type { AlertSeverity, LogAttrFilter, LogAttrOp, NotificationChannel } from "../api/types";
 import { EditDrawer } from "./primitives";
 
+// The severity choice as the health check editors show it.
+const SEVERITIES: { v: AlertSeverity; label: string }[] = [
+  { v: "info", label: "Info" },
+  { v: "warning", label: "Warning" },
+  { v: "critical", label: "Critical" },
+];
+
 const WINDOW_OPTS: { label: string; seconds: number }[] = [
   { label: "5 minutes", seconds: 300 },
   { label: "15 minutes", seconds: 900 },
@@ -110,7 +117,7 @@ export default function CreateTraceAlertDrawer({
   };
 
   return (
-    <EditDrawer title={`Alert on failed ${failureNoun}s`} width="narrow" onClose={onClose}>
+    <EditDrawer title="New trace check" width="wide" onClose={onClose}>
       {done ? (
         <div className="p-1">
           <div className="text-sm" style={{ color: "var(--ok)" }}>
@@ -124,53 +131,52 @@ export default function CreateTraceAlertDrawer({
             </Link>
             .
           </p>
-          <div className="form__actions">
+          <div className="m-builder-actions">
             <button type="button" className="btn btn--primary" onClick={onClose}>
               Done
             </button>
           </div>
         </div>
       ) : (
-        <form onSubmit={submit} className="form" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {error && <div className="alert alert--error">{error}</div>}
-          <p className="muted" style={{ fontSize: 13, lineHeight: 1.5 }}>
+        // The same stack of .m-field rows as the health check editors.
+        <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <p className="muted" style={{ fontSize: 13, lineHeight: 1.5, margin: 0 }}>
             Notifies you when {scopeNoun} accumulate failed {failureNoun}s (a trace with
             an error span) above a threshold.
           </p>
-          <label className="form__label">
-            Rule name
+          <div className="m-field">
+            <label className="m-field-label">Name</label>
             <input className="search__input" value={name} maxLength={120} onChange={(e) => setName(e.target.value)} />
-          </label>
-          <div className="form__row" style={{ display: "flex", gap: 10 }}>
-            <label className="form__label" style={{ flex: 1 }}>
-              Fire when ≥
-              <input
-                className="search__input"
-                type="number"
-                min={1}
-                value={threshold}
-                onChange={(e) => setThreshold(Math.max(1, parseInt(e.target.value || "1", 10)))}
-              />
-              <span className="form__hint">failed {failureNoun}s</span>
-            </label>
-            <label className="form__label" style={{ flex: 1 }}>
-              Within
-              <select
-                className="toolbar__select"
-                value={windowSeconds}
-                onChange={(e) => setWindowSeconds(parseInt(e.target.value, 10))}
-              >
-                {WINDOW_OPTS.map((o) => (
-                  <option key={o.seconds} value={o.seconds}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </label>
           </div>
-          <div className="form__label">
-            Only count error spans where… <span className="muted" style={{ fontWeight: 400 }}>(optional)</span>
-            <span className="form__hint">
+          <div className="m-rule-sentence">
+            <span className="m-rs-prose">When ≥</span>
+            <input
+              className="m-rs-num"
+              type="number"
+              min={1}
+              aria-label="Threshold"
+              value={threshold}
+              onChange={(e) => setThreshold(Math.max(1, parseInt(e.target.value || "1", 10)))}
+            />
+            <span className="m-rs-prose">failed {failureNoun}{threshold === 1 ? "" : "s"} in</span>
+            <select
+              className="m-rs-sel"
+              aria-label="Window"
+              value={windowSeconds}
+              onChange={(e) => setWindowSeconds(parseInt(e.target.value, 10))}
+            >
+              {WINDOW_OPTS.map((o) => (
+                <option key={o.seconds} value={o.seconds}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="m-field">
+            <label className="m-field-label">
+              Only count error spans where <span className="muted" style={{ fontWeight: 400 }}>optional</span>
+            </label>
+            <span className="muted" style={{ fontSize: 12 }}>
               Narrow which error spans make a trace count as failed — e.g.{" "}
               <code>http.route</code> = <code>/checkout</code>, or{" "}
               <code>http.response.status_code</code> ≥ <code>500</code>.
@@ -189,7 +195,7 @@ export default function CreateTraceAlertDrawer({
                     }
                   />
                   <select
-                    className="toolbar__select"
+                    className="m-rs-sel"
                     value={a.op}
                     onChange={(e) =>
                       setAttrs((cur) => cur.map((x, j) => (j === i ? { ...x, op: e.target.value as LogAttrOp } : x)))
@@ -212,7 +218,7 @@ export default function CreateTraceAlertDrawer({
                   )}
                   <button
                     type="button"
-                    className="btn"
+                    className="btn btn--sm"
                     aria-label="Remove condition"
                     onClick={() => setAttrs((cur) => cur.filter((_, j) => j !== i))}
                   >
@@ -222,7 +228,7 @@ export default function CreateTraceAlertDrawer({
               ))}
               <button
                 type="button"
-                className="btn"
+                className="btn btn--sm"
                 style={{ alignSelf: "flex-start" }}
                 onClick={() => setAttrs((cur) => [...cur, { key: "", op: "eq", value: "" }])}
               >
@@ -230,28 +236,27 @@ export default function CreateTraceAlertDrawer({
               </button>
             </div>
           </div>
-          <label className="form__label">
-            Severity
-            <select
-              className="toolbar__select"
-              value={severity} aria-label="Severity"
-              onChange={(e) => setSeverity(e.target.value as AlertSeverity)}
-            >
-              <option value="info">Info</option>
-              <option value="warning">Warning</option>
-              <option value="critical">Critical</option>
-            </select>
-          </label>
-          <div className="form__label">
-            Send to
-            <SendToField value={selectedChannels} onChange={setSelectedChannels} channels={channels} />
+          <div className="m-field">
+            <label className="m-field-label">Severity</label>
+            <div className="m-seg">
+              {SEVERITIES.map((sv) => (
+                <button key={sv.v} type="button" className={`m-seg-b sev-${sv.v} ${severity === sv.v ? "on" : ""}`} onClick={() => setSeverity(sv.v)}>
+                  {sv.label}
+                </button>
+              ))}
+            </div>
           </div>
-          <div className="form__actions">
+          <div className="m-field">
+            <label className="m-field-label">Send to</label>
+            <SendToField value={selectedChannels} onChange={setSelectedChannels} channels={channels} variant="drawer" />
+          </div>
+          {error && <div className="alert alert--error" style={{ margin: 0 }}>{error}</div>}
+          <div className="m-builder-actions">
+            <button type="submit" className="btn btn--primary" disabled={saving}>
+              {saving ? "Saving…" : "Add health check"}
+            </button>
             <button type="button" className="btn" onClick={onClose}>
               Cancel
-            </button>
-            <button type="submit" className="btn btn--primary" disabled={saving}>
-              {saving ? "Creating…" : "Create alert rule"}
             </button>
           </div>
         </form>

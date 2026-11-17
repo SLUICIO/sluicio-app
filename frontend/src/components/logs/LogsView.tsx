@@ -780,6 +780,14 @@ export default function LogsView({ forcedIntegration, forcedIntegrationId, force
 // rule: the match criteria (min severity, body text, attribute filters)
 // are captured from the page; the operator adds a threshold, window,
 // severity, optional service health-binding, and notification channels.
+
+// The severity choice as the health check editors show it.
+const SEVERITIES: { v: AlertSeverity; label: string }[] = [
+  { v: "info", label: "Info" },
+  { v: "warning", label: "Warning" },
+  { v: "critical", label: "Critical" },
+];
+
 function CreateLogAlertDialog({
   minSeverity,
   bodyContains,
@@ -893,8 +901,9 @@ function CreateLogAlertDialog({
   ].filter(Boolean);
 
   return (
-    <EditDrawer title="New log alert rule" width="wide" onClose={onClose}>
-      <div className="form" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+    <EditDrawer title="New log check" width="wide" onClose={onClose}>
+      {/* The same stack of .m-field rows as the health check editors. */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
         <div className="muted" style={{ fontSize: 12.5 }}>
           Fires when matching logs reach the threshold in the window. Captured from your current
           filters:
@@ -911,45 +920,41 @@ function CreateLogAlertDialog({
           </div>
         </div>
 
-        <label className="form__label">
-          Name
+        <div className="m-field">
+          <label className="m-field-label">Name</label>
           <input className="search__input" value={name} onChange={(e) => setName(e.target.value)}
-            placeholder="Order errors" autoFocus />
-        </label>
+            placeholder="e.g. Order errors" autoFocus />
+        </div>
 
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
-          <label className="form__label" style={{ minWidth: 120 }}>
-            Severity
-            <select className="toolbar__select" value={severity} aria-label="Severity"
-              onChange={(e) => setSeverity(e.target.value as AlertSeverity)}>
-              <option value="info">info</option>
-              <option value="warning">warning</option>
-              <option value="critical">critical</option>
-            </select>
-          </label>
-          <label className="form__label" style={{ minWidth: 110 }}>
-            Fire at ≥
-            <input type="number" min={1} className="search__input mono" value={threshold}
-              onChange={(e) => setThreshold(Math.max(1, parseInt(e.target.value, 10) || 1))} />
-          </label>
-          <label className="form__label">
-            Within
-            <div style={{ display: "flex", gap: 6 }}>
-              <input type="number" min={1} className="search__input mono" style={{ width: 80 }}
-                value={windowN} onChange={(e) => setWindowN(Math.max(1, parseInt(e.target.value, 10) || 1))} />
-              <select className="toolbar__select" value={windowUnit}
-                onChange={(e) => setWindowUnit(e.target.value as "seconds" | "minutes" | "hours")}>
-                <option value="seconds">seconds</option>
-                <option value="minutes">minutes</option>
-                <option value="hours">hours</option>
-              </select>
-            </div>
-          </label>
+        <div className="m-rule-sentence">
+          <span className="m-rs-prose">When at least</span>
+          <input type="number" min={1} className="m-rs-num" aria-label="Threshold" value={threshold}
+            onChange={(e) => setThreshold(Math.max(1, parseInt(e.target.value, 10) || 1))} />
+          <span className="m-rs-prose">matching log{threshold === 1 ? "" : "s"} in</span>
+          <input type="number" min={1} className="m-rs-num" aria-label="Window" value={windowN}
+            onChange={(e) => setWindowN(Math.max(1, parseInt(e.target.value, 10) || 1))} />
+          <select className="m-rs-sel" value={windowUnit} aria-label="Window unit"
+            onChange={(e) => setWindowUnit(e.target.value as "seconds" | "minutes" | "hours")}>
+            <option value="seconds">seconds</option>
+            <option value="minutes">minutes</option>
+            <option value="hours">hours</option>
+          </select>
+        </div>
+
+        <div className="m-field">
+          <label className="m-field-label">Severity</label>
+          <div className="m-seg">
+            {SEVERITIES.map((sv) => (
+              <button key={sv.v} type="button" className={`m-seg-b sev-${sv.v} ${severity === sv.v ? "on" : ""}`} onClick={() => setSeverity(sv.v)}>
+                {sv.label}
+              </button>
+            ))}
+          </div>
         </div>
 
         {forcedIntegrationId ? (
-          <div className="form__label">
-            ♥ Health impact
+          <div className="m-field">
+            <label className="m-field-label">Health impact</label>
             <label style={{ display: "flex", gap: 8, alignItems: "flex-start", fontWeight: 400, marginTop: 4 }}>
               <input
                 type="radio"
@@ -960,7 +965,7 @@ function CreateLogAlertDialog({
               />
               <span style={{ fontSize: 13 }}>
                 Mark <strong>{forcedIntegration || "this integration"}</strong> unhealthy while firing
-                <span className="form__hint" style={{ display: "block" }}>
+                <span className="muted" style={{ display: "block", fontSize: 12 }}>
                   Recommended — other integrations sharing these services stay healthy.
                 </span>
               </span>
@@ -975,7 +980,7 @@ function CreateLogAlertDialog({
               />
               <span style={{ fontSize: 13, minWidth: 0, flex: 1 }}>
                 Also mark a member service unhealthy
-                <span className="form__hint" style={{ display: "block" }}>
+                <span className="muted" style={{ display: "block", fontSize: 12 }}>
                   The service — and <strong>every</strong> integration that uses it — reads
                   unhealthy while this rule fires.
                 </span>
@@ -994,8 +999,8 @@ function CreateLogAlertDialog({
             </label>
           </div>
         ) : (
-          <label className="form__label">
-            ♥ Add as a health check to a service (optional)
+          <div className="m-field">
+            <label className="m-field-label">Health check on a service <span className="muted" style={{ fontWeight: 400 }}>optional</span></label>
             <SearchableSelect
               value={serviceName}
               onChange={setServiceName}
@@ -1003,26 +1008,26 @@ function CreateLogAlertDialog({
               allLabel="Don't — just alert, leave service health unchanged"
               placeholder="Pick the service this rule reflects…"
             />
-            <span className="form__hint">
+            <p className="muted" style={{ fontSize: 12, margin: "4px 0 0" }}>
               {serviceName
                 ? `${serviceName} (and any integration it belongs to) reads "unhealthy" while this rule is firing — a log-based health check.`
                 : "Optional — bind this rule to a service so it (and its integrations) reads unhealthy whenever it fires."}
-            </span>
-          </label>
+            </p>
+          </div>
         )}
 
-        <div className="form__label">
-          <span>Send to</span>
-          <SendToField value={channelIDs} onChange={setChannelIDs} channels={channels} />
+        <div className="m-field">
+          <label className="m-field-label">Send to</label>
+          <SendToField value={channelIDs} onChange={setChannelIDs} channels={channels} variant="drawer" />
         </div>
 
-        {error && <div className="alert alert--error">{error}</div>}
+        {error && <div className="alert alert--error" style={{ margin: 0 }}>{error}</div>}
 
-        <div className="form__actions">
-          <button type="button" className="btn" onClick={onClose} disabled={busy}>Cancel</button>
+        <div className="m-builder-actions">
           <button type="button" className="btn btn--primary" onClick={submit} disabled={busy || !name.trim()}>
-            {busy ? "Creating…" : "Create rule"}
+            {busy ? "Saving…" : "Add health check"}
           </button>
+          <button type="button" className="btn" onClick={onClose} disabled={busy}>Cancel</button>
         </div>
       </div>
     </EditDrawer>
