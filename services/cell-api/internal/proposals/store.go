@@ -89,6 +89,11 @@ type Proposal struct {
 	// same suggestion arriving on every agent run does not bury the
 	// inbox. Empty for updates, which supersede by target instead.
 	DedupKey string `json:"dedup_key,omitempty"`
+	// BatchID groups the proposals an agent filed together under one
+	// rationale; BatchIndex is the order it gave them, which approving
+	// the batch applies them in. Nil for a proposal filed on its own.
+	BatchID    *uuid.UUID `json:"batch_id,omitempty"`
+	BatchIndex int        `json:"batch_index,omitempty"`
 
 	State        string     `json:"state"`
 	DecidedBy    *uuid.UUID `json:"decided_by,omitempty"`
@@ -110,7 +115,7 @@ func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 const cols = `id, org_id, target_kind, target_id, target_label, changes, rationale,
 	proposed_by_kind, proposed_by_id, proposed_by_label, via,
 	state, decided_by, decided_at, decision_note, expires_at, created_at, updated_at,
-	COALESCE(dedup_key, '')`
+	COALESCE(dedup_key, ''), batch_id, COALESCE(batch_index, 0)`
 
 func scan(row pgx.Row) (Proposal, error) {
 	var p Proposal
@@ -118,7 +123,7 @@ func scan(row pgx.Row) (Proposal, error) {
 	err := row.Scan(&p.ID, &p.OrgID, &p.TargetKind, &p.TargetID, &p.TargetLabel, &raw, &p.Rationale,
 		&p.ProposedByKind, &p.ProposedByID, &p.ProposedByLabel, &p.Via,
 		&p.State, &p.DecidedBy, &p.DecidedAt, &p.DecisionNote, &p.ExpiresAt, &p.CreatedAt, &p.UpdatedAt,
-		&p.DedupKey)
+		&p.DedupKey, &p.BatchID, &p.BatchIndex)
 	if err != nil {
 		return Proposal{}, err
 	}
@@ -135,6 +140,47 @@ func scan(row pgx.Row) (Proposal, error) {
 // three competing edits to one check is worse than useless, and the
 // agent's latest read is the only one whose Before is still current.
 func (s *Store) Create(ctx context.Context, p Proposal, ttl time.Duration) (Proposal, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return Proposal{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	out, err := createTx(ctx, tx, p, ttl)
+	if err != nil {
+		return Proposal{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Proposal{}, err
+	}
+	return out, nil
+}
+
+// CreateBatch files several proposals as one batch, all or none: a batch
+// that half-filed would leave a reviewer approving part of what the
+// agent meant. Each item supersedes and dedups exactly as Create does.
+func (s *Store) CreateBatch(ctx context.Context, items []Proposal, ttl time.Duration) ([]Proposal, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	batch := uuid.New()
+	out := make([]Proposal, 0, len(items))
+	for i, p := range items {
+		p.BatchID, p.BatchIndex = &batch, i
+		created, err := createTx(ctx, tx, p, ttl)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, created)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func createTx(ctx context.Context, tx pgx.Tx, p Proposal, ttl time.Duration) (Proposal, error) {
 	if ttl <= 0 {
 		ttl = DefaultTTL
 	}
@@ -142,11 +188,6 @@ func (s *Store) Create(ctx context.Context, p Proposal, ttl time.Duration) (Prop
 	if err != nil {
 		return Proposal{}, fmt.Errorf("proposals: encode changes: %w", err)
 	}
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return Proposal{}, err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
 
 	// An update supersedes the pending update of the same target. A
 	// create names where it goes (an integration) in TargetID too, but
@@ -170,14 +211,19 @@ func (s *Store) Create(ctx context.Context, p Proposal, ttl time.Duration) (Prop
 		k := p.DedupKey
 		dedup = &k
 	}
+	var batchIndex *int
+	if p.BatchID != nil {
+		i := p.BatchIndex
+		batchIndex = &i
+	}
 
 	row := tx.QueryRow(ctx, `INSERT INTO proposals
 		(org_id, target_kind, target_id, target_label, changes, rationale,
-		 proposed_by_kind, proposed_by_id, proposed_by_label, via, expires_at, dedup_key)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+		 proposed_by_kind, proposed_by_id, proposed_by_label, via, expires_at, dedup_key, batch_id, batch_index)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
 		RETURNING `+cols,
 		p.OrgID, p.TargetKind, p.TargetID, p.TargetLabel, changes, p.Rationale,
-		p.ProposedByKind, p.ProposedByID, p.ProposedByLabel, p.Via, time.Now().Add(ttl), dedup)
+		p.ProposedByKind, p.ProposedByID, p.ProposedByLabel, p.Via, time.Now().Add(ttl), dedup, p.BatchID, batchIndex)
 	out, err := scan(row)
 	if err != nil {
 		// A duplicate pending create is not a failure worth an error
@@ -189,10 +235,26 @@ func (s *Store) Create(ctx context.Context, p Proposal, ttl time.Duration) (Prop
 		}
 		return Proposal{}, err
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return Proposal{}, err
-	}
 	return out, nil
+}
+
+// ListBatch returns a batch's proposals in the order they were filed.
+func (s *Store) ListBatch(ctx context.Context, orgID, batchID uuid.UUID) ([]Proposal, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT `+cols+` FROM proposals WHERE org_id=$1 AND batch_id=$2 ORDER BY batch_index`, orgID, batchID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Proposal
+	for rows.Next() {
+		p, err := scan(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
 }
 
 // Get returns one proposal within the org.

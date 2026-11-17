@@ -14,7 +14,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"strings"
 )
+
+// checkTuningFields are what sluicio_propose_check_tuning and a batch item
+// of kind alert_rule may change: the API's alertRuleTunables.
+var checkTuningFields = []string{"threshold", "severity", "for_window", "enabled", "channel_ids", "environment_mode", "environments"}
+
+// completionRuleFields are what sluicio_propose_completion_rule_change
+// may change: the API's completionRuleFields.
+var completionRuleFields = []string{"name", "description", "severity", "enabled", "start_span_name", "stages", "default_timeout_seconds", "lookback_seconds", "channel_ids"}
 
 func objProp(desc string) map[string]any {
 	return map[string]any{"type": "object", "description": desc}
@@ -215,6 +224,86 @@ func configTools(s *Server) []tool {
 					return "", fmt.Errorf("integration_id and rule are required")
 				}
 				return s.propose("new_completion_rule", id, "rule", rule, argStr(a, "rationale"))
+			}},
+		{Name: "sluicio_propose_completion_rule_change", Output: proposeOut, Annotations: proposeAnnotations,
+			Description: "Propose a change to an EXISTING trace-completion rule: its start span, stages, timeouts, channels, name, description, severity or enabled. Nothing changes until an org admin approves. Send only the fields that change; each takes the shape sluicio_list_completion_rules shows, and stages replaces every stage. A wrong start_span_name makes a rule follow no trace and never fire, so dry-run the change with sluicio_dry_run_completion_rule (rule_id and patch) and cite how many traces it would follow. The reviewer sees today's value beside yours.",
+			Schema: objSchema(func() map[string]any {
+				props := map[string]any{
+					"rule_id":                 strProp("The completion rule's id (uuid), from sluicio_list_completion_rules."),
+					"name":                    strProp("New name."),
+					"description":             strProp("New description."),
+					"severity":                strProp("info, warning or critical."),
+					"enabled":                 map[string]any{"type": "boolean", "description": "Enable or disable the rule."},
+					"start_span_name":         strProp("The span that makes a trace one of the integration's messages; its clock starts there. Confirm it with sluicio_span_names."),
+					"stages":                  map[string]any{"type": "array", "description": "Every stage, in order: [{spans: [{service (optional), span_name}], require: any | all, timeout_seconds}]."},
+					"default_timeout_seconds": map[string]any{"type": "integer", "description": "Timeout of a stage that sets none."},
+					"lookback_seconds":        map[string]any{"type": "integer", "description": "How far back it looks for traces. Leave it out to keep it following the timeouts."},
+					"channel_ids":             map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Its own channels; [] to follow the integration's notification profile."},
+					"rationale":               strProp("Why, citing what you observed and the dry run. Shown verbatim to the reviewer. Required."),
+				}
+				return props
+			}(), "rule_id", "rationale"),
+			Call: func(a map[string]any) (string, error) {
+				id := argStr(a, "rule_id")
+				if id == "" {
+					return "", fmt.Errorf("rule_id is required")
+				}
+				rationale := argStr(a, "rationale")
+				if rationale == "" {
+					return "", fmt.Errorf("rationale is required — a proposal without a reason cannot be reviewed")
+				}
+				changes := []map[string]any{}
+				for _, f := range completionRuleFields {
+					if v, ok := a[f]; ok && v != nil {
+						changes = append(changes, map[string]any{"field": f, "after": v})
+					}
+				}
+				if len(changes) == 0 {
+					return "", fmt.Errorf("propose at least one of: %s", strings.Join(completionRuleFields, ", "))
+				}
+				return s.post("/api/v1/proposals", nil, map[string]any{
+					"target_kind": "completion_rule", "target_id": id, "rationale": rationale, "changes": changes,
+				})
+			}},
+		{Name: "sluicio_dry_run_completion_rule", Output: completionDryRunOut,
+			Description: "Try a trace-completion rule against the integration's stored traces without saving or firing anything: how many traces it would follow (and how many the integration's services had, so a start span no trace carries shows as 0 of N), how many completed, are pending or are delayed, how many reached each stage, and some delayed traces with the span they wait for. Judged as of now over the last hours (default 24, at most 72). Pass rule (a draft, as sluicio_propose_trace_completion_rule takes it) or rule_id with patch (the fields a sluicio_propose_completion_rule_change would set). Cite the result in the proposal's rationale.",
+			Schema: objSchema(map[string]any{
+				"integration_id": strProp("The integration (uuid)."),
+				"rule":           objProp("A draft rule: name, start_span_name, stages, default_timeout_seconds."),
+				"rule_id":        strProp("An existing rule (uuid), instead of rule."),
+				"patch":          objProp("With rule_id: the fields to change, e.g. {\"start_span_name\": \"Pipeline.orders.Receive\"}."),
+				"hours":          map[string]any{"type": "integer", "description": "How many hours back to look. Default 24, at most 72."},
+			}, "integration_id"),
+			Call: func(a map[string]any) (string, error) {
+				id := argStr(a, "integration_id")
+				if id == "" {
+					return "", fmt.Errorf("integration_id is required")
+				}
+				body := map[string]any{}
+				for _, k := range []string{"rule", "rule_id", "patch", "hours"} {
+					if v, ok := a[k]; ok && v != nil {
+						body[k] = v
+					}
+				}
+				return s.post("/api/v1/integrations/"+url.PathEscape(id)+"/completion-rules/dry-run", nil, body)
+			}},
+		{Name: "sluicio_propose_changes", Output: proposeBatchOut, Annotations: proposeAnnotations,
+			Description: "File several proposals as ONE batch with one rationale, reviewed and approved together: setting up a cell's alerting (channels on every check, the start span of every completion rule) is one review instead of dozens. Nothing changes until a human approves. Each item is {target_kind, target_id, changes: [{field, after}]} with the kinds and fields of sluicio_proposal_options: alert_rule (a check's threshold, severity, for_window, enabled, channel_ids, environment_mode, environments), completion_rule (an existing completion rule's fields), integration_settings, new_alert_rule (no target_id; one change, field rule), new_completion_rule (target_id the integration; one change, field rule). At most 100 items, one item per target. Every item is checked when filed and an invalid one refuses the whole batch, naming it. On approval the cell checks every target for edits made since, then applies the items in order, stopping at the first that fails.",
+			Schema: objSchema(map[string]any{
+				"items": map[string]any{"type": "array", "description": "The proposals: [{target_kind, target_id, changes: [{field, after}]}].",
+					"items": map[string]any{"type": "object"}},
+				"rationale": strProp("Why, citing what you observed. Shown verbatim to the reviewer, once for the batch. Required."),
+			}, "items", "rationale"),
+			Call: func(a map[string]any) (string, error) {
+				rationale := argStr(a, "rationale")
+				if rationale == "" {
+					return "", fmt.Errorf("rationale is required — a proposal without a reason cannot be reviewed")
+				}
+				items, ok := a["items"].([]any)
+				if !ok || len(items) == 0 {
+					return "", fmt.Errorf("items is required: at least one {target_kind, target_id, changes}")
+				}
+				return s.post("/api/v1/proposals/batch", nil, map[string]any{"rationale": rationale, "items": items})
 			}},
 		{Name: "sluicio_propose_integration_settings", Output: proposeOut, Annotations: proposeAnnotations,
 			Description: "Propose changes to an integration's settings. Nothing changes until a human who may edit the integration approves. Each field you send REPLACES that setting whole, so read the current value with sluicio_get_integration first and send the complete new one: matchers (the full list, as [{attribute, operator, value, match_group}]; for example add a not_equals condition to exclude unrouted traffic), notify_unacknowledged_errors (true or false), declared_environments (list of names), sources (the full list of metric and log sources; sluicio_propose_metric_source adds one for you). The reviewer sees today's value beside yours.",

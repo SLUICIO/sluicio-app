@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 
 	"github.com/google/uuid"
@@ -27,6 +28,7 @@ import (
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/api/middleware"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/integrations"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/proposals"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/tracecompletion"
 )
 
 // Kinds, as target_kind on the wire.
@@ -35,7 +37,24 @@ const (
 	proposalNewAlertRule       = "new_alert_rule"
 	proposalNewCompletionRule  = "new_completion_rule"
 	proposalIntegrationSetting = "integration_settings"
+	proposalCompletionRule     = "completion_rule"
 )
+
+// completionRuleFields are what a completion_rule proposal may change on
+// an existing rule: everything a person edits in its form. Each is a key
+// of the body PATCH /completion-rules/{rid} takes; the proposal is merged
+// into the rule as it is and replayed whole.
+var completionRuleFields = map[string]bool{
+	"name":                    true,
+	"description":             true,
+	"severity":                true,
+	"enabled":                 true,
+	"start_span_name":         true,
+	"stages":                  true,
+	"default_timeout_seconds": true,
+	"lookback_seconds":        true,
+	"channel_ids":             true,
+}
 
 // integrationSettingFields are what an integration_settings proposal may
 // change, each the body of the route that changes it.
@@ -162,6 +181,122 @@ func init() {
 			return nil
 		},
 	}
+}
+
+func init() {
+	proposalTargets[proposalCompletionRule] = proposalTarget{
+		fields:      completionRuleFields,
+		needsTarget: true,
+		check: func(h *Handlers, r *http.Request, id *uuid.UUID, changes []proposals.Change) (string, string, error) {
+			rule, err := h.TraceCompletion.Get(r.Context(), middleware.OrgID(r), *id)
+			if err != nil || !h.canSeeIntegration(r, rule.IntegrationID) {
+				return "", "", errors.New("completion rule not found")
+			}
+			merged, err := mergeCompletionRule(rule, changes)
+			if err != nil {
+				return "", "", err
+			}
+			in, perr := h.parseTraceCompletionInput(merged, rule.IntegrationID)
+			if perr != "" {
+				return "", "", errors.New(perr)
+			}
+			if err := in.Validate(); err != nil {
+				return "", "", err
+			}
+			for _, cid := range in.ChannelIDs {
+				if _, err := h.Alerts.GetChannel(r.Context(), middleware.OrgID(r), cid); err != nil {
+					return "", "", fmt.Errorf("channel_ids: no channel %s (sluicio_list_notification_channels lists them)", cid)
+				}
+			}
+			name, _ := h.integrationName(r, rule.IntegrationID)
+			return "Completion rule on " + name + ": " + rule.Name, "", nil
+		},
+		snapshot: func(h *Handlers, ctx context.Context, orgID, id uuid.UUID) (map[string]json.RawMessage, string, error) {
+			rule, err := h.TraceCompletion.Get(ctx, orgID, id)
+			if err != nil {
+				return nil, "", err
+			}
+			b, err := json.Marshal(completionRuleAsInput(rule))
+			if err != nil {
+				return nil, "", err
+			}
+			var all map[string]json.RawMessage
+			if err := json.Unmarshal(b, &all); err != nil {
+				return nil, "", err
+			}
+			out := map[string]json.RawMessage{}
+			for f := range completionRuleFields {
+				out[f] = all[f]
+			}
+			return out, rule.Name, nil
+		},
+		apply: func(h *Handlers, r *http.Request, id *uuid.UUID, changes []proposals.Change) error {
+			rule, err := h.TraceCompletion.Get(r.Context(), middleware.OrgID(r), *id)
+			if err != nil {
+				return err
+			}
+			merged, err := mergeCompletionRule(rule, changes)
+			if err != nil {
+				return err
+			}
+			body, err := json.Marshal(merged)
+			if err != nil {
+				return err
+			}
+			return h.replayAsReviewer(r, http.MethodPatch,
+				"/api/v1/integrations/"+rule.IntegrationID.String()+"/completion-rules/"+id.String(), body)
+		},
+	}
+}
+
+// completionRuleAsInput is a completion rule in the shape its PATCH takes,
+// so a proposal's before and after compare like for like.
+func completionRuleAsInput(r tracecompletion.Rule) traceCompletionRuleInput {
+	resp := ruleToResponse(r)
+	channels := append([]uuid.UUID{}, r.ChannelIDs...)
+	sort.Slice(channels, func(i, j int) bool { return channels[i].String() < channels[j].String() })
+	return traceCompletionRuleInput{
+		Name:                  resp.Name,
+		Description:           resp.Description,
+		Severity:              resp.Severity,
+		Enabled:               resp.Enabled,
+		StartSpanName:         resp.StartSpanName,
+		Stages:                resp.Stages,
+		DefaultTimeoutSeconds: resp.DefaultTimeoutSeconds,
+		LookbackSeconds:       resp.LookbackSeconds,
+		ChannelIDs:            channels,
+	}
+}
+
+// mergeCompletionRule lays the proposed fields over the rule as it is.
+// A lookback that was the derived default (4× the longest stage) follows
+// changed timeouts unless the proposal sets one; a chosen one is kept.
+func mergeCompletionRule(rule tracecompletion.Rule, changes []proposals.Change) (traceCompletionRuleInput, error) {
+	b, err := json.Marshal(completionRuleAsInput(rule))
+	if err != nil {
+		return traceCompletionRuleInput{}, err
+	}
+	var all map[string]json.RawMessage
+	if err := json.Unmarshal(b, &all); err != nil {
+		return traceCompletionRuleInput{}, err
+	}
+	proposed := map[string]bool{}
+	for _, c := range changes {
+		all[c.Field] = c.After
+		proposed[c.Field] = true
+	}
+	if !proposed["lookback_seconds"] && (proposed["stages"] || proposed["default_timeout_seconds"]) && rule.Spec.HasDefaultLookback() {
+		all["lookback_seconds"] = json.RawMessage("0")
+	}
+	merged, err := json.Marshal(all)
+	if err != nil {
+		return traceCompletionRuleInput{}, err
+	}
+	var out traceCompletionRuleInput
+	if err := json.Unmarshal(merged, &out); err != nil {
+		return traceCompletionRuleInput{}, fmt.Errorf("completion rule: %w", err)
+	}
+	return out, nil
 }
 
 // nullSnapshot is the "before" of a create: nothing.

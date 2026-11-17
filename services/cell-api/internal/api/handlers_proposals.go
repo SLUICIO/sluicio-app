@@ -26,6 +26,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -74,11 +75,18 @@ type proposalTarget struct {
 // that silently no-ops is worse than a rejected one: the audit trail
 // then records a change that never happened. If a field becomes
 // updatable, add it here and prove it round-trips end to end.
+//
+// channel_ids and the environment scope are here because setting up a
+// cell's alerting is mostly these: where each check sends (an empty list
+// follows the notification profile), and production-only checks.
 var alertRuleTunables = map[string]bool{
-	"threshold":  true,
-	"severity":   true,
-	"for_window": true,
-	"enabled":    true,
+	"threshold":        true,
+	"severity":         true,
+	"for_window":       true,
+	"enabled":          true,
+	"channel_ids":      true,
+	"environment_mode": true,
+	"environments":     true,
 }
 
 var proposalTargets = map[string]proposalTarget{
@@ -101,8 +109,23 @@ var proposalTargets = map[string]proposalTarget{
 			put("severity", string(r.Severity))
 			put("for_window", r.Spec.ForWindow)
 			put("enabled", r.Enabled)
+			channels := make([]string, 0, len(r.ChannelIDs))
+			for _, c := range r.ChannelIDs {
+				channels = append(channels, c.String())
+			}
+			// Sorted: the routes come back in no set order, and the drift
+			// check compares lists as written.
+			sort.Strings(channels)
+			put("channel_ids", channels)
+			put("environment_mode", environmentModeName(r.EnvironmentMode))
+			envs := r.Environments
+			if envs == nil {
+				envs = []string{}
+			}
+			put("environments", envs)
 			return out, r.Name, nil
 		},
+		check: checkAlertRuleTuning,
 		apply: func(h *Handlers, req *http.Request, id *uuid.UUID, changes []proposals.Change) error {
 			ctx, orgID := req.Context(), middleware.OrgID(req)
 			r, err := h.Alerts.GetRule(ctx, orgID, *id)
@@ -111,6 +134,24 @@ var proposalTargets = map[string]proposalTarget{
 			}
 			for _, c := range changes {
 				switch c.Field {
+				case "channel_ids":
+					ids, err := proposedChannelIDs(c.After)
+					if err != nil {
+						return err
+					}
+					r.ChannelIDs = ids
+				case "environment_mode":
+					var v string
+					if err := json.Unmarshal(c.After, &v); err != nil {
+						return fmt.Errorf("environment_mode: %w", err)
+					}
+					r.EnvironmentMode = environmentModeName(v)
+				case "environments":
+					var v []string
+					if err := json.Unmarshal(c.After, &v); err != nil {
+						return fmt.Errorf("environments: %w", err)
+					}
+					r.Environments = normalizeEnvironments(v)
 				case "threshold":
 					var v float64
 					if err := json.Unmarshal(c.After, &v); err != nil {
@@ -146,6 +187,11 @@ var proposalTargets = map[string]proposalTarget{
 					return fmt.Errorf("field %q is not tunable on an alert rule", c.Field)
 				}
 			}
+			if r.EnvironmentMode == alerting.EnvironmentEach {
+				r.Environments = nil
+			} else if err := checkEnvironmentScope(r); err != nil {
+				return err
+			}
 			_, err = h.Alerts.UpdateRule(ctx, orgID, r)
 			return err
 		},
@@ -176,35 +222,61 @@ func (h *Handlers) createProposal(w http.ResponseWriter, r *http.Request) {
 		httpserver.WriteError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	target, ok := proposalTargets[body.TargetKind]
-	if !ok {
-		httpserver.WriteError(w, http.StatusBadRequest, "unsupported target_kind: "+body.TargetKind)
-		return
-	}
 	if strings.TrimSpace(body.Rationale) == "" {
 		httpserver.WriteError(w, http.StatusBadRequest, "rationale is required — a proposal without a reason cannot be reviewed")
 		return
 	}
-	if len(body.Changes) == 0 {
-		httpserver.WriteError(w, http.StatusBadRequest, "at least one change is required")
+	p, status, err := h.buildProposal(r, body.TargetKind, body.TargetID, body.Changes, body.Rationale)
+	if err != nil {
+		httpserver.WriteError(w, status, err.Error())
 		return
 	}
-	if target.creates && len(body.Changes) != 1 {
-		httpserver.WriteError(w, http.StatusBadRequest, "a "+body.TargetKind+" proposal carries one change, the rule")
+	out, err := h.Proposals.Create(r.Context(), p, h.proposalTTL(r.Context(), p.OrgID))
+	if errors.Is(err, proposals.ErrDuplicatePending) {
+		httpserver.WriteError(w, http.StatusConflict, "the same proposal is already waiting for review")
 		return
 	}
-	for _, c := range body.Changes {
+	if err != nil {
+		h.Logger.Error("create proposal failed", "err", err)
+		httpserver.WriteError(w, http.StatusInternalServerError, "save failed")
+		return
+	}
+	h.recordAudit(r, "proposal.created", "proposal", out.ID.String(), map[string]any{
+		"target_kind": out.TargetKind, "target_label": out.TargetLabel, "via": out.Via,
+	})
+	httpserver.WriteJSON(w, http.StatusCreated, out)
+}
+
+// buildProposal checks one proposed change and snapshots its target, the
+// way it is stored: shared by a single proposal and every item of a
+// batch, so a batch can hold nothing a single proposal could not. It
+// answers the HTTP status to refuse with.
+func (h *Handlers) buildProposal(r *http.Request, kind, rawTargetID string, in []proposals.Change, rationale string) (proposals.Proposal, int, error) {
+	target, ok := proposalTargets[kind]
+	if !ok {
+		return proposals.Proposal{}, http.StatusBadRequest, errors.New("unsupported target_kind: " + kind)
+	}
+	if len(in) == 0 {
+		return proposals.Proposal{}, http.StatusBadRequest, errors.New("at least one change is required")
+	}
+	if target.creates && len(in) != 1 {
+		return proposals.Proposal{}, http.StatusBadRequest, errors.New("a " + kind + " proposal carries one change, the rule")
+	}
+	seen := map[string]bool{}
+	for _, c := range in {
 		if !target.fields[c.Field] {
-			httpserver.WriteError(w, http.StatusBadRequest, "field is not proposable on "+body.TargetKind+": "+c.Field)
-			return
+			return proposals.Proposal{}, http.StatusBadRequest, errors.New("field is not proposable on " + kind + ": " + c.Field)
 		}
+		if seen[c.Field] {
+			return proposals.Proposal{}, http.StatusBadRequest, errors.New("field named twice: " + c.Field)
+		}
+		seen[c.Field] = true
 	}
 	var targetID *uuid.UUID
 	if target.needsTarget {
-		id, err := uuid.Parse(strings.TrimSpace(body.TargetID))
+		id, err := uuid.Parse(strings.TrimSpace(rawTargetID))
 		if err != nil {
-			httpserver.WriteError(w, http.StatusBadRequest, "target_id is required")
-			return
+			return proposals.Proposal{}, http.StatusBadRequest, errors.New("target_id is required")
 		}
 		targetID = &id
 	}
@@ -212,10 +284,9 @@ func (h *Handlers) createProposal(w http.ResponseWriter, r *http.Request) {
 
 	var label, dedup string
 	if target.check != nil {
-		l, d, err := target.check(h, r, targetID, body.Changes)
+		l, d, err := target.check(h, r, targetID, in)
 		if err != nil {
-			httpserver.WriteError(w, http.StatusBadRequest, err.Error())
-			return
+			return proposals.Proposal{}, http.StatusBadRequest, err
 		}
 		label, dedup = l, d
 	}
@@ -230,32 +301,29 @@ func (h *Handlers) createProposal(w http.ResponseWriter, r *http.Request) {
 	}
 	current, snapLabel, err := target.snapshot(h, r.Context(), orgID, snapID)
 	if err != nil {
-		httpserver.WriteError(w, http.StatusNotFound, "target not found")
-		return
+		return proposals.Proposal{}, http.StatusNotFound, errors.New("target not found")
 	}
 	if label == "" {
 		label = snapLabel
 	}
-	changes := make([]proposals.Change, 0, len(body.Changes))
-	for _, c := range body.Changes {
+	changes := make([]proposals.Change, 0, len(in))
+	for _, c := range in {
 		before, ok := current[c.Field]
 		if !ok {
-			httpserver.WriteError(w, http.StatusBadRequest, "field unavailable on this target: "+c.Field)
-			return
+			return proposals.Proposal{}, http.StatusBadRequest, errors.New("field unavailable on this target: " + c.Field)
 		}
 		changes = append(changes, proposals.Change{Field: c.Field, Before: before, After: c.After})
 	}
 
 	p := proposals.Proposal{
 		OrgID:       orgID,
-		TargetKind:  body.TargetKind,
+		TargetKind:  kind,
 		TargetID:    targetID,
 		TargetLabel: label,
 		Changes:     changes,
-		Rationale:   strings.TrimSpace(body.Rationale),
+		Rationale:   strings.TrimSpace(rationale),
 		DedupKey:    dedup,
 	}
-
 	pr := middleware.Principal(r)
 	if pr.ServiceAccountID != nil {
 		p.ProposedByKind, p.ProposedByID, p.Via = "service_account", pr.ServiceAccountID, "mcp"
@@ -263,21 +331,7 @@ func (h *Handlers) createProposal(w http.ResponseWriter, r *http.Request) {
 		p.ProposedByKind, p.ProposedByID, p.Via = "user", pr.UserID, "api"
 	}
 	p.ProposedByLabel = h.actorLabel(r)
-
-	out, err := h.Proposals.Create(r.Context(), p, h.proposalTTL(r.Context(), orgID))
-	if errors.Is(err, proposals.ErrDuplicatePending) {
-		httpserver.WriteError(w, http.StatusConflict, "the same proposal is already waiting for review")
-		return
-	}
-	if err != nil {
-		h.Logger.Error("create proposal failed", "err", err)
-		httpserver.WriteError(w, http.StatusInternalServerError, "save failed")
-		return
-	}
-	h.recordAudit(r, "proposal.created", "proposal", out.ID.String(), map[string]any{
-		"target_kind": out.TargetKind, "target_label": out.TargetLabel, "via": out.Via,
-	})
-	httpserver.WriteJSON(w, http.StatusCreated, out)
+	return p, 0, nil
 }
 
 // proposalTTL is the org's review window. Config lands with the settings
@@ -420,38 +474,25 @@ func (h *Handlers) decideProposal(w http.ResponseWriter, r *http.Request, decisi
 		return
 	}
 
-	target, ok := proposalTargets[p.TargetKind]
-	if !ok {
-		httpserver.WriteError(w, http.StatusBadRequest, "unsupported target_kind: "+p.TargetKind)
-		return
-	}
-
 	// Approving MUTATES, so the drift check runs first and applying comes
 	// before the state flip: a proposal recorded as approved whose apply
 	// failed would be a lie in the audit trail.
 	if decision == "approved" {
-		if p.TargetID == nil && target.needsTarget {
-			httpserver.WriteError(w, http.StatusBadRequest, "proposal has no target")
-			return
+		if drifted, err := h.checkProposal(r, p); err != nil {
+			if len(drifted) > 0 && !body.Force {
+				httpserver.WriteJSON(w, http.StatusConflict, map[string]any{
+					"error":          err.Error(),
+					"drifted_fields": drifted,
+					"hint":           "re-read the current values and approve with force=true to override, or reject and let the agent re-propose",
+				})
+				return
+			}
+			if len(drifted) == 0 {
+				httpserver.WriteError(w, http.StatusConflict, err.Error())
+				return
+			}
 		}
-		snapID := uuid.Nil
-		if p.TargetID != nil {
-			snapID = *p.TargetID
-		}
-		current, _, sErr := target.snapshot(h, r.Context(), orgID, snapID)
-		if sErr != nil {
-			httpserver.WriteError(w, http.StatusConflict, "the target no longer exists")
-			return
-		}
-		if drifted := proposals.CheckDrift(p.Changes, current); len(drifted) > 0 && !body.Force {
-			httpserver.WriteJSON(w, http.StatusConflict, map[string]any{
-				"error":          "the target changed since this was proposed",
-				"drifted_fields": drifted,
-				"hint":           "re-read the current values and approve with force=true to override, or reject and let the agent re-propose",
-			})
-			return
-		}
-		if aErr := target.apply(h, r, p.TargetID, p.Changes); aErr != nil {
+		if aErr := proposalTargets[p.TargetKind].apply(h, r, p.TargetID, p.Changes); aErr != nil {
 			h.Logger.Error("apply proposal failed", "err", aErr, "proposal", id)
 			httpserver.WriteError(w, http.StatusBadRequest, "could not apply: "+aErr.Error())
 			return
@@ -479,4 +520,147 @@ func (h *Handlers) decideProposal(w http.ResponseWriter, r *http.Request, decisi
 		"forced": body.Force, "via": out.Via,
 	})
 	httpserver.WriteJSON(w, http.StatusOK, out)
+}
+
+// errProposalDrift is checkProposal's answer when the target changed.
+var errProposalDrift = errors.New("the target changed since this was proposed")
+
+// checkProposal is what approving needs to know before it writes: that
+// the kind is known, the target still exists, and nothing proposed was
+// edited since. It returns the drifted fields with errProposalDrift, or
+// another error the approval cannot get past.
+func (h *Handlers) checkProposal(r *http.Request, p proposals.Proposal) ([]string, error) {
+	target, ok := proposalTargets[p.TargetKind]
+	if !ok {
+		return nil, errors.New("unsupported target_kind: " + p.TargetKind)
+	}
+	if p.TargetID == nil && target.needsTarget {
+		return nil, errors.New("proposal has no target")
+	}
+	snapID := uuid.Nil
+	if p.TargetID != nil {
+		snapID = *p.TargetID
+	}
+	current, _, err := target.snapshot(h, r.Context(), middleware.OrgID(r), snapID)
+	if err != nil {
+		return nil, errors.New("the target no longer exists")
+	}
+	if drifted := proposals.CheckDrift(p.Changes, current); len(drifted) > 0 {
+		return drifted, errProposalDrift
+	}
+	return nil, nil
+}
+
+// checkAlertRuleTuning refuses a tuning the apply would refuse, when it is
+// filed: a channel that does not exist, an environment scope the check
+// cannot have. The values are checked against the rule as it is now,
+// merged with the proposed ones.
+func checkAlertRuleTuning(h *Handlers, r *http.Request, id *uuid.UUID, changes []proposals.Change) (string, string, error) {
+	rule, err := h.Alerts.GetRule(r.Context(), middleware.OrgID(r), *id)
+	if err != nil {
+		return "", "", errors.New("target not found")
+	}
+	for _, c := range changes {
+		switch c.Field {
+		case "channel_ids":
+			ids, err := proposedChannelIDs(c.After)
+			if err != nil {
+				return "", "", err
+			}
+			for _, cid := range ids {
+				if _, err := h.Alerts.GetChannel(r.Context(), middleware.OrgID(r), cid); err != nil {
+					return "", "", fmt.Errorf("channel_ids: no channel %s (sluicio_list_notification_channels lists them)", cid)
+				}
+			}
+		case "environment_mode":
+			var v string
+			if err := json.Unmarshal(c.After, &v); err != nil || (v != alerting.EnvironmentEach && v != alerting.EnvironmentOnly) {
+				return "", "", errors.New(`environment_mode: "each" or "only"`)
+			}
+			rule.EnvironmentMode = v
+		case "environments":
+			var v []string
+			if err := json.Unmarshal(c.After, &v); err != nil {
+				return "", "", errors.New("environments: a list of environment names")
+			}
+			rule.Environments = normalizeEnvironments(v)
+		case "severity":
+			var v string
+			if err := json.Unmarshal(c.After, &v); err != nil || !alerting.ValidSeverity(alerting.Severity(v)) {
+				return "", "", errors.New("severity: info, warning or critical")
+			}
+		case "for_window":
+			var v string
+			if err := json.Unmarshal(c.After, &v); err != nil {
+				return "", "", errors.New("for_window: a duration such as \"5m\"")
+			}
+			if _, err := time.ParseDuration(v); err != nil {
+				return "", "", fmt.Errorf("for_window: %q is not a duration", v)
+			}
+		}
+	}
+	if environmentModeName(rule.EnvironmentMode) == alerting.EnvironmentOnly {
+		if err := checkEnvironmentScope(rule); err != nil {
+			return "", "", err
+		}
+	}
+	return "", "", nil
+}
+
+// proposedChannelIDs reads a proposed channel list. An empty list is a
+// value of its own: the check then follows its notification profile.
+func proposedChannelIDs(raw json.RawMessage) ([]uuid.UUID, error) {
+	var v []string
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return nil, errors.New("channel_ids: a list of channel ids, or [] to follow the notification profile")
+	}
+	ids, err := parseChannelIDs(v)
+	if err != nil {
+		return nil, fmt.Errorf("channel_ids: %w", err)
+	}
+	if ids == nil {
+		ids = []uuid.UUID{}
+	}
+	return ids, nil
+}
+
+// environmentModeName is the mode as stored and shown: "" reads as each.
+func environmentModeName(m string) string {
+	if m == "" {
+		return alerting.EnvironmentEach
+	}
+	return m
+}
+
+// normalizeEnvironments trims, dedups and sorts a list of environments,
+// as buildRule does for a check written by hand.
+func normalizeEnvironments(in []string) []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, e := range in {
+		e = strings.TrimSpace(e)
+		if !seen[e] {
+			seen[e] = true
+			out = append(out, e)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// checkEnvironmentScope is buildRule's rule for "only": a check bound to
+// an integration, with at least one environment.
+func checkEnvironmentScope(r alerting.AlertRule) error {
+	if r.IntegrationID == nil {
+		return errors.New("environment_mode only applies to a check bound to an integration")
+	}
+	if len(r.Environments) == 0 {
+		return errors.New(`environment_mode "only" needs at least one environment`)
+	}
+	for _, e := range r.Environments {
+		if len(e) > 128 {
+			return errors.New("environment name too long (max 128)")
+		}
+	}
+	return nil
 }

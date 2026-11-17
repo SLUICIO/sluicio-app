@@ -669,7 +669,7 @@ func buildTools(s *Server) []tool {
 		// it files a proposal a human must approve, which is why it can
 		// exist at all in a catalogue that is otherwise read-only.
 		{Name: "sluicio_propose_check_tuning", Output: proposeOut, Annotations: proposeAnnotations,
-			Description: "Propose a tuning change to an existing alert rule — threshold, severity, for_window or enabled. This does NOT change anything: it files a reviewable proposal that a human with edit rights approves or rejects, and only approval applies it. Use it when a check is demonstrably too noisy or too quiet and you can say why, citing what you observed (e.g. 'fired 40 times in 24h, every instance auto-resolved within 2 minutes'). Dry-run the new value with sluicio_backtest_rule first and cite how often it would have fired. The rationale is shown verbatim to the reviewer and is required. Get rule ids from sluicio_list_alert_rules, sluicio_health or sluicio_alert_instances; the current values come from the rule itself, so send only the fields you want changed.",
+			Description: "Propose a change to an existing alert rule: threshold, severity, for_window, enabled, where it sends (channel_ids) or which environments it watches (environment_mode, environments). This does NOT change anything: it files a reviewable proposal that a human with edit rights approves or rejects, and only approval applies it. Use it when a check is demonstrably too noisy or too quiet and you can say why, citing what you observed (e.g. 'fired 40 times in 24h, every instance auto-resolved within 2 minutes'). Dry-run the new value with sluicio_backtest_rule first and cite how often it would have fired. The rationale is shown verbatim to the reviewer and is required. Get rule ids from sluicio_list_alert_rules, sluicio_health or sluicio_alert_instances; the current values come from the rule itself, so send only the fields you want changed. An empty channel_ids makes the check follow its notification profile; read delivery on sluicio_list_alert_rules to see where it sends today. To change many checks at once, use sluicio_propose_changes: one review instead of one per check.",
 			Schema: objSchema(map[string]any{
 				"rule_id":   strProp("The alert rule's id (uuid), from sluicio_health or sluicio_alert_instances."),
 				"rationale": strProp("Why this change is right, citing what you observed. Shown verbatim to the human reviewer. Required."),
@@ -682,6 +682,11 @@ func buildTools(s *Server) []tool {
 				// keeps this list and the API's tunables in step.
 				"for_window": strProp("Proposed new sustain window as a Go duration, e.g. \"5m\" — how long the condition must hold before firing."),
 				"enabled":    map[string]any{"type": "boolean", "description": "Propose enabling or disabling the rule."},
+				"channel_ids": map[string]any{"type": "array", "items": map[string]any{"type": "string"},
+					"description": "The channels it should send to (ids from sluicio_list_notification_channels), replacing its own. [] to follow its notification profile instead."},
+				"environment_mode": strProp("each (one evaluation per environment) or only (just the listed environments). only needs a check bound to an integration."),
+				"environments": map[string]any{"type": "array", "items": map[string]any{"type": "string"},
+					"description": "The environments of environment_mode only, e.g. [\"production\"], or [\"@production\"] for every production environment."},
 			}, "rule_id", "rationale"),
 			Call: func(a map[string]any) (string, error) {
 				ruleID := argStr(a, "rule_id")
@@ -696,14 +701,14 @@ func buildTools(s *Server) []tool {
 				// current values itself. An agent-supplied before could be
 				// stale or wrong, and it is the input to the drift check
 				// that protects a human's concurrent edit.
-				changes := make([]map[string]any, 0, 5)
-				for _, f := range []string{"threshold", "severity", "for_window", "enabled"} {
+				changes := make([]map[string]any, 0, len(checkTuningFields))
+				for _, f := range checkTuningFields {
 					if v, ok := a[f]; ok && v != nil {
 						changes = append(changes, map[string]any{"field": f, "after": v})
 					}
 				}
 				if len(changes) == 0 {
-					return "", fmt.Errorf("propose at least one of: threshold, severity, for_window, enabled")
+					return "", fmt.Errorf("propose at least one of: %s", strings.Join(checkTuningFields, ", "))
 				}
 				return s.post("/api/v1/proposals", nil, map[string]any{
 					"target_kind": "alert_rule",

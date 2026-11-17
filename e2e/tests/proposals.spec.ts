@@ -200,4 +200,32 @@ test.describe("Proposals — the agent write path", () => {
     });
     expect(unknownKind.status()).toBe(400);
   });
+
+  // Setting up a cell is many near-identical changes; an agent files
+  // them as one batch with one rationale and the reviewer approves once.
+  test("a batch is reviewed in the inbox and applied together", async ({ page }) => {
+    await logIn(page);
+    const api = page.request;
+    const stamp = Date.now();
+    const a = await createRule(api, `e2e-batch-a-${stamp}`);
+    const b = await createRule(api, `e2e-batch-b-${stamp}`);
+
+    const filed = await api.post("/api/v1/proposals/batch", {
+      data: {
+        rationale: `Both checks fire on a queue that was retired (${stamp}).`,
+        items: [a, b].map((id) => ({ target_kind: "alert_rule", target_id: id, changes: [{ field: "enabled", after: false }] })),
+      },
+    });
+    expect(filed.status(), await filed.text()).toBe(201);
+    expect((await getRule(api, a)).enabled, "filing changes nothing").toBe(true);
+
+    await page.goto("/proposals");
+    const batch = page.getByTestId("proposal-batch").filter({ hasText: `retired (${stamp})` });
+    await expect(batch).toContainText("2 changes filed together");
+    await batch.getByRole("button", { name: "Approve & apply all 2" }).click();
+    await expect(page.getByTestId("proposal-batch").filter({ hasText: `retired (${stamp})` })).toHaveCount(0);
+
+    expect((await getRule(api, a)).enabled).toBe(false);
+    expect((await getRule(api, b)).enabled).toBe(false);
+  });
 });

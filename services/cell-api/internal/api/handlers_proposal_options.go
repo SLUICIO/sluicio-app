@@ -173,7 +173,9 @@ func (h *Handlers) proposalOptions(w http.ResponseWriter, r *http.Request) {
 	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
 		"proposal_kinds": []map[string]any{
 			{"kind": proposalAlertRule, "target": "the alert rule's id", "fields": tunables,
-				"about": "Tune an existing check. Send only the fields that change."},
+				"about": "Tune an existing check. Send only the fields that change. channel_ids is a list of channel ids, [] to follow the notification profile; environment_mode is each or only, with environments for only (\"@production\" stands for every production environment)."},
+			{"kind": proposalCompletionRule, "target": "the completion rule's id", "fields": completionFieldList(),
+				"about": "Change an existing trace-completion rule. Send only the fields that change, each in the shape POST /completion-rules takes; stages replaces every stage. Dry-run the result first with POST /integrations/{id}/completion-rules/dry-run (rule_id and patch)."},
 			{"kind": proposalNewAlertRule, "target": "none", "fields": []string{"rule"},
 				"about": "A new check (health check). rule is the body of POST /api/v1/alert-rules: name, severity, signal and its spec, the scope (integration_id, service_name or system_id) and optionally channel_ids and runbook."},
 			{"kind": proposalNewCompletionRule, "target": "the integration's id", "fields": []string{"rule"},
@@ -181,6 +183,7 @@ func (h *Handlers) proposalOptions(w http.ResponseWriter, r *http.Request) {
 			{"kind": proposalIntegrationSetting, "target": "the integration's id", "fields": settings,
 				"about": "Change an integration's settings. Each field replaces the whole value, in the shape its route takes: matchers as PUT /matchers, sources as PUT /sources, declared_environments a list of names, notify_unacknowledged_errors true or false."},
 		},
+		"batch": "POST /api/v1/proposals/batch takes {rationale, items: [{target_kind, target_id, changes}]}: up to 100 proposals of the kinds above, filed together and approved as one. Every item is checked when filed, and a batch with one invalid item is refused whole. One item per target.",
 		"severities": []string{string(alerting.SeverityInfo), string(alerting.SeverityWarning), string(alerting.SeverityCritical)},
 		"check_types": []map[string]any{
 			{
@@ -244,4 +247,13 @@ func (h *Handlers) proposalOptions(w http.ResponseWriter, r *http.Request) {
 		"channels":              channels,
 		"notification_profiles": profiles,
 	})
+}
+
+func completionFieldList() []string {
+	out := make([]string, 0, len(completionRuleFields))
+	for f := range completionRuleFields {
+		out = append(out, f)
+	}
+	sort.Strings(out)
+	return out
 }

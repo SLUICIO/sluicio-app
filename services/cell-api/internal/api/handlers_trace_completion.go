@@ -13,6 +13,7 @@ import (
 
 	"github.com/sluicio/sluicio-app/pkg/httpserver"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/api/middleware"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/proposals"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/tracecompletion"
 )
 
@@ -539,4 +540,105 @@ func isUserError(err error) bool {
 		strings.HasPrefix(msg, "integration_id") ||
 		strings.HasPrefix(msg, "name") ||
 		strings.HasPrefix(msg, "severity")
+}
+
+// completionDryRunBody is a draft rule, or an existing rule with the
+// fields a completion_rule proposal would change.
+type completionDryRunBody struct {
+	Rule   *traceCompletionRuleInput  `json:"rule"`
+	RuleID string                     `json:"rule_id"`
+	Patch  map[string]json.RawMessage `json:"patch"`
+	Hours  int                        `json:"hours"`
+}
+
+// dryRunCompletionRule: POST /integrations/{id}/completion-rules/dry-run
+//
+// What a draft rule would make of the integration's traces over the last
+// hours, judged as of now, without saving or firing anything. A wrong
+// start span is the costly mistake (the rule then follows no trace and
+// never fires), and it shows here as 0 of N traces before the rule goes
+// live. A read: anyone who can see the integration may run it.
+func (h *Handlers) dryRunCompletionRule(w http.ResponseWriter, r *http.Request) {
+	integID, ok := h.parsePathUUID(w, r, "id")
+	if !ok {
+		return
+	}
+	members, vok := h.gateIntegrationMembers(w, r, integID)
+	if !vok {
+		return
+	}
+	if h.TraceCompletionEvaluator == nil {
+		httpserver.WriteError(w, http.StatusNotImplemented, "trace completion is not running on this cell")
+		return
+	}
+	var body completionDryRunBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	var draft traceCompletionRuleInput
+	switch {
+	case body.Rule != nil && body.RuleID == "":
+		draft = *body.Rule
+	case body.Rule == nil && body.RuleID != "":
+		rid, err := uuid.Parse(body.RuleID)
+		if err != nil {
+			httpserver.WriteError(w, http.StatusBadRequest, "invalid rule_id")
+			return
+		}
+		rule, err := h.TraceCompletion.Get(r.Context(), middleware.OrgID(r), rid)
+		if err != nil || rule.IntegrationID != integID {
+			httpserver.WriteError(w, http.StatusNotFound, "rule not found")
+			return
+		}
+		changes := make([]proposals.Change, 0, len(body.Patch))
+		for f, v := range body.Patch {
+			if !completionRuleFields[f] {
+				httpserver.WriteError(w, http.StatusBadRequest, "field is not editable on a completion rule: "+f)
+				return
+			}
+			changes = append(changes, proposals.Change{Field: f, After: v})
+		}
+		merged, err := mergeCompletionRule(rule, changes)
+		if err != nil {
+			httpserver.WriteError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		draft = merged
+	default:
+		httpserver.WriteError(w, http.StatusBadRequest, "send rule (a draft) or rule_id (an existing rule, optionally with patch)")
+		return
+	}
+	// Name and severity do not change what a dry run finds; a draft
+	// written only to be tried need not have them.
+	if strings.TrimSpace(draft.Name) == "" {
+		draft.Name = "dry run"
+	}
+	if draft.Severity == "" {
+		draft.Severity = "warning"
+	}
+	in, perr := h.parseTraceCompletionInput(draft, integID)
+	if perr != "" {
+		httpserver.WriteError(w, http.StatusBadRequest, perr)
+		return
+	}
+	if err := in.Validate(); err != nil {
+		httpserver.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	window := 24 * time.Hour
+	if body.Hours > 0 {
+		window = time.Duration(body.Hours) * time.Hour
+	}
+	if window > tracecompletion.MaxDryRunWindow {
+		window = tracecompletion.MaxDryRunWindow
+	}
+	to := time.Now().UTC()
+	res, err := h.TraceCompletionEvaluator.DryRun(r.Context(), in.Spec, members, to.Add(-window), to)
+	if err != nil {
+		h.Logger.Error("completion dry run failed", "err", err, "integration_id", integID)
+		httpserver.WriteError(w, http.StatusInternalServerError, "query failed")
+		return
+	}
+	httpserver.WriteJSON(w, http.StatusOK, res)
 }

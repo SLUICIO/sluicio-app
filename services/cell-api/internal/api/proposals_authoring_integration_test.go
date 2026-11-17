@@ -235,11 +235,179 @@ func TestProposalsThatAuthorConfiguration(t *testing.T) {
 			t.Fatalf("a firing instance makes it firing: %v", s)
 		}
 
-		if code, opts := do(viewer, http.MethodGet, "/api/v1/proposals/options", nil); code != http.StatusOK || len(opts["proposal_kinds"].([]any)) != 4 {
+		if code, opts := do(viewer, http.MethodGet, "/api/v1/proposals/options", nil); code != http.StatusOK || len(opts["proposal_kinds"].([]any)) != 5 {
 			t.Fatalf("options: %d %v", code, opts["proposal_kinds"])
 		}
 		if code, _ := do(viewer, http.MethodGet, "/api/v1/notification-routing", nil); code != http.StatusOK {
 			t.Fatalf("routing: %d", code)
+		}
+	})
+
+	// The check created above, by name.
+	checkID := func() string {
+		t.Helper()
+		var id uuid.UUID
+		if err := pool.QueryRow(ctx, `SELECT id FROM alert_rules WHERE organization_id=$1 AND name='Orders: no traffic'`, org).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		return id.String()
+	}
+	code, ch := do(admin, http.MethodPost, "/api/v1/notification-channels", map[string]any{
+		"name": "ops", "kind": "webhook", "config": map[string]any{"url": "http://127.0.0.1:9/hook"},
+	})
+	if code != http.StatusCreated && code != http.StatusOK {
+		t.Fatalf("channel: %d %v", code, ch)
+	}
+	channelID := ch["id"].(string)
+
+	t.Run("a check's channels and environments can be proposed", func(t *testing.T) {
+		if code, out := file(viewer, map[string]any{"target_kind": proposalAlertRule, "target_id": checkID(),
+			"changes": []any{map[string]any{"field": "channel_ids", "after": []any{uuid.NewString()}}}}); code != http.StatusBadRequest {
+			t.Fatalf("a channel that does not exist is refused when filed: %d %v", code, out)
+		}
+		code, out := file(viewer, map[string]any{"target_kind": proposalAlertRule, "target_id": checkID(), "changes": []any{
+			map[string]any{"field": "channel_ids", "after": []any{channelID}},
+			map[string]any{"field": "environment_mode", "after": "only"},
+			map[string]any{"field": "environments", "after": []any{"production"}},
+		}})
+		if code != http.StatusCreated {
+			t.Fatalf("file: %d %v", code, out)
+		}
+		if before := out["changes"].([]any)[0].(map[string]any)["before"]; len(before.([]any)) != 0 {
+			t.Fatalf("before is the check's own channels, none: %v", before)
+		}
+		if code, out := do(admin, http.MethodPost, "/api/v1/proposals/"+out["id"].(string)+"/approve", nil); code != http.StatusOK {
+			t.Fatalf("approve: %d %v", code, out)
+		}
+		rule, err := alerts.GetRule(ctx, org, uuid.MustParse(checkID()))
+		if err != nil || len(rule.ChannelIDs) != 1 || rule.ChannelIDs[0].String() != channelID ||
+			rule.EnvironmentMode != alerting.EnvironmentOnly || len(rule.Environments) != 1 || rule.Environments[0] != "production" {
+			t.Fatalf("applied as proposed: %+v %v", rule, err)
+		}
+		if code, _ := file(viewer, map[string]any{"target_kind": proposalAlertRule, "target_id": checkID(), "changes": []any{
+			map[string]any{"field": "environments", "after": []any{}},
+		}}); code != http.StatusBadRequest {
+			t.Fatalf(`"only" with no environment is refused when filed: %d`, code)
+		}
+	})
+
+	completionID := func() string {
+		t.Helper()
+		rules, err := h.TraceCompletion.ListForIntegration(ctx, org, integID)
+		if err != nil || len(rules) == 0 {
+			t.Fatalf("no completion rule: %v", err)
+		}
+		return rules[0].ID.String()
+	}
+
+	t.Run("an existing completion rule's start span is proposed and applied", func(t *testing.T) {
+		code, out := file(viewer, map[string]any{"target_kind": proposalCompletionRule, "target_id": completionID(),
+			"changes": []any{map[string]any{"field": "start_span_name", "after": "Pipeline.orders.Receive"}}})
+		if code != http.StatusCreated {
+			t.Fatalf("file: %d %v", code, out)
+		}
+		if before := out["changes"].([]any)[0].(map[string]any)["before"]; before != "process orders" {
+			t.Fatalf("before is the rule's start span: %v", before)
+		}
+		if code, out := do(admin, http.MethodPost, "/api/v1/proposals/"+out["id"].(string)+"/approve", nil); code != http.StatusOK {
+			t.Fatalf("approve: %d %v", code, out)
+		}
+		rule, err := h.TraceCompletion.Get(ctx, org, uuid.MustParse(completionID()))
+		if err != nil || rule.Spec.StartSpanName != "Pipeline.orders.Receive" || rule.Spec.Stages[0].Spans[0].Service != "erp-loader" {
+			t.Fatalf("only the start span changed: %+v %v", rule.Spec, err)
+		}
+		if code, _ := file(viewer, map[string]any{"target_kind": proposalCompletionRule, "target_id": completionID(),
+			"changes": []any{map[string]any{"field": "stages", "after": []any{}}}}); code != http.StatusBadRequest {
+			t.Fatalf("a rule with no stages is refused when filed: %d", code)
+		}
+	})
+
+	batch := func(items ...map[string]any) (int, map[string]any) {
+		t.Helper()
+		list := make([]any, 0, len(items))
+		for _, it := range items {
+			list = append(list, it)
+		}
+		return do(viewer, http.MethodPost, "/api/v1/proposals/batch", map[string]any{"rationale": "set up the cell", "items": list})
+	}
+	disableCheck := map[string]any{"target_kind": proposalAlertRule, "target_id": checkID(),
+		"changes": []any{map[string]any{"field": "enabled", "after": false}}}
+	critical := func() map[string]any {
+		return map[string]any{"target_kind": proposalCompletionRule, "target_id": completionID(),
+			"changes": []any{map[string]any{"field": "severity", "after": "critical"}}}
+	}
+
+	t.Run("a batch with one invalid item is refused whole", func(t *testing.T) {
+		before := func() int {
+			var n int
+			_ = pool.QueryRow(ctx, `SELECT count(*) FROM proposals WHERE org_id=$1`, org).Scan(&n)
+			return n
+		}()
+		bad := map[string]any{"target_kind": proposalAlertRule, "target_id": checkID(),
+			"changes": []any{map[string]any{"field": "metric_name", "after": "x"}}}
+		if code, out := batch(critical(), bad); code != http.StatusBadRequest {
+			t.Fatalf("refused: %d %v", code, out)
+		}
+		if code, _ := batch(disableCheck, disableCheck); code != http.StatusBadRequest {
+			t.Fatalf("two items on one target are refused: %d", code)
+		}
+		var after int
+		_ = pool.QueryRow(ctx, `SELECT count(*) FROM proposals WHERE org_id=$1`, org).Scan(&after)
+		if after != before {
+			t.Fatalf("nothing was filed: %d then %d", before, after)
+		}
+	})
+
+	t.Run("a batch is filed and approved as one", func(t *testing.T) {
+		code, out := batch(disableCheck, critical())
+		if code != http.StatusCreated {
+			t.Fatalf("file: %d %v", code, out)
+		}
+		batchID := out["batch_id"].(string)
+		if code, _ := do(viewer, http.MethodPost, "/api/v1/proposals/batches/"+batchID+"/approve", nil); code != http.StatusForbidden {
+			t.Fatalf("a viewer cannot approve a batch: %d", code)
+		}
+		code, res := do(admin, http.MethodPost, "/api/v1/proposals/batches/"+batchID+"/approve", nil)
+		if code != http.StatusOK || len(res["applied"].([]any)) != 2 {
+			t.Fatalf("approve: %d %v", code, res)
+		}
+		rule, _ := alerts.GetRule(ctx, org, uuid.MustParse(checkID()))
+		crule, _ := h.TraceCompletion.Get(ctx, org, uuid.MustParse(completionID()))
+		if rule.Enabled || crule.Severity != "critical" {
+			t.Fatalf("both applied: enabled %v, severity %s", rule.Enabled, crule.Severity)
+		}
+		for _, p := range out["proposals"].([]any) {
+			_, got := do(admin, http.MethodGet, "/api/v1/proposals/"+p.(map[string]any)["id"].(string), nil)
+			if got["proposal"].(map[string]any)["state"] != "approved" {
+				t.Fatalf("every item is approved: %v", got["proposal"])
+			}
+		}
+	})
+
+	t.Run("a batch whose target changed applies nothing", func(t *testing.T) {
+		enable := map[string]any{"target_kind": proposalAlertRule, "target_id": checkID(),
+			"changes": []any{map[string]any{"field": "enabled", "after": true}}}
+		warning := map[string]any{"target_kind": proposalCompletionRule, "target_id": completionID(),
+			"changes": []any{map[string]any{"field": "severity", "after": "warning"}}}
+		code, out := batch(enable, warning)
+		if code != http.StatusCreated {
+			t.Fatalf("file: %d %v", code, out)
+		}
+		// Someone changes the completion rule by hand meanwhile.
+		if _, err := pool.Exec(ctx, `UPDATE alert_rules SET severity='info' WHERE id=$1`, uuid.MustParse(completionID())); err != nil {
+			t.Fatal(err)
+		}
+		code, res := do(admin, http.MethodPost, "/api/v1/proposals/batches/"+out["batch_id"].(string)+"/approve", nil)
+		if code != http.StatusConflict {
+			t.Fatalf("drift stops the batch: %d %v", code, res)
+		}
+		rule, _ := alerts.GetRule(ctx, org, uuid.MustParse(checkID()))
+		if rule.Enabled {
+			t.Fatal("the item without drift was not applied either")
+		}
+		code, res = do(admin, http.MethodPost, "/api/v1/proposals/batches/"+out["batch_id"].(string)+"/reject", nil)
+		if code != http.StatusOK || len(res["rejected"].([]any)) != 2 {
+			t.Fatalf("reject: %d %v", code, res)
 		}
 	})
 }

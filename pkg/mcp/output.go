@@ -490,7 +490,7 @@ var (
 	proposeOut = outSchema(map[string]any{
 		"id":           strOut("The proposal's id (uuid)."),
 		"state":        strOut("pending until a human decides. Nothing has changed yet."),
-		"target_kind":  strOut("alert_rule (tuning), new_alert_rule, new_completion_rule or integration_settings."),
+		"target_kind":  strOut("alert_rule (a check's settings), completion_rule (an existing completion rule), new_alert_rule, new_completion_rule or integration_settings."),
 		"target_id":    strOut("The target's id (uuid)."),
 		"target_label": strOut("The target's name, for quoting back to a human."),
 		"changes": arrOf("The diff a reviewer sees: current value and proposed value per field.", map[string]any{
@@ -531,7 +531,8 @@ func structuredResult(name, body string) (map[string]any, error) {
 var listProposalsOut = outSchema(map[string]any{
 	"proposals": arrOf("Proposals filed against this org, newest first.", map[string]any{
 		"id":                strOut("Proposal id (uuid)."),
-		"target_kind":       strOut("alert_rule (tuning), new_alert_rule, new_completion_rule or integration_settings."),
+		"target_kind":       strOut("alert_rule (a check's settings), completion_rule (an existing completion rule), new_alert_rule, new_completion_rule or integration_settings."),
+		"batch_id":          strOut("The batch it was filed in with others, reviewed together. Absent for a proposal filed on its own."),
 		"target_id":         strOut("The thing it changes, or where a create goes (the integration of a new completion rule). ABSENT for a new health check."),
 		"target_label":      strOut("Human-readable name of the target, or of what would be created."),
 		"rationale":         strOut("Why it was proposed, shown verbatim to the reviewer."),
@@ -542,6 +543,32 @@ var listProposalsOut = outSchema(map[string]any{
 		"created_at":        strOut("When it was filed (RFC3339)."),
 	}),
 })
+
+// proposeBatchOut is a filed batch.
+var proposeBatchOut = outSchema(map[string]any{
+	"batch_id":  strOut("The batch (uuid). Its items are pending until a human approves or rejects the batch, or each item."),
+	"proposals": arrOf("The items, as filed, in order.", nil),
+}, "batch_id", "proposals")
+
+// completionDryRunOut is what a draft completion rule would have made of
+// the stored traces.
+var completionDryRunOut = outSchema(map[string]any{
+	"from":               strOut("Start of the window (RFC3339)."),
+	"to":                 strOut("End of the window, now (RFC3339)."),
+	"traces":             intOut("Traces the rule would follow: those carrying its start span, or every trace of the services without one."),
+	"traces_on_services": intOut("Every trace of the integration's services in the window. traces 0 of many means no trace carries the start span."),
+	"completed":          intOut("Traces that reached every stage."),
+	"pending":            intOut("Traces still within the timeout of the stage they wait at."),
+	"delayed":            intOut("Traces past the timeout of a stage they did not reach: what the rule would alert on."),
+	"reached_stage":      map[string]any{"type": "array", "items": map[string]any{"type": "integer"}, "description": "Per stage, how many traces reached it."},
+	"delayed_at_stage":   map[string]any{"type": "array", "items": map[string]any{"type": "integer"}, "description": "Per stage, how many traces are delayed there."},
+	"delayed_samples": arrOf("Up to 10 delayed traces.", map[string]any{
+		"trace_id":         strOut("The trace; pass to sluicio_get_trace."),
+		"stage":            intOut("The 1-based stage it waits at."),
+		"waiting_for":      strOut("The span(s) it has not reached."),
+		"stage_started_at": strOut("When that stage's clock started (RFC3339)."),
+	}),
+}, "traces", "traces_on_services", "completed", "pending", "delayed")
 
 // integrationCandidatesOut describes groupings derived from the call
 // graph, deliberately labelled as candidates rather than conclusions.

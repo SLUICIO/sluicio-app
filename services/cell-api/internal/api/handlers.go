@@ -1755,6 +1755,8 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/integrations/{id}/completion-rules", h.listTraceCompletionRules)
 	mux.HandleFunc("GET /api/v1/integrations/{id}/completion-counts", h.completionCounts)
 	mux.HandleFunc("GET /api/v1/integrations/{id}/completion-firings", h.listCompletionFirings)
+	// A read with a body: a draft rule tried against stored traces.
+	mux.HandleFunc("POST /api/v1/integrations/{id}/completion-rules/dry-run", h.dryRunCompletionRule)
 	// Per-trace firings — drives the trace-level StatusPip on
 	// TraceDetail (sticky-delayed traces flip warn or err depending
 	// on the rule's severity).
@@ -1850,6 +1852,10 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 		mux.HandleFunc("GET /api/v1/proposals/options", h.proposalOptions)
 		mux.HandleFunc("POST /api/v1/proposals/{id}/approve", h.writeAnywhere(h.approveProposal))
 		mux.HandleFunc("POST /api/v1/proposals/{id}/reject", h.writeAnywhere(h.rejectProposal))
+		// A batch: several proposals filed and decided together.
+		mux.HandleFunc("POST /api/v1/proposals/batch", h.createProposalBatch)
+		mux.HandleFunc("POST /api/v1/proposals/batches/{id}/approve", h.writeAnywhere(h.approveProposalBatch))
+		mux.HandleFunc("POST /api/v1/proposals/batches/{id}/reject", h.writeAnywhere(h.rejectProposalBatch))
 		mux.HandleFunc("GET /api/v1/event-subscriptions", h.listEventSubscriptions)
 		mux.HandleFunc("POST /api/v1/event-subscriptions", h.blockDemo(h.createEventSubscription))
 		mux.HandleFunc("PUT /api/v1/event-subscriptions/{id}", h.blockDemo(h.updateEventSubscription))

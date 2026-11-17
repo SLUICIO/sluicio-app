@@ -4,6 +4,7 @@
 // use relative paths from the browser.
 
 import type {
+  CompletionDryRun,
   RuleDelivery,
   IntegrationSource,
   IntegrationSourceView,
@@ -1130,6 +1131,12 @@ export const api = {
     post<Proposal>(`/proposals/${encodeURIComponent(id)}/approve`, body ?? {}),
   rejectProposal: (id: string, body?: { note?: string }) =>
     post<Proposal>(`/proposals/${encodeURIComponent(id)}/reject`, body ?? {}),
+  dryRunCompletionRule: (integrationID: string, body: { rule?: TraceCompletionRuleInput; rule_id?: string; hours?: number }) =>
+    post<CompletionDryRun>(`/integrations/${encodeURIComponent(integrationID)}/completion-rules/dry-run`, body),
+  approveProposalBatch: (batchID: string, body?: { note?: string; force?: boolean }) =>
+    post<{ batch_id: string; applied: string[] }>(`/proposals/batches/${encodeURIComponent(batchID)}/approve`, body ?? {}),
+  rejectProposalBatch: (batchID: string, body?: { note?: string }) =>
+    post<{ batch_id: string; rejected: string[] }>(`/proposals/batches/${encodeURIComponent(batchID)}/reject`, body ?? {}),
   listEventDeliveries: (id: string) =>
     get<{ deliveries: EventDelivery[] }>(`/event-subscriptions/${encodeURIComponent(id)}/deliveries`),
 

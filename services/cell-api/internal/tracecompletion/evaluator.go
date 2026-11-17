@@ -704,3 +704,93 @@ func short(traceID string) string {
 	}
 	return traceID
 }
+
+// ── dry run ──────────────────────────────────────────────────────────
+
+// MaxDryRunWindow bounds a dry run: it reads every trace of the
+// integration's services in the window, like one evaluation does over
+// its lookback.
+const MaxDryRunWindow = 72 * time.Hour
+
+// DryRunTrace is one delayed trace a dry run found.
+type DryRunTrace struct {
+	TraceID    string    `json:"trace_id"`
+	Stage      int       `json:"stage"`
+	WaitingFor string    `json:"waiting_for"`
+	StartedAt  time.Time `json:"stage_started_at"`
+}
+
+// DryRunResult is what a rule would have made of the traces in a window,
+// judged as of now: the counts the integration's chip would show, how
+// far the traces got, and some of the delayed ones.
+type DryRunResult struct {
+	From time.Time `json:"from"`
+	To   time.Time `json:"to"`
+	// Traces is how many traces the rule follows: those with the start
+	// span, or every trace of the services when it has none.
+	Traces int `json:"traces"`
+	// TracesOnServices is every trace of the integration's services in
+	// the window, so a start span no trace carries shows as 0 of N.
+	TracesOnServices int           `json:"traces_on_services"`
+	Completed        int           `json:"completed"`
+	Pending          int           `json:"pending"`
+	Delayed          int           `json:"delayed"`
+	ReachedStage     []int         `json:"reached_stage"`
+	DelayedAtStage   []int         `json:"delayed_at_stage"`
+	Samples          []DryRunTrace `json:"delayed_samples"`
+}
+
+// DryRun evaluates a draft rule over [from, to] on the given services
+// without firing anything.
+func (e *Evaluator) DryRun(ctx context.Context, spec RuleSpec, services []string, from, to time.Time) (DryRunResult, error) {
+	stages := spec.EffectiveStages()
+	res := DryRunResult{From: from, To: to, ReachedStage: make([]int, len(stages)), DelayedAtStage: make([]int, len(stages)), Samples: []DryRunTrace{}}
+	if len(services) == 0 {
+		return res, nil
+	}
+	var total uint64
+	if err := e.ch.QueryRow(ctx,
+		fmt.Sprintf("SELECT toUInt64(uniq(TraceId)) FROM traces WHERE Timestamp >= ? AND Timestamp <= ? AND ServiceName IN (%s)", qPlaceholders(len(services))),
+		append([]any{from, to}, stringsAsAny(services)...)...,
+	).Scan(&total); err != nil {
+		return res, fmt.Errorf("clickhouse query: %w", err)
+	}
+	res.TracesOnServices = int(total)
+	aggs, err := e.scanTraces(ctx, spec, services, from, to)
+	if err != nil {
+		return res, err
+	}
+	now := time.Now().UTC()
+	res.Traces = len(aggs)
+	for _, a := range aggs {
+		for i := range stages {
+			if i < len(a.HasStage) && a.HasStage[i] {
+				res.ReachedStage[i]++
+			}
+		}
+		c := classify(spec, a, now)
+		switch c.State {
+		case StateCompleted:
+			res.Completed++
+		case StatePending:
+			res.Pending++
+		case StateDelayed:
+			res.Delayed++
+			if c.DelayedStage >= 1 && c.DelayedStage <= len(stages) {
+				res.DelayedAtStage[c.DelayedStage-1]++
+			}
+			if len(res.Samples) < 10 {
+				res.Samples = append(res.Samples, DryRunTrace{TraceID: c.TraceID, Stage: c.DelayedStage, WaitingFor: c.DelayedStageName, StartedAt: c.StartedAt})
+			}
+		}
+	}
+	return res, nil
+}
+
+func stringsAsAny(in []string) []any {
+	out := make([]any, 0, len(in))
+	for _, s := range in {
+		out = append(out, s)
+	}
+	return out
+}

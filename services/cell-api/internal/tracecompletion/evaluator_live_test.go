@@ -90,6 +90,24 @@ func TestFanOutLive(t *testing.T) {
 		t.Errorf("wms never delivered: %+v", c)
 	}
 
+	// A dry run sees the same: one complete, one stuck at stage 2 waiting
+	// for wms, and how far the traces got.
+	dry, err := e.DryRun(ctx, spec, services, now.Add(-time.Hour), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dry.Traces != 2 || dry.TracesOnServices != 2 || dry.Completed != 1 || dry.Delayed != 1 ||
+		dry.ReachedStage[0] != 2 || dry.ReachedStage[1] != 1 || dry.DelayedAtStage[1] != 1 ||
+		len(dry.Samples) != 1 || dry.Samples[0].TraceID != stuck || dry.Samples[0].WaitingFor != wms+": Step.Send" {
+		t.Errorf("dry run: %+v", dry)
+	}
+	// A start span no trace carries follows nothing, out of the two there.
+	wrong := spec
+	wrong.StartSpanName = "Pipeline.process orders"
+	if dry, err := e.DryRun(ctx, wrong, services, now.Add(-time.Hour), now); err != nil || dry.Traces != 0 || dry.TracesOnServices != 2 {
+		t.Errorf("wrong start span: %+v %v", dry, err)
+	}
+
 	// The late-arrival query: the stuck trace is not closed, and a
 	// Step.Send from a service outside the integration does not close it.
 	late, err := conn.PrepareBatch(ctx, "INSERT INTO traces (Timestamp, TraceId, SpanId, SpanName, ServiceName, OrganizationId)")

@@ -210,6 +210,7 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 - GET /api/v1/integrations/{id}/completion-rules — List integrations
 - GET /api/v1/integrations/{id}/completion-counts — List integrations
 - GET /api/v1/integrations/{id}/completion-firings — List integrations
+- POST /api/v1/integrations/{id}/completion-rules/dry-run — Create integration
 - POST /api/v1/integrations/{id}/completion-rules — Create integration
 - PATCH /api/v1/integrations/{id}/completion-rules/{rid} — Update integration
 - DELETE /api/v1/integrations/{id}/completion-rules/{rid} — Delete integration
@@ -387,6 +388,9 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 - GET /api/v1/proposals/options — List proposals
 - POST /api/v1/proposals/{id}/approve — Create proposal
 - POST /api/v1/proposals/{id}/reject — Create proposal
+- POST /api/v1/proposals/batch — Create proposal
+- POST /api/v1/proposals/batches/{id}/approve — Create proposal
+- POST /api/v1/proposals/batches/{id}/reject — Create proposal
 
 ## readyz
 - GET /readyz — List readyz

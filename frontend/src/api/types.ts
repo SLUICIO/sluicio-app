@@ -2454,6 +2454,21 @@ export interface RuleDelivery {
   restricted?: boolean;
 }
 
+// What a draft completion rule would have made of the stored traces
+// (POST /integrations/{id}/completion-rules/dry-run).
+export interface CompletionDryRun {
+  from: string;
+  to: string;
+  traces: number;
+  traces_on_services: number;
+  completed: number;
+  pending: number;
+  delayed: number;
+  reached_stage: number[];
+  delayed_at_stage: number[];
+  delayed_samples: { trace_id: string; stage: number; waiting_for: string; stage_started_at: string }[];
+}
+
 export interface TraceCompletionRule {
   id: string;
   integration_id: string;
@@ -3196,6 +3211,9 @@ export interface Proposal {
   decided_by?: string;
   decided_at?: string;
   decision_note: string;
+  /** Set when it was filed with others as one batch, reviewed together. */
+  batch_id?: string;
+  batch_index?: number;
   expires_at: string;
   created_at: string;
   updated_at: string;

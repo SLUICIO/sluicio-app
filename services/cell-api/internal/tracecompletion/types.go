@@ -286,6 +286,14 @@ func (s RuleSpec) defaultTimeout() int {
 	return s.TimeoutSeconds
 }
 
+// HasDefaultLookback reports whether the lookback is the one Normalize
+// derives (4× the longest stage timeout) rather than one chosen, so an
+// edit of the timeouts can let it follow them.
+func (s RuleSpec) HasDefaultLookback() bool {
+	m := s.maxStageTimeout()
+	return m > 0 && s.LookbackSeconds == 4*m
+}
+
 func (s RuleSpec) maxStageTimeout() int {
 	max := 0
 	for _, es := range s.EffectiveStages() {

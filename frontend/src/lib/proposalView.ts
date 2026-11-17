@@ -19,6 +19,8 @@ export function proposalKindLabel(kind: string): string {
       return "New trace-completion rule";
     case "integration_settings":
       return "Integration settings";
+    case "completion_rule":
+      return "Change a completion rule";
     default:
       return kind.replace(/_/g, " ");
   }
@@ -72,7 +74,7 @@ export function proposedRuleLines(kind: string, after: unknown): SummaryLine[] {
     const channels = Array.isArray(r.channel_ids) ? r.channel_ids.length : 0;
     lines.push({
       label: "Notifies",
-      value: channels > 0 ? `${channels} channel${channels === 1 ? "" : "s"}` : "no one: delayed messages only show on the integration",
+      value: channels > 0 ? `${channels} channel${channels === 1 ? "" : "s"}` : "its integration's notification profile",
     });
   }
   return lines;
@@ -88,4 +90,29 @@ export function diffValue(v: unknown): { text: string; block: boolean } {
     return { text: v.length === 0 ? "none" : v.map(String).join(", "), block: false };
   }
   return { text: JSON.stringify(v, null, 2), block: true };
+}
+
+/** A list of proposals as the inbox shows it: each on its own, or the
+ *  proposals of one batch together, in the order they were filed. A
+ *  batch stands where its newest item would. */
+export type ProposalGroup<P> = { batch: null; items: [P] } | { batch: string; items: P[] };
+
+export function groupProposals<P extends { batch_id?: string; batch_index?: number }>(list: P[]): ProposalGroup<P>[] {
+  const out: ProposalGroup<P>[] = [];
+  const batches = new Map<string, P[]>();
+  for (const p of list) {
+    if (!p.batch_id) {
+      out.push({ batch: null, items: [p] });
+      continue;
+    }
+    let items = batches.get(p.batch_id);
+    if (!items) {
+      items = [];
+      batches.set(p.batch_id, items);
+      out.push({ batch: p.batch_id, items });
+    }
+    items.push(p);
+  }
+  for (const items of batches.values()) items.sort((a, b) => (a.batch_index ?? 0) - (b.batch_index ?? 0));
+  return out;
 }

@@ -41,6 +41,7 @@ import type {
 import SearchableSelect from "../components/SearchableSelect";
 import SendToField from "../components/SendToField";
 import { deliveryLabel } from "../lib/delivery";
+import { summarizeDryRun, type DryRunSummary } from "../lib/completionDryRun";
 import { formatDurationSeconds } from "../lib/format";
 import { addSpan, sameSpan, spanLabel, spansOf } from "../lib/completionStages";
 import { alertCondition, alertSignalLabel } from "../lib/alertRule";
@@ -702,10 +703,9 @@ function RuleForm({
       return next;
     });
 
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    setBusy(true);
-    setError(null);
+  // The rule as the form holds it, or why it cannot be one yet. Saving
+  // and trying it out send the same thing.
+  const buildBody = (): TraceCompletionRuleInput | string => {
     const defaultTimeoutSeconds = toSeconds(defTimeoutN, defTimeoutUnit);
     const builtStages = stages
       .filter((s) => s.spans.length > 0)
@@ -717,11 +717,7 @@ function RuleForm({
         if (!s.inherit) stage.timeout_seconds = toSeconds(s.timeoutN, s.timeoutUnit);
         return stage;
       });
-    if (builtStages.length === 0) {
-      setError("Add at least one stage with a span name.");
-      setBusy(false);
-      return;
-    }
+    if (builtStages.length === 0) return "Add at least one stage with a span name.";
     const longest = Math.max(
       defaultTimeoutSeconds,
       ...builtStages.map((s) => s.timeout_seconds ?? defaultTimeoutSeconds),
@@ -737,6 +733,39 @@ function RuleForm({
       lookback_seconds: longest * 4, // ≥ 2× longest hop; server clamps too
       channel_ids: channelIDs,
     };
+    return body;
+  };
+
+  const [dryRun, setDryRun] = useState<DryRunSummary | null>(null);
+  const [trying, setTrying] = useState(false);
+  const DRY_RUN_HOURS = 24;
+  const tryIt = async () => {
+    const body = buildBody();
+    if (typeof body === "string") {
+      setDryRun({ tone: "warn", lines: [body] });
+      return;
+    }
+    setTrying(true);
+    try {
+      const r = await api.dryRunCompletionRule(integrationID, { rule: { ...body, name: body.name || "dry run" }, hours: DRY_RUN_HOURS });
+      setDryRun(summarizeDryRun(r, body.start_span_name ?? "", DRY_RUN_HOURS));
+    } catch (e) {
+      setDryRun({ tone: "warn", lines: [String((e as Error).message ?? e)] });
+    } finally {
+      setTrying(false);
+    }
+  };
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    const body = buildBody();
+    if (typeof body === "string") {
+      setError(body);
+      setBusy(false);
+      return;
+    }
     try {
       if (rule) {
         await api.updateTraceCompletionRule(integrationID, rule.id, body);
@@ -949,6 +978,18 @@ function RuleForm({
           out to several receivers that must each deliver. Match is
           case-sensitive.
         </p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 8 }} data-testid="completion-dry-run">
+          <button type="button" className="btn btn--sm" style={{ alignSelf: "flex-start" }} disabled={trying} onClick={tryIt}>
+            {trying ? "Trying…" : `Try it on the last ${DRY_RUN_HOURS} hours`}
+          </button>
+          {dryRun && (
+            <div className={dryRun.tone === "warn" ? "alert alert--warn" : "muted"} style={{ fontSize: 12, margin: 0 }}>
+              {dryRun.lines.map((l) => (
+                <div key={l}>{l}</div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="m-field">

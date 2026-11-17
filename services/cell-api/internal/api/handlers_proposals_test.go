@@ -45,6 +45,14 @@ func TestEveryAlertRuleTunableIsPersistedByUpdateRule(t *testing.T) {
 	specCarried := map[string]bool{"threshold": true, "for_window": true}
 
 	for field := range alertRuleTunables {
+		// Channels are rows of alert_rule_routes, which UpdateRule
+		// rewrites in the same transaction.
+		if field == "channel_ids" {
+			if !strings.Contains(stmt, "replaceRoutes(") {
+				t.Error(`tunable "channel_ids" is persisted by replaceRoutes, which UpdateRule no longer calls`)
+			}
+			continue
+		}
 		column := field
 		if specCarried[field] {
 			column = "rule_spec"
@@ -57,14 +65,20 @@ func TestEveryAlertRuleTunableIsPersistedByUpdateRule(t *testing.T) {
 	}
 }
 
-// The tunables are the "too noisy / too quiet" dials. Retargeting a rule
-// is authoring, not tuning, and must stay a human action — an agent that
+// The tunables are the "too noisy / too quiet" dials, plus where a check
+// sends and which environments it watches. Retargeting a rule is
+// authoring, not tuning, and must stay a human action — an agent that
 // could repoint a check at another service or metric could quietly
 // disable monitoring while appearing to tune it.
+//
+// channel_ids was on this list until setting up a cell's alerting turned
+// out to be mostly that: every check of a cell without channels, fixed
+// by hand one at a time. A proposal shows the channels it would set and
+// a human approves them, as a new check's proposal always could.
 func TestAlertRuleTunablesExcludeRetargeting(t *testing.T) {
 	for _, forbidden := range []string{
 		"metric_name", "service_name", "integration_id", "signal",
-		"group_id", "name", "channel_ids", "aggregation", "operator",
+		"group_id", "name", "aggregation", "operator",
 	} {
 		if alertRuleTunables[forbidden] {
 			t.Errorf("%q is retargeting/authoring, not tuning — it must not be agent-proposable", forbidden)
