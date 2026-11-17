@@ -42,7 +42,7 @@
 - **Code:** `handlers_integrations.go:809,844,871` · component [MatcherConfig.tsx](../../../frontend/src/components/MatcherConfig.tsx) · **Automation:** Partial. (Field-URL round-trip unit-tested in [messageFilterUrl.test.ts](../../../frontend/src/lib/messageFilterUrl.test.ts).)
 
 ### Case 6 — Span-name discovery for rule editors
-- **Endpoint:** `GET /api/v1/integrations/{id}/span-names` · **Expected:** Start/stage pickers suggest distinct span names from the last 24h, by frequency. · **Code:** `:906` · **Automation:** yes.
+- **Endpoint:** `GET /api/v1/integrations/{id}/span-names` · **Expected:** Start/stage pickers suggest distinct span names from the last 7 days, by frequency, and every member service. · **Code:** `:906` · **Automation:** yes.
 
 ## Messages
 

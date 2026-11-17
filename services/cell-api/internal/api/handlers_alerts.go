@@ -281,7 +281,15 @@ func (h *Handlers) listAlertRules(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"rules": out, "states": states})
+	// Where each rule's firings go: its own channels or the profile that
+	// routes it, so the list does not show a profile-routed check as
+	// going nowhere.
+	deliveries := make(map[string]ruleDelivery, len(out))
+	dr := h.newDeliveryResolver(middleware.OrgID(r))
+	for _, rule := range out {
+		deliveries[rule.ID.String()] = dr.For(r.Context(), rule.ChannelIDs, rule.IntegrationID, rule.GroupID)
+	}
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"rules": out, "states": states, "delivery": deliveries})
 }
 
 // createAlertRule: POST /api/v1/alert-rules
@@ -339,10 +347,12 @@ func (h *Handlers) getAlertRule(w http.ResponseWriter, r *http.Request) {
 		httpserver.WriteError(w, http.StatusNotFound, "rule not found")
 		return
 	}
+	d := h.newDeliveryResolver(middleware.OrgID(r)).For(r.Context(), rule.ChannelIDs, rule.IntegrationID, rule.GroupID)
 	resp := struct {
 		alerting.AlertRule
-		State *alerting.RuleState `json:"state,omitempty"`
-	}{AlertRule: rule}
+		State    *alerting.RuleState `json:"state,omitempty"`
+		Delivery ruleDelivery        `json:"delivery"`
+	}{AlertRule: rule, Delivery: d}
 	if all, err := h.Alerts.RuleStates(r.Context(), middleware.OrgID(r)); err == nil {
 		if st, ok := all[rule.ID]; ok {
 			resp.State = &st

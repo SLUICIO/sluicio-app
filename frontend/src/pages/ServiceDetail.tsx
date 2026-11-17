@@ -34,6 +34,7 @@ import Sparkline from "../components/metrics/Sparkline";
 import type {
   AlertInstance,
   AlertRule,
+  RuleDelivery,
   CreateTagRequest,
   FlowEdge,
   FlowNode,
@@ -51,6 +52,7 @@ import type {
 import { alertCondition, alertSignalLabel } from "../lib/alertRule";
 import { SERVICE_TEMPLATE_KINDS, hasSystemTemplate, templateKindLabel } from "../lib/systemKinds";
 import { formatDurationMs, formatNumber, formatRelative } from "../lib/format";
+import { deliveredChannelIds } from "../lib/delivery";
 import { useBreadcrumbLeaf } from "../lib/breadcrumb";
 import { usePageTitle } from "../lib/usePageTitle";
 import { useTimeWindow } from "../lib/useTimeWindow";
@@ -118,6 +120,7 @@ export default function ServiceDetail() {
   }, [rules]);
 
   const [instances, setInstances] = useState<AlertInstance[]>([]);
+  const [ruleDelivery, setRuleDelivery] = useState<Record<string, RuleDelivery>>({});
   const [channels, setChannels] = useState<NotificationChannel[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -192,7 +195,13 @@ export default function ServiceDetail() {
       .finally(() => setLoading(false));
     api.getServiceMetadata(name).then(setMeta).catch(() => setMeta(null));
     api.serviceNeighbors(name, windowVal).then(setNeighbors).catch(() => setNeighbors(null));
-    api.listAlertRules({ service: name }).then((r) => setRules(r.rules ?? [])).catch(() => setRules([]));
+    api
+      .listAlertRules({ service: name })
+      .then((r) => {
+        setRules(r.rules ?? []);
+        setRuleDelivery(r.delivery ?? {});
+      })
+      .catch(() => setRules([]));
     api.listAlertInstances(200).then((r) => setInstances(r.instances ?? [])).catch(() => setInstances([]));
     api.listChannels().then((r) => setChannels(r.channels ?? [])).catch(() => setChannels([]));
     api.listTags().then((d) => setAllTags(d.tags ?? [])).catch(() => setAllTags([]));
@@ -602,7 +611,7 @@ export default function ServiceDetail() {
                     }}
                   />
                   <ActivityPanel instances={instances} ruleIds={ruleIds} />
-                  <NotificationsPanel rules={rules} channels={channels} />
+                  <NotificationsPanel rules={rules} delivery={ruleDelivery} channels={channels} />
                 </div>
               </div>
             )}
@@ -1238,18 +1247,31 @@ function ActivityPanel({ instances, ruleIds }: { instances: AlertInstance[]; rul
 }
 
 // ── notifications rail (channels the checks route to) ──────────
-function NotificationsPanel({ rules, channels }: { rules: AlertRule[]; channels: NotificationChannel[] }) {
+function NotificationsPanel({
+  rules,
+  delivery,
+  channels,
+}: {
+  rules: AlertRule[];
+  delivery: Record<string, RuleDelivery>;
+  channels: NotificationChannel[];
+}) {
+  // What the checks actually reach: their own channels, or their
+  // profile's. Own channels alone showed a profile-routed service as
+  // routed nowhere.
   const routed = useMemo(() => {
-    const ids = new Set<string>();
-    rules.forEach((r) => (r.channel_ids ?? []).forEach((c) => ids.add(c)));
+    const ids = deliveredChannelIds(
+      delivery,
+      rules.map((r) => r.id),
+    );
     return channels.filter((c) => ids.has(c.id));
-  }, [rules, channels]);
+  }, [rules, delivery, channels]);
   return (
     <div className="svc-section">
       <div className="svc-section-head"><span className="svc-section-title">Notifications</span></div>
       <div style={{ padding: "12px 16px", display: "flex", flexDirection: "column", gap: 8 }}>
         {routed.length === 0 ? (
-          <span className="muted" style={{ fontSize: 12.5 }}>No channels routed from this service's health checks.</span>
+          <span className="muted" style={{ fontSize: 12.5 }}>This service's health checks reach no channel.</span>
         ) : (
           routed.map((c) => (
             <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12.5 }}>

@@ -787,6 +787,9 @@ func main() {
 		logger,
 		30*time.Second,
 	)
+	// Delayed traces route like every other check: the rule's own
+	// channels, else its integration's notification profile.
+	traceEvaluator.SetChannelResolver(profilesStore)
 	handlers.TraceCompletionEvaluator = traceEvaluator
 	go traceEvaluator.Run(bgCtx)
 

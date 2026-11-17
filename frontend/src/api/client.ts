@@ -4,6 +4,7 @@
 // use relative paths from the browser.
 
 import type {
+  RuleDelivery,
   IntegrationSource,
   IntegrationSourceView,
   EnvironmentRole,
@@ -984,7 +985,7 @@ export const api = {
     if (opts.integration) p.set("integration", opts.integration);
     if (opts.system) p.set("system", opts.system);
     const qs = p.toString();
-    return get<{ rules: AlertRule[] }>(`/alert-rules${qs ? `?${qs}` : ""}`);
+    return get<{ rules: AlertRule[]; delivery?: Record<string, RuleDelivery> }>(`/alert-rules${qs ? `?${qs}` : ""}`);
   },
   createAlertRule: (body: AlertRuleInput) => post<AlertRule>(`/alert-rules`, body),
   updateAlertRule: (id: string, body: AlertRuleInput) =>
@@ -1391,7 +1392,7 @@ export const api = {
   // Distinct span names across the integration's traces, and its
   // services: suggestions for the start/stage span pickers in the rule
   // editor. service narrows the names to what that one member emits.
-  integrationSpanNames: (integrationID: string, range = "24h", service = "") =>
+  integrationSpanNames: (integrationID: string, range = "7d", service = "") =>
     get<{ span_names: string[]; services?: string[] }>(
       `/integrations/${encodeURIComponent(integrationID)}/span-names?range=${encodeURIComponent(range)}` +
         (service ? `&service=${encodeURIComponent(service)}` : ""),

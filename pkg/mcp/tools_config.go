@@ -56,7 +56,7 @@ func (s *Server) mergeInto(payload map[string]any, key, path string, q url.Value
 func configTools(s *Server) []tool {
 	return []tool{
 		{Name: "sluicio_list_alert_rules", Output: listAlertRulesOut,
-			Description: "List alert rules with where each stands now. A health check is an alert rule bound to an integration, a service or a system; filter by one of them to get that entity's checks. Each rule carries its signal and spec (metric aggregation, operator, threshold and for_window; or a log, failed-trace, span-attribute, low-traffic or latency spec), severity, enabled, channel_ids, runbook and environment scope. states maps rule id to firing | ok | disabled with firing_since, the last value a metric check read and when it last evaluated. Rules you may not see are left out.",
+			Description: "List alert rules with where each stands now. A health check is an alert rule bound to an integration, a service or a system; filter by one of them to get that entity's checks. Each rule carries its signal and spec (metric aggregation, operator, threshold and for_window; or a log, failed-trace, span-attribute, low-traffic or latency spec), severity, enabled, channel_ids, runbook and environment scope. states maps rule id to firing | ok | disabled with firing_since, the last value a metric check read and when it last evaluated. delivery maps rule id to where its firings go: its own channels or the notification profile that routes it. Rules you may not see are left out.",
 			Schema: objSchema(map[string]any{
 				"integration": strProp("Only checks bound to this integration (uuid)."),
 				"service":     strProp("Only checks bound to this service name."),
@@ -72,7 +72,7 @@ func configTools(s *Server) []tool {
 				return s.get("/api/v1/alert-rules", q)
 			}},
 		{Name: "sluicio_get_alert_rule", Output: getAlertRuleOut,
-			Description: "Get one alert rule by id, with its full spec, scope, channel_ids, runbook and state (firing | ok | disabled, firing_since, last value, last evaluated).",
+			Description: "Get one alert rule by id, with its full spec, scope, channel_ids, runbook, state (firing | ok | disabled, firing_since, last value, last evaluated) and delivery (where its firings go).",
 			Schema:      objSchema(map[string]any{"id": strProp("The alert rule id (uuid).")}, "id"),
 			Call: func(a map[string]any) (string, error) {
 				id := argStr(a, "id")
@@ -82,7 +82,7 @@ func configTools(s *Server) []tool {
 				return s.get("/api/v1/alert-rules/"+url.PathEscape(id), nil)
 			}},
 		{Name: "sluicio_list_completion_rules", Output: listCompletionRulesOut,
-			Description: "List an integration's trace-completion rules: the start span that makes a trace one of its messages, the ordered stages a message must reach (each stage's spans, optionally naming the service that must emit them, and whether any one or all of them must arrive), the timeout of each stage, severity, enabled and channel_ids. A message is a trace: the trace id is the correlation key, there is no other. A rule reads the integration's member services in every environment; it has no environment filter.",
+			Description: "List an integration's trace-completion rules: the start span that makes a trace one of its messages, the ordered stages a message must reach (each stage's spans, optionally naming the service that must emit them, and whether any one or all of them must arrive), the timeout of each stage, severity, enabled, channel_ids and delivery (where a delayed message is sent: its own channels or the integration's notification profile). A message is complete only when every stage is reached. A message is a trace: the trace id is the correlation key, there is no other. A rule reads the integration's member services in every environment; it has no environment filter.",
 			Schema:      objSchema(map[string]any{"integration_id": strProp("The integration id (uuid).")}, "integration_id"),
 			Call: func(a map[string]any) (string, error) {
 				id := argStr(a, "integration_id")
@@ -105,7 +105,7 @@ func configTools(s *Server) []tool {
 				return s.get("/api/v1/integrations/"+url.PathEscape(id)+"/completion-firings", rangeArg(a, "7d"))
 			}},
 		{Name: "sluicio_list_notification_channels", Output: notificationRoutingOut,
-			Description: "Where notifications go: the channels (id, name, kind, the destination host of a webhook or Slack channel, the number of e-mail recipients, recent delivery failures) and the notification profiles that route to them. Credentials, URLs and addresses are not returned. A check with channel_ids sends to those; one without them uses the first profile that applies to the firing's environment: its team's, then its integration's, then the org default.",
+			Description: "Where notifications go: the channels (id, name, kind, the destination host of a webhook or Slack channel, the number of e-mail recipients, recent delivery failures) and the notification profiles that route to them. Credentials, URLs and addresses are not returned. A check with channel_ids sends to those; one without them uses the first profile that applies to the firing's environment: its integration's, then its team's default, then the org default. Trace-completion rules route the same way.",
 			Schema:      objSchema(nil),
 			Call: func(map[string]any) (string, error) {
 				return s.get("/api/v1/notification-routing", nil)

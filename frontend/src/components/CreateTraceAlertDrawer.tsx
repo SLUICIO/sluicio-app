@@ -10,6 +10,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
+import SendToField from "./SendToField";
 import type { AlertSeverity, LogAttrFilter, LogAttrOp, NotificationChannel } from "../api/types";
 import { EditDrawer } from "./primitives";
 
@@ -242,30 +243,8 @@ export default function CreateTraceAlertDrawer({
             </select>
           </label>
           <div className="form__label">
-            Notify
-            {channels.length === 0 ? (
-              <span className="form__hint">
-                No notification channels yet — the alert will still fire and show on the
-                Alerts page. Add channels on the Alerts page to get notified.
-              </span>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 4, paddingTop: 4 }}>
-                {channels.map((c) => (
-                  <label key={c.id} className="inline-flex items-center gap-2" style={{ fontSize: 13 }}>
-                    <input
-                      type="checkbox"
-                      checked={selectedChannels.includes(c.id)}
-                      onChange={(e) =>
-                        setSelectedChannels((cur) =>
-                          e.target.checked ? [...cur, c.id] : cur.filter((x) => x !== c.id),
-                        )
-                      }
-                    />
-                    {c.name} <span className="muted">· {c.kind}</span>
-                  </label>
-                ))}
-              </div>
-            )}
+            Send to
+            <SendToField value={selectedChannels} onChange={setSelectedChannels} channels={channels} />
           </div>
           <div className="form__actions">
             <button type="button" className="btn" onClick={onClose}>

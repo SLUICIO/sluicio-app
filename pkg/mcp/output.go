@@ -592,12 +592,21 @@ var ruleItem = map[string]any{
 	"integration_id":       strOut("Bound integration (uuid), when the check is on one."),
 	"service_name":         strOut("Bound service, when the check is on one."),
 	"system_id":            strOut("Bound system (uuid), when the check is on one."),
-	"channel_ids":          strArr("Channels it sends to. Empty means its notification profile decides (see sluicio_list_notification_channels)."),
+	"channel_ids":          strArr("The check's own channels. Empty means its notification profile decides; delivery says which."),
 	"runbook":              strOut("What to do when it fires."),
 	"environment_mode":     strOut("each (one evaluation per environment) or only (the listed environments)."),
 	"environments":         strArr("The environments of environment_mode only."),
 	"resolve_mode":         strOut("auto (resolves itself) or manual (fires until acknowledged)."),
 }
+
+// deliveryItem is where a check's firings go, resolved now.
+var deliveryItem = objOf("Where its firings go: its own channels, or the notification profile that applies to it.", map[string]any{
+	"via":          strOut("channels (its own), profile, or none (no channels of its own and no profile: nothing is sent)."),
+	"profile_id":   strOut("The profile that routes it, when via is profile."),
+	"profile_name": strOut("That profile's name."),
+	"channel_ids":  strArr("The channels a firing is sent to."),
+	"restricted":   boolOut("The profile applies to some environments only; a firing in another goes to the next profile down."),
+})
 
 var ruleStateItem = objOf("Where the rule stands now.", map[string]any{
 	"state":             strOut("firing | ok | disabled. A check that never had data reads ok."),
@@ -609,12 +618,13 @@ var ruleStateItem = objOf("Where the rule stands now.", map[string]any{
 
 var (
 	listAlertRulesOut = outSchema(map[string]any{
-		"rules":  arrOf("Alert rules, visibility-filtered. Health checks are those bound to an integration, service or system.", ruleItem),
-		"states": objOf("Rule id → its state now (state, firing_instances, firing_since, last_evaluated_at, value).", nil),
+		"rules":    arrOf("Alert rules, visibility-filtered. Health checks are those bound to an integration, service or system.", ruleItem),
+		"states":   objOf("Rule id → its state now (state, firing_instances, firing_since, last_evaluated_at, value).", nil),
+		"delivery": objOf("Rule id → where its firings go (via, profile_id, profile_name, channel_ids, restricted).", nil),
 	}, "rules")
 
 	getAlertRuleOut = outSchema(func() map[string]any {
-		props := map[string]any{"state": ruleStateItem}
+		props := map[string]any{"state": ruleStateItem, "delivery": deliveryItem}
 		for k, v := range ruleItem {
 			props[k] = v
 		}
@@ -639,7 +649,8 @@ var (
 			"start_span_name":         strOut("A trace carrying this span is one of the integration's messages and is evaluated. Empty evaluates every trace."),
 			"stages":                  arrOf("The ordered stages a message must reach.", completionStageItem),
 			"default_timeout_seconds": intOut("Timeout of a stage that sets none."),
-			"channel_ids":             strArr("Channels a delayed message notifies. Empty notifies no one directly."),
+			"channel_ids":             strArr("The rule's own channels. Empty means the integration's notification profile decides."),
+			"delivery":                deliveryItem,
 		}),
 	}, "rules")
 

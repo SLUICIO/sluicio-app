@@ -20,6 +20,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../../api/client";
+import SendToField from "../SendToField";
 import type {
   AlertRuleInput,
   AlertSeverity,
@@ -882,8 +883,6 @@ function CreateLogAlertDialog({
     }
   };
 
-  const toggleChannel = (id: string) =>
-    setChannelIDs((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
 
   const sevLabel =
     minSeverity >= 21 ? "fatal" : minSeverity >= 17 ? "error" : minSeverity >= 13 ? "warn" : minSeverity > 0 ? `≥${minSeverity}` : "any";
@@ -1013,21 +1012,8 @@ function CreateLogAlertDialog({
         )}
 
         <div className="form__label">
-          <span>Alert channels</span>
-          {channels.length === 0 ? (
-            <p className="muted" style={{ fontSize: 12 }}>
-              No channels configured — add one on the <Link to="/alerts">Alerts</Link> page.
-            </p>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              {channels.map((c) => (
-                <label key={c.id} style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  <input type="checkbox" checked={channelIDs.includes(c.id)} onChange={() => toggleChannel(c.id)} />
-                  <span><b>{c.name}</b> <span className="muted">· {c.kind}</span></span>
-                </label>
-              ))}
-            </div>
-          )}
+          <span>Send to</span>
+          <SendToField value={channelIDs} onChange={setChannelIDs} channels={channels} />
         </div>
 
         {error && <div className="alert alert--error">{error}</div>}

@@ -28,6 +28,37 @@ type Evaluator struct {
 	orgID    uuid.UUID
 	logger   *slog.Logger
 	interval time.Duration
+	resolver ChannelResolver
+}
+
+// ChannelResolver turns a rule's own channels, or the notification
+// profile that governs its integration when it has none, into the
+// channels a firing is sent to. notifyprofiles.Store implements it, as
+// it does for the alerting engine, so a delayed trace is routed the way
+// every other check is.
+type ChannelResolver interface {
+	Resolve(ctx context.Context, orgID uuid.UUID, explicit []uuid.UUID, integrationID, groupID *uuid.UUID) ([]uuid.UUID, error)
+}
+
+// SetChannelResolver wires the routing resolver after construction.
+func (e *Evaluator) SetChannelResolver(r ChannelResolver) { e.resolver = r }
+
+// channelsFor is where a delayed trace is sent: the rule's own channels
+// when it has them, else its integration's profile, then the org
+// default. Before this a rule with no channels of its own sent its first
+// page nowhere, while the engine's re-notify loop, which already routed
+// through profiles, paged the same firing later.
+func (e *Evaluator) channelsFor(ctx context.Context, rule Rule) []uuid.UUID {
+	if e.resolver == nil {
+		return rule.ChannelIDs
+	}
+	integ := rule.IntegrationID
+	ch, err := e.resolver.Resolve(ctx, e.orgID, rule.ChannelIDs, &integ, nil)
+	if err != nil {
+		e.logger.Warn("tracecompletion: channel resolve failed; using rule channels", "rule_id", rule.ID, "err", err)
+		return rule.ChannelIDs
+	}
+	return ch
 }
 
 // AlertingStore is the slice of the alerting.Store the evaluator needs.
@@ -369,14 +400,15 @@ func (e *Evaluator) fireDelayed(ctx context.Context, rule Rule, c TraceClassific
 			"window", *suppress)
 		return nil
 	}
-	if len(rule.ChannelIDs) > 0 {
-		if err := e.alerts.EnqueueJobs(ctx, inst.ID, rule.ChannelIDs); err != nil {
+	channels := e.channelsFor(ctx, rule)
+	if len(channels) > 0 {
+		if err := e.alerts.EnqueueJobs(ctx, inst.ID, channels); err != nil {
 			return fmt.Errorf("enqueue jobs: %w", err)
 		}
 	}
 	e.logger.Info("tracecompletion: trace delayed",
 		"rule_id", rule.ID, "trace_id", c.TraceID, "stage", c.DelayedStage,
-		"stage_started_at", c.StartedAt, "channels", len(rule.ChannelIDs))
+		"stage_started_at", c.StartedAt, "channels", len(channels))
 	return nil
 }
 

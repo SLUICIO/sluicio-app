@@ -139,3 +139,53 @@ func TestFireDelayedSticky(t *testing.T) {
 			alerts.opened, alerts.enqueued, alerts.suppressed)
 	}
 }
+
+// profileResolver stands in for notifyprofiles.Store: explicit channels
+// win, otherwise the integration's profile.
+type profileResolver struct {
+	profile []uuid.UUID
+	integ   *uuid.UUID
+}
+
+func (p *profileResolver) Resolve(_ context.Context, _ uuid.UUID, explicit []uuid.UUID, integrationID, _ *uuid.UUID) ([]uuid.UUID, error) {
+	p.integ = integrationID
+	if len(explicit) > 0 {
+		return explicit, nil
+	}
+	return p.profile, nil
+}
+
+// A rule with no channels of its own used to send its first page
+// nowhere; it now goes to its integration's notification profile, like
+// every other check.
+func TestFireDelayedRoutesThroughTheProfile(t *testing.T) {
+	alerts := &fakeAlertStore{}
+	e := testEvaluator(alerts)
+	viaProfile := uuid.New()
+	res := &profileResolver{profile: []uuid.UUID{viaProfile}}
+	e.SetChannelResolver(res)
+	rule, c := testRuleAndDelay()
+	rule.ChannelIDs = []uuid.UUID{}
+
+	if err := e.fireDelayed(context.Background(), rule, c, nil); err != nil {
+		t.Fatalf("fireDelayed: %v", err)
+	}
+	if len(alerts.enqueued) != 1 || len(alerts.enqueued[0]) != 1 || alerts.enqueued[0][0] != viaProfile {
+		t.Fatalf("enqueued = %v, want the profile's channel", alerts.enqueued)
+	}
+	if res.integ == nil || *res.integ != rule.IntegrationID {
+		t.Fatalf("resolved for integration %v, want %s", res.integ, rule.IntegrationID)
+	}
+
+	// The rule's own channels still win over the profile.
+	alerts.enqueued = nil
+	own := uuid.New()
+	rule.ChannelIDs = []uuid.UUID{own}
+	c.TraceID = "def456"
+	if err := e.fireDelayed(context.Background(), rule, c, nil); err != nil {
+		t.Fatalf("fireDelayed: %v", err)
+	}
+	if len(alerts.enqueued) != 1 || alerts.enqueued[0][0] != own {
+		t.Fatalf("enqueued = %v, want the rule's own channel", alerts.enqueued)
+	}
+}

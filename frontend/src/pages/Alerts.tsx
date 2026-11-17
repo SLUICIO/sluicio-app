@@ -14,7 +14,8 @@ import { errorCountsChanged } from "../lib/errorCountsChanged";
 import type { Dispatch, SetStateAction } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
-import type { AlertDelivery, AlertInstance, AlertRule, Group, Integration, MaintenanceWindow, NotificationChannel, System } from "../api/types";
+import type { AlertDelivery, AlertInstance, AlertRule, Group, Integration, MaintenanceWindow, NotificationChannel, RuleDelivery, System } from "../api/types";
+import { deliveryLabel } from "../lib/delivery";
 import { usePageTitle } from "../lib/usePageTitle";
 import { useCurrentUser } from "../lib/useCurrentUser";
 import { useAccess } from "../lib/useAccess";
@@ -48,6 +49,7 @@ export default function Alerts() {
 
   const [instances, setInstances] = useState<AlertInstance[]>([]);
   const [rules, setRules] = useState<AlertRule[]>([]);
+  const [ruleDelivery, setRuleDelivery] = useState<Record<string, RuleDelivery>>({});
   const [channels, setChannels] = useState<NotificationChannel[]>([]);
   const [integrations, setIntegrations] = useState<Integration[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
@@ -68,7 +70,13 @@ export default function Alerts() {
 
   const load = useCallback(() => {
     api.listAlertInstances(200).then((r) => setInstances(r.instances ?? [])).catch(() => setInstances([]));
-    api.listAlertRules().then((r) => setRules(r.rules ?? [])).catch(() => setRules([]));
+    api
+      .listAlertRules()
+      .then((r) => {
+        setRules(r.rules ?? []);
+        setRuleDelivery(r.delivery ?? {});
+      })
+      .catch(() => setRules([]));
     api.listChannels().then((r) => setChannels(r.channels ?? [])).catch(() => setChannels([]));
     api.listIntegrations().then((r) => setIntegrations(r.integrations ?? [])).catch(() => setIntegrations([]));
     api.listGroups().then((r) => setGroups(r.groups ?? [])).catch(() => setGroups([]));
@@ -223,7 +231,7 @@ export default function Alerts() {
   const ruleTitle = (rule: AlertRule) => {
     const parts = [ruleScope(rule)?.label, alertCondition(rule)];
     parts.push(rule.group_id ? `team: ${groupName(rule.group_id)}` : "org-wide");
-    if (rule.channel_ids.length) parts.push(`→ ${rule.channel_ids.map(channelName).join(", ")}`);
+    parts.push(`→ ${deliveryLabel(ruleDelivery[rule.id], channelName)}`);
     return parts.filter(Boolean).join(" · ");
   };
 
@@ -295,6 +303,7 @@ export default function Alerts() {
             onDelete={deleteRule}
             ruleTitle={ruleTitle}
             ruleScope={ruleScope}
+            ruleSendsTo={(r) => deliveryLabel(ruleDelivery[r.id], channelName)}
             highlightRuleId={highlightRuleId}
           />
         )}
@@ -348,6 +357,7 @@ function HealthChecksColumn({
   onDelete,
   ruleTitle,
   ruleScope,
+  ruleSendsTo,
   highlightRuleId,
 }: {
   firing: AlertInstance[];
@@ -359,6 +369,8 @@ function HealthChecksColumn({
   onDelete: (r: { id: string; name: string }) => void;
   ruleTitle: (r: AlertRule) => string;
   ruleScope: (r: AlertRule) => { label: string; to: string } | null;
+  // Where its firings go: own channels, or the profile that routes it.
+  ruleSendsTo: (r: AlertRule) => string;
   // Rule whose row should pulse — resolved from the ?instance= deep link
   // that notification emails carry.
   highlightRuleId: string | null;
@@ -438,6 +450,8 @@ function HealthChecksColumn({
                     </>
                   )}
                   {alertCondition(rule)}
+                  <span style={{ margin: "0 5px" }}>·</span>
+                  <span data-testid="rule-sends-to">{ruleSendsTo(rule)}</span>
                 </span>
               </span>
               <span style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 6 }}>

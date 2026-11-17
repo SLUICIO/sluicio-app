@@ -98,8 +98,11 @@ type traceCompletionRuleResponse struct {
 	TimeoutSeconds        int                        `json:"timeout_seconds"`
 	LookbackSeconds       int                        `json:"lookback_seconds"`
 	ChannelIDs            []uuid.UUID                `json:"channel_ids"`
-	CreatedAt             string                     `json:"created_at"`
-	UpdatedAt             string                     `json:"updated_at"`
+	// Delivery is where a delayed trace is sent: the rule's own channels
+	// or its integration's profile. Set on the list only.
+	Delivery  *ruleDelivery `json:"delivery,omitempty"`
+	CreatedAt string        `json:"created_at"`
+	UpdatedAt string        `json:"updated_at"`
 }
 
 func ruleToResponse(r tracecompletion.Rule) traceCompletionRuleResponse {
@@ -143,8 +146,13 @@ func (h *Handlers) listTraceCompletionRules(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	out := make([]traceCompletionRuleResponse, 0, len(rules))
-	for _, r := range rules {
-		out = append(out, ruleToResponse(r))
+	dr := h.newDeliveryResolver(orgID)
+	for _, rule := range rules {
+		resp := ruleToResponse(rule)
+		integ := rule.IntegrationID
+		d := dr.For(r.Context(), rule.ChannelIDs, &integ, nil)
+		resp.Delivery = &d
+		out = append(out, resp)
 	}
 	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"rules": out})
 }

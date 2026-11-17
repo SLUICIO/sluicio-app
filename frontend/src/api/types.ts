@@ -2442,6 +2442,18 @@ export interface TraceCompletionSpan {
   span_name: string;
 }
 
+// Where a check's firings go, beside the rule lists (cell-api ruleDelivery).
+export interface RuleDelivery {
+  // "channels": the rule's own. "profile": the profile that applies.
+  // "none": no channels of its own and no profile.
+  via: "channels" | "profile" | "none" | "unknown";
+  profile_id?: string;
+  profile_name?: string;
+  channel_ids: string[];
+  // The profile applies to some environments only.
+  restricted?: boolean;
+}
+
 export interface TraceCompletionRule {
   id: string;
   integration_id: string;
@@ -2463,6 +2475,8 @@ export interface TraceCompletionRule {
   channel_ids: string[];
   created_at: string;
   updated_at: string;
+  /** Where a delayed trace is sent: its own channels or the profile. On the list only. */
+  delivery?: RuleDelivery;
 }
 
 export interface TraceCompletionRuleInput {

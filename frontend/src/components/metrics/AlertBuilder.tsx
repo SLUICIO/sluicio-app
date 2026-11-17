@@ -7,8 +7,8 @@
 // carried from the search bar become the rule's scope.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
 import { api } from "../../api/client";
+import SendToField from "../SendToField";
 import SearchableSelect from "../SearchableSelect";
 import { displayUnit } from "../../lib/format";
 import { AGG_LABELS, ALERT_AGGREGATIONS } from "../../lib/aggregations";
@@ -44,7 +44,6 @@ const SEVERITIES: { v: AlertSeverity; label: string }[] = [
   { v: "critical", label: "Critical" },
 ];
 
-const CHANNEL_GLYPH: Record<string, string> = { slack: "#", pagerduty: "⚠", webhook: "↗" };
 
 export default function AlertBuilder({
   metricName,
@@ -227,13 +226,6 @@ export default function AlertBuilder({
     }, 350);
     return () => window.clearTimeout(debounce.current);
   }, [spec, healthService, healthIntegration, healthSystem, bindKind]);
-
-  const toggleChannel = (id: string) =>
-    setSelected((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
 
   const create = async () => {
     setSaving(true);
@@ -451,35 +443,9 @@ export default function AlertBuilder({
           </div>
         </div>
 
-        {/* channel picker */}
         <div className="m-field">
-          <label className="m-field-label">Send to channel</label>
-          {channels.length === 0 ? (
-            <div className="muted" style={{ fontSize: 12 }}>
-              No channels yet — add one on the <Link to="/alerts">Alerts</Link> page.
-            </div>
-          ) : (
-            <div className="m-intg-list">
-              {channels.map((c) => {
-                const on = selected.has(c.id);
-                return (
-                  <button
-                    key={c.id}
-                    type="button"
-                    className={`m-intg ${on ? "on" : ""}`}
-                    onClick={() => toggleChannel(c.id)}
-                  >
-                    <span className="m-intg-icon">{CHANNEL_GLYPH[c.kind] ?? "•"}</span>
-                    <div className="m-intg-mid">
-                      <div className="m-intg-name">{c.name}</div>
-                      <div className="m-intg-kind">{c.kind}</div>
-                    </div>
-                    <span className="m-intg-tick">{on ? "✓" : ""}</span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
+          <label className="m-field-label">Send to</label>
+          <SendToField value={[...selected]} onChange={(ids) => setSelected(new Set(ids))} channels={channels} variant="drawer" />
         </div>
 
         {/* owning team — scopes who can see/edit this alert. Org-wide

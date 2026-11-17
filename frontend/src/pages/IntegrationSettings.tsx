@@ -32,12 +32,15 @@ import type {
   AlertRule,
   IntegrationDetail,
   NotificationChannel,
+  RuleDelivery,
   TraceCompletionRule,
   TraceCompletionRuleInput,
   TraceCompletionSpan,
   TraceCompletionStage,
 } from "../api/types";
 import SearchableSelect from "../components/SearchableSelect";
+import SendToField from "../components/SendToField";
+import { deliveryLabel } from "../lib/delivery";
 import { formatDurationSeconds } from "../lib/format";
 import { addSpan, sameSpan, spanLabel, spansOf } from "../lib/completionStages";
 import { alertCondition, alertSignalLabel } from "../lib/alertRule";
@@ -115,6 +118,7 @@ export default function IntegrationSettings() {
   const canWrite = integration?.can_manage ?? can("integration.write");
   const [rules, setRules] = useState<TraceCompletionRule[]>([]);
   const [alertRules, setAlertRules] = useState<AlertRule[]>([]);
+  const [alertDelivery, setAlertDelivery] = useState<Record<string, RuleDelivery>>({});
   const [channels, setChannels] = useState<NotificationChannel[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<TraceCompletionRule | "new" | null>(null);
@@ -133,6 +137,7 @@ export default function IntegrationSettings() {
         setIntegration(detail);
         setRules(ruleResp.rules);
         setAlertRules(alertResp.rules ?? []);
+        setAlertDelivery(alertResp.delivery ?? {});
         setChannels(chResp.channels);
       })
       .catch((e) => setError(String((e as Error).message ?? e)));
@@ -287,6 +292,7 @@ export default function IntegrationSettings() {
 
         <IntegrationAlertRules
           rules={alertRules}
+          delivery={alertDelivery}
           channels={channels}
           canWrite={canWrite}
           onChanged={() => {
@@ -338,7 +344,7 @@ export default function IntegrationSettings() {
                     <th>Name</th>
                     <th>Pipeline</th>
                     <th>Severity</th>
-                    <th>Channels</th>
+                    <th>Sends to</th>
                     <th>Enabled</th>
                     <th></th>
                   </tr>
@@ -357,7 +363,9 @@ export default function IntegrationSettings() {
                           <RulePipeline rule={r} />
                         </td>
                         <td><span className={`badge sev-${r.severity}`}>{r.severity}</span></td>
-                        <td>{(r.channel_ids ?? []).length}</td>
+                        <td className="muted" style={{ fontSize: 12 }}>
+                          {deliveryLabel(r.delivery, (cid) => channels.find((c) => c.id === cid)?.name ?? "—")}
+                        </td>
                         <td>{r.enabled ? "✓" : "—"}</td>
                         <td className="num">
                           {isAdmin && (
@@ -593,7 +601,7 @@ function StageSpanPicker({
     }
     let active = true;
     api
-      .integrationSpanNames(integrationID, "24h", service)
+      .integrationSpanNames(integrationID, "7d", service)
       .then((r) => active && setNames(r.span_names ?? []))
       .catch(() => active && setNames([]));
     return () => {
@@ -737,11 +745,6 @@ function RuleForm({
     }
   };
 
-  const toggleChannel = (id: string) => {
-    setChannelIDs((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-    );
-  };
 
   return (
     <form onSubmit={submit} className="form">
@@ -964,32 +967,8 @@ function RuleForm({
       </label>
 
       <div className="form__label">
-        <span>Alert channels</span>
-        {channels.length === 0 ? (
-          <p className="muted" style={{ fontSize: 12 }}>
-            No notification channels configured.{" "}
-            <Link to="/alerts">Configure channels →</Link>
-          </p>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            {channels.map((c) => (
-              <label key={c.id} style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <input
-                  type="checkbox"
-                  checked={channelIDs.includes(c.id)}
-                  onChange={() => toggleChannel(c.id)}
-                />
-                <span>
-                  <b>{c.name}</b> <span className="muted">· {c.kind}</span>
-                </span>
-              </label>
-            ))}
-          </div>
-        )}
-        <span className="form__hint">
-          Same channel pool as metric alerts. A delayed-trace firing
-          routes through the same Slack / PagerDuty / webhook delivery.
-        </span>
+        <span>Send to</span>
+        <SendToField value={channelIDs} onChange={setChannelIDs} channels={channels} />
       </div>
 
       {error && <div className="alert alert--error">{error}</div>}
@@ -1015,12 +994,15 @@ function RuleForm({
 // breakdown and the Metrics/Logs explorers.
 function IntegrationAlertRules({
   rules,
+  delivery,
   channels,
   canWrite,
   onChanged,
   onError,
 }: {
   rules: AlertRule[];
+  // Where each rule's firings go, keyed by rule id.
+  delivery: Record<string, RuleDelivery>;
   channels: NotificationChannel[];
   canWrite: boolean;
   onChanged: () => void;
@@ -1095,7 +1077,7 @@ function IntegrationAlertRules({
                 <th>Name</th>
                 <th>Condition</th>
                 <th>Severity</th>
-                <th>Channels</th>
+                <th>Sends to</th>
                 <th>Status</th>
                 {canWrite && <th></th>}
               </tr>
@@ -1119,7 +1101,7 @@ function IntegrationAlertRules({
                   </td>
                   <td><span className={`badge sev-${rule.severity}`}>{rule.severity}</span></td>
                   <td className="muted" style={{ fontSize: 12 }}>
-                    {rule.channel_ids.length === 0 ? "—" : rule.channel_ids.map(channelName).join(", ")}
+                    {deliveryLabel(delivery[rule.id], channelName)}
                   </td>
                   <td>
                     {canWrite ? (

@@ -128,7 +128,8 @@ func (h *Handlers) notificationRouting(w http.ResponseWriter, r *http.Request) {
 		"channels":              channels,
 		"notification_profiles": profiles,
 		"routing": "A check with channel_ids sends to those channels. One without them uses the first notification profile " +
-			"that applies to the firing's environment: the check's team's profile, then its integration's, then the org default.",
+			"that applies to the firing's environment: its integration's profile, then its team's default, then the org default. " +
+			"Trace-completion rules route the same way.",
 	})
 }
 

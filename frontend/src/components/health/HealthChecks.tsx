@@ -11,6 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 import { api } from "../../api/client";
+import SendToField from "../SendToField";
 import type {
   AlertAggregation,
   AlertInstance,
@@ -661,6 +662,8 @@ function HealthCheckEditor({
   // rule asked for it, since silence is normal for most metrics.
   const [fireOnNoData, setFireOnNoData] = useState(rule?.spec.fire_on_no_data ?? false);
   const [severity, setSeverity] = useState<AlertSeverity>(rule?.severity ?? "critical");
+  // Where firings go: the rule's own channels, or the profile when empty.
+  const [channelIDs, setChannelIDs] = useState<string[]>(rule?.channel_ids ?? []);
   // "Show on service page": surface the latest reading as a value tile.
   const [displayOnService, setDisplayOnService] = useState(rule?.display_on_service ?? false);
   const [unit, setUnit] = useState(rule?.unit ?? "");
@@ -807,13 +810,13 @@ function HealthCheckEditor({
           ...body,
           description: rule.description,
           enabled: rule.enabled,
-          channel_ids: rule.channel_ids,
+          channel_ids: channelIDs,
           group_id: rule.group_id,
           title_template: rule.title_template,
           body_template: rule.body_template,
         });
       } else {
-        await api.createAlertRule({ ...body, enabled: true, channel_ids: [] });
+        await api.createAlertRule({ ...body, enabled: true, channel_ids: channelIDs });
       }
       onSaved();
     } catch (e) {
@@ -1028,6 +1031,11 @@ function HealthCheckEditor({
         </div>
       )}
 
+      <div className="m-field">
+        <label className="m-field-label">Send to</label>
+        <SendToField value={channelIDs} onChange={setChannelIDs} variant="drawer" />
+      </div>
+
       {err && <div className="alert alert--error" style={{ margin: 0 }}>{err}</div>}
 
       <div className="m-builder-actions">
@@ -1073,6 +1081,8 @@ function LogCheckEditor({
   const [runbook, setRunbook] = useState(rule?.runbook ?? "");
   const [envScope, setEnvScope] = useState<EnvScope>(() => initialEnvScope(rule));
   const [severity, setSeverity] = useState<AlertSeverity>(rule?.severity ?? "warning");
+  // Where firings go: the rule's own channels, or the profile when empty.
+  const [channelIDs, setChannelIDs] = useState<string[]>(rule?.channel_ids ?? []);
   const [minSeverity, setMinSeverity] = useState<number>(ls?.min_severity ?? 17);
   const [bodyContains, setBodyContains] = useState(ls?.body_contains ?? "");
   const [threshold, setThreshold] = useState<number>(ls?.threshold ?? 1);
@@ -1112,11 +1122,11 @@ function LogCheckEditor({
       if (rule) {
         await api.updateAlertRule(rule.id, {
           ...body, description: rule.description, enabled: rule.enabled,
-          channel_ids: rule.channel_ids, group_id: rule.group_id,
+          channel_ids: channelIDs, group_id: rule.group_id,
           title_template: rule.title_template, body_template: rule.body_template,
         });
       } else {
-        await api.createAlertRule({ ...body, enabled: true, channel_ids: [] });
+        await api.createAlertRule({ ...body, enabled: true, channel_ids: channelIDs });
       }
       onSaved();
     } catch (e) {
@@ -1198,6 +1208,11 @@ function LogCheckEditor({
       </div>
 
       <ResolveModeField value={resolveMode} onChange={setResolveMode} />
+
+      <div className="m-field">
+        <label className="m-field-label">Send to</label>
+        <SendToField value={channelIDs} onChange={setChannelIDs} variant="drawer" />
+      </div>
 
       {err && <div className="alert alert--error" style={{ margin: 0 }}>{err}</div>}
 
@@ -1348,6 +1363,8 @@ function TraceCheckEditor({
   const [runbook, setRunbook] = useState(rule?.runbook ?? "");
   const [envScope, setEnvScope] = useState<EnvScope>(() => initialEnvScope(rule));
   const [severity, setSeverity] = useState<AlertSeverity>(rule?.severity ?? "warning");
+  // Where firings go: the rule's own channels, or the profile when empty.
+  const [channelIDs, setChannelIDs] = useState<string[]>(rule?.channel_ids ?? []);
   // Failed-trace fields.
   const [threshold, setThreshold] = useState<number>(ts?.threshold ?? 1);
   // Response-time fields.
@@ -1456,11 +1473,11 @@ function TraceCheckEditor({
       if (rule) {
         await api.updateAlertRule(rule.id, {
           ...body, description: rule.description, enabled: rule.enabled,
-          channel_ids: rule.channel_ids, group_id: rule.group_id,
+          channel_ids: channelIDs, group_id: rule.group_id,
           title_template: rule.title_template, body_template: rule.body_template,
         });
       } else {
-        await api.createAlertRule({ ...body, enabled: true, channel_ids: [] });
+        await api.createAlertRule({ ...body, enabled: true, channel_ids: channelIDs });
       }
       onSaved();
     } catch (e) {
@@ -1641,6 +1658,11 @@ function TraceCheckEditor({
       </div>
 
       <ResolveModeField value={resolveMode} onChange={setResolveMode} />
+
+      <div className="m-field">
+        <label className="m-field-label">Send to</label>
+        <SendToField value={channelIDs} onChange={setChannelIDs} variant="drawer" />
+      </div>
 
       {err && <div className="alert alert--error" style={{ margin: 0 }}>{err}</div>}
 

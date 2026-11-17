@@ -1597,7 +1597,7 @@ func (h *Handlers) removeServiceFromIntegration(w http.ResponseWriter, r *http.R
 	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"removed": removed})
 }
 
-// integrationSpanNames: GET /api/v1/integrations/{id}/span-names?range=24h[&service=]
+// integrationSpanNames: GET /api/v1/integrations/{id}/span-names?range=7d[&service=]
 //
 // Distinct span names observed across the integration's matched services in
 // the window, most-frequent first, and the integration's member services.
@@ -1624,9 +1624,10 @@ func (h *Handlers) integrationSpanNames(w http.ResponseWriter, r *http.Request) 
 	if !ok {
 		return
 	}
-	// Default to a wide window so even low-traffic integrations surface
-	// their span vocabulary.
-	tr := ParseRange(r, 24*time.Hour)
+	// A week, so a member that runs once a day or less still offers its
+	// span names. Cheap: the traces table is keyed on (ServiceName,
+	// SpanName), and only those two columns are read.
+	tr := ParseRange(r, 7*24*time.Hour)
 	matched := slices.Clone(members)
 	slices.Sort(matched)
 	from := matched
