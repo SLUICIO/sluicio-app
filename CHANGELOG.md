@@ -3,8 +3,14 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.205 — 2026-11-17
+
+- feat(alerting): one way to say where a check sends (6e11a74)
+- feat(trace-completion): show the start span as the first row of the flow (fa32618)
+
 ## v0.11.204 — 2026-11-17
 
+- release v0.11.204 - refresh internal changelog (781120a)
 - fix(trace-completion): a trace is complete only when every stage is reached (0abe05c)
 - fix(trace-completion): offer every member in the stage service picker (599dc32)
 
