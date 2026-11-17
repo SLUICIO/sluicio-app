@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.206 — 2026-11-17
+
+- fix(ui): every alert blade is built like the health check editors (49bc6c7)
+
 ## v0.11.205 — 2026-11-17
 
+- release v0.11.205 - refresh internal changelog (8fa798d)
 - feat(alerting): one way to say where a check sends (6e11a74)
 - feat(trace-completion): show the start span as the first row of the flow (fa32618)
 
