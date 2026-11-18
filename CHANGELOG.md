@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.210 — 2026-11-18
+
+- fix(errors): an acknowledged check keeps its controls on one line (51750bd)
+
 ## v0.11.209 — 2026-11-18
 
+- release v0.11.209 - refresh internal changelog (d133df3)
 - test(e2e): exercise the completion dry run tool, and make the trace-link access test look where the data is (97506be)
 
 ## v0.11.208 — 2026-11-18
