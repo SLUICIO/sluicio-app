@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.209 — 2026-11-18
+
+- test(e2e): exercise the completion dry run tool, and make the trace-link access test look where the data is (97506be)
+
 ## v0.11.208 — 2026-11-18
 
+- release v0.11.208 - refresh internal changelog (139eb5c)
 - fix(errors): a delayed trace stays on the Errors tab until it is handled or arrives (2e2cd05)
 - fix(alerts): a delayed trace's alert names its environment, severity and trace, and every firing alert is listed (9ed1ec5)
 - feat(proposals): batches, completion-rule edits, a check's channels and environments, and a completion dry run (7d0321f)
