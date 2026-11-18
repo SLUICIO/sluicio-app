@@ -23,6 +23,7 @@ import { Link, useParams } from "react-router-dom";
 import { traceOnFlowHref } from "../lib/traceOnFlowHref";
 import { api } from "../api/client";
 import AlertInstanceActions from "../components/AlertInstanceActions";
+import AlertInstanceContext from "../components/AlertInstanceContext";
 import IntegrationPageHeader from "../components/IntegrationPageHeader";
 import IntegrationTabs from "../components/IntegrationTabs";
 import { integrationProblemCount } from "../lib/integrationHealth";
@@ -244,7 +245,12 @@ export default function IntegrationErrors() {
                           </span>
                         )}
                       </div>
-                      {c.summary && <div className="truncate text-xs text-muted">{c.summary}</div>}
+                      {c.summary && <div className="truncate text-xs text-muted" title={c.summary}>{c.summary}</div>}
+                      {(c.environment != null || c.trace_id) && (
+                        <div className="mt-0.5">
+                          <AlertInstanceContext environment={c.environment} traceId={c.trace_id} integrationId={id} />
+                        </div>
+                      )}
                     </div>
                     <div className="truncate text-xs">
                       {c.service_name ? (

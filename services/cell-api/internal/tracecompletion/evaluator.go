@@ -5,7 +5,6 @@ package tracecompletion
 import (
 	"context"
 	"fmt"
-	"github.com/sluicio/sluicio-app/services/cell-api/internal/cellhealth"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -13,6 +12,10 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/google/uuid"
+
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/cellhealth"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/envctx"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/store"
 )
 
 // Evaluator periodically classifies recent traces per integration rule
@@ -334,8 +337,8 @@ func (e *Evaluator) resolveStageFiring(ctx context.Context, rule Rule, fingerpri
 		timeout = stages[stage-1].TimeoutSeconds
 	}
 	summary := fmt.Sprintf(
-		"Trace %s on integration %s eventually reached stage %d (%s) at %s — delivered with delay (SLA %ds)",
-		short(traceID), rule.Name, stage, stageName, closedAt.UTC().Format(time.RFC3339), timeout,
+		"Trace %s reached stage %d of %q (%s) at %s: delivered with delay (SLA %ds)",
+		short(traceID), stage, rule.Name, stageName, closedAt.UTC().Format(time.RFC3339), timeout,
 	)
 	e.logger.Info("tracecompletion: stage delivered with delay",
 		"rule_id", rule.ID, "trace_id", traceID, "stage", stage, "closed_at", closedAt)
@@ -344,6 +347,11 @@ func (e *Evaluator) resolveStageFiring(ctx context.Context, rule Rule, fingerpri
 	}
 	return nil
 }
+
+// EnvironmentLabel is the instance label naming the environment a
+// firing is about; the same key as alerting.EnvironmentLabel, which the
+// Errors feed, the environment picker and delivery read.
+const EnvironmentLabel = "environment"
 
 // fireDelayed handles one trace delayed at a specific stage. If we've
 // already opened an instance for this (trace, stage) we just touch it
@@ -369,19 +377,34 @@ func (e *Evaluator) fireDelayed(ctx context.Context, rule Rule, c TraceClassific
 		"integration_id": rule.IntegrationID.String(),
 		"trace_id":       c.TraceID,
 		"rule_kind":      "trace_completion",
-		"stage_index":    strconv.Itoa(c.DelayedStage),
-		"stage_name":     c.DelayedStageName,
-		"start_span":     rule.Spec.StartSpanName,
-		"closing_spans":  c.DelayedStageName,
+		// What every other check's firing carries: without them the
+		// webhook went out with an empty severity and no rule name.
+		"severity":      rule.Severity,
+		"rule_name":     rule.Name,
+		"stage_index":   strconv.Itoa(c.DelayedStage),
+		"stage_name":    c.DelayedStageName,
+		"start_span":    rule.Spec.StartSpanName,
+		"closing_spans": c.DelayedStageName,
 		// started_at is the moment the breached stage's clock started
 		// (the prior stage's / start span's timestamp).
 		"started_at": c.StartedAt.UTC().Format(time.RFC3339Nano),
 	}
+	// The rule reads every environment at once, so each firing names the
+	// environment of its own trace, as a per-environment check's firing
+	// does: the Errors pages and the environment picker read it, and the
+	// trace's environment picks the notification profile.
+	if c.Environment != "" {
+		labels[EnvironmentLabel] = c.Environment
+		ctx = envctx.With(ctx, c.Environment)
+	}
 	since := time.Since(c.StartedAt).Round(time.Second)
 	summary := fmt.Sprintf(
-		"Trace %s on integration %s is delayed at stage %d: waited %s with no '%s' span",
-		short(c.TraceID), rule.Name, c.DelayedStage, since, c.DelayedStageName,
+		"Trace %s is delayed at stage %d of %q: waited %s with no '%s' span",
+		short(c.TraceID), c.DelayedStage, rule.Name, since, c.DelayedStageName,
 	)
+	if c.Environment != "" {
+		summary += " [" + envctx.Display(c.Environment) + "]"
+	}
 
 	inst, err := e.alerts.OpenInstance(ctx, rule.ID, fp, labels, summary)
 	if err != nil {
@@ -444,6 +467,9 @@ type traceAgg struct {
 	Missing  [][]SpanMatch
 	TraceMin time.Time
 	LastSpan time.Time
+	// Environment is the trace's telemetry environment, "" when its
+	// spans named none.
+	Environment string
 }
 
 // sightings is one trace's first-seen timestamp and presence of every
@@ -580,6 +606,11 @@ func (e *Evaluator) scanTraces(ctx context.Context, spec RuleSpec, services []st
 	args = appendSpanColumns(&sb, args, stages)
 	sb.WriteString(", min(Timestamp) AS trace_min")
 	sb.WriteString(", max(Timestamp) AS last_span")
+	// One trace runs in one environment; max() prefers a named one over a
+	// span that carried none. Read through the cell's environment setting
+	// (its key and aliases), as every other environment read is, so the
+	// label matches what the environment picker offers.
+	sb.WriteString(", max(" + store.EnvironmentExpr() + ") AS env")
 	fmt.Fprintf(&sb, " FROM traces WHERE Timestamp >= ? AND Timestamp <= ? AND ServiceName IN (%s)", qPlaceholders(len(services)))
 	args = append(args, from, to)
 	for _, s := range services {
@@ -607,7 +638,7 @@ func (e *Evaluator) scanTraces(ctx context.Context, spec RuleSpec, services []st
 		}
 		sp := newSightings(stages)
 		dest = append(dest, sp.dest()...)
-		dest = append(dest, &a.TraceMin, &a.LastSpan)
+		dest = append(dest, &a.TraceMin, &a.LastSpan, &a.Environment)
 		if err := rows.Scan(dest...); err != nil {
 			return nil, err
 		}
@@ -625,7 +656,7 @@ func (e *Evaluator) scanTraces(ctx context.Context, spec RuleSpec, services []st
 // must not count a trace where B1 arrived but A never did.
 func classify(spec RuleSpec, a traceAgg, now time.Time) TraceClassification {
 	stages := spec.EffectiveStages()
-	c := TraceClassification{TraceID: a.TraceID, LastSpanAt: a.LastSpan}
+	c := TraceClassification{TraceID: a.TraceID, LastSpanAt: a.LastSpan, Environment: a.Environment}
 	n := len(stages)
 	if n == 0 {
 		c.State = StatePending

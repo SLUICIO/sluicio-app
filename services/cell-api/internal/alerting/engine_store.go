@@ -522,6 +522,11 @@ type DeliveryJob struct {
 // next_attempt_at has passed, flipping them to 'running' so a second
 // worker won't pick them up (FOR UPDATE SKIP LOCKED). Delivery happens
 // after the claim, outside the lock.
+//
+// The rule's severity and name fill in for an instance whose labels lack
+// them: trace-completion firings were opened without either, and their
+// webhooks went out with an empty severity. The instance's own labels
+// win where they have them.
 func (s *Store) ClaimDueJobs(ctx context.Context, limit int) ([]DeliveryJob, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -532,7 +537,8 @@ func (s *Store) ClaimDueJobs(ctx context.Context, limit int) ([]DeliveryJob, err
 	rows, err := tx.Query(ctx, `
 		SELECT j.id, j.alert_instance_id, j.attempts, j.expires_at,
 		       c.id, c.organization_id, c.name, c.kind, c.config, c.created_at, c.updated_at,
-		       COALESCE(j.for_state::text, i.state::text), i.state, COALESCE(i.summary, ''), i.labels,
+		       COALESCE(j.for_state::text, i.state::text), i.state, COALESCE(i.summary, ''),
+		       jsonb_build_object('severity', r.severity::text, 'rule_name', r.name) || COALESCE(i.labels, '{}'::jsonb),
 		       COALESCE(r.title_template, ''), COALESCE(r.body_template, ''),
 		       COALESCE(r.signal::text, ''), COALESCE(r.rule_spec->>'kind', ''), r.integration_id,
 		       r.group_id, COALESCE(r.notification_config, '{}'::jsonb), COALESCE(r.runbook, ''),
@@ -672,7 +678,8 @@ func (s *Store) RecentInstances(ctx context.Context, orgID uuid.UUID, limit int)
 	const q = `
 		SELECT i.id, i.alert_rule_id, r.name, r.severity, i.state,
 		       i.started_at, i.ended_at, COALESCE(i.summary, ''), i.handled_at, r.group_id,
-		       COALESCE(r.service_name, ''), r.integration_id, r.system_id
+		       COALESCE(r.service_name, ''), r.integration_id, r.system_id, i.labels->>'environment',
+		       CASE WHEN i.labels->>'rule_kind' = 'trace_completion' THEN COALESCE(i.labels->>'trace_id', '') ELSE '' END
 		FROM alert_instances i
 		JOIN alert_rules r ON r.id = i.alert_rule_id
 		WHERE r.organization_id = $1
@@ -690,7 +697,7 @@ func (s *Store) RecentInstances(ctx context.Context, orgID uuid.UUID, limit int)
 		var grp uuid.NullUUID
 		var intg uuid.NullUUID
 		var sys uuid.NullUUID
-		if err := rows.Scan(&v.ID, &v.AlertRuleID, &v.RuleName, &v.Severity, &v.State, &v.StartedAt, &ended, &v.Summary, &v.HandledAt, &grp, &v.ServiceName, &intg, &sys); err != nil {
+		if err := rows.Scan(&v.ID, &v.AlertRuleID, &v.RuleName, &v.Severity, &v.State, &v.StartedAt, &ended, &v.Summary, &v.HandledAt, &grp, &v.ServiceName, &intg, &sys, &v.Environment, &v.TraceID); err != nil {
 			return nil, err
 		}
 		v.EndedAt = ended
@@ -733,6 +740,9 @@ type FiringInstance struct {
 	// Environment is the environment a per-environment instance is about
 	// (#40); nil for one about the whole scope.
 	Environment *string `json:"environment,omitempty"`
+	// TraceID is the trace a trace-completion firing is about; "" for
+	// every other kind of check.
+	TraceID string `json:"trace_id,omitempty"`
 }
 
 // InEnvironment reports whether the instance concerns env: it is about
@@ -755,7 +765,8 @@ func (s *Store) FiringInstances(ctx context.Context, orgID uuid.UUID) ([]FiringI
 	const q = `
 		SELECT i.id, r.id, r.name, r.severity, i.started_at, i.handled_at,
 		       COALESCE(i.summary, ''), COALESCE(r.service_name, ''),
-		       r.integration_id, r.system_id, r.group_id, i.labels->>'environment'
+		       r.integration_id, r.system_id, r.group_id, i.labels->>'environment',
+		       CASE WHEN i.labels->>'rule_kind' = 'trace_completion' THEN COALESCE(i.labels->>'trace_id', '') ELSE '' END
 		FROM alert_instances i
 		JOIN alert_rules r ON r.id = i.alert_rule_id
 		WHERE r.organization_id = $1 AND i.state = 'firing'
@@ -773,7 +784,7 @@ func (s *Store) FiringInstances(ctx context.Context, orgID uuid.UUID) ([]FiringI
 			sys  uuid.NullUUID
 			grp  uuid.NullUUID
 		)
-		if err := rows.Scan(&v.ID, &v.RuleID, &v.RuleName, &v.Severity, &v.StartedAt, &v.HandledAt, &v.Summary, &v.ServiceName, &intg, &sys, &grp, &v.Environment); err != nil {
+		if err := rows.Scan(&v.ID, &v.RuleID, &v.RuleName, &v.Severity, &v.StartedAt, &v.HandledAt, &v.Summary, &v.ServiceName, &intg, &sys, &grp, &v.Environment, &v.TraceID); err != nil {
 			return nil, err
 		}
 		if intg.Valid {
@@ -815,6 +826,12 @@ type InstanceView struct {
 	ServiceName   string     `json:"service_name,omitempty"`
 	IntegrationID *uuid.UUID `json:"integration_id,omitempty"`
 	SystemID      *uuid.UUID `json:"system_id,omitempty"`
+	// Environment and TraceID say which environment an alert is about and
+	// which trace a trace-completion alert waits on: one rule can fire
+	// for several of each at once, and the rule name alone cannot tell
+	// those alerts apart.
+	Environment *string `json:"environment,omitempty"`
+	TraceID     string  `json:"trace_id,omitempty"`
 }
 
 // DeliveryView is one row of the "what's been sent" history: a

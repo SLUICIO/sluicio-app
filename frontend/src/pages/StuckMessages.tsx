@@ -18,6 +18,7 @@ import { Link } from "react-router-dom";
 import { useTraceHref } from "../lib/traceHref";
 import { api } from "../api/client";
 import AlertInstanceActions from "../components/AlertInstanceActions";
+import AlertInstanceContext from "../components/AlertInstanceContext";
 import type {
   AlertInstance,
   ErrorsFeedResponse,
@@ -537,6 +538,11 @@ function CheckRow({
           {"firing "}
           {formatRelative(check.started_at)}
         </div>
+        {(check.environment != null || check.trace_id) && (
+          <div style={{ marginTop: 3 }}>
+            <AlertInstanceContext environment={check.environment} traceId={check.trace_id} integrationId={check.integration_id} />
+          </div>
+        )}
         {/* The distinguishing detail. Checks on one metric default to the
             same name, so name + condition alone render three identical
             rows; the attribute filters are what actually differ. */}

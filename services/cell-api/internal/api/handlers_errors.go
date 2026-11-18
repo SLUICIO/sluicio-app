@@ -56,6 +56,10 @@ type FailingCheck struct {
 	// Environment is the environment a per-environment check fired in
 	// (#40); absent for one about its whole scope.
 	Environment *string `json:"environment,omitempty"`
+	// TraceID is the delayed trace a trace-completion check fired for, so
+	// the row opens it rather than leaving the reader to search for the
+	// shortened id in the summary.
+	TraceID string `json:"trace_id,omitempty"`
 	// wholeService: a service-bound check that describes the service as a
 	// process (alerting.DescribesWholeService), and so speaks for every
 	// integration on it, slices included. Not on the wire: it only steers
@@ -150,6 +154,7 @@ func (h *Handlers) failingChecks(r *http.Request) ([]FailingCheck, error) {
 		}
 		fc := FailingCheck{
 			Environment: fi.Environment,
+			TraceID:     fi.TraceID,
 			ID:          fi.ID,
 			RuleID:      fi.RuleID,
 			RuleName:    fi.RuleName,

@@ -84,8 +84,9 @@ var templateVariableDocs = map[string]varDoc{
 	"exception.stacktrace": {"its stack trace, as recorded (long; cut at 16 KB at ingest)", "when exception.type is set and a stack trace was recorded"},
 
 	"message.attributes.<key>": {"what the message the alert is about carried for each key in the rule's filter (also iterable: {% for kv in message.attributes %})", "firing notifications of log, failed-trace and trace-attribute rules with a filter, when a message in scope matched it"},
-	"message.trace_id":         {"the trace that message belongs to", "when message.attributes is set"},
+	"message.trace_id":         {"the trace that message belongs to", "when message.attributes is set, and on trace-completion alerts (the delayed trace)"},
 	"message.service":          {"the service that recorded it", "when message.attributes is set"},
+	"message.link":             {"a link that opens that trace, in the alert's integration; the reader's own access applies", "when message.trace_id is set and the cell has a public URL"},
 
 	"org.company":     {"the organization's company name", "when configured"},
 	"org.environment": {"the cell's environment label", "when configured"},

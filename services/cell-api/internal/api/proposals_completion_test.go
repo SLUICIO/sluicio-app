@@ -19,7 +19,7 @@ func TestMergeCompletionRule(t *testing.T) {
 	rule := func(lookback int) tracecompletion.Rule {
 		r := tracecompletion.Rule{Name: "orders", Severity: "warning", Enabled: true, Spec: tracecompletion.RuleSpec{
 			Kind: "trace_completion", StartSpanName: "process orders",
-			Stages: []tracecompletion.Stage{{Spans: []tracecompletion.SpanMatch{{Service: "erp", SpanName: "Step.Send"}}, TimeoutSeconds: 60}},
+			Stages:          []tracecompletion.Stage{{Spans: []tracecompletion.SpanMatch{{Service: "erp", SpanName: "Step.Send"}}, TimeoutSeconds: 60}},
 			LookbackSeconds: lookback,
 		}}
 		r.Spec.Normalize()

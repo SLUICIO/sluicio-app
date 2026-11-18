@@ -177,7 +177,13 @@ func messageFromJob(ctx context.Context, job DeliveryJob, product, env, company 
 	// integration / metadata) resolved at delivery time.
 	actx := contextFromJob(job, product, env, company, link)
 	enr := resolveEnrichment(ctx, job)
-	actx.Service, actx.Integration, actx.Exception, actx.Message = enr.Service, enr.Integration, enr.Exception, enr.Message
+	actx.Service, actx.Integration, actx.Exception = enr.Service, enr.Integration, enr.Exception
+	if enr.Message != nil {
+		actx.Message = enr.Message
+	}
+	if actx.Message != nil && actx.Message.TraceID != "" && actx.Message.Link == "" {
+		actx.Message.Link = traceLink(actx.Message.TraceID, job)
+	}
 	if enr.Check != nil {
 		actx.Check = enr.Check
 	}
@@ -385,6 +391,10 @@ func contextFromJob(job DeliveryJob, product, env, company, link string) *AlertC
 	// (#40), not the cell's own (org.environment).
 	if e, ok := job.Labels[EnvironmentLabel]; ok {
 		c.Alert.Environment = envctx.Display(e)
+	}
+	// A trace-completion firing is about the one trace it names.
+	if t := job.Labels["trace_id"]; t != "" && job.Labels["rule_kind"] == "trace_completion" {
+		c.Message = &MessageFacts{TraceID: t}
 	}
 	if m := job.Labels["metric"]; m != "" || job.Labels["value"] != "" || job.Labels["threshold"] != "" {
 		c.Check = &CheckFacts{

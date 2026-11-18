@@ -108,6 +108,8 @@ var failingCheckItem = map[string]any{
 	"target_kind":      strOut("service | integration | global."),
 	"service_name":     strOut("The service it fired on, when target_kind is service."),
 	"integration_name": strOut("The integration it fired on, when target_kind is integration."),
+	"environment":      strOut("The environment it fired in, for a check read per environment or a delayed trace. Absent when it is about every environment."),
+	"trace_id":         strOut("The delayed trace a trace-completion check fired for: pass to sluicio_get_trace. Absent for other checks."),
 }
 
 var errorServiceItem = map[string]any{
@@ -414,6 +416,8 @@ var (
 			"summary":       strOut("Human-readable description of the firing condition."),
 			"started_at":    strOut("When it began firing (RFC3339)."),
 			"ended_at":      strOut("When it resolved (RFC3339). Absent while still firing."),
+			"environment":   strOut("The environment it is about. Absent when it is about every environment."),
+			"trace_id":      strOut("The delayed trace a trace-completion alert waits on: pass to sluicio_get_trace."),
 		}),
 	}, "instances")
 

@@ -371,6 +371,8 @@ type TraceClassification struct {
 	StartedAt  time.Time // baseline the breaching stage's clock ran from
 	LastSpanAt time.Time
 	State      TraceState
+	// Environment is the trace's telemetry environment ("" for none).
+	Environment string
 
 	// DelayedStage is the 1-based index of the stage the trace stalled
 	// at (0 when not delayed). DelayedStageName is a human label of that

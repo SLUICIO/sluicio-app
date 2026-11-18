@@ -116,6 +116,37 @@ test.describe("RBAC — viewer restrictions", () => {
     }
   });
 
+  // An alert's webhook links to the trace it is about, in its
+  // integration, and a link can be forwarded to anyone. Opening it is
+  // the trace read itself, so the reader's own access decides: the admin
+  // who may see it gets the trace, a viewer who may not gets what an
+  // unknown trace gets.
+  test("a trace link from an alert opens only for a reader who may see the trace", async ({ page, browser }) => {
+    const ints = (await (await page.request.get("/api/v1/integrations?range=24h")).json()).integrations ?? [];
+    let traceId = "";
+    let integId = "";
+    for (const i of stableIntegrations(ints as { id: string; name: string }[])) {
+      const res = await page.request.post("/api/v1/messages/search", {
+        data: { range: "24h", limit: 1, filters: [{ field: "integration", op: "is", value: i.name }] },
+      });
+      const hit = res.ok() ? ((await res.json()).results ?? [])[0] : undefined;
+      if (hit?.trace_id) {
+        traceId = hit.trace_id;
+        integId = i.id;
+        break;
+      }
+    }
+    test.skip(!traceId, "no integration has a message in the last 24h");
+
+    const link = `/api/v1/traces/${traceId}?integration=${integId}`;
+    expect((await page.request.get(link)).status()).toBe(200);
+
+    const viewer = await viewerContext(browser);
+    expect((await viewer.request.get(link)).status()).toBe(404);
+    await viewer.goto(`/traces/${traceId}?integration=${integId}`);
+    await expect(viewer.getByTestId("trace-not-found")).toBeVisible();
+  });
+
   test("group-less viewer sees no services (deny-by-default visibility)", async ({ browser }) => {
     const page = await viewerContext(browser);
     const res = await page.request.get("/api/v1/services");

@@ -5,6 +5,7 @@ package alerting
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -16,10 +17,27 @@ import (
 // then arrives saying documents.failed = 3 rather than only that the
 // count was breached. Resolved at delivery for a firing notification;
 // nil for a rule without a filter or when nothing in scope matched.
+//
+// A trace-completion firing is about one trace by construction, so its
+// message is that trace, with no attributes.
 type MessageFacts struct {
 	TraceID    string            `json:"trace_id,omitempty"`
 	Service    string            `json:"service,omitempty"`
 	Attributes map[string]string `json:"attributes,omitempty"`
+	// Link opens the trace, inside the alert's integration when it has
+	// one. The trace page applies the reader's own access, so a link
+	// forwarded to someone who may not see the trace shows them nothing.
+	Link string `json:"link,omitempty"`
+}
+
+// traceLink is the deep link to a trace, in the integration's slice of
+// it when the alert belongs to one. Empty without a public base URL.
+func traceLink(traceID string, job DeliveryJob) string {
+	path := "/traces/" + url.PathEscape(traceID)
+	if job.IntegrationID != nil {
+		path += "?integration=" + job.IntegrationID.String()
+	}
+	return Link(path)
 }
 
 // RuleFilter is what a rule's filter asks of a message, read from its
@@ -98,6 +116,9 @@ func (c *AlertContext) factLines() []string {
 	}
 	if c.Alert.Environment != "" {
 		out = append(out, "Environment: "+c.Alert.Environment)
+	}
+	if c.Message != nil && c.Message.Link != "" {
+		out = append(out, "Trace: "+c.Message.Link)
 	}
 	if c.Message != nil {
 		keys := make([]string, 0, len(c.Message.Attributes))

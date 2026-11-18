@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: FSL-1.1-Apache-2.0
 //
 // The Alerts surface, laid out as three columns:
-//   1. Health checks — firing now + every configured check (virtualized).
+//   1. Health checks: what is firing now, one row per alert, then every
+//      configured check (virtualized).
 //   2. Notification channels — org-wide channels/profiles, with a note on
 //      how teams configure their own under Settings → Teams.
 //   3. Sent notifications — delivery history, filtered by the top-bar time
@@ -28,6 +29,7 @@ import NotificationProfiles from "../components/NotificationProfiles";
 import SearchableSelect from "../components/SearchableSelect";
 import WebhookBodyEditor from "../components/alerts/WebhookBodyEditor";
 import VirtualInfiniteList from "../components/VirtualInfiniteList";
+import AlertInstanceContext from "../components/AlertInstanceContext";
 import { useProductName } from "../lib/useProductName";
 
 const KINDS = ["slack", "webhook", "pagerduty", "email"];
@@ -100,13 +102,14 @@ export default function Alerts() {
 
   const firing = useMemo(() => instances.filter((i) => i.state === "firing"), [instances]);
 
-  // Notification deep links carry ?instance=<id>; resolve it to the owning
-  // rule so its row can pulse (firing rows sort to the top of the list).
+  // Notification deep links carry ?instance=<id>. A firing alert pulses
+  // its own row under Firing now; one that has since resolved pulses the
+  // check it came from.
   const highlight = useInstanceHighlight();
-  const highlightRuleId = useMemo(
-    () => instances.find((i) => i.id === highlight.target)?.alert_rule_id ?? null,
-    [instances, highlight.target],
-  );
+  const highlightRuleId = useMemo(() => {
+    const inst = instances.find((i) => i.id === highlight.target);
+    return inst && inst.state !== "firing" ? inst.alert_rule_id : null;
+  }, [instances, highlight.target]);
 
   const [acting, setActing] = useState<string | null>(null);
   const actOnInstance = useCallback(
@@ -221,7 +224,7 @@ export default function Alerts() {
   // list showed only service_name, so those three rendered as three
   // identical rows — and an integration- or system-bound check showed no
   // scope at all, which is most of them.
-  const ruleScope = (rule: AlertRule): { label: string; to: string } | null => {
+  const ruleScope = (rule: ScopeRef): { label: string; to: string } | null => {
     if (rule.integration_id) return { label: integrationName(rule.integration_id), to: `/integrations/${rule.integration_id}` };
     if (rule.system_id) return { label: systemName(rule.system_id), to: `/systems/${rule.system_id}` };
     if (rule.service_name) return { label: rule.service_name, to: `/services/${encodeURIComponent(rule.service_name)}` };
@@ -305,6 +308,7 @@ export default function Alerts() {
             ruleScope={ruleScope}
             ruleSendsTo={(r) => deliveryLabel(ruleDelivery[r.id], channelName)}
             highlightRuleId={highlightRuleId}
+            highlight={highlight}
           />
         )}
         {tab === "maintenance" && (
@@ -347,6 +351,14 @@ export default function Alerts() {
 
 // ── Column 1 ───────────────────────────────────────────────────────────
 
+// What a check or an alert is bound to: the fields ruleScope reads.
+type ScopeRef = { integration_id?: string | null; system_id?: string | null; service_name?: string | null };
+
+// The list shows every check without a scrollbar of its own up to this
+// many rows; the page scrolls instead. Past it the list stays windowed.
+const CHECKS_UNSCROLLED = 40;
+const CHECK_ROW_HEIGHT = 54;
+
 function HealthChecksColumn({
   firing,
   rules,
@@ -359,6 +371,7 @@ function HealthChecksColumn({
   ruleScope,
   ruleSendsTo,
   highlightRuleId,
+  highlight,
 }: {
   firing: AlertInstance[];
   rules: AlertRule[];
@@ -368,16 +381,16 @@ function HealthChecksColumn({
   onToggle: (r: AlertRule) => void;
   onDelete: (r: { id: string; name: string }) => void;
   ruleTitle: (r: AlertRule) => string;
-  ruleScope: (r: AlertRule) => { label: string; to: string } | null;
+  ruleScope: (r: ScopeRef) => { label: string; to: string } | null;
   // Where its firings go: own channels, or the profile that routes it.
   ruleSendsTo: (r: AlertRule) => string;
   // Rule whose row should pulse — resolved from the ?instance= deep link
   // that notification emails carry.
   highlightRuleId: string | null;
+  highlight: ReturnType<typeof useInstanceHighlight>;
 }) {
   const [q, setQ] = useState("");
-  // rule id → its firing instance (if any), so a row can badge itself and
-  // carry the ack/resolve actions the old "Firing now" section used to hold.
+  // rule id → a firing instance (if any), so a check's row can badge itself.
   const firingByRule = useMemo(() => new Map(firing.map((i) => [i.alert_rule_id, i])), [firing]);
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -395,9 +408,8 @@ function HealthChecksColumn({
     return [...base].sort((a, b) => (firingByRule.has(b.id) ? 1 : 0) - (firingByRule.has(a.id) ? 1 : 0));
   }, [rules, q, firingByRule, ruleScope]);
 
-  // name | actions — actions is a right-aligned flex cell so a firing row can
-  // hold Ack/Resolve ahead of the On/Off toggle and delete without breaking
-  // the fixed grid the virtualized list shares across every row.
+  // name | actions: a right-aligned flex cell for the On/Off toggle and
+  // delete, on the fixed grid the virtualized list shares across rows.
   const grid = "minmax(0,1fr) auto";
 
   return (
@@ -407,8 +419,60 @@ function HealthChecksColumn({
         {firing.length > 0 && <span style={{ fontSize: 12, marginLeft: 6, color: "var(--err)", fontWeight: 600 }}>· {firing.length} firing</span>}
       </div>
 
-      {/* All checks: search + virtualized list. Firing checks are badged and
-          sorted to the top — there is no longer a separate section. */}
+      {/* One row per firing alert. Badging the check was not enough: a
+          check fires once per environment and a completion rule once per
+          delayed trace, and a completion rule is not in the list below at
+          all, so "3 firing" could point at rows nobody could find. */}
+      {firing.length > 0 && (
+        <div data-testid="firing-now" style={{ borderBottom: "1px solid var(--border)" }}>
+          <div className="muted" style={{ fontSize: 11.5, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.4, padding: "10px 12px 4px" }}>
+            Firing now
+          </div>
+          {firing.map((inst) => {
+            const scope = ruleScope(inst);
+            return (
+              <div
+                key={inst.id}
+                {...highlight.props(inst.id, "")}
+                data-testid="firing-alert"
+                style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", alignItems: "center", gap: 12, padding: "8px 12px", borderTop: "1px solid var(--border)" }}
+              >
+                <span style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+                  <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    <span className={`m-rule-badge sev-${inst.severity}`} style={{ marginRight: 6, fontSize: 10 }}>{inst.severity}</span>
+                    {inst.rule_name}
+                    <span className="muted" style={{ fontSize: 11.5, marginLeft: 6 }}>since {formatRelative(inst.started_at)}</span>
+                  </span>
+                  <span className="muted" style={{ minWidth: 0, display: "flex", alignItems: "center", gap: 6, fontSize: 11.5 }}>
+                    {scope && (
+                      <Link to={scope.to} style={{ color: "inherit", fontWeight: 600, flexShrink: 0 }}>
+                        {scope.label}
+                      </Link>
+                    )}
+                    <AlertInstanceContext environment={inst.environment} traceId={inst.trace_id} integrationId={inst.integration_id} />
+                    <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={inst.summary}>
+                      {inst.summary}
+                    </span>
+                  </span>
+                </span>
+                <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  {inst.handled_at ? (
+                    <span className="muted" style={{ fontSize: 11 }}>ack&rsquo;d</span>
+                  ) : canManageRule(inst.service_name) ? (
+                    <>
+                      <button className="btn btn--sm" disabled={acting === inst.id} onClick={() => onAct(inst.id, "acknowledge")} title="Being worked on: silences further notifications">Ack</button>
+                      <button className="btn btn--sm" disabled={acting === inst.id} onClick={() => onAct(inst.id, "resolve")}>Resolve</button>
+                    </>
+                  ) : null}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* All checks: search + virtualized list, firing checks badged and
+          sorted to the top. */}
       <div style={{ padding: "8px 12px 0" }}>
         <input className="search__input" style={{ width: "100%", fontSize: 13 }} placeholder="Search health checks…" value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
@@ -418,8 +482,8 @@ function HealthChecksColumn({
         loadingMore={false}
         loadMore={() => {}}
         gridTemplate={grid}
-        height={440}
-        rowHeight={54}
+        height={Math.max(3, Math.min(filtered.length, CHECKS_UNSCROLLED)) * CHECK_ROW_HEIGHT}
+        rowHeight={CHECK_ROW_HEIGHT}
         itemKey={(r) => r.id}
         rowClassName={(r) => (r.id === highlightRuleId ? "instance-highlight" : "")}
         header={<><span>Name</span><span style={{ textAlign: "right" }}>Status</span></>}
@@ -455,15 +519,9 @@ function HealthChecksColumn({
                 </span>
               </span>
               <span style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 6 }}>
-                {inst &&
-                  (inst.handled_at ? (
-                    <span className="muted" style={{ fontSize: 11 }}>ack&rsquo;d</span>
-                  ) : canManageRule(rule.service_name) ? (
-                    <>
-                      <button className="btn btn--sm" disabled={acting === inst.id} onClick={() => onAct(inst.id, "acknowledge")} title="Being worked on — silences further notifications">Ack</button>
-                      <button className="btn btn--sm" disabled={acting === inst.id} onClick={() => onAct(inst.id, "resolve")}>Resolve</button>
-                    </>
-                  ) : null)}
+                {/* Ack and Resolve live on the alert under Firing now: a
+                    check firing in two environments has two alerts, and a
+                    button here could only reach one of them. */}
                 {canManageRule(rule.service_name) ? (
                   <button className="btn btn--sm" type="button" onClick={() => onToggle(rule)} title={rule.enabled ? "Enabled — click to disable" : "Disabled — click to enable"}>
                     {rule.enabled ? "On" : "Off"}

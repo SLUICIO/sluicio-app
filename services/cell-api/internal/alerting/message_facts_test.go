@@ -3,9 +3,12 @@
 package alerting
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/google/uuid"
 )
 
 // Customers asked that an alert say which message it is about, which
@@ -83,5 +86,39 @@ func TestAServiceAlertNamesItsIntegrations(t *testing.T) {
 	body, _ := renderLiquid(DefaultEmailBody, c.bindings(NotificationContent{}))
 	if !strings.Contains(body, "Order Pipeline, Returns") {
 		t.Error("default email lacks the service's integrations")
+	}
+}
+
+// A delayed-trace webhook went out with an empty severity, no rule name,
+// no environment and only a shortened trace id in the summary, so the
+// reader copied the id and searched for it by hand.
+func TestATraceCompletionWebhookCarriesTheTrace(t *testing.T) {
+	t.Setenv("SLUICIO_APP_URL", "https://cell.example")
+	integ := uuid.New()
+	job := DeliveryJob{
+		State: "firing", Summary: "Trace 2aebb86da164 is delayed", AlertInstanceID: uuid.New(),
+		RuleSignal: "trace", RuleKind: "trace_completion", IntegrationID: &integ,
+		Labels: map[string]string{
+			"rule_kind": "trace_completion", "trace_id": "2aebb86da1640000aaaa", "environment": "prod",
+			// What ClaimDueJobs fills in from the rule.
+			"severity": "warning", "rule_name": "Send step must complete",
+		},
+	}
+	job.Channel.Kind = ChannelWebhook
+	msg := messageFromJob(context.Background(), job, "Sluicio", "", "")
+	p := msg.Payload
+	if p["severity"] != "warning" || p["environment"] != "prod" {
+		t.Errorf("severity %v, environment %v", p["severity"], p["environment"])
+	}
+	if r, ok := p["rule"].(RuleFacts); !ok || r.Name != "Send step must complete" {
+		t.Errorf("rule: %#v", p["rule"])
+	}
+	m, ok := p["message"].(*MessageFacts)
+	want := "https://cell.example/traces/2aebb86da1640000aaaa?integration=" + integ.String()
+	if !ok || m.TraceID != "2aebb86da1640000aaaa" || m.Link != want {
+		t.Fatalf("message: %#v, want the trace and %s", p["message"], want)
+	}
+	if !strings.Contains(msg.Body, "Trace: "+want) {
+		t.Errorf("plain-text body lacks the trace link:\n%s", msg.Body)
 	}
 }

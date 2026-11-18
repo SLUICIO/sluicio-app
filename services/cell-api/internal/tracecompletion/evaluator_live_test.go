@@ -20,6 +20,8 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
+
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/store"
 )
 
 func TestFanOutLive(t *testing.T) {
@@ -40,12 +42,18 @@ func TestFanOutLive(t *testing.T) {
 	now := time.Now().UTC()
 	start := now.Add(-5 * time.Minute)
 
-	batch, err := conn.PrepareBatch(ctx, "INSERT INTO traces (Timestamp, TraceId, SpanId, SpanName, ServiceName, OrganizationId)")
+	batch, err := conn.PrepareBatch(ctx, "INSERT INTO traces (Timestamp, TraceId, SpanId, SpanName, ServiceName, OrganizationId, ResourceAttributes)")
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The stuck trace runs in an environment sent as "prd", which the
+	// cell's setting maps onto "production"; the other names none.
 	add := func(trace, id, svc, name string, at time.Time) {
-		if err := batch.Append(at, trace, id, name, svc, "tcprobe"); err != nil {
+		res := map[string]string{}
+		if trace == stuck {
+			res["deployment.environment.name"] = "prd"
+		}
+		if err := batch.Append(at, trace, id, name, svc, "tcprobe", res); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -74,6 +82,8 @@ func TestFanOutLive(t *testing.T) {
 	}
 	e := &Evaluator{ch: conn}
 	services := []string{pub, erp, wms}
+	store.SetEnvironmentConfig(store.EnvironmentConfig{Aliases: map[string]string{"prd": "production"}})
+	defer store.SetEnvironmentConfig(store.EnvironmentConfig{})
 
 	aggs, err := e.scanTraces(ctx, spec, services, now.Add(-time.Hour), now)
 	if err != nil {
@@ -88,6 +98,14 @@ func TestFanOutLive(t *testing.T) {
 	}
 	if c := got[stuck]; c.State != StateDelayed || c.DelayedStage != 2 || c.DelayedStageName != wms+": Step.Send" {
 		t.Errorf("wms never delivered: %+v", c)
+	}
+	// Each delayed trace names its environment, read as every other
+	// environment read is: through the cell's aliases.
+	if c := got[stuck]; c.Environment != "production" {
+		t.Errorf("stuck trace environment %q, want production (prd mapped by the alias)", c.Environment)
+	}
+	if c := got[both]; c.Environment != "" {
+		t.Errorf("trace without an environment reads %q", c.Environment)
 	}
 
 	// A dry run sees the same: one complete, one stuck at stage 2 waiting

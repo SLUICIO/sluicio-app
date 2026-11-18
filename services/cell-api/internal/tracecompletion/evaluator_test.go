@@ -6,10 +6,13 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/envctx"
 )
 
 // fakeAlertStore records the calls fireDelayed makes so tests can assert
@@ -20,10 +23,13 @@ type fakeAlertStore struct {
 	touched    int
 	enqueued   [][]uuid.UUID
 	suppressed []uuid.UUID // window ids stamped on the opened instance
+	labels     map[string]string
+	summary    string
 }
 
 func (f *fakeAlertStore) OpenInstance(ctx context.Context, ruleID uuid.UUID, fingerprint string, labels map[string]string, summary string) (AlertInstance, error) {
 	f.opened++
+	f.labels, f.summary = labels, summary
 	return AlertInstance{ID: uuid.New()}, nil
 }
 
@@ -187,5 +193,53 @@ func TestFireDelayedRoutesThroughTheProfile(t *testing.T) {
 	}
 	if len(alerts.enqueued) != 1 || alerts.enqueued[0][0] != own {
 		t.Fatalf("enqueued = %v, want the rule's own channel", alerts.enqueued)
+	}
+}
+
+// envRecorder is a resolver that records the environment it routed for.
+type envRecorder struct {
+	env    string
+	hasEnv bool
+}
+
+func (r *envRecorder) Resolve(ctx context.Context, _ uuid.UUID, explicit []uuid.UUID, _, _ *uuid.UUID) ([]uuid.UUID, error) {
+	r.env, r.hasEnv = envctx.From(ctx)
+	return explicit, nil
+}
+
+// A firing carries what every other check's firing does (severity, rule
+// name) and the environment of its own trace, which also picks the
+// notification profile, as it does for a per-environment check.
+func TestFireDelayedNamesSeverityRuleAndEnvironment(t *testing.T) {
+	alerts := &fakeAlertStore{}
+	e := testEvaluator(alerts)
+	res := &envRecorder{}
+	e.SetChannelResolver(res)
+	rule, c := testRuleAndDelay()
+	rule.Severity = "warning"
+	c.Environment = "prod"
+
+	if err := e.fireDelayed(context.Background(), rule, c, nil); err != nil {
+		t.Fatalf("fireDelayed: %v", err)
+	}
+	l := alerts.labels
+	if l["severity"] != "warning" || l["rule_name"] != "orders" || l[EnvironmentLabel] != "prod" || l["trace_id"] != "abc123" {
+		t.Errorf("labels: %v", l)
+	}
+	if !strings.HasSuffix(alerts.summary, " [prod]") || !strings.Contains(alerts.summary, `of "orders"`) {
+		t.Errorf("summary: %q", alerts.summary)
+	}
+	if !res.hasEnv || res.env != "prod" {
+		t.Errorf("routed for environment %q (%v), want prod", res.env, res.hasEnv)
+	}
+
+	// A trace whose spans named no environment is not labelled with one.
+	alerts.labels = nil
+	c.TraceID, c.Environment = "def456", ""
+	if err := e.fireDelayed(context.Background(), rule, c, nil); err != nil {
+		t.Fatalf("fireDelayed: %v", err)
+	}
+	if _, has := alerts.labels[EnvironmentLabel]; has {
+		t.Errorf("labels: %v, want no environment", alerts.labels)
 	}
 }

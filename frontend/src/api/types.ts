@@ -152,6 +152,10 @@ export interface FailingCheck {
   // default name "<metric> alert" and differ only by these, so without
   // them the rows on the Errors feed are indistinguishable.
   attrs?: RuleAttrFilter[];
+  // The environment a per-environment check, or a delayed trace, fired in.
+  environment?: string;
+  // The trace a trace-completion check fired for.
+  trace_id?: string;
 }
 
 // OpenServiceError — a persisted, unacknowledged error: a service that has
@@ -2340,6 +2344,14 @@ export interface AlertInstance {
   summary: string;
   // Set once a user has acknowledged the alert ("being worked on").
   handled_at?: string;
+  service_name?: string;
+  integration_id?: string;
+  system_id?: string;
+  // The environment the alert is about; absent for one about every
+  // environment of its scope.
+  environment?: string;
+  // The trace a trace-completion alert waits on.
+  trace_id?: string;
 }
 
 export interface AlertPreview {

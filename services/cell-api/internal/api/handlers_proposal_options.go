@@ -183,7 +183,7 @@ func (h *Handlers) proposalOptions(w http.ResponseWriter, r *http.Request) {
 			{"kind": proposalIntegrationSetting, "target": "the integration's id", "fields": settings,
 				"about": "Change an integration's settings. Each field replaces the whole value, in the shape its route takes: matchers as PUT /matchers, sources as PUT /sources, declared_environments a list of names, notify_unacknowledged_errors true or false."},
 		},
-		"batch": "POST /api/v1/proposals/batch takes {rationale, items: [{target_kind, target_id, changes}]}: up to 100 proposals of the kinds above, filed together and approved as one. Every item is checked when filed, and a batch with one invalid item is refused whole. One item per target.",
+		"batch":      "POST /api/v1/proposals/batch takes {rationale, items: [{target_kind, target_id, changes}]}: up to 100 proposals of the kinds above, filed together and approved as one. Every item is checked when filed, and a batch with one invalid item is refused whole. One item per target.",
 		"severities": []string{string(alerting.SeverityInfo), string(alerting.SeverityWarning), string(alerting.SeverityCritical)},
 		"check_types": []map[string]any{
 			{
