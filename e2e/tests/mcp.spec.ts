@@ -225,6 +225,13 @@ test.describe("MCP — declared output schemas match the cell", () => {
       sluicio_backtest_rule: { rule_id: ruleId, days: 1 },
       sluicio_list_completion_rules: { integration_id: integrations[0].id },
       sluicio_delayed_messages: { integration_id: integrations[0].id },
+      // A draft whose spans no trace carries: it follows nothing, which
+      // is still a payload the schema must describe.
+      sluicio_dry_run_completion_rule: {
+        integration_id: integrations[0].id,
+        rule: { name: "e2e dry run", start_span_name: "e2e.start", stages: [{ spans: [{ span_name: "e2e.end" }], timeout_seconds: 60 }] },
+        hours: 1,
+      },
       sluicio_span_names: { integration_id: integrations[0].id },
       sluicio_metric_label_values: { key: "service.name", metric: metrics?.[0]?.name ?? "queue.depth" },
     };

@@ -122,12 +122,14 @@ test.describe("RBAC — viewer restrictions", () => {
   // who may see it gets the trace, a viewer who may not gets what an
   // unknown trace gets.
   test("a trace link from an alert opens only for a reader who may see the trace", async ({ page, browser }) => {
-    const ints = (await (await page.request.get("/api/v1/integrations?range=24h")).json()).integrations ?? [];
+    // The synthetic estate's messages are spread over the past days, so
+    // look back a week, as the MCP spec does.
+    const ints = (await (await page.request.get("/api/v1/integrations?range=7d")).json()).integrations ?? [];
     let traceId = "";
     let integId = "";
     for (const i of stableIntegrations(ints as { id: string; name: string }[])) {
       const res = await page.request.post("/api/v1/messages/search", {
-        data: { range: "24h", limit: 1, filters: [{ field: "integration", op: "is", value: i.name }] },
+        data: { range: "7d", limit: 1, filters: [{ field: "integration", op: "is", value: i.name }] },
       });
       const hit = res.ok() ? ((await res.json()).results ?? [])[0] : undefined;
       if (hit?.trace_id) {
@@ -136,7 +138,9 @@ test.describe("RBAC — viewer restrictions", () => {
         break;
       }
     }
-    test.skip(!traceId, "no integration has a message in the last 24h");
+    // Failed rather than skipped: a skipped test stops proving anything,
+    // and this one did, silently, on its first run.
+    expect(traceId, "no integration has a message in the last 7 days").toBeTruthy();
 
     const link = `/api/v1/traces/${traceId}?integration=${integId}`;
     expect((await page.request.get(link)).status()).toBe(200);
