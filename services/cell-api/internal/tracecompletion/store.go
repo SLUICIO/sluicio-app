@@ -378,6 +378,48 @@ type Firing struct {
 	// names the span(s) it had not reached when it fired.
 	Stage      int
 	WaitingFor string
+	// Environment is the environment of the delayed trace; nil for a
+	// firing opened before firings named one.
+	Environment *string
+}
+
+// firingCols and scanFirings are the shape every firing read returns.
+const firingCols = `
+		    i.id, r.id, r.name, r.integration_id, r.severity::text,
+		    i.fingerprint, i.state::text,
+		    i.started_at, i.last_evaluated_at, i.ended_at,
+		    COALESCE(i.summary, ''),
+		    i.labels->>'started_at' AS trace_started_at,
+		    i.handled_at,
+		    COALESCE(i.labels->>'stage_name', ''),
+		    i.labels->>'environment'`
+
+func scanFirings(rows pgx.Rows) ([]Firing, error) {
+	defer rows.Close()
+	out := make([]Firing, 0)
+	for rows.Next() {
+		var f Firing
+		var traceStarted *string
+		if err := rows.Scan(
+			&f.InstanceID, &f.RuleID, &f.RuleName, &f.IntegrationID, &f.Severity,
+			&f.TraceID, &f.State,
+			&f.StartedAt, &f.LastEvaluatedAt, &f.EndedAt,
+			&f.Summary, &traceStarted, &f.HandledAt, &f.WaitingFor, &f.Environment,
+		); err != nil {
+			return nil, err
+		}
+		if traceStarted != nil && *traceStarted != "" {
+			if t, err := time.Parse(time.RFC3339Nano, *traceStarted); err == nil {
+				f.TraceStartedAt = &t
+			}
+		}
+		// fingerprint is the bare trace_id for legacy firings and
+		// trace_id#stage for multi-stage ones; the wire/UI TraceID is
+		// always the bare id.
+		f.TraceID, f.Stage = parseFingerprint(f.TraceID)
+		out = append(out, f)
+	}
+	return out, rows.Err()
 }
 
 // ListFirings returns alert_instances for any trace-completion rule on
@@ -390,15 +432,7 @@ func (s *Store) ListFirings(ctx context.Context, orgID, integrationID uuid.UUID,
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
-	const q = `
-		SELECT
-		    i.id, r.id, r.name, r.integration_id, r.severity::text,
-		    i.fingerprint, i.state::text,
-		    i.started_at, i.last_evaluated_at, i.ended_at,
-		    COALESCE(i.summary, ''),
-		    i.labels->>'started_at' AS trace_started_at,
-		    i.handled_at,
-		    COALESCE(i.labels->>'stage_name', '')
+	q := `SELECT` + firingCols + `
 		FROM alert_instances i
 		JOIN alert_rules r ON r.id = i.alert_rule_id
 		WHERE r.organization_id = $1
@@ -412,31 +446,34 @@ func (s *Store) ListFirings(ctx context.Context, orgID, integrationID uuid.UUID,
 	if err != nil {
 		return nil, fmt.Errorf("tracecompletion: list firings: %w", err)
 	}
-	defer rows.Close()
-	out := make([]Firing, 0)
-	for rows.Next() {
-		var f Firing
-		var traceStarted *string
-		if err := rows.Scan(
-			&f.InstanceID, &f.RuleID, &f.RuleName, &f.IntegrationID, &f.Severity,
-			&f.TraceID, &f.State,
-			&f.StartedAt, &f.LastEvaluatedAt, &f.EndedAt,
-			&f.Summary, &traceStarted, &f.HandledAt, &f.WaitingFor,
-		); err != nil {
-			return nil, err
-		}
-		if traceStarted != nil && *traceStarted != "" {
-			if t, err := time.Parse(time.RFC3339Nano, *traceStarted); err == nil {
-				f.TraceStartedAt = &t
-			}
-		}
-		// fingerprint is the bare trace_id for legacy firings and
-		// trace_id#stage for multi-stage ones; the wire/UI TraceID is
-		// always the bare id.
-		f.TraceID, f.Stage = parseFingerprint(f.TraceID)
-		out = append(out, f)
+	return scanFirings(rows)
+}
+
+// ListOpenFirings returns the integration's delayed traces that are
+// still open, however long ago they fired, newest first. The Errors tab
+// reads these: a delay stays on it until it is handled or delivered, as
+// a failing check or an unacknowledged error does, where the windowed
+// list dropped a trace that fired before the window and showed nothing
+// beside the check still firing for it.
+func (s *Store) ListOpenFirings(ctx context.Context, orgID, integrationID uuid.UUID, limit int) ([]Firing, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 100
 	}
-	return out, rows.Err()
+	q := `SELECT` + firingCols + `
+		FROM alert_instances i
+		JOIN alert_rules r ON r.id = i.alert_rule_id
+		WHERE r.organization_id = $1
+		  AND r.integration_id = $2
+		  AND r.signal = 'trace'
+		  AND COALESCE(r.rule_spec->>'kind', '') IN ('', 'trace_completion')
+		  AND i.state = 'firing'
+		ORDER BY i.started_at DESC
+		LIMIT $3`
+	rows, err := s.pool.Query(ctx, q, orgID, integrationID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("tracecompletion: list open firings: %w", err)
+	}
+	return scanFirings(rows)
 }
 
 // ListFiringsForTrace returns alert_instances opened on a specific
@@ -448,15 +485,7 @@ func (s *Store) ListFirings(ctx context.Context, orgID, integrationID uuid.UUID,
 // Scoped by org so a leaked trace_id can't surface firings from
 // another tenant.
 func (s *Store) ListFiringsForTrace(ctx context.Context, orgID uuid.UUID, traceID string) ([]Firing, error) {
-	const q = `
-		SELECT
-		    i.id, r.id, r.name, r.integration_id, r.severity::text,
-		    i.fingerprint, i.state::text,
-		    i.started_at, i.last_evaluated_at, i.ended_at,
-		    COALESCE(i.summary, ''),
-		    i.labels->>'started_at' AS trace_started_at,
-		    i.handled_at,
-		    COALESCE(i.labels->>'stage_name', '')
+	q := `SELECT` + firingCols + `
 		FROM alert_instances i
 		JOIN alert_rules r ON r.id = i.alert_rule_id
 		WHERE r.organization_id = $1
@@ -468,31 +497,7 @@ func (s *Store) ListFiringsForTrace(ctx context.Context, orgID uuid.UUID, traceI
 	if err != nil {
 		return nil, fmt.Errorf("tracecompletion: list firings for trace: %w", err)
 	}
-	defer rows.Close()
-	out := make([]Firing, 0)
-	for rows.Next() {
-		var f Firing
-		var traceStarted *string
-		if err := rows.Scan(
-			&f.InstanceID, &f.RuleID, &f.RuleName, &f.IntegrationID, &f.Severity,
-			&f.TraceID, &f.State,
-			&f.StartedAt, &f.LastEvaluatedAt, &f.EndedAt,
-			&f.Summary, &traceStarted, &f.HandledAt, &f.WaitingFor,
-		); err != nil {
-			return nil, err
-		}
-		if traceStarted != nil && *traceStarted != "" {
-			if t, err := time.Parse(time.RFC3339Nano, *traceStarted); err == nil {
-				f.TraceStartedAt = &t
-			}
-		}
-		// fingerprint is the bare trace_id for legacy firings and
-		// trace_id#stage for multi-stage ones; the wire/UI TraceID is
-		// always the bare id.
-		f.TraceID, f.Stage = parseFingerprint(f.TraceID)
-		out = append(out, f)
-	}
-	return out, rows.Err()
+	return scanFirings(rows)
 }
 
 // OpenFiring identifies one still-open (state='firing') alert_instance

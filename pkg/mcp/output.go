@@ -699,6 +699,7 @@ var (
 			"ended_at":         strOut("When the missing span arrived, if it did (RFC3339)."),
 			"handled_at":       strOut("When someone marked it handled (RFC3339)."),
 			"summary":          strOut("Human-readable description."),
+			"environment":      strOut("The environment of the delayed message. Absent on firings from before v0.11.208."),
 		}),
 	}, "firings")
 

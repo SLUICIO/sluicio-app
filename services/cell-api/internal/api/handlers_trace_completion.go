@@ -13,6 +13,7 @@ import (
 
 	"github.com/sluicio/sluicio-app/pkg/httpserver"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/api/middleware"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/envctx"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/proposals"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/tracecompletion"
 )
@@ -283,6 +284,9 @@ type completionFiringResponse struct {
 	// it had not reached.
 	Stage      int    `json:"stage"`
 	WaitingFor string `json:"waiting_for,omitempty"`
+	// Environment is the delayed trace's environment; absent for a
+	// firing opened before firings named one.
+	Environment *string `json:"environment,omitempty"`
 }
 
 // firingToResponse converts a tracecompletion.Firing into the wire
@@ -302,6 +306,7 @@ func firingToResponse(f tracecompletion.Firing) completionFiringResponse {
 		Summary:         f.Summary,
 		Stage:           f.Stage,
 		WaitingFor:      f.WaitingFor,
+		Environment:     f.Environment,
 	}
 	if f.EndedAt != nil {
 		s := f.EndedAt.UTC().Format("2006-01-02T15:04:05Z")
@@ -333,8 +338,17 @@ func (h *Handlers) listCompletionFirings(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	orgID := middleware.OrgID(r)
-	tr := ParseRange(r, time.Hour)
-	firings, err := h.TraceCompletion.ListFirings(r.Context(), orgID, integID, tr.From, tr.To, 200)
+	// ?open=1: every delayed trace still open, however long ago it
+	// fired, for the Errors tab; otherwise the firings the window saw.
+	open := r.URL.Query().Get("open") == "1"
+	var firings []tracecompletion.Firing
+	var err error
+	if open {
+		firings, err = h.TraceCompletion.ListOpenFirings(r.Context(), orgID, integID, 200)
+	} else {
+		tr := ParseRange(r, time.Hour)
+		firings, err = h.TraceCompletion.ListFirings(r.Context(), orgID, integID, tr.From, tr.To, 200)
+	}
 	if err != nil {
 		h.Logger.Error("list completion firings", "err", err, "integration_id", integID)
 		httpserver.WriteError(w, http.StatusInternalServerError, "query failed")
@@ -342,6 +356,11 @@ func (h *Handlers) listCompletionFirings(w http.ResponseWriter, r *http.Request)
 	}
 	out := make([]completionFiringResponse, 0, len(firings))
 	for _, f := range firings {
+		// Read in some environments, a delayed trace of another one is
+		// left out, as the Errors feed leaves out its alert.
+		if f.Environment != nil && !envctx.In(r.Context(), *f.Environment) {
+			continue
+		}
 		out = append(out, firingToResponse(f))
 	}
 	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"firings": out})

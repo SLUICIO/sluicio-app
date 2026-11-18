@@ -104,14 +104,19 @@ func configTools(s *Server) []tool {
 			Description: "The messages an integration's trace-completion rules flagged as delayed: trace id, the rule, the stage the message is stuck at and the span(s) it is still waiting for, when the stage's clock started, and whether it later arrived (resolved, delivered with delay) or was marked handled. Pass a trace id to sluicio_get_trace to see where it stopped.",
 			Schema: objSchema(map[string]any{
 				"integration_id": strProp("The integration id (uuid)."),
-				"window":         strProp("How far back, e.g. 24h, 7d. Default 7d."),
+				"window":         strProp("How far back, e.g. 24h, 7d. Default 7d. Ignored with open."),
+				"open":           map[string]any{"type": "boolean", "description": "Only the messages still delayed, however long ago they were flagged: what is stuck right now. Default false."},
 			}, "integration_id"),
 			Call: func(a map[string]any) (string, error) {
 				id := argStr(a, "integration_id")
 				if id == "" {
 					return "", fmt.Errorf("integration_id is required")
 				}
-				return s.get("/api/v1/integrations/"+url.PathEscape(id)+"/completion-firings", rangeArg(a, "7d"))
+				q := rangeArg(a, "7d")
+				if argBool(a, "open", false) {
+					q = url.Values{"open": {"1"}}
+				}
+				return s.get("/api/v1/integrations/"+url.PathEscape(id)+"/completion-firings", q)
 			}},
 		{Name: "sluicio_list_notification_channels", Output: notificationRoutingOut,
 			Description: "Where notifications go: the channels (id, name, kind, the destination host of a webhook or Slack channel, the number of e-mail recipients, recent delivery failures) and the notification profiles that route to them. Credentials, URLs and addresses are not returned. A check with channel_ids sends to those; one without them uses the first profile that applies to the firing's environment: its integration's, then its team's default, then the org default. Trace-completion rules route the same way.",

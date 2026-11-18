@@ -10,7 +10,9 @@
 //      on one of the integration's services (or the integration itself).
 //   2. Failed traces        — traces that carry an error span.
 //   3. Delayed traces       — traces that missed a trace-completion SLA
-//      (an open firing).
+//      (an open firing). Like failing checks and unacknowledged errors
+//      they are current state: listed until handled or delivered,
+//      whatever the time window.
 //
 // Each is its own section with a count, drill-downs (a check → its
 // service; a trace → the trace blade), and an all-clear empty state.
@@ -76,7 +78,7 @@ export default function IntegrationErrors() {
 
   usePageTitle(detail ? `${detail.integration.name} · Errors` : "Integration errors");
 
-  // The integration detail + its delayed-trace firings only need the id.
+  // The integration detail + its open delayed traces only need the id.
   useEffect(() => {
     if (!id) return;
     let cancelled = false;
@@ -88,7 +90,7 @@ export default function IntegrationErrors() {
       .catch((e) => !cancelled && setError(String(e.message ?? e)))
       .finally(() => !cancelled && setLoading(false));
     api
-      .listCompletionFirings(id, windowVal)
+      .listOpenCompletionFirings(id)
       .then((r) => !cancelled && setFirings(r.firings ?? []))
       .catch(() => {
         /* non-fatal: section just shows nothing */
@@ -147,7 +149,7 @@ export default function IntegrationErrors() {
   // per trace keeping the highest severity + earliest start.
   const delayed = useMemo(() => {
     const rank = (s: string) => (s === "critical" ? 3 : s === "warning" ? 2 : s === "info" ? 1 : 0);
-    const byTrace = new Map<string, { traceId: string; rule: string; severity: Severity; since: string }>();
+    const byTrace = new Map<string, { traceId: string; rule: string; severity: Severity; since: string; environment?: string }>();
     for (const f of firings) {
       if (f.state !== "firing" || f.handled_at) continue;
       const prev = byTrace.get(f.trace_id);
@@ -157,6 +159,7 @@ export default function IntegrationErrors() {
           rule: f.rule_name,
           severity: f.severity,
           since: f.started_at,
+          environment: f.environment,
         });
       }
     }
@@ -165,8 +168,11 @@ export default function IntegrationErrors() {
 
   // Headline counts: server-computed window totals where we have them, so
   // the section count is accurate even when the preview list is capped.
+  // Delayed traces are the open ones, not the window's: the window's
+  // count read 0 beside the checks still firing for traces delayed
+  // before it began.
   const failedCount = detail?.error_message_count ?? 0;
-  const delayedCount = detail?.delayed_message_count ?? delayed.length;
+  const delayedCount = delayed.length;
   const checksCount = checks.length;
   const openCount = openErrors.length;
   const allClear = checksCount === 0 && openCount === 0 && failedCount === 0 && delayedCount === 0;
@@ -356,7 +362,7 @@ export default function IntegrationErrors() {
               <Section
                 title="Delayed traces"
                 count={delayedCount}
-                subtitle="Traces that breached a trace-completion SLA and haven't been handled."
+                subtitle="Traces that breached a trace-completion SLA. They stay here, whatever the time window, until they are handled or the missing span arrives."
                 empty="No delayed messages."
                 footer={
                   delayedCount > 0 ? (
@@ -390,7 +396,10 @@ export default function IntegrationErrors() {
                       <span className="truncate font-mono text-xs" style={{ color: "var(--primary)" }}>
                         {d.traceId.slice(0, 16)}…
                       </span>
-                      <span className="truncate text-muted">{d.rule}</span>
+                      <span className="flex min-w-0 items-center gap-2">
+                        <span className="truncate text-muted">{d.rule}</span>
+                        <AlertInstanceContext environment={d.environment} />
+                      </span>
                       <span className="text-right text-xs text-muted">since {formatRelative(d.since)}</span>
                     </button>
                     <Link
@@ -403,11 +412,6 @@ export default function IntegrationErrors() {
                     </Link>
                   </div>
                 ))}
-                {delayedCount > 0 && delayed.length === 0 && (
-                  <div className="px-4 py-3 text-sm text-muted">
-                    {formatNumber(delayedCount)} delayed message{delayedCount === 1 ? "" : "s"} in this window — view them on the Messages tab.
-                  </div>
-                )}
               </Section>
             </>
           )}

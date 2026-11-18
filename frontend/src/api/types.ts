@@ -2554,6 +2554,9 @@ export interface TraceCompletionFiring {
   // message was manually resent). A handled firing no longer counts as
   // delayed and is rendered benign (not warning/error).
   handled_at?: string;
+  // The delayed trace's environment; absent on firings opened before
+  // firings named one.
+  environment?: string;
 }
 
 // Cell-wide settings — telemetry retention today, more knobs as they

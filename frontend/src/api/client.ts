@@ -1439,6 +1439,11 @@ export const api = {
     get<{ firings: TraceCompletionFiring[] }>(
       `/integrations/${encodeURIComponent(integrationID)}/completion-firings?range=${encodeURIComponent(window)}`,
     ),
+  // The delayed traces still open, however long ago they fired.
+  listOpenCompletionFirings: (integrationID: string) =>
+    get<{ firings: TraceCompletionFiring[] }>(
+      `/integrations/${encodeURIComponent(integrationID)}/completion-firings?open=1`,
+    ),
   // Per-trace lookup — drives the trace-level StatusPip (warn/err)
   // on the TraceDetail header. Returns ALL firings (any state)
   // matching this trace_id across rules in the org.
