@@ -3,8 +3,15 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.208 — 2026-11-18
+
+- fix(errors): a delayed trace stays on the Errors tab until it is handled or arrives (2e2cd05)
+- fix(alerts): a delayed trace's alert names its environment, severity and trace, and every firing alert is listed (9ed1ec5)
+- feat(proposals): batches, completion-rule edits, a check's channels and environments, and a completion dry run (7d0321f)
+
 ## v0.11.207 — 2026-11-17
 
+- release v0.11.207 - refresh internal changelog (4a7ab1c)
 - fix(environments): the environment chosen follows you through the menus (09ef2a5)
 
 ## v0.11.206 — 2026-11-17
