@@ -561,27 +561,34 @@ function CheckRow({
           </div>
         )}
       </div>
-      {check.handled_at && (
-        <span className="m-rule-badge" title={`Acknowledged ${formatRelative(check.handled_at)}`}>
-          acknowledged
-        </span>
-      )}
-      <span className={`m-rule-badge sev-${check.severity}`}>{check.severity}</span>
-      <Link
-        to={checkEditHref(check)}
-        className="m-ex-tgt"
-        title="Open where this check is defined, to edit or disable it"
-      >
-        edit
-      </Link>
-      {canWrite && (
-        <AlertInstanceActions
-          instanceId={check.id}
-          acknowledged={!!check.handled_at}
-          onChanged={onChanged}
-          onError={onError}
-        />
-      )}
+      {/* One cell for everything after the text: an acknowledged check
+          carries one badge more than the grid has columns, and the extra
+          items wrapped onto a second line with "edit" squeezed into the
+          4px bar column. */}
+      <div className="m-ex-actions" style={{ gridColumn: "3 / -1" }}>
+        {check.handled_at && (
+          <span className="m-rule-badge" title={`Acknowledged ${formatRelative(check.handled_at)}`}>
+            acknowledged
+          </span>
+        )}
+        <span className={`m-rule-badge sev-${check.severity}`}>{check.severity}</span>
+        <Link
+          to={checkEditHref(check)}
+          className="m-ex-tgt"
+          style={{ marginRight: 0 }}
+          title="Open where this check is defined, to edit or disable it"
+        >
+          edit
+        </Link>
+        {canWrite && (
+          <AlertInstanceActions
+            instanceId={check.id}
+            acknowledged={!!check.handled_at}
+            onChanged={onChanged}
+            onError={onError}
+          />
+        )}
+      </div>
     </div>
   );
 }
