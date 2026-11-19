@@ -17,7 +17,11 @@
 // cross-origin caller cannot ride the user's session cookie.
 
 import { test, expect, type APIRequestContext } from "@playwright/test";
+import crypto from "node:crypto";
 import { logIn } from "./fixtures";
+import { encodeTraceExport } from "./otlp";
+
+const INGEST_URL = process.env.E2E_INGEST_URL || "http://localhost:4318";
 
 type Schema = Record<string, any>;
 
@@ -338,6 +342,98 @@ test.describe("MCP — declared output schemas match the cell", () => {
       });
     } finally {
       await admin.delete(`/api/v1/alert-rules/${ruleId}`).catch(() => {});
+    }
+  });
+});
+
+// A question about one business object, asked the way people ask it:
+// "everything that happened to invoice 123", where the telemetry calls
+// the invoice iId and only the integration's Messages view calls it
+// Invoice Id. Before this an agent could only page through the latest
+// traces and read every span.
+test.describe("MCP — trace questions by attribute, in the integration's words", () => {
+  test("a column label finds the invoice, labels its values and brings its spans", async ({ page, request }) => {
+    test.setTimeout(150_000);
+    await logIn(page);
+    const admin = page.request;
+    const token = await mintAdminToken(admin);
+    const stamp = Date.now().toString(36);
+    const service = `e2e-invoice-${stamp}`;
+    const invoice = `INV-${stamp}`;
+    const traceId = crypto.randomBytes(16).toString("hex");
+
+    const keyRes = await admin.post("/api/v1/ingest-keys", { data: { name: `e2e-invoice-${stamp}` }, failOnStatusCode: false });
+    expect(keyRes.ok(), `could not mint an ingest key (${keyRes.status()})`).toBeTruthy();
+    const key = (await keyRes.json()).key as string;
+    // Two steps of one message carry the invoice; a second message
+    // carries another one and must not be returned.
+    const sent = await admin.post(`${INGEST_URL}/v1/traces`, {
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/x-protobuf" },
+      data: encodeTraceExport(service, [
+        { name: "invoice.receive", traceId, attrs: { "e2e.iId": invoice } },
+        { name: "invoice.post", traceId, attrs: { "e2e.iId": invoice } },
+        { name: "invoice.receive", attrs: { "e2e.iId": `${invoice}-other` } },
+      ]),
+      failOnStatusCode: false,
+    });
+    expect(sent.ok(), `ingest failed: ${sent.status()}`).toBeTruthy();
+
+    const mk = await admin.post("/api/v1/integrations", {
+      data: {
+        slug: `invoices-${stamp}`,
+        name: `Invoices ${stamp}`,
+        matchers: [{ attribute: "service.name", operator: "equals", value: service }],
+      },
+    });
+    expect(mk.ok(), `creating the integration failed: ${mk.status()}`).toBeTruthy();
+    const integId = (await mk.json()).integration.id as string;
+
+    try {
+      const cols = await admin.put(`/api/v1/integrations/${integId}/message-columns`, {
+        data: { columns: [{ kind: "attribute", key: "e2e.iId", label: "Invoice Id" }] },
+      });
+      expect(cols.ok(), `saving the columns failed: ${cols.status()}`).toBeTruthy();
+
+      const { tools } = await rpc(request, token, "tools/list");
+      const schemaOf = (name: string) => tools.find((t: { name: string }) => t.name === name).outputSchema;
+
+      // Ingest and membership both land asynchronously.
+      let found: any;
+      await expect
+        .poll(
+          async () => {
+            const res = await callTool(request, token, "sluicio_search_traces", {
+              integration: `invoices-${stamp}`,
+              attributes: [{ key: "Invoice Id", value: invoice }],
+              include_spans: true,
+              window: "1h",
+            });
+            found = res.structuredContent;
+            return found?.results?.length ?? 0;
+          },
+          { timeout: 90_000 },
+        )
+        .toBe(1);
+
+      expect(found.resolved_attributes).toEqual([{ given: "Invoice Id", key: "e2e.iId" }]);
+      const hit = found.results[0];
+      expect(hit.trace_id).toBe(traceId);
+      expect(hit.columns?.["Invoice Id"]).toBe(invoice);
+      expect(found.spans_included).toBe(1);
+      expect((hit.spans ?? []).map((sp: { span_name: string }) => sp.span_name).sort()).toEqual(["invoice.post", "invoice.receive"]);
+
+      const trace = (await callTool(request, token, "sluicio_get_trace", { trace_id: traceId, integration: integId })).structuredContent;
+      expect(trace.attribute_labels?.["e2e.iId"]).toBe("Invoice Id");
+
+      const problems: string[] = [];
+      validate("sluicio_search_traces", schemaOf("sluicio_search_traces"), found, problems);
+      validate("sluicio_get_trace", schemaOf("sluicio_get_trace"), trace, problems);
+      const integ = (await callTool(request, token, "sluicio_get_integration", { id: integId })).structuredContent;
+      expect(integ.integration?.message_columns?.[0]?.label).toBe("Invoice Id");
+      validate("sluicio_get_integration", schemaOf("sluicio_get_integration"), integ, problems);
+      expect(problems).toEqual([]);
+    } finally {
+      await admin.delete(`/api/v1/integrations/${integId}`);
     }
   });
 });

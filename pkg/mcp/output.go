@@ -334,7 +334,16 @@ var (
 	}, "series")
 
 	searchTracesOut = outSchema(map[string]any{
+		"message_columns": arrOf("The columns the results were read with, in order: an integration's own, or the defaults.", messageColumnItem),
+		"resolved_attributes": arrOf("Attribute keys given as a column label, and the key each was searched as.", map[string]any{
+			"given": strOut("What the call named the attribute, e.g. Invoice Id."),
+			"key":   strOut("The attribute key searched, e.g. iId."),
+		}),
+		"spans_included": intOut("How many results carry their spans, with include_spans."),
 		"results": arrOf("Matching traces. Drill in with sluicio_get_trace.", map[string]any{
+			"columns":           objOf("The message's column values under the column labels, e.g. Invoice Id: 123, as the Messages view shows them.", nil),
+			"promoted":          objOf("The same values keyed by attribute key.", nil),
+			"spans":             arrOf("With include_spans, every span of the trace (the integration's slice of it when one was given).", spanItem),
 			"trace_id":          strOut("Trace id (hex) — pass to sluicio_get_trace."),
 			"trace_start":       strOut("When the trace started (RFC3339)."),
 			"duration_ms":       numOut("End-to-end duration in milliseconds."),
@@ -355,6 +364,7 @@ var (
 		"integration": objOf("The integration itself.", map[string]any{
 			"id": strOut("Integration id (uuid)."), "name": strOut("Display name."),
 			"slug": strOut("Stable slug."), "description": strOut("Free-text description."),
+			"message_columns": arrOf("The columns of its Messages view: which attributes it shows and what it calls them. A label can be used as an attribute key in sluicio_search_traces. Empty means the default columns.", messageColumnItem),
 		}),
 		"services": arrOf("Member services with per-service stats over the window.", serviceSummaryItem),
 		"matchers": arrOf("The rules that attach services to this integration.", map[string]any{
@@ -450,25 +460,9 @@ var (
 	}, "metrics", "logs", "traces")
 
 	getTraceOut = outSchema(map[string]any{
-		"trace_id": strOut("The trace id queried."),
-		"spans": arrOf("Every span in the trace, across services.", map[string]any{
-			"span_id":             strOut("Span id (hex)."),
-			"span_name":           strOut("Operation name."),
-			"span_kind":           strOut("OTel span kind: server, client, producer, consumer, internal."),
-			"service_name":        strOut("The service that emitted the span."),
-			"timestamp":           strOut("Span start (RFC3339)."),
-			"duration_ms":         numOut("Span duration in milliseconds."),
-			"status_code":         strOut("OTel status: unset, ok or error."),
-			"status_message":      strOut("Error detail when the span failed."),
-			"span_attributes":     objOf("Span-level attributes.", nil),
-			"resource_attributes": objOf("Resource-level attributes.", nil),
-			"events": arrOf("What the span recorded while it ran, oldest first. An event named 'exception' carries exception.type, exception.message and exception.stacktrace: read it first when a span failed. Long values may end in a '[truncated]' marker. Absent when none were stored.", map[string]any{
-				"timestamp":  strOut("When the event happened (RFC3339)."),
-				"name":       strOut("Event name; 'exception' for a recorded exception."),
-				"attributes": objOf("The event's attributes.", nil),
-			}),
-			"events_total": intOut("Events the span carried before truncation at ingest. More than len(events) means some were dropped."),
-		}),
+		"trace_id":         strOut("The trace id queried."),
+		"spans":            arrOf("Every span in the trace, across services.", spanItem),
+		"attribute_labels": objOf("With an integration: its Messages view's label for each attribute key it shows as a column, e.g. iId: Invoice Id. Use the labels when explaining the trace.", nil),
 	}, "trace_id", "spans")
 
 	advisorOut = outSchema(map[string]any{
@@ -765,3 +759,31 @@ var (
 		"notification_profiles": arrOf("Notification profiles.", nil),
 	}, "proposal_kinds")
 )
+
+// spanItem is one span as sluicio_get_trace returns it, shared with the
+// spans sluicio_search_traces attaches.
+var spanItem = map[string]any{
+	"span_id":             strOut("Span id (hex)."),
+	"span_name":           strOut("Operation name."),
+	"span_kind":           strOut("OTel span kind: server, client, producer, consumer, internal."),
+	"service_name":        strOut("The service that emitted the span."),
+	"timestamp":           strOut("Span start (RFC3339)."),
+	"duration_ms":         numOut("Span duration in milliseconds."),
+	"status_code":         strOut("OTel status: unset, ok or error."),
+	"status_message":      strOut("Error detail when the span failed."),
+	"span_attributes":     objOf("Span-level attributes.", nil),
+	"resource_attributes": objOf("Resource-level attributes.", nil),
+	"events": arrOf("What the span recorded while it ran, oldest first. An event named 'exception' carries exception.type, exception.message and exception.stacktrace: read it first when a span failed. Long values may end in a '[truncated]' marker. Absent when none were stored.", map[string]any{
+		"timestamp":  strOut("When the event happened (RFC3339)."),
+		"name":       strOut("Event name; 'exception' for a recorded exception."),
+		"attributes": objOf("The event's attributes.", nil),
+	}),
+	"events_total": intOut("Events the span carried before truncation at ingest. More than len(events) means some were dropped."),
+}
+
+// messageColumnItem is one column of an integration's Messages view.
+var messageColumnItem = map[string]any{
+	"kind":  strOut("attribute (read from the telemetry) or builtin (a fixed field such as the service or the status)."),
+	"key":   strOut("The attribute key as the telemetry carries it, e.g. iId; for a builtin, its id."),
+	"label": strOut("What the column is called in the view, e.g. Invoice Id."),
+}

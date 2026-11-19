@@ -514,30 +514,23 @@ func buildTools(s *Server) []tool {
 				}
 				return s.get("/api/v1/metric-catalog", q)
 			}},
-		{Name: "sluicio_search_traces", Output: searchTracesOut, Description: "Search traces within a time window: filter by service, errors-only, and/or an error-message substring. Returns matching traces (trace_id, service, span, error flag, timing, and for a failed trace the exception it recorded) — drill in with sluicio_get_trace. NOTE: returns up to `limit` traces (default 100); a non-null next_cursor in the response means more match beyond the limit, so treat the count as a lower bound.", Schema: objSchema(map[string]any{
-			"service":     strProp("Scope to one service name (e.g. INT002)."),
-			"query":       strProp("Substring to match against the error type: the recorded exception's type or the status message (e.g. 'timeout')."),
-			"window":      strProp("Time window, e.g. 1h, 24h, 48h, 7d. Default 24h."),
-			"errors_only": map[string]any{"type": "boolean", "description": "Only failed/error traces. Default true."},
-			"limit":       map[string]any{"type": "integer", "description": "Max traces to return (1-1000). Default 100."},
+		{Name: "sluicio_search_traces", Output: searchTracesOut, Description: "Search messages (traces) within a time window: by integration, by span attribute (an invoice id, an order number), by service, errors-only, and/or an error-message substring. Attribute keys can be given as the telemetry names them (iId) or, with an integration, as its Messages view labels them (Invoice Id); sluicio_get_integration lists its message_columns. Each result carries the integration's column values under their labels (columns). With include_spans, the first 10 results also carry every span, so 'explain everything that happened to invoice 123' is one call. Drill in further with sluicio_get_trace. NOTE: returns up to `limit` traces (default 100); a non-null next_cursor in the response means more match beyond the limit, so treat the count as a lower bound.", Schema: objSchema(map[string]any{
+			"integration": strProp("Scope to one integration: its id, name or slug. Only its slice of its services' traffic is searched, and its column labels can be used as attribute keys."),
+			"attributes": map[string]any{"type": "array", "description": "Span or resource attribute conditions, AND-ed. Each: {key, op, value}. key is the attribute name, or a column label of the integration. op is equals (default), not_equals, contains, not_contains, in (value a list or comma-separated), matches (regex), exists or not_exists. A negation means no span of the message satisfies the positive form.",
+				"items": map[string]any{"type": "object", "properties": map[string]any{
+					"key":   strProp("Attribute name (iId) or the integration's column label (Invoice Id)."),
+					"op":    strProp("equals (default), not_equals, contains, not_contains, in, matches, exists, not_exists."),
+					"value": map[string]any{"description": "The value to compare with; a list for in. Omit for exists and not_exists."},
+				}, "required": []string{"key"}}},
+			"service":       strProp("Scope to one service name (e.g. INT002)."),
+			"query":         strProp("Substring to match against the error type: the recorded exception's type or the status message (e.g. 'timeout')."),
+			"window":        strProp("Time window, e.g. 1h, 24h, 48h, 7d. Default 24h."),
+			"environment":   envProp,
+			"errors_only":   map[string]any{"type": "boolean", "description": "Only failed/error traces. Default true for a plain search, false when an integration or attributes are given, since a lookup is usually of a message that went through."},
+			"include_spans": map[string]any{"type": "boolean", "description": "Attach every span of the first 10 results (as sluicio_get_trace returns them, limited to the integration's slice when one is given). Default false."},
+			"limit":         map[string]any{"type": "integer", "description": "Max traces to return (1-1000). Default 100."},
 		}),
-			Call: func(a map[string]any) (string, error) {
-				var filters []map[string]any
-				if argBool(a, "errors_only", true) {
-					filters = append(filters, map[string]any{"field": "status", "op": "is", "value": "err"})
-				}
-				if v := argStr(a, "service"); v != "" {
-					filters = append(filters, map[string]any{"field": "service", "op": "is", "value": v})
-				}
-				if v := argStr(a, "query"); v != "" {
-					filters = append(filters, map[string]any{"field": "errorType", "op": "contains", "value": v})
-				}
-				limit := argInt(a, "limit", 100)
-				if limit <= 0 || limit > 1000 {
-					limit = 100
-				}
-				return s.post("/api/v1/messages/search", rangeArg(a, "24h"), map[string]any{"filters": filters, "limit": limit})
-			}},
+			Call: s.searchTraces},
 		{Name: "sluicio_get_integration", Output: getIntegrationOut, Description: "Get one integration by id: its matchers, member services with per-service health over the window, its metric and log sources (evidence from non-member services such as a broker's queue), tags, aggregate status, its health checks with where each stands now (health_checks: rules and states, as sluicio_list_alert_rules) and its trace-completion rules (completion_rules, as sluicio_list_completion_rules). Use an id from sluicio_list_integrations.", Schema: objSchema(map[string]any{
 			"id":          strProp("The integration id (uuid)."),
 			"window":      strProp("Time window for the per-service stats, e.g. 1h, 24h. Default 24h."),
@@ -641,14 +634,11 @@ func buildTools(s *Server) []tool {
 			"window": strProp("Time window the report is computed over, e.g. 24h, 7d, 30d. Default 24h."),
 		}),
 			Call: func(a map[string]any) (string, error) { return s.get("/api/v1/reports/usage", rangeArg(a, "24h")) }},
-		{Name: "sluicio_get_trace", Output: getTraceOut, Description: "Fetch one trace by id — all its spans across services, with timings, errors and the events each span recorded (a recorded exception carries its type, message and stack trace). Use a trace_id from sluicio_search_traces or a sample_trace_id from sluicio_errors.", Schema: objSchema(map[string]any{"trace_id": strProp("The trace id (hex string).")}, "trace_id"),
-			Call: func(a map[string]any) (string, error) {
-				id := argStr(a, "trace_id")
-				if id == "" {
-					return "", fmt.Errorf("trace_id is required")
-				}
-				return s.get("/api/v1/traces/"+url.PathEscape(id), nil)
-			}},
+		{Name: "sluicio_get_trace", Output: getTraceOut, Description: "Fetch one trace by id — all its spans across services, with timings, errors and the events each span recorded (a recorded exception carries its type, message and stack trace). With integration, only that integration's part of the trace is returned, and attribute_labels names its attributes as the integration's Messages view does (iId: Invoice Id). Use a trace_id from sluicio_search_traces or a sample_trace_id from sluicio_errors.", Schema: objSchema(map[string]any{
+			"trace_id":    strProp("The trace id (hex string)."),
+			"integration": strProp("Read the trace as part of this integration (id, name or slug): its slice of the trace, with its attribute labels."),
+		}, "trace_id"),
+			Call: s.getTrace},
 
 		{Name: "sluicio_advisor_suggestions", Output: advisorOut, Description: "What this cell collects that nothing consumes, and which alert rules nobody acts on. Returns the Telemetry Advisor's findings (unused metrics, unread log streams, dead-weight span attributes, echoed request headers, possible personal data) and the Alert Fatigue Advisor's (rules that fire unattended, fire continuously, flap, or reach no channel) — each with the counted evidence behind it, what would be LOST by acting, and a ready-to-paste OpenTelemetry Collector config where one applies. Quote the loss statement alongside the saving; a suggestion presented as pure upside is how somebody drops something load-bearing. Filter by advisor (telemetry|alerting). Requires an admin token and an Enterprise licence with the advisor entitlement; others get a permission error. Nothing here changes anything — a human accepts or dismisses each finding in the UI.", Schema: objSchema(map[string]any{
 			"advisor": strProp("Limit to one advisor: telemetry or alerting. Omit for both."),
