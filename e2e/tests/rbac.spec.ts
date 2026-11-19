@@ -9,6 +9,10 @@
 import { test, expect, type APIRequestContext, type Browser } from "@playwright/test";
 import { logIn } from "./fixtures";
 import { requireEntitlement } from "./ee-gate";
+import { encodeTraceExport } from "./otlp";
+import crypto from "node:crypto";
+
+const INGEST_URL = process.env.E2E_INGEST_URL || "http://localhost:4318";
 
 const VIEWER_EMAIL = "e2e-rbac-viewer@sluicio.local";
 const VIEWER_PASSWORD = "e2e-rbac-viewer-pw1";
@@ -122,33 +126,53 @@ test.describe("RBAC — viewer restrictions", () => {
   // who may see it gets the trace, a viewer who may not gets what an
   // unknown trace gets.
   test("a trace link from an alert opens only for a reader who may see the trace", async ({ page, browser }) => {
-    // The synthetic estate's messages are spread over the past days, so
-    // look back a week, as the MCP spec does.
-    const ints = (await (await page.request.get("/api/v1/integrations?range=7d")).json()).integrations ?? [];
-    let traceId = "";
-    let integId = "";
-    for (const i of stableIntegrations(ints as { id: string; name: string }[])) {
-      const res = await page.request.post("/api/v1/messages/search", {
-        data: { range: "7d", limit: 1, filters: [{ field: "integration", op: "is", value: i.name }] },
-      });
-      const hit = res.ok() ? ((await res.json()).results ?? [])[0] : undefined;
-      if (hit?.trace_id) {
-        traceId = hit.trace_id;
-        integId = i.id;
-        break;
-      }
+    // The test sends its own trace into its own integration. Picking one
+    // from whatever the estate held made it depend on what earlier tests
+    // and the seed's timing left behind, and a run with nothing recent
+    // failed on the lookup instead of on access.
+    test.setTimeout(150_000);
+    const admin = page.request;
+    const stamp = Date.now().toString(36);
+    const service = `e2e-tracelink-${stamp}`;
+    const traceId = crypto.randomBytes(16).toString("hex");
+
+    const keyRes = await admin.post("/api/v1/ingest-keys", {
+      data: { name: `e2e-tracelink-${stamp}` },
+      failOnStatusCode: false,
+    });
+    expect(keyRes.ok(), `could not mint an ingest key (${keyRes.status()})`).toBeTruthy();
+    const key = (await keyRes.json()).key as string;
+    const sent = await admin.post(`${INGEST_URL}/v1/traces`, {
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/x-protobuf" },
+      data: encodeTraceExport(service, [{ name: "e2e.tracelink", traceId }]),
+      failOnStatusCode: false,
+    });
+    expect(sent.ok(), `ingest failed: ${sent.status()}`).toBeTruthy();
+
+    const mk = await admin.post("/api/v1/integrations", {
+      data: {
+        slug: `trace-link-${stamp}`,
+        name: `Trace Link ${stamp}`,
+        matchers: [{ attribute: "service.name", operator: "equals", value: service }],
+      },
+    });
+    expect(mk.ok(), `creating the integration failed: ${mk.status()}`).toBeTruthy();
+    const integId = (await mk.json()).integration.id as string;
+
+    try {
+      const link = `/api/v1/traces/${traceId}?integration=${integId}`;
+      // Ingest and membership both land asynchronously.
+      await expect
+        .poll(async () => (await admin.get(link)).status(), { timeout: 90_000 })
+        .toBe(200);
+
+      const viewer = await viewerContext(browser);
+      expect((await viewer.request.get(link)).status()).toBe(404);
+      await viewer.goto(`/traces/${traceId}?integration=${integId}`);
+      await expect(viewer.getByTestId("trace-not-found")).toBeVisible();
+    } finally {
+      await admin.delete(`/api/v1/integrations/${integId}`);
     }
-    // Failed rather than skipped: a skipped test stops proving anything,
-    // and this one did, silently, on its first run.
-    expect(traceId, "no integration has a message in the last 7 days").toBeTruthy();
-
-    const link = `/api/v1/traces/${traceId}?integration=${integId}`;
-    expect((await page.request.get(link)).status()).toBe(200);
-
-    const viewer = await viewerContext(browser);
-    expect((await viewer.request.get(link)).status()).toBe(404);
-    await viewer.goto(`/traces/${traceId}?integration=${integId}`);
-    await expect(viewer.getByTestId("trace-not-found")).toBeVisible();
   });
 
   test("group-less viewer sees no services (deny-by-default visibility)", async ({ browser }) => {
