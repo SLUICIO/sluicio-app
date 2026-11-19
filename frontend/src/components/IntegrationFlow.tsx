@@ -322,22 +322,49 @@ export function isBackEdge(
 export function layout(nodes: FlowNode[], edges: FlowEdge[], nodeH: number) {
   if (nodes.length === 0) return new Map<string, { x: number; y: number }>();
 
+  // Columns follow the calls, so a cycle has to be broken somewhere, and
+  // the hop that breaks it is drawn as a loop back under the row. Taking
+  // the busiest hops first and leaving out any that would close a cycle
+  // keeps the main direction of traffic reading left to right; breaking
+  // it wherever a depth-first walk happened to start drew 311 calls as
+  // the loop and 42 as the forward line.
+  const outgoing = new Map<string, string[]>();
   const incoming = new Map<string, string[]>();
-  nodes.forEach((n) => incoming.set(n.service_name, []));
-  edges.forEach((e) => {
-    if (!incoming.has(e.target)) incoming.set(e.target, []);
-    incoming.get(e.target)!.push(e.source);
+  nodes.forEach((n) => {
+    outgoing.set(n.service_name, []);
+    incoming.set(n.service_name, []);
   });
+  const reaches = (from: string, to: string): boolean => {
+    const seen = new Set<string>();
+    const stack = [from];
+    while (stack.length) {
+      const cur = stack.pop()!;
+      if (cur === to) return true;
+      if (seen.has(cur)) continue;
+      seen.add(cur);
+      stack.push(...(outgoing.get(cur) ?? []));
+    }
+    return false;
+  };
+  const byTraffic = [...edges].sort(
+    (a, b) =>
+      b.call_count - a.call_count ||
+      `${a.source}|${a.target}`.localeCompare(`${b.source}|${b.target}`),
+  );
+  for (const e of byTraffic) {
+    if (e.source === e.target || reaches(e.target, e.source)) continue;
+    if (!outgoing.has(e.source)) outgoing.set(e.source, []);
+    if (!incoming.has(e.target)) incoming.set(e.target, []);
+    outgoing.get(e.source)!.push(e.target);
+    incoming.get(e.target)!.push(e.source);
+  }
 
+  // Longest path from a root; what is left of the graph has no cycles.
   const depths = new Map<string, number>();
-  const visiting = new Set<string>();
   const depth = (name: string): number => {
     if (depths.has(name)) return depths.get(name)!;
-    if (visiting.has(name)) return 0;
-    visiting.add(name);
     const ins = incoming.get(name) ?? [];
-    const d = ins.length === 0 ? 0 : Math.max(0, ...ins.map(depth)) + 1;
-    visiting.delete(name);
+    const d = ins.length === 0 ? 0 : Math.max(...ins.map(depth)) + 1;
     depths.set(name, d);
     return d;
   };

@@ -59,13 +59,25 @@ describe("maxNameLines", () => {
 // showed an arrow from nowhere and a line running off into the canvas.
 describe("isBackEdge", () => {
   const node = (service_name: string): FlowNode => ({ service_name, trace_count: 1, error_trace_count: 0 });
-  const edge = (source: string, target: string): FlowEdge => ({ source, target, call_count: 1, error_count: 0 });
+  const edge = (source: string, target: string, call_count = 1): FlowEdge => ({ source, target, call_count, error_count: 0 });
 
   it("marks the return leg of two services calling each other, and only that", () => {
     const nodes = [node("idle"), node("a"), node("b")];
     const edges = [edge("a", "b"), edge("b", "a")];
     const pos = layout(nodes, edges, 76);
     expect(edges.filter((e) => isBackEdge(pos, e))).toHaveLength(1);
+  });
+
+  it("draws the busier direction forward, whatever order the services come in", () => {
+    const edges = [edge("api", "sync", 311), edge("sync", "api", 42)];
+    for (const nodes of [
+      [node("api"), node("sync")],
+      [node("sync"), node("api")],
+    ]) {
+      const pos = layout(nodes, edges, 76);
+      expect(pos.get("api")!.x).toBeLessThan(pos.get("sync")!.x);
+      expect(edges.filter((e) => isBackEdge(pos, e)).map((e) => e.call_count)).toEqual([42]);
+    }
   });
 
   it("leaves a chain without cycles drawn forward", () => {
