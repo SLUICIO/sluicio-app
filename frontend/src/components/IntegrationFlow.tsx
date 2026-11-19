@@ -281,23 +281,45 @@ function ServiceNode({ data, selected }: NodeProps<ServiceNodeData>) {
         </span>
       )}
       <Handle
+        id="in"
         type="target"
         position={Position.Left}
         style={{ background: "var(--border)", border: "none", width: 6, height: 6 }}
       />
       <Handle
+        id="out"
         type="source"
         position={Position.Right}
         style={{ background: "var(--border)", border: "none", width: 6, height: 6 }}
       />
+      {/* Where a call back to an earlier column leaves and lands, so it
+          loops under the row instead of running back along it. */}
+      <Handle id="back-out" type="source" position={Position.Bottom} style={HIDDEN_HANDLE} />
+      <Handle id="back-in" type="target" position={Position.Bottom} style={HIDDEN_HANDLE} />
     </div>
   );
 }
 
 const nodeTypes = { service: ServiceNode };
 
+const HIDDEN_HANDLE = { opacity: 0, width: 1, height: 1, minWidth: 0, minHeight: 0, border: "none" };
+
+// isBackEdge says whether a hop runs to a service the layout placed in
+// the same or an earlier column: the return leg of two services calling
+// each other, or any other cycle. Drawn like a forward hop, it ran from
+// the right edge back to the left edge along the same row, on top of the
+// forward line and behind the boxes, so only stubs of it showed.
+export function isBackEdge(
+  positions: Map<string, { x: number; y: number }>,
+  e: Pick<FlowEdge, "source" | "target">,
+): boolean {
+  const s = positions.get(e.source);
+  const t = positions.get(e.target);
+  return !!s && !!t && t.x <= s.x;
+}
+
 // ── Layout ──────────────────────────────────────────────────────────
-function layout(nodes: FlowNode[], edges: FlowEdge[], nodeH: number) {
+export function layout(nodes: FlowNode[], edges: FlowEdge[], nodeH: number) {
   if (nodes.length === 0) return new Map<string, { x: number; y: number }>();
 
   const incoming = new Map<string, string[]>();
@@ -467,11 +489,17 @@ function Inner({
         const key = `${e.source}|${e.target}`;
         const isPath = highlightEdges?.has(key) ?? false;
         const mapName = mapForEdge.get(key);
+        const back = isBackEdge(positions, e);
         return {
           id: key,
           source: e.source,
           target: e.target,
+          sourceHandle: back ? "back-out" : "out",
+          targetHandle: back ? "back-in" : "in",
           type: "smoothstep",
+          // Far enough below the boxes that the loop and its label clear
+          // them.
+          ...(back ? { pathOptions: { offset: 28 } } : {}),
           animated: isPath,
           // Prefer the bridging map name (the data transformation on
           // this hop); fall back to the call count.
@@ -513,7 +541,7 @@ function Inner({
           },
         };
       }),
-    [rawEdges, highlightEdges, mapForEdge],
+    [rawEdges, highlightEdges, mapForEdge, positions],
   );
 
   // Auto-fit whenever the data shape changes.

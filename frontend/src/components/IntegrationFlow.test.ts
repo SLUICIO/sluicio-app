@@ -8,7 +8,8 @@
 // is how this was reported.
 
 import { describe, expect, it } from "vitest";
-import { maxNameLines } from "./IntegrationFlow";
+import { isBackEdge, layout, maxNameLines } from "./IntegrationFlow";
+import type { FlowEdge, FlowNode } from "../api/types";
 
 describe("maxNameLines", () => {
   it("keeps short names on one line, so a simple flow stays compact", () => {
@@ -50,5 +51,34 @@ describe("maxNameLines", () => {
 
   it("breaks a part wider than a line anywhere", () => {
     expect(maxNameLines(["a-" + "x".repeat(25)], measured)).toBe(2);
+  });
+});
+
+// Two services calling each other drew the return leg along the same row
+// as the forward one: on top of it and behind the boxes, so the flow
+// showed an arrow from nowhere and a line running off into the canvas.
+describe("isBackEdge", () => {
+  const node = (service_name: string): FlowNode => ({ service_name, trace_count: 1, error_trace_count: 0 });
+  const edge = (source: string, target: string): FlowEdge => ({ source, target, call_count: 1, error_count: 0 });
+
+  it("marks the return leg of two services calling each other, and only that", () => {
+    const nodes = [node("idle"), node("a"), node("b")];
+    const edges = [edge("a", "b"), edge("b", "a")];
+    const pos = layout(nodes, edges, 76);
+    expect(edges.filter((e) => isBackEdge(pos, e))).toHaveLength(1);
+  });
+
+  it("leaves a chain without cycles drawn forward", () => {
+    const nodes = [node("a"), node("b"), node("c")];
+    const edges = [edge("a", "b"), edge("b", "c"), edge("a", "c")];
+    const pos = layout(nodes, edges, 76);
+    expect(edges.some((e) => isBackEdge(pos, e))).toBe(false);
+  });
+
+  it("marks one hop of a longer loop, wherever the layout breaks it", () => {
+    const nodes = [node("a"), node("b"), node("c")];
+    const edges = [edge("a", "b"), edge("b", "c"), edge("c", "a")];
+    const pos = layout(nodes, edges, 76);
+    expect(edges.filter((e) => isBackEdge(pos, e))).toHaveLength(1);
   });
 });
