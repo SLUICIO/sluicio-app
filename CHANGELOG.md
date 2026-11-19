@@ -3,8 +3,14 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.211 — 2026-11-19
+
+- fix(flow): the busier direction of a cycle reads left to right (e4e0f12)
+- fix(flow): a call back to an earlier service loops under the row (bf751f7)
+
 ## v0.11.210 — 2026-11-18
 
+- release v0.11.210 - refresh internal changelog (7d497c9)
 - fix(errors): an acknowledged check keeps its controls on one line (51750bd)
 
 ## v0.11.209 — 2026-11-18
