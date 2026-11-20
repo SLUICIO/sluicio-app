@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
-## v0.11.213 — 2026-11-19
+## v0.11.214 — 2026-11-20
 
+- fix(traces): a trace opened in an integration agrees with its message search (e55c08b)
+
+## v0.11.213 — 2026-11-20
+
+- release v0.11.213 - refresh internal changelog (61aef9e)
 - feat(mcp): ask about a message by its attributes, in the integration's words (ad1cad2)
 
 ## v0.11.212 — 2026-11-19
