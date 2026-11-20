@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.215 — 2026-11-20
+
+- feat(system-types): kgateway, one type for the gateway proxy and one for its control plane (17f7668)
+
 ## v0.11.214 — 2026-11-20
 
+- release v0.11.214 - refresh internal changelog (f9d989f)
 - fix(traces): a trace opened in an integration agrees with its message search (e55c08b)
 
 ## v0.11.213 — 2026-11-20
