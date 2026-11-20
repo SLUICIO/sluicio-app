@@ -16,6 +16,10 @@ export const SYSTEM_KINDS: { value: string; label: string }[] = [
   { value: "debezium", label: "Debezium" },
   { value: "krakend", label: "KrakenD API Gateway" },
   { value: "wso2-apim", label: "WSO2 API Manager" },
+  // kgateway is two processes, so two kinds: the gateway proxy in the
+  // traffic path, and the control plane that configures it.
+  { value: "kgateway", label: "kgateway" },
+  { value: "kgateway-controller", label: "kgateway control plane" },
   { value: "redis", label: "Redis" },
   { value: "sqlserver", label: "SQL Server" },
   { value: "postgresql", label: "PostgreSQL" },
@@ -50,6 +54,8 @@ export const TEMPLATE_KINDS = new Set([
   "nats",
   "debezium",
   "wso2-apim",
+  "kgateway",
+  "kgateway-controller",
   "paperless-ngx",
   "kubernetes",
 ]);

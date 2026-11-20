@@ -195,6 +195,81 @@ var monitoringTemplates = []monitoringTemplate{
 		},
 	},
 	{
+		// kgateway is two processes with disjoint telemetry, so it is two
+		// types, like Airflow: a check belongs where its metric exists,
+		// and applying a type to a system puts every check on every
+		// member. This one is the gateway PROXY, the service in the
+		// traffic path; kgateway-controller below is the control plane.
+		//
+		// Every name here was read off kgateway v2.5.2 on a kind cluster,
+		// with the proxy's /metrics scraped through the collector's
+		// prometheus receiver and traces exported by the ListenerPolicy's
+		// OpenTelemetry provider, not taken from documentation.
+		//
+		// # It does not auto-detect, deliberately
+		//
+		// The proxy is plain Envoy. Its metrics are envoy_*, its spans are
+		// Envoy's own ("ingress", with upstream_cluster, response_flags),
+		// and nothing in either names kgateway. Detecting on envoy_ would
+		// offer "kgateway" to every Istio gateway, Envoy Gateway and
+		// Contour as well, so the type is picked by hand on the gateway's
+		// service, once.
+		//
+		// # What the proxy says about a failure
+		//
+		// Envoy sets span status ERROR on a 5xx and leaves a 4xx unset, so
+		// the failed-request check needs no "Treat HTTP 5xx as errors"
+		// setting. response_flags names why the gateway itself failed:
+		// NC when a route's backend does not exist (kgateway accepts the
+		// route and answers 500), UH when the backend has no healthy
+		// endpoints, UF when it refuses connections, UT on a route
+		// timeout. The per-backend counters below cover UH, UF and UT;
+		// NC never reaches a cluster, so only the trace can say it.
+		//
+		// The proxy's /metrics is Envoy's usedonly view: a counter exists
+		// only once it has counted something. A backend's first failures
+		// since the proxy started arrive as a new series, which increase
+		// (max - min within the window) sees from the second scrape on.
+		Kind: "kgateway", Label: "kgateway", System: true,
+		Checks: []systemCheck{
+			{Name: "Requests failing", Description: "The gateway answered 5xx: Envoy marks those spans failed, whether the backend returned the error or the gateway could not reach it. The span names the URL and the upstream cluster.", Signal: "trace_error", TraceThreshold: 1, WindowSeconds: 300, Scope: alerting.CheckScopeFlow, Severity: alerting.SeverityWarning},
+			{Name: "Route points at a missing backend", Description: "A route sends to a backend that does not exist, so the gateway answers 500 without trying (response flag NC). kgateway still accepts the route, with ResolvedRefs false. No backend counter sees this, because no cluster is involved.", Signal: "trace_error", TraceThreshold: 1, WindowSeconds: 300, Attrs: []alerting.AttrFilter{{Key: "response_flags", Op: "matches", Value: `(^|,)NC(,|$)`}}, Scope: alerting.CheckScopeFlow, Severity: alerting.SeverityWarning},
+			{Name: "No healthy backend", Description: "Requests found no healthy endpoint for a backend (response flag UH): the Service has no ready pods. Split by Envoy cluster, which kgateway names kube_<namespace>_<service>_<port>.", Metric: "envoy_cluster_upstream_cx_none_healthy", Agg: alerting.AggIncrease, Op: alerting.OpGT, Threshold: 0, SplitBy: "envoy_cluster_name", Attrs: []alerting.AttrFilter{{Key: "envoy_cluster_name", Op: "neq", Value: "xds_cluster"}}, Scope: alerting.CheckScopeFlow, Severity: alerting.SeverityWarning, Unit: "requests", Display: true},
+			{Name: "Backend refusing connections", Description: "Connections to a backend failed (response flag UF): pods are there but nothing listens on the port, or they are restarting. The control plane's own cluster is left out: losing it is what 'Proxy lost the control plane' reports.", Metric: "envoy_cluster_upstream_cx_connect_fail", Agg: alerting.AggIncrease, Op: alerting.OpGT, Threshold: 0, SplitBy: "envoy_cluster_name", Attrs: []alerting.AttrFilter{{Key: "envoy_cluster_name", Op: "neq", Value: "xds_cluster"}}, Scope: alerting.CheckScopeFlow, Severity: alerting.SeverityWarning, Unit: "connections"},
+			{Name: "Backend timeouts", Description: "Requests to a backend ran past the route's timeout and the gateway answered 504 (response flag UT).", Metric: "envoy_cluster_upstream_rq_timeout", Agg: alerting.AggIncrease, Op: alerting.OpGT, Threshold: 0, SplitBy: "envoy_cluster_name", Scope: alerting.CheckScopeFlow, Severity: alerting.SeverityWarning, Unit: "requests"},
+			{Name: "Slow requests", Description: "p95 request time through the gateway is high. Tune to your routes: a gateway in front of batch endpoints and one in front of a UI do not share a threshold.", Signal: "trace_latency", ThresholdMs: 2000, WindowSeconds: 300, Scope: alerting.CheckScopeFlow, Severity: alerting.SeverityWarning, Unit: "ms"},
+			{Name: "Gateway silent", Description: "No requests at all in 15 minutes: the gateway, or its trace export, has stopped. Disable on a gateway that legitimately idles.", Signal: "trace_volume", TraceThreshold: 1, WindowSeconds: 900, Scope: alerting.CheckScopeProcess, Severity: alerting.SeverityWarning},
+			{Name: "Proxy lost the control plane", Description: "The proxy is not connected to kgateway's control plane. It keeps serving its last configuration, so traffic looks fine, but no route or policy change reaches it until the connection is back.", Metric: "envoy_control_plane_connected_state", Agg: alerting.AggMin, Op: alerting.OpLT, Threshold: 1, Scope: alerting.CheckScopeProcess, Severity: alerting.SeverityWarning, Display: true},
+			{Name: "Gateway proxy not running", Description: "The proxy stopped reporting envoy_server_live. Fires on the absence of the metric, because a proxy that is gone has nothing left to threshold.", Metric: "envoy_server_live", Agg: alerting.AggMin, Op: alerting.OpLT, Threshold: 1, FireOnNoData: true, Scope: alerting.CheckScopeProcess, Severity: alerting.SeverityCritical},
+		},
+	},
+	{
+		// kgateway's control plane: it translates Gateway API resources
+		// into Envoy configuration and serves it to every proxy over xDS.
+		// Read off kgateway v2.5.2 like the proxy type above. Detection is
+		// the kgateway_ prefix, which only the control plane emits.
+		//
+		// # The failure nothing else shows
+		//
+		// When a proxy rejects configuration (a NACK, for example an
+		// HTTPRoute regex Envoy's RE2 cannot compile), it keeps its last
+		// accepted route table for that gateway. Every route changed or
+		// added afterwards still reports Accepted, ResolvedRefs and
+		// Programmed, and is not served: verified, a new route answered
+		// 404 for as long as the rejected one existed. The rejection shows
+		// in kgateway_envoy_xds_rejects_active and in a controller log
+		// line, nowhere else.
+		Kind: "kgateway-controller", Label: "kgateway control plane", System: true,
+		DetectPrefixes: []string{"kgateway_"},
+		Checks: []systemCheck{
+			{Name: "Gateway rejected its configuration", Description: "A proxy rejected the configuration it was sent and keeps serving the last version it accepted. Routes changed since then report Programmed and are not served. The controller log names the resource and the reason (\"xds error\").", Metric: "kgateway_envoy_xds_rejects_active", Agg: alerting.AggMax, Op: alerting.OpGT, Threshold: 0, SplitBy: "gateway_name", Scope: alerting.CheckScopeProcess, Severity: alerting.SeverityCritical, Unit: "rejections", Display: true},
+			{Name: "Control plane not running", Description: "The controller stopped reporting kgateway_build_info. Proxies keep serving their last configuration, so traffic carries on, but nothing changes until it is back. Fires on the absence of the metric.", Metric: "kgateway_build_info", Agg: alerting.AggMin, Op: alerting.OpLT, Threshold: 1, FireOnNoData: true, Scope: alerting.CheckScopeProcess, Severity: alerting.SeverityCritical},
+			{Name: "Reconcile errors", Description: "Reconciles of Gateways or GatewayClasses keep failing. One error per controller at startup is normal and succeeds on retry, so this fires on more than three in the window.", Metric: "kgateway_controller_reconciliations_total", Agg: alerting.AggIncrease, Op: alerting.OpGT, Threshold: 3, Attrs: []alerting.AttrFilter{{Key: "result", Op: "eq", Value: "error"}}, SplitBy: "controller", Scope: alerting.CheckScopeProcess, Severity: alerting.SeverityWarning, Unit: "reconciles"},
+			{Name: "Translation failing", Description: "Translating a gateway's resources into Envoy configuration did not succeed, so that gateway's proxies are not getting new configuration.", Metric: "kgateway_translator_translations_total", Agg: alerting.AggIncrease, Op: alerting.OpGT, Threshold: 0, Attrs: []alerting.AttrFilter{{Key: "result", Op: "neq", Value: "success"}}, SplitBy: "name", Scope: alerting.CheckScopeProcess, Severity: alerting.SeverityWarning, Unit: "translations"},
+			{Name: "Status writes failing", Description: "The controller cannot write status to Gateway API resources, so what kubectl shows about routes and gateways is stale.", Metric: "kgateway_status_writes_total", Agg: alerting.AggIncrease, Op: alerting.OpGT, Threshold: 0, Attrs: []alerting.AttrFilter{{Key: "result", Op: "eq", Value: "error"}}, SplitBy: "kind", Scope: alerting.CheckScopeProcess, Severity: alerting.SeverityWarning, Unit: "writes"},
+		},
+	},
+	{
 		// Grounded in the OTel Collector kafkametrics receiver's documented
 		// metrics (all gauges; attributes group/topic/partition). Lag and
 		// backlog thresholds are starting points — tune to your traffic.

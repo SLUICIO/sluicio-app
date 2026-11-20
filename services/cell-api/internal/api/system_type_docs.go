@@ -37,6 +37,8 @@ var systemTypeDocsPages = map[string]bool{
 	"azure-servicebus":      true,
 	"krakend":               true,
 	"wso2-apim":             true,
+	"kgateway":              true,
+	"kgateway-controller":   true,
 	"kafka":                 true,
 	"confluent-kafka":       true,
 	"nats":                  true,
