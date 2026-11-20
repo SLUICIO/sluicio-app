@@ -397,7 +397,10 @@ test.describe("MCP — trace questions by attribute, in the integration's words"
       const { tools } = await rpc(request, token, "tools/list");
       const schemaOf = (name: string) => tools.find((t: { name: string }) => t.name === name).outputSchema;
 
-      // Ingest and membership both land asynchronously.
+      // Ingest lands asynchronously. Membership must not: the search
+      // decides it from the matchers, and the spans read for the same
+      // hit has to agree with it at once, which is why the poll stops at
+      // the first hit and the spans are asserted without waiting.
       let found: any;
       await expect
         .poll(

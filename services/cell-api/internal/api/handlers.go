@@ -3401,7 +3401,12 @@ func (h *Handlers) integrationSliceOfTrace(r *http.Request, traceID, ref string,
 			return nil, true
 		}
 	}
-	members, err := h.Catalog.IntegrationServices(r.Context(), id)
+	// Membership from the matchers, applied to the trace's own services,
+	// as the message search decides it. The persisted member list is
+	// reconciled in the background, so a message found by the search of
+	// a new or just-changed integration opened as "not found" until the
+	// reconciler caught up.
+	members, err := h.Resolver.ServicesForIntegration(r.Context(), id, spanServices(rows))
 	if err != nil {
 		h.Logger.Warn("trace slice: members failed", "err", err, "integration", id)
 		return nil, false
