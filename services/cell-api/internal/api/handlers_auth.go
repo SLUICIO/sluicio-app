@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/sluicio/sluicio-app/pkg/httpserver"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/api/middleware"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/identity"
@@ -194,9 +196,27 @@ func (h *Handlers) me(w http.ResponseWriter, r *http.Request) {
 		h.Logger.Warn("me: list memberships failed", "err", err)
 		memberships = nil
 	}
+	// An operator can open any org on the cell (as a viewer where they are
+	// not a member - see middleware.activeOrg), so the org switcher lists
+	// the rest for them. Nobody else ever learns which orgs exist.
+	others := []identity.Org{}
+	if user.IsOperator {
+		if all, err := h.Identity.ListOrgs(r.Context()); err == nil {
+			mine := map[uuid.UUID]bool{}
+			for _, m := range memberships {
+				mine[m.Org.ID] = true
+			}
+			for _, o := range all {
+				if !mine[o.ID] {
+					others = append(others, o.Org)
+				}
+			}
+		}
+	}
 	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
 		"user":        user,
 		"memberships": memberships,
+		"other_orgs":  others,
 		// Demo accounts are exempt (they can't enrol — the demo guard
 		// blocks MFA setup); mirrors EnforceMFAEnrollment.
 		"mfa_enrollment_required": !user.IsDemo && h.mfaEnrollmentRequired(r.Context(), user.ID),

@@ -188,8 +188,19 @@ function fromMe(me: MeResponse): CurrentUserResponse {
     mustResetPassword: me.user.must_reset_password ?? false,
     memberships,
   };
+  const otherOrgs: Organization[] = (me.other_orgs ?? []).map((o) => ({ id: o.id, slug: o.slug, name: o.name }));
+  const visit = me.principal.operator_visit === true;
+  // An operator in an org they are not a member of reads it as a viewer.
+  // Give that org a membership on the client too, or the UI would fall
+  // back to the operator's first org and show its name and role instead.
+  if (visit) {
+    const org = otherOrgs.find((o) => o.id === me.principal.org_id);
+    if (org) memberships.push({ organization: org, roles: [{ slug: "viewer", name: displayForSlug("viewer") }] });
+  }
   return {
     user,
+    other_orgs: otherOrgs.filter((o) => o.id !== me.principal.org_id || !visit),
+    operator_visit: visit,
     active_organization_id: me.principal.org_id || memberships[0]?.organization.id || "",
     managed: me.managed === true,
     managed_white_label: me.managed_white_label === true,

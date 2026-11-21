@@ -3,6 +3,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import App from "./App";
+import { adoptOrgFromURL } from "./lib/activeOrg";
 // Fonts are bundled rather than loaded from a font service, so opening the
 // app sends no request to a third party (Privacy Policy: no data outside
 // the EU/EEA, only strictly necessary cookies). The weights are the ones
@@ -14,6 +15,8 @@ import "@fontsource/inter/700.css";
 import "@fontsource/jetbrains-mono/400.css";
 import "@fontsource/jetbrains-mono/500.css";
 import "./styles.css";
+
+adoptOrgFromURL();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

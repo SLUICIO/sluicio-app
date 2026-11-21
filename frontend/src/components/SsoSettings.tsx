@@ -8,6 +8,8 @@ import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { AuthProvider, ClaimMapping, Group, OrgRole } from "../api/types";
 import { useProductName } from "../lib/useProductName";
+import { useCurrentUser } from "../lib/useCurrentUser";
+import SearchableSelect from "./SearchableSelect";
 
 const ROLES: OrgRole[] = ["admin", "editor", "viewer"];
 
@@ -99,6 +101,7 @@ export default function SsoSettings() {
                 <button className="btn" onClick={() => setDraft({ ...p, client_secret: "" })}>Edit</button>
                 <button className="btn btn--danger" onClick={() => remove(p)}>Delete</button>
               </div>
+              <DomainsEditor provider={p} />
               <MappingsEditor provider={p} groups={groups} onError={setError} />
             </div>
           ))}
@@ -288,6 +291,87 @@ function MappingsEditor({ provider, groups, onError }: { provider: AuthProvider;
         </label>
         <button className="btn btn--primary btn--sm" onClick={add}>Add mapping</button>
       </div>
+    </div>
+  );
+}
+
+// DomainsEditor: the email domains a provider speaks for. Addresses in them
+// are sent to this provider from the login page, and it may only sign in
+// to or create accounts in them. An operator assigns them, because the
+// assignment decides whose sign-in page a domain's users are sent to; an
+// org admin sees them read-only.
+function DomainsEditor({ provider }: { provider: AuthProvider }) {
+  const { isOperator } = useCurrentUser();
+  const [domains, setDomains] = useState<string[]>(provider.domains ?? []);
+  const [saved, setSaved] = useState<string[]>(provider.domains ?? []);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const dirty = domains.join(",") !== saved.join(",");
+
+  const add = (v: string) => {
+    const d = v.trim().toLowerCase().replace(/^@/, "");
+    if (d && !domains.includes(d)) setDomains([...domains, d].sort());
+  };
+  const save = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      const r = await api.setAuthProviderDomains(provider.id, domains);
+      setDomains(r.domains);
+      setSaved(r.domains);
+    } catch (e) {
+      setError(errMsg(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--border,#26304d)" }}>
+      <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>
+        Email domains: people whose address is in one of these sign in here, and this provider can only sign in to accounts in them.
+        {isOperator ? " Each domain can belong to one provider on the cell." : " Assigned by an operator."}
+      </div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+        {domains.length === 0 && (
+          <span className="muted" style={{ fontSize: 12.5 }}>
+            None yet. On a cell with several organizations, nobody can sign in through this provider until it has one.
+          </span>
+        )}
+        {domains.map((d) => (
+          <span key={d} className="badge mono">
+            {d}
+            {isOperator && (
+              <button
+                type="button"
+                aria-label={`Remove ${d}`}
+                onClick={() => setDomains(domains.filter((x) => x !== d))}
+                style={{ border: 0, background: "transparent", cursor: "pointer", marginLeft: 4, color: "inherit" }}
+              >
+                ×
+              </button>
+            )}
+          </span>
+        ))}
+        {isOperator && (
+          <>
+            <SearchableSelect
+              value=""
+              onChange={(v) => v && add(v)}
+              options={[]}
+              withoutAll
+              creatable
+              allLabel="Add a domain…"
+              placeholder="example.com"
+              createLabel={(typed) => `Add “${typed.trim().replace(/^@/, "")}”`}
+            />
+            <button type="button" className="btn btn--primary btn--sm" disabled={!dirty || saving} onClick={save}>
+              {saving ? "Saving…" : "Save domains"}
+            </button>
+          </>
+        )}
+      </div>
+      {error && <div className="alert alert--error" style={{ marginTop: 8 }}>{error}</div>}
     </div>
   );
 }

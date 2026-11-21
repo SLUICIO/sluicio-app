@@ -81,6 +81,13 @@ export function readClaimToken(): string {
   return token;
 }
 
+// emailDomain is the domain of a complete-looking address, or "" while
+// the user is still typing one (no lookup is made for a partial address).
+export function emailDomain(email: string): string {
+  const m = /^[^\s@]+@([^\s@]+\.[^\s@]{2,})$/.exec(email.trim());
+  return m ? m[1].toLowerCase() : "";
+}
+
 export default function Login({ onSuccess }: Props) {
   // The cell's mark, read without a session. null until it lands (or on
   // an unbranded / unentitled cell), which is why every use below falls
@@ -142,6 +149,42 @@ export default function Login({ onSuccess }: Props) {
   const [mfaCode, setMfaCode] = useState("");
   // SSO providers (enabled OIDC providers, EE). Empty when none/unlicensed.
   const [ssoProviders, setSsoProviders] = useState<SsoProviderButton[]>([]);
+  // Email-first SSO: when the typed address's domain belongs to a sign-in
+  // provider, this is where that sign-in starts and the password field
+  // steps aside. Decided by the domain alone, so the page never lists
+  // the organizations on the cell. usePassword is the way out for an
+  // account in an SSO domain that signs in with a password (an operator,
+  // a break-glass admin).
+  const [ssoStart, setSsoStart] = useState<string | null>(null);
+  const [usePassword, setUsePassword] = useState(false);
+  const discovered = useRef(new Map<string, string | null>());
+  useEffect(() => {
+    const domain = emailDomain(email);
+    if (!domain) {
+      setSsoStart(null);
+      return;
+    }
+    if (discovered.current.has(domain)) {
+      setSsoStart(discovered.current.get(domain) ?? null);
+      return;
+    }
+    setSsoStart(null);
+    let stale = false;
+    const t = window.setTimeout(() => {
+      api
+        .discoverSso(email.trim())
+        .then((r) => {
+          discovered.current.set(domain, r.sso_start ?? null);
+          if (!stale) setSsoStart(r.sso_start ?? null);
+        })
+        .catch(() => {});
+    }, 300);
+    return () => {
+      stale = true;
+      window.clearTimeout(t);
+    };
+  }, [email]);
+  const sso = ssoStart !== null && !usePassword;
   // Cell-wide announcements the operator flagged for the login page.
   const [announcements, setAnnouncements] = useState<LoginAnnouncement[]>([]);
 
@@ -278,6 +321,13 @@ export default function Login({ onSuccess }: Props) {
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (busy) return;
+    if (sso && ssoStart) {
+      setBusy(true);
+      // Come back to the page that asked for a sign-in.
+      const back = window.location.pathname === "/login" ? "/" : window.location.pathname + window.location.search;
+      window.location.assign(`${ssoStart}?return=${encodeURIComponent(back)}`);
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -504,6 +554,7 @@ export default function Login({ onSuccess }: Props) {
               required
             />
           </label>
+          {!sso && (
           <label className="form__label">
             Password
             <input
@@ -515,6 +566,7 @@ export default function Login({ onSuccess }: Props) {
               required
             />
           </label>
+          )}
 
           {error && (
             <div className="alert alert--error" role="alert">
@@ -525,11 +577,21 @@ export default function Login({ onSuccess }: Props) {
           <button
             type="submit"
             className="btn btn--primary"
-            disabled={busy || !email.trim() || !password}
+            disabled={busy || !email.trim() || (!sso && !password)}
             style={{ marginTop: 6 }}
           >
-            {busy ? "Signing in…" : "Sign in"}
+            {busy ? "Signing in…" : sso ? "Continue with single sign-on" : "Sign in"}
           </button>
+          {sso ? (
+          <button
+            type="button"
+            className="btn btn--link"
+            onClick={() => setUsePassword(true)}
+            style={{ fontSize: 12.5, alignSelf: "center" }}
+          >
+            Sign in with a password instead
+          </button>
+          ) : (
           <button
             type="button"
             className="btn btn--link"
@@ -542,6 +604,7 @@ export default function Login({ onSuccess }: Props) {
           >
             Forgot password?
           </button>
+          )}
         </form>
         )}
 

@@ -76,6 +76,10 @@ export interface CurrentUserContext {
   organization: Organization;
   roles: Role[];
   memberships: OrganizationMembership[];
+  /** Operators only: orgs on the cell they can open but are not a member of. */
+  otherOrgs: Organization[];
+  /** True while an operator is in an org they are not a member of (read-only). */
+  operatorVisit: boolean;
   /** True iff any of the user's roles in the active org grants `perm`. */
   can: (perm: Permission) => boolean;
   /**
@@ -165,6 +169,8 @@ export function useCurrentUser(): CurrentUserContext {
     organization,
     roles,
     memberships,
+    otherOrgs: data.other_orgs ?? [],
+    operatorVisit: data.operator_visit === true,
     can,
     // False on a managed instance whatever the row says. An instance
     // switched into managed mode keeps its is_operator rows - they are not

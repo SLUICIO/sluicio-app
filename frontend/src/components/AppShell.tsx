@@ -262,49 +262,66 @@ function Brand() {
 }
 
 // OrgBadge shows the current organization (tenant) name next to the
-// brand — the "product │ workspace" lockup. Set off by a thin divider so
+// brand - the "product | workspace" lockup. Set off by a thin divider so
 // it reads as the tenant, not a product sub-brand. Renders nothing until
-// the org loads, and truncates long names. With a single membership,
+// the org loads, and truncates long names. With a single org to be in,
 // clicking it goes home (the dashboard), like clicking a workspace name
-// in most apps; with several, it opens the org switcher instead.
+// in most apps; with more (several memberships, or an operator, who can
+// open any org on the cell), it opens the org switcher instead.
 function OrgBadge() {
-  const { organization, memberships } = useCurrentUser();
+  const { organization, memberships, otherOrgs, operatorVisit } = useCurrentUser();
   if (!organization?.name) return null;
   return (
     <div className="flex items-center gap-2" aria-label="Organization">
       <span aria-hidden style={{ width: 1, height: 18, background: "var(--border)" }} />
-      {memberships.length > 1 ? (
-        <OrgSwitcher active={organization} memberships={memberships} />
+      {memberships.length > 1 || otherOrgs.length > 0 ? (
+        <OrgSwitcher active={organization} memberships={memberships} otherOrgs={otherOrgs} />
       ) : (
         <Link
           to="/"
           className="truncate text-sm font-medium hover:underline"
           style={{ color: "var(--ink-2)", maxWidth: 200 }}
-          title={`${organization.name} — go to dashboard`}
+          title={`${organization.name} - go to dashboard`}
         >
           {organization.name}
         </Link>
+      )}
+      {operatorVisit && (
+        <span
+          className="badge"
+          title="You are not a member of this organization. As an operator you can read it; add yourself as a member under Operator to change anything."
+        >
+          read-only
+        </span>
       )}
     </div>
   );
 }
 
-// OrgSwitcher — dropdown over the user's memberships. Selecting an org
-// pins it (localStorage) and hard-reloads to the dashboard: the API
-// client stamps X-Sluicio-Org on every request, and the user's role —
-// so also nav visibility — can differ per org, so remounting the whole
-// app is the honest thing to do.
+// Past this many orgs the switcher gets a filter: a partner running a
+// cell for its customers can have dozens.
+const ORG_FILTER_FROM = 8;
+
+// OrgSwitcher - dropdown over the orgs the user can be in: their
+// memberships, and for an operator the cell's other orgs, which they open
+// read-only. Selecting an org pins it (localStorage) and hard-reloads to
+// the dashboard: the API client stamps X-Sluicio-Org on every request,
+// and the user's role - so also nav visibility - can differ per org, so
+// remounting the whole app is the honest thing to do.
 function OrgSwitcher({
   active,
   memberships,
+  otherOrgs,
 }: {
   active: Organization;
   memberships: OrganizationMembership[];
+  otherOrgs: Organization[];
 }) {
   const [open, setOpen] = useState(false);
+  const [filter, setFilter] = useState("");
   const wrapRef = useRef<HTMLDivElement | null>(null);
 
-  // Close on outside click / Escape — same contract as UserMenu.
+  // Close on outside click / Escape - same contract as UserMenu.
   useEffect(() => {
     if (!open) return;
     const onPointer = (e: MouseEvent) => {
@@ -321,6 +338,19 @@ function OrgSwitcher({
       document.removeEventListener("keydown", onKey);
     };
   }, [open]);
+  useEffect(() => {
+    if (!open) setFilter("");
+  }, [open]);
+
+  const showFilter = memberships.length + otherOrgs.length >= ORG_FILTER_FROM;
+  const q = filter.trim().toLowerCase();
+  const matches = (o: Organization) => !q || o.name.toLowerCase().includes(q) || o.slug.toLowerCase().includes(q);
+  const mine = memberships.filter((m) => matches(m.organization));
+  const others = otherOrgs.filter(matches);
+  const pick = (o: Organization) => {
+    setOpen(false);
+    if (o.id !== active.id) switchToOrg(o.slug);
+  };
 
   return (
     <div ref={wrapRef} className="relative">
@@ -332,7 +362,7 @@ function OrgSwitcher({
         onClick={() => setOpen((v) => !v)}
         className="flex items-center gap-1 truncate rounded text-sm font-medium hover:underline focus:outline-none focus-visible:ring-2"
         style={{ color: "var(--ink-2)", maxWidth: 220 }}
-        title={`${active.name} — switch organization`}
+        title={`${active.name} - switch organization`}
       >
         <span className="truncate">{active.name}</span>
         <svg
@@ -354,60 +384,110 @@ function OrgSwitcher({
       {open && (
         <div
           role="menu"
-          className="absolute left-0 top-8 z-50 w-64 overflow-hidden rounded-lg border shadow-lg"
+          className="absolute left-0 top-8 z-50 w-72 overflow-hidden rounded-lg border shadow-lg"
           style={{
             background: "var(--surface-2)",
             borderColor: "var(--border)",
             boxShadow: "var(--shadow-pop, 0 8px 24px rgba(15, 23, 42, 0.18))",
           }}
         >
-          <div
-            className="border-b px-3 py-2 text-[10px] font-semibold uppercase tracking-wider"
-            style={{ borderColor: "var(--border)", color: "var(--muted)" }}
-          >
-            Organizations
-          </div>
-          {memberships.map((m) => {
-            const isActive = m.organization.id === active.id;
-            return (
-              <button
-                key={m.organization.id}
-                type="button"
-                role="menuitem"
-                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-surface-3"
-                style={{ color: "var(--ink)" }}
-                onClick={() => {
-                  setOpen(false);
-                  if (!isActive) switchToOrg(m.organization.slug);
+          {showFilter && (
+            <div className="border-b p-2" style={{ borderColor: "var(--border)" }}>
+              <input
+                className="search__input"
+                style={{ width: "100%" }}
+                placeholder="Find an organization…"
+                aria-label="Find an organization"
+                value={filter}
+                autoFocus
+                onChange={(e) => setFilter(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key !== "Enter") return;
+                  const first = mine[0]?.organization ?? others[0];
+                  if (first) pick(first);
                 }}
-              >
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate">{m.organization.name}</span>
-                  <span className="block truncate text-xs" style={{ color: "var(--muted)" }}>
-                    {m.roles.map((r) => r.name).join(", ") || "No role"}
-                  </span>
-                </span>
-                {isActive && (
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 16 16"
-                    fill="none"
-                    stroke="var(--primary)"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden
-                  >
-                    <path d="M3 8.5l3.5 3.5L13 5" />
-                  </svg>
-                )}
-              </button>
-            );
-          })}
+              />
+            </div>
+          )}
+          <div style={{ maxHeight: 360, overflowY: "auto" }}>
+            {mine.length > 0 && <OrgSwitcherHeading>Your organizations</OrgSwitcherHeading>}
+            {mine.map((m) => (
+              <OrgSwitcherItem
+                key={m.organization.id}
+                org={m.organization}
+                detail={m.roles.map((r) => r.name).join(", ") || "No role"}
+                active={m.organization.id === active.id}
+                onPick={pick}
+              />
+            ))}
+            {others.length > 0 && <OrgSwitcherHeading>Other organizations, read-only</OrgSwitcherHeading>}
+            {others.map((o) => (
+              <OrgSwitcherItem key={o.id} org={o} detail="As operator" active={o.id === active.id} onPick={pick} />
+            ))}
+            {mine.length === 0 && others.length === 0 && (
+              <div className="px-3 py-2 text-sm" style={{ color: "var(--muted)" }}>
+                No organization matches.
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
+  );
+}
+
+function OrgSwitcherHeading({ children }: { children: ReactNode }) {
+  return (
+    <div
+      className="border-b px-3 py-2 text-[10px] font-semibold uppercase tracking-wider"
+      style={{ borderColor: "var(--border)", color: "var(--muted)" }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function OrgSwitcherItem({
+  org,
+  detail,
+  active,
+  onPick,
+}: {
+  org: Organization;
+  detail: string;
+  active: boolean;
+  onPick: (o: Organization) => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-surface-3"
+      style={{ color: "var(--ink)" }}
+      onClick={() => onPick(org)}
+    >
+      <span className="min-w-0 flex-1">
+        <span className="block truncate">{org.name}</span>
+        <span className="block truncate text-xs" style={{ color: "var(--muted)" }}>
+          {detail}
+        </span>
+      </span>
+      {active && (
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 16 16"
+          fill="none"
+          stroke="var(--primary)"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden
+        >
+          <path d="M3 8.5l3.5 3.5L13 5" />
+        </svg>
+      )}
+    </button>
   );
 }
 

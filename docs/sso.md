@@ -13,8 +13,16 @@ derived from IdP claims so the IdP stays the source of truth for access.
 
 ## Flow (authorization code + PKCE)
 
-1. Login page calls `GET /api/v1/auth/sso/providers` (public) → enabled
-   providers for the tenant → renders a button per provider.
+1. The login page is email-first. As the user types, it asks
+   `POST /api/v1/auth/sso/discover {email}` (public). When an enabled
+   provider holds the address's **email domain**, the answer is that
+   provider's start URL and the page offers "Continue with single sign-on"
+   instead of the password field; otherwise the password field stays. The
+   answer depends on the domain alone, never on whether an account exists,
+   so the page never lists the organizations on the cell.
+   `GET /api/v1/auth/sso/providers` still returns the enabled providers as
+   buttons, but only on a cell with a single org; with several it is
+   empty, because the list would name every tenant.
 2. `GET /api/v1/auth/sso/{id}/start` → builds the IdP authorize URL with
    `state` (CSRF), `nonce` (replay), and PKCE `code_challenge`; stashes the
    transient state server-side (short-lived, single-use); 302 to the IdP.
@@ -43,14 +51,51 @@ reconstructing the origin from request headers is unreliable. When
 setup, not for production. The admin SSO page shows the exact callback URL to
 paste into the IdP.
 
+## Email domains (migration 0109)
+
+An IdP asserts whatever email address it likes, and on a cell with several
+orgs every org admin can configure one. So each provider has the **email
+domains it speaks for** (`auth_provider_domains`, one provider per domain
+on the whole cell). They decide two things: which provider the login page
+sends an address to, and which accounts the provider may link to or
+create (below).
+
+Domains are assigned by a **cell operator**
+(`PUT /api/v1/operator/auth-providers/{id}/domains`), not by the org admin
+who configures the provider: the assignment decides whose sign-in page a
+domain's users are sent to, so an org admin who could set it could claim
+another org's domain. On a single-org self-hosted cell the bootstrap admin
+is the operator. Org admins see the domains read-only on the SSO tab.
+
 ## Identity linking + JIT provisioning
 
 - Look up `oidc_subjects (provider_id, external_sub)`. If found → that user.
-- Else match an existing user by verified email and link (`oidc_subjects`
-  row) — so a pre-existing local user adopts SSO cleanly.
-- Else, if the provider has `jit_provisioning = true`, create the user
-  (no local password — SSO-only) and link. If JIT is off and there's no
-  match → deny with a clear "not provisioned" error.
+- Otherwise the asserted email is only used if the provider **speaks for**
+  it: its domain is one of the provider's domains, or the cell has a single
+  org (where the only IdP belongs to the only org, as before domains
+  existed). An `email_verified: false` claim counts as no email. Outside
+  that, the sign-in is refused with the same message whether or not an
+  account with the address exists, so whoever runs the IdP learns nothing.
+- Within it: match an existing user by email and link (`oidc_subjects`
+  row), so a pre-existing local user adopts SSO cleanly; else, if the
+  provider has `jit_provisioning = true`, create the user (no local
+  password, SSO-only) and link. If JIT is off and there's no match → deny
+  with a clear "not provisioned" error.
+
+Without this rule, org B's IdP asserting `alice@customer-a.example` signed
+in as Alice, with every role she holds in every org, an operator's
+included. `sso_account_link_integration_test.go` is that reproduction.
+
+## Moving between orgs
+
+A user in several orgs switches with the org switcher; every request
+carries the org in `X-Sluicio-Org`. After an SSO sign-in the callback adds
+`?org=<slug>` to the return URL, so the user lands in the org whose IdP
+they used. A cell operator can also open any org they are not a member of:
+there they act as a **viewer** (`operator_visit` on the principal), and
+the switcher lists those orgs under "Other organizations, read-only". To
+change anything they add themselves as a member from the operator
+console. Nobody else ever sees which orgs exist.
 
 ## Claim → access mapping (the requested feature)
 
@@ -108,7 +153,9 @@ scoping) and/or an org-wide role.
 
 | Method | Path | Auth |
 | --- | --- | --- |
-| GET | `/api/v1/auth/sso/providers` | public (login page) |
+| GET | `/api/v1/auth/sso/providers` | public (login page; single-org cells only) |
+| POST | `/api/v1/auth/sso/discover` | public (login page) |
+| PUT | `/api/v1/operator/auth-providers/{id}/domains` | operator + `FeatureSSO` |
 | GET | `/api/v1/auth/sso/{id}/start` | public |
 | GET | `/api/v1/auth/sso/callback` | public |
 | GET/POST/PUT/DELETE | `/api/v1/settings/auth-providers…` | admin + `FeatureSSO` |

@@ -387,6 +387,23 @@ func (s *Store) GetOrgByID(ctx context.Context, orgID uuid.UUID) (Org, error) {
 	return o, nil
 }
 
+// GetOrgBySlugOrID returns the org a slug or UUID names, or ErrNotFound.
+// The operator's way into an org they are not a member of.
+func (s *Store) GetOrgBySlugOrID(ctx context.Context, ref string) (Org, error) {
+	if id, err := uuid.Parse(ref); err == nil {
+		return s.GetOrgByID(ctx, id)
+	}
+	row := s.pool.QueryRow(ctx, `SELECT id, slug, name, created_at, updated_at FROM orgs WHERE slug = $1`, ref)
+	var o Org
+	if err := row.Scan(&o.ID, &o.Slug, &o.Name, &o.CreatedAt, &o.UpdatedAt); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Org{}, ErrNotFound
+		}
+		return Org{}, fmt.Errorf("identity: get org by slug: %w", err)
+	}
+	return o, nil
+}
+
 // UpdateOrg renames or re-slugs an org. Either field empty = "no
 // change". Returns ErrSlugTaken if the new slug collides with another
 // org. Bumps updated_at.

@@ -1626,6 +1626,7 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/auth/sso/providers", h.ssoProviders)
 	mux.HandleFunc("GET /api/v1/auth/sso/{id}/start", h.ssoStart)
 	mux.HandleFunc("GET /api/v1/auth/sso/callback", h.ssoCallback)
+	mux.HandleFunc("POST /api/v1/auth/sso/discover", h.ssoDiscover)
 	// Per-user MFA enrollment (the caller manages their own — session-gated
 	// by the middleware Wrap, which requires auth for everything not listed
 	// public).
@@ -1657,6 +1658,7 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	if h.AuthMW != nil {
 		mux.HandleFunc("PUT /api/v1/cell-settings/branding", h.brandingEditor(h.putBranding))
 		mux.HandleFunc("GET /api/v1/operator/orgs", h.AuthMW.RequireOperator(h.listOperatorOrgs))
+		mux.HandleFunc("PUT /api/v1/operator/auth-providers/{id}/domains", h.AuthMW.RequireOperator(h.setAuthProviderDomains))
 		mux.HandleFunc("POST /api/v1/operator/orgs", h.AuthMW.RequireOperator(h.createOperatorOrg))
 		mux.HandleFunc("PATCH /api/v1/operator/orgs/{id}", h.AuthMW.RequireOperator(h.updateOperatorOrg))
 		mux.HandleFunc("DELETE /api/v1/operator/orgs/{id}", h.AuthMW.RequireOperator(h.deleteOperatorOrg))

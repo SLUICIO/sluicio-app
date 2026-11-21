@@ -29,10 +29,10 @@ package middleware
 
 import (
 	"context"
-	"sync"
 	"errors"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -227,30 +227,9 @@ func (r *Resolver) Resolve(req *http.Request) (identity.Principal, bool, error) 
 		return identity.Principal{}, false, err
 	}
 
-	active := activeOrgHeader(req)
-	var orgID uuid.UUID
-	var role identity.Role
-	switch {
-	case len(memberships) == 0:
-		// Authenticated but org-less. Caller decides what to do.
-	case active == "":
-		def := identity.DefaultMembership(memberships)
-		orgID = def.Org.ID
-		role = def.Role
-	default:
-		// Match by slug first (the friendlier identifier), then by UUID.
-		matched := false
-		for _, m := range memberships {
-			if m.Org.Slug == active || m.Org.ID.String() == active {
-				orgID = m.Org.ID
-				role = m.Role
-				matched = true
-				break
-			}
-		}
-		if !matched {
-			return identity.Principal{}, false, errNoMembership
-		}
+	orgID, role, visit, err := r.activeOrg(req, user, memberships)
+	if err != nil {
+		return identity.Principal{}, false, err
 	}
 
 	uid := user.ID
@@ -263,6 +242,7 @@ func (r *Resolver) Resolve(req *http.Request) (identity.Principal, bool, error) 
 		Email:             user.Email,
 		Name:              user.Name,
 		IsOperator:        user.IsOperator,
+		OperatorVisit:     visit,
 		IsDemo:            user.IsDemo,
 		MustResetPassword: user.MustResetPassword,
 	}, true, nil
@@ -287,30 +267,9 @@ func (r *Resolver) principalFromToken(req *http.Request, lookup identity.TokenLo
 		// Same active-org logic as cookie auth — token requests
 		// can also pin via X-Sluicio-Org (legacy X-Conduit-Org
 		// still accepted for the grace window).
-		active := activeOrgHeader(req)
-		var orgID uuid.UUID
-		var role identity.Role
-		switch {
-		case len(memberships) == 0:
-			// PAT for a user with no memberships → can authenticate
-			// to /me only. Most routes will 403.
-		case active == "":
-			def := identity.DefaultMembership(memberships)
-			orgID = def.Org.ID
-			role = def.Role
-		default:
-			matched := false
-			for _, m := range memberships {
-				if m.Org.Slug == active || m.Org.ID.String() == active {
-					orgID = m.Org.ID
-					role = m.Role
-					matched = true
-					break
-				}
-			}
-			if !matched {
-				return identity.Principal{}, false, errNoMembership
-			}
+		orgID, role, visit, err := r.activeOrg(req, user, memberships)
+		if err != nil {
+			return identity.Principal{}, false, err
 		}
 		uid := user.ID
 		return identity.Principal{
@@ -318,12 +277,13 @@ func (r *Resolver) principalFromToken(req *http.Request, lookup identity.TokenLo
 			UserID: &uid,
 			OrgID:  orgID,
 			// Cap the token below the user's role when scoped (least-privilege).
-			Role:       role.Cap(identity.Role(lookup.ScopeRole)),
-			BaseRole:   role, // uncapped — for READ visibility (see Principal.ReadRole)
-			Email:      user.Email,
-			Name:       user.Name,
-			IsOperator: user.IsOperator,
-			IsDemo:     user.IsDemo,
+			Role:          role.Cap(identity.Role(lookup.ScopeRole)),
+			BaseRole:      role, // uncapped — for READ visibility (see Principal.ReadRole)
+			Email:         user.Email,
+			Name:          user.Name,
+			IsOperator:    user.IsOperator,
+			OperatorVisit: visit,
+			IsDemo:        user.IsDemo,
 		}, true, nil
 
 	case "service_account":
@@ -360,6 +320,41 @@ func bearerToken(r *http.Request) string {
 		return ""
 	}
 	return strings.TrimSpace(h[len(prefix):])
+}
+
+// activeOrg picks the org a user's request acts in, for cookie and
+// personal-token auth alike. The X-Sluicio-Org header (slug or UUID)
+// names it; without one, the oldest-joined membership
+// (identity.DefaultMembership - NOT memberships[0], which is
+// alphabetical and would flip when a better-sorting org is joined). A
+// user with no memberships is authenticated with no org: /me still
+// answers, and routes that need an org 403.
+//
+// A cell operator may name any org, member or not, which is how a
+// platform running a cell for many organizations moves between them.
+// Outside their own memberships they act as a viewer (visit=true): the
+// operator surface already lets them add themselves as a member, and
+// doing that visibly is the way to more than reading.
+func (r *Resolver) activeOrg(req *http.Request, user identity.User, memberships []identity.Membership) (uuid.UUID, identity.Role, bool, error) {
+	active := activeOrgHeader(req)
+	if active == "" {
+		if def := identity.DefaultMembership(memberships); def != nil {
+			return def.Org.ID, def.Role, false, nil
+		}
+		return uuid.Nil, "", false, nil
+	}
+	// Match by slug first (the friendlier identifier), then by UUID.
+	for _, m := range memberships {
+		if m.Org.Slug == active || m.Org.ID.String() == active {
+			return m.Org.ID, m.Role, false, nil
+		}
+	}
+	if user.IsOperator {
+		if o, err := r.Identity.GetOrgBySlugOrID(req.Context(), active); err == nil {
+			return o.ID, identity.RoleViewer, true, nil
+		}
+	}
+	return uuid.Nil, "", false, errNoMembership
 }
 
 // activeOrgHeader reads the X-Sluicio-Org header, falling back to the

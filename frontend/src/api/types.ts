@@ -1568,6 +1568,11 @@ export interface CurrentUserResponse {
   email_disabled?: boolean;
   // True when the org's name and slug are fixed for the instance. A hint.
   org_management_disabled?: boolean;
+  // Operators only: the orgs on the cell they are not a member of, which
+  // the org switcher offers them to open as a viewer.
+  other_orgs?: Organization[];
+  // True while an operator is in an org they are not a member of.
+  operator_visit?: boolean;
 }
 
 // Dashboards — per-user, named layouts for the Home page. The
@@ -2773,6 +2778,8 @@ export interface AuthPrincipal {
   role: AuthRole;
   email?: string;
   name?: string;
+  // An operator in an org they are not a member of, reading it as a viewer.
+  operator_visit?: boolean;
 }
 
 export interface AuthLoginResponse {
@@ -2819,6 +2826,8 @@ export interface MeResponse {
   // True when the org's name and slug can't be changed from inside the
   // instance.
   org_management_disabled?: boolean;
+  // Operators only: every org on the cell they are not a member of.
+  other_orgs?: { id: string; slug: string; name: string }[];
 }
 
 // Org security policy (Settings → System). mfa_policy_entitled reflects the
@@ -2945,6 +2954,8 @@ export interface AuthProvider {
   default_role: OrgRole;
   jit_provisioning: boolean;
   enabled: boolean;
+  // Email domains this provider speaks for, assigned by an operator.
+  domains?: string[];
   created_at?: string;
   updated_at?: string;
 }

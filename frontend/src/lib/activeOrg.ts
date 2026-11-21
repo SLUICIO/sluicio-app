@@ -38,3 +38,18 @@ export function switchToOrg(slug: string): void {
   setActiveOrgSlug(slug);
   window.location.assign("/");
 }
+
+// adoptOrgFromURL pins the org named by an `org` query parameter and
+// removes it from the address bar. The SSO callback sends one, so a user
+// in several orgs lands in the org whose identity provider they just
+// used, not in whichever they last had open. Runs once, before the first
+// request, so that request already carries the right org.
+export function adoptOrgFromURL(loc: Location = window.location, history: History = window.history): void {
+  const params = new URLSearchParams(loc.search);
+  const slug = params.get("org");
+  if (!slug) return;
+  setActiveOrgSlug(slug);
+  params.delete("org");
+  const rest = params.toString();
+  history.replaceState(history.state, "", loc.pathname + (rest ? `?${rest}` : "") + loc.hash);
+}

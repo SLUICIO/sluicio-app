@@ -1506,6 +1506,12 @@ export const api = {
 
   // ── Settings → SSO / OIDC (EE) ────────────────────────────────────
   listSsoProviders: () => get<{ providers: SsoProviderButton[] }>(`/auth/sso/providers`),
+  // Email-first routing (pre-auth): where to start SSO for this address,
+  // or nothing when its domain signs in with a password.
+  discoverSso: (email: string) => post<{ sso_start?: string }>(`/auth/sso/discover`, { email }),
+  // Operator-only: the email domains a provider speaks for.
+  setAuthProviderDomains: (id: string, domains: string[]) =>
+    put<{ domains: string[] }>(`/operator/auth-providers/${encodeURIComponent(id)}/domains`, { domains }),
   listAuthProviders: () => get<{ providers: AuthProvider[] }>(`/settings/auth-providers`),
   createAuthProvider: (body: Partial<AuthProvider> & { client_secret?: string }) =>
     post<AuthProvider>(`/settings/auth-providers`, body),

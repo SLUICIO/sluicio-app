@@ -75,6 +75,7 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 - GET /api/v1/auth/sso/providers — List auth (no auth)
 - GET /api/v1/auth/sso/{id}/start — List auth (no auth)
 - GET /api/v1/auth/sso/callback — List auth (no auth)
+- POST /api/v1/auth/sso/discover — Create auth (no auth)
 
 ## badges
 - GET /api/v1/badges/{kind}/{id} — Get badge
@@ -363,6 +364,7 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 
 ## operator
 - GET /api/v1/operator/orgs — List operator
+- PUT /api/v1/operator/auth-providers/{id}/domains — Update operator
 - POST /api/v1/operator/orgs — Create operator
 - PATCH /api/v1/operator/orgs/{id} — Update operator
 - DELETE /api/v1/operator/orgs/{id} — Delete operator

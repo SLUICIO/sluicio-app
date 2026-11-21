@@ -11,6 +11,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/url"
 	"strings"
@@ -86,6 +87,13 @@ type ssoProviderWire struct {
 // unlicensed (the feature simply doesn't surface).
 func (h *Handlers) ssoProviders(w http.ResponseWriter, r *http.Request) {
 	if !h.featureEntitled(license.FeatureSSO) {
+		httpserver.WriteJSON(w, http.StatusOK, map[string]any{"providers": []ssoProviderWire{}})
+		return
+	}
+	// With several orgs the buttons would name every tenant on the cell,
+	// so there the login page routes by email domain instead (ssoDiscover)
+	// and this list stays empty.
+	if n, err := h.Identity.CountOrgs(r.Context()); err != nil || n != 1 {
 		httpserver.WriteJSON(w, http.StatusOK, map[string]any{"providers": []ssoProviderWire{}})
 		return
 	}
@@ -211,6 +219,11 @@ func (h *Handlers) ssoCallback(w http.ResponseWriter, r *http.Request) {
 		sub = strFromClaims(claims, p.ClaimSub)
 	}
 	groups := stringsFromClaims(claims, p.ClaimGroups)
+	// An IdP that says outright the address is unverified is not taken at
+	// its word for it. Absent (Entra ID sends none) defers to the domain.
+	if v, ok := claims["email_verified"].(bool); ok && !v {
+		email = ""
+	}
 
 	userID, err := h.resolveSSOUser(r.Context(), p, sub, email, name)
 	if err != nil {
@@ -238,27 +251,69 @@ func (h *Handlers) ssoCallback(w http.ResponseWriter, r *http.Request) {
 			map[string]any{"method": "sso", "provider": p.Name})
 	}
 	http.SetCookie(w, sessionCookie(r, sess.ID, sess.ExpiresAt))
-	http.Redirect(w, r, st.RedirectTo, http.StatusFound)
+	http.Redirect(w, r, withActiveOrg(st.RedirectTo, h.orgSlug(r.Context(), p.OrgID)), http.StatusFound)
 }
 
-// resolveSSOUser finds the user by linked subject, then by verified email, else
+// withActiveOrg tells the SPA which org the user just signed in to, so a
+// user in several orgs lands in the one whose IdP they used rather than
+// in whichever they last had open. The SPA pins it and drops the
+// parameter (lib/activeOrg.ts).
+func withActiveOrg(path, slug string) string {
+	if slug == "" {
+		return path
+	}
+	sep := "?"
+	if strings.Contains(path, "?") {
+		sep = "&"
+	}
+	return path + sep + "org=" + url.QueryEscape(slug)
+}
+
+func (h *Handlers) orgSlug(ctx context.Context, orgID uuid.UUID) string {
+	o, err := h.Identity.GetOrgByID(ctx, orgID)
+	if err != nil {
+		return ""
+	}
+	return o.Slug
+}
+
+// resolveSSOUser finds the user by linked subject, then by email, else
 // JIT-provisions (when enabled). Returns a user-facing error otherwise.
+//
+// The email steps are where one org's IdP could reach another org's user:
+// an IdP asserts whatever address it likes, and every org admin on a
+// multi-org cell can configure one. So a provider is trusted with an
+// address only when ssoSpeaksForEmail says so. The subject step needs no
+// such check: a link is only ever made by a sign-in that passed it.
 func (h *Handlers) resolveSSOUser(ctx context.Context, p identity.AuthProvider, sub, email, name string) (uuid.UUID, error) {
 	if sub != "" {
 		if uid, ok, _ := h.Identity.FindUserBySubject(ctx, p.ID, sub); ok {
 			return uid, nil
 		}
 	}
-	if email != "" {
-		if u, err := h.Identity.GetUserByEmail(ctx, email); err == nil {
-			return u.ID, nil
-		}
+	if email == "" {
+		return uuid.Nil, &ssoError{"the identity provider returned no verified email, so this sign-in can't be matched to an account"}
+	}
+	orgs, err := h.Identity.CountOrgs(ctx)
+	if err != nil {
+		return uuid.Nil, &ssoError{"sign-in failed"}
+	}
+	domains, err := h.Identity.ProviderDomains(ctx, p.ID)
+	if err != nil {
+		return uuid.Nil, &ssoError{"sign-in failed"}
+	}
+	if !ssoSpeaksForEmail(orgs, domains, email) {
+		// Deliberately the same answer whether or not an account with
+		// this address exists: whoever runs this IdP must not learn
+		// which addresses have accounts on the cell.
+		h.Logger.Warn("sso: provider asserted an email outside its domains", "provider", p.ID, "domain", identity.EmailDomain(email))
+		return uuid.Nil, &ssoError{"this sign-in can't be used for your email address - ask your administrator"}
+	}
+	if u, err := h.Identity.GetUserByEmail(ctx, email); err == nil {
+		return u.ID, nil
 	}
 	if !p.JITProvisioning {
-		return uuid.Nil, &ssoError{"no Sluicio account is provisioned for you — ask an admin"}
-	}
-	if email == "" {
-		return uuid.Nil, &ssoError{"the identity provider returned no email, so an account can't be created"}
+		return uuid.Nil, &ssoError{"no Sluicio account is provisioned for you - ask an admin"}
 	}
 	u, err := h.Identity.CreateUser(ctx, email, name)
 	if err != nil {
@@ -266,6 +321,25 @@ func (h *Handlers) resolveSSOUser(ctx context.Context, p identity.AuthProvider, 
 		return uuid.Nil, &ssoError{"account provisioning failed"}
 	}
 	return u.ID, nil
+}
+
+// ssoSpeaksForEmail decides whether a provider may link to, or create, the
+// account for an email address. Inside its assigned domains it may. On a
+// cell with a single org it may for any address, as it always could:
+// there the only IdP belongs to the only org, so there is nobody else's
+// account to reach, and existing single-org setups keep working without
+// assigning domains.
+func ssoSpeaksForEmail(orgCount int, providerDomains []string, email string) bool {
+	d := identity.EmailDomain(email)
+	if d == "" {
+		return false
+	}
+	for _, pd := range providerDomains {
+		if pd == d {
+			return true
+		}
+	}
+	return orgCount == 1
 }
 
 type ssoError struct{ msg string }
@@ -514,4 +588,76 @@ func (h *Handlers) deleteClaimMapping(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// ── email-first routing ──────────────────────────────────────────────────
+
+// ssoDiscover: POST /api/v1/auth/sso/discover {email} (public).
+//
+// The login page asks this as the user types their email. When an enabled
+// provider holds the address's domain the answer is where to start that
+// sign-in; otherwise it is empty and the page asks for a password. The
+// answer depends on the domain alone, never on whether an account exists
+// or which orgs are on the cell, so it reveals no more than "this domain
+// signs in with SSO here".
+func (h *Handlers) ssoDiscover(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Email string `json:"email"`
+	}
+	_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&body)
+	out := map[string]any{}
+	if h.featureEntitled(license.FeatureSSO) {
+		if p, ok, err := h.Identity.ProviderForEmail(r.Context(), strings.TrimSpace(body.Email)); err != nil {
+			h.Logger.Error("sso discover failed", "err", err)
+		} else if ok {
+			out["sso_start"] = "/api/v1/auth/sso/" + p.ID.String() + "/start"
+		}
+	}
+	httpserver.WriteJSON(w, http.StatusOK, out)
+}
+
+// setAuthProviderDomains: PUT /api/v1/operator/auth-providers/{id}/domains
+// {domains: [...]} (operator).
+//
+// Operator-only, unlike the rest of a provider's settings: assigning a
+// domain decides whose sign-in page that domain's users are sent to and
+// which IdP may vouch for their accounts. An org admin could otherwise
+// claim another org's domain.
+func (h *Handlers) setAuthProviderDomains(w http.ResponseWriter, r *http.Request) {
+	if !h.featureEntitled(license.FeatureSSO) {
+		httpserver.WriteError(w, http.StatusForbidden, "single sign-on is not licensed")
+		return
+	}
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	p, err := h.Identity.GetAuthProviderByID(r.Context(), id)
+	if err != nil {
+		httpserver.WriteError(w, http.StatusNotFound, "sign-in provider not found")
+		return
+	}
+	var body struct {
+		Domains []string `json:"domains"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	domains, err := h.Identity.SetProviderDomains(r.Context(), p.ID, body.Domains)
+	switch {
+	case errors.Is(err, identity.ErrDomainTaken):
+		httpserver.WriteError(w, http.StatusConflict, strings.TrimPrefix(err.Error(), "identity: "))
+		return
+	case errors.Is(err, identity.ErrInvalidDomain):
+		httpserver.WriteError(w, http.StatusBadRequest, strings.TrimPrefix(err.Error(), "identity: "))
+		return
+	case err != nil:
+		h.Logger.Error("set provider domains failed", "err", err)
+		httpserver.WriteError(w, http.StatusInternalServerError, "save failed")
+		return
+	}
+	h.recordAudit(r, "auth_provider.domains_set", "auth_provider", p.ID.String(), map[string]any{"domains": domains, "org_id": p.OrgID.String()})
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"domains": domains})
 }

@@ -183,7 +183,16 @@ func (s *Store) ListAuthProviders(ctx context.Context, orgID uuid.UUID) ([]AuthP
 		}
 		out = append(out, p)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	for i := range out {
+		if out[i].Domains, err = s.ProviderDomains(ctx, out[i].ID); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
 }
 
 // ListEnabledAuthProviders is the public login-page list (enabled only).
@@ -201,9 +210,10 @@ func (s *Store) ListEnabledAuthProviders(ctx context.Context, orgID uuid.UUID) (
 	return out, nil
 }
 
-// ListAllEnabledProviders returns every enabled provider across the cell — for
-// the pre-auth login page, which has no org context. (Single-org cells are the
-// common case; multi-tenant scoping by hostname is a later refinement.)
+// ListAllEnabledProviders returns every enabled provider across the cell. The
+// pre-auth login page only shows them on a single-org cell: with several orgs
+// the list would name every tenant, so there an email is routed by its domain
+// instead (ProviderForEmail).
 func (s *Store) ListAllEnabledProviders(ctx context.Context) ([]AuthProvider, error) {
 	rows, err := s.pool.Query(ctx, `SELECT `+authProviderCols+` FROM auth_providers WHERE enabled=true ORDER BY name`)
 	if err != nil {

@@ -229,8 +229,11 @@ type AuthProvider struct {
 	// requested at authorize time. DefaultRole is the org role granted to
 	// users with no matching claim mapping; JITProvisioning creates a user
 	// on first SSO login when no local/linked account exists. See docs/sso.md.
-	Scopes          string    `json:"scopes"`
-	ClaimGroups     string    `json:"claim_groups"`
+	Scopes      string `json:"scopes"`
+	ClaimGroups string `json:"claim_groups"`
+	// Domains are the email domains this provider speaks for (see
+	// sso_domains.go). Filled on the admin list; assigned by an operator.
+	Domains         []string  `json:"domains"`
 	DefaultRole     Role      `json:"default_role"`
 	JITProvisioning bool      `json:"jit_provisioning"`
 	Enabled         bool      `json:"enabled"`
@@ -314,6 +317,10 @@ type Principal struct {
 	// Gates the operator surface (org lifecycle + cell-wide settings).
 	// Always false for service accounts.
 	IsOperator bool `json:"is_operator,omitempty"`
+	// OperatorVisit: an operator working in an org they are not a member
+	// of. They read it as a viewer; to change anything they add
+	// themselves as a member, which the org's admins can then see.
+	OperatorVisit bool `json:"operator_visit,omitempty"`
 }
 
 // ReadRole is the role to use for READ-visibility decisions. Scoping a token
