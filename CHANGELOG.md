@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.216 — 2026-11-21
+
+- fix(sso): an identity provider only speaks for its own email domains (66b068f)
+
 ## v0.11.215 — 2026-11-20
 
+- release v0.11.215 - refresh internal changelog (5383345)
 - feat(system-types): kgateway, one type for the gateway proxy and one for its control plane (17f7668)
 
 ## v0.11.214 — 2026-11-20
