@@ -3,8 +3,14 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.219 — 2026-11-23
+
+- test(e2e): give the completion rule in the MCP test a severity (e96d790)
+- fix(usage): measure integrations against the limit that holds (8bda710)
+
 ## v0.11.218 — 2026-11-23
 
+- release v0.11.218 - refresh internal changelog (60c48ff)
 - perf(messages): the completion column never makes the list wait (6620145)
 - feat(messages): where each message stands against its completion rules (76175a3)
 
