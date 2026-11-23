@@ -3,8 +3,14 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.218 — 2026-11-23
+
+- perf(messages): the completion column never makes the list wait (6620145)
+- feat(messages): where each message stands against its completion rules (76175a3)
+
 ## v0.11.217 — 2026-11-23
 
+- release v0.11.217 - refresh internal changelog (9ef78ce)
 - fix(alerting): a metric check that finds no data reads no_data, not ok (c49c268)
 - fix(environments): read a row's environment from its own attributes too (6743da2)
 - fix(trace-completion): tell the channels when a delayed trace gets through (a3c273b)
