@@ -97,6 +97,15 @@ type CatalogStore interface {
 // interface above doesn't drag the whole alerting package in.
 type AlertInstance struct {
 	ID uuid.UUID
+	// Environment is the environment label the firing was opened with:
+	// its resolve is routed through the same notification profile.
+	Environment string
+	// Handled (acknowledged) and Suppressed (muted at birth by a
+	// maintenance window) keep the resolve quiet, as they do for every
+	// other check: the first means someone is on it, the second that
+	// nobody was told it fired.
+	Handled    bool
+	Suppressed bool
 }
 
 // New wires the dependencies. interval=0 picks a sane default (30s).
@@ -344,6 +353,23 @@ func (e *Evaluator) resolveStageFiring(ctx context.Context, rule Rule, fingerpri
 		"rule_id", rule.ID, "trace_id", traceID, "stage", stage, "closed_at", closedAt)
 	if err := e.alerts.ResolveInstance(ctx, active.ID, summary); err != nil {
 		return fmt.Errorf("resolve instance: %w", err)
+	}
+	// Tell whoever was paged, as the engine does when a metric check
+	// clears (alerting.resolveOrHold). Without this the incident tool
+	// behind a webhook kept every delayed-trace incident open until
+	// someone closed it by hand, and nobody learned that the message got
+	// through. The job is enqueued after the resolve, so it is delivered
+	// with status "resolved" and the firing's own dedup key.
+	if active.Handled || active.Suppressed {
+		return nil
+	}
+	if active.Environment != "" {
+		ctx = envctx.With(ctx, active.Environment)
+	}
+	if channels := e.channelsFor(ctx, rule); len(channels) > 0 {
+		if err := e.alerts.EnqueueJobs(ctx, active.ID, channels); err != nil {
+			return fmt.Errorf("enqueue resolve: %w", err)
+		}
 	}
 	return nil
 }

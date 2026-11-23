@@ -22,6 +22,7 @@ type fakeAlertStore struct {
 	opened     int
 	touched    int
 	enqueued   [][]uuid.UUID
+	resolved   int
 	suppressed []uuid.UUID // window ids stamped on the opened instance
 	labels     map[string]string
 	summary    string
@@ -48,6 +49,7 @@ func (f *fakeAlertStore) ActiveInstanceByFingerprint(ctx context.Context, ruleID
 }
 
 func (f *fakeAlertStore) ResolveInstance(ctx context.Context, id uuid.UUID, summary string) error {
+	f.resolved++
 	return nil
 }
 
@@ -242,4 +244,68 @@ func TestFireDelayedNamesSeverityRuleAndEnvironment(t *testing.T) {
 	if _, has := alerts.labels[EnvironmentLabel]; has {
 		t.Errorf("labels: %v, want no environment", alerts.labels)
 	}
+}
+
+// A delayed trace that completes resolves its firing and tells the
+// channels that were paged, so an incident tool behind a webhook closes
+// the incident. It used to resolve silently, leaving every such incident
+// to be closed by hand.
+func TestLateArrivalSendsTheResolve(t *testing.T) {
+	alerts := &fakeAlertStore{active: &AlertInstance{ID: uuid.New()}}
+	e := testEvaluator(alerts)
+	rule, c := testRuleAndDelay()
+
+	if err := e.resolveStageFiring(context.Background(), rule, "fp", c.TraceID, 1, time.Now()); err != nil {
+		t.Fatalf("resolveStageFiring: %v", err)
+	}
+	if alerts.resolved != 1 {
+		t.Fatalf("resolved = %d, want 1", alerts.resolved)
+	}
+	if len(alerts.enqueued) != 1 || len(alerts.enqueued[0]) != 1 || alerts.enqueued[0][0] != rule.ChannelIDs[0] {
+		t.Fatalf("enqueued = %v, want the resolve sent to the rule's channel", alerts.enqueued)
+	}
+}
+
+// Quiet resolves, as for every other check: an acknowledged firing
+// (someone is on it) and one muted at birth by a maintenance window
+// (nobody was told it fired).
+func TestLateArrivalResolvesQuietlyWhenHandledOrMuted(t *testing.T) {
+	for name, inst := range map[string]AlertInstance{
+		"acknowledged":   {ID: uuid.New(), Handled: true},
+		"muted at birth": {ID: uuid.New(), Suppressed: true},
+	} {
+		alerts := &fakeAlertStore{active: &inst}
+		e := testEvaluator(alerts)
+		rule, c := testRuleAndDelay()
+		if err := e.resolveStageFiring(context.Background(), rule, "fp", c.TraceID, 1, time.Now()); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if alerts.resolved != 1 || len(alerts.enqueued) != 0 {
+			t.Errorf("%s: resolved %d, enqueued %v; want resolved without a notification", name, alerts.resolved, alerts.enqueued)
+		}
+	}
+}
+
+// The resolve is routed for the firing's own environment, so a profile
+// that pages production only also sends production's resolve.
+func TestLateArrivalRoutesTheResolveForItsEnvironment(t *testing.T) {
+	alerts := &fakeAlertStore{active: &AlertInstance{ID: uuid.New(), Environment: "production"}}
+	e := testEvaluator(alerts)
+	routes := &envRecordingResolver{}
+	e.SetChannelResolver(routes)
+	rule, c := testRuleAndDelay()
+	rule.ChannelIDs = nil
+	if err := e.resolveStageFiring(context.Background(), rule, "fp", c.TraceID, 1, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if routes.env != "production" {
+		t.Errorf("resolve routed for environment %q, want production", routes.env)
+	}
+}
+
+type envRecordingResolver struct{ env string }
+
+func (r *envRecordingResolver) Resolve(ctx context.Context, orgID uuid.UUID, explicit []uuid.UUID, integrationID, groupID *uuid.UUID) ([]uuid.UUID, error) {
+	r.env, _ = envctx.From(ctx)
+	return []uuid.UUID{uuid.New()}, nil
 }

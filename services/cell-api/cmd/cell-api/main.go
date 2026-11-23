@@ -1611,7 +1611,12 @@ func (a traceCompletionAlertAdapter) ActiveInstanceByFingerprint(ctx context.Con
 	if err != nil || inst == nil {
 		return nil, err
 	}
-	return &tracecompletion.AlertInstance{ID: inst.ID}, nil
+	return &tracecompletion.AlertInstance{
+		ID:          inst.ID,
+		Environment: inst.Labels[alerting.EnvironmentLabel],
+		Handled:     inst.HandledAt != nil,
+		Suppressed:  inst.SuppressedBy != nil,
+	}, nil
 }
 
 func (a traceCompletionAlertAdapter) ResolveInstance(ctx context.Context, id uuid.UUID, summary string) error {

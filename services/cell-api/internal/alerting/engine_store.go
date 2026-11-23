@@ -69,14 +69,16 @@ func (s *Store) ActiveInstance(ctx context.Context, ruleID uuid.UUID) (*AlertIns
 // have one fingerprint per rule should keep using ActiveInstance.
 func (s *Store) ActiveInstanceByFingerprint(ctx context.Context, ruleID uuid.UUID, fingerprint string) (*AlertInstance, error) {
 	const q = `
-		SELECT id, alert_rule_id, state, started_at, last_evaluated_at, fingerprint, COALESCE(summary, ''), handled_at, suppressed_by
+		SELECT id, alert_rule_id, state, started_at, last_evaluated_at, fingerprint, COALESCE(summary, ''), handled_at, suppressed_by,
+		       COALESCE(labels, '{}'::jsonb)
 		FROM alert_instances
 		WHERE alert_rule_id = $1 AND fingerprint = $2 AND state = 'firing'
 		ORDER BY started_at DESC
 		LIMIT 1`
 	var a AlertInstance
 	err := s.pool.QueryRow(ctx, q, ruleID, fingerprint).Scan(
-		&a.ID, &a.AlertRuleID, &a.State, &a.StartedAt, &a.LastEvaluatedAt, &a.Fingerprint, &a.Summary, &a.HandledAt, &a.SuppressedBy)
+		&a.ID, &a.AlertRuleID, &a.State, &a.StartedAt, &a.LastEvaluatedAt, &a.Fingerprint, &a.Summary, &a.HandledAt, &a.SuppressedBy,
+		&a.Labels)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
