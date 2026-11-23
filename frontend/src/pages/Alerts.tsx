@@ -15,7 +15,8 @@ import { errorCountsChanged } from "../lib/errorCountsChanged";
 import type { Dispatch, SetStateAction } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
-import type { AlertDelivery, AlertInstance, AlertRule, Group, Integration, MaintenanceWindow, NotificationChannel, RuleDelivery, System } from "../api/types";
+import type { AlertDelivery, AlertInstance, AlertRule, Group, Integration, MaintenanceWindow, NotificationChannel, RuleDelivery, RuleState, System } from "../api/types";
+import NoDataBadge from "../components/health/NoDataBadge";
 import { deliveryLabel } from "../lib/delivery";
 import { usePageTitle } from "../lib/usePageTitle";
 import { useCurrentUser } from "../lib/useCurrentUser";
@@ -52,6 +53,7 @@ export default function Alerts() {
   const [instances, setInstances] = useState<AlertInstance[]>([]);
   const [rules, setRules] = useState<AlertRule[]>([]);
   const [ruleDelivery, setRuleDelivery] = useState<Record<string, RuleDelivery>>({});
+  const [ruleStates, setRuleStates] = useState<Record<string, RuleState>>({});
   const [channels, setChannels] = useState<NotificationChannel[]>([]);
   const [integrations, setIntegrations] = useState<Integration[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
@@ -77,6 +79,7 @@ export default function Alerts() {
       .then((r) => {
         setRules(r.rules ?? []);
         setRuleDelivery(r.delivery ?? {});
+        setRuleStates(r.states ?? {});
       })
       .catch(() => setRules([]));
     api.listChannels().then((r) => setChannels(r.channels ?? [])).catch(() => setChannels([]));
@@ -307,6 +310,7 @@ export default function Alerts() {
             ruleTitle={ruleTitle}
             ruleScope={ruleScope}
             ruleSendsTo={(r) => deliveryLabel(ruleDelivery[r.id], channelName)}
+            ruleStates={ruleStates}
             highlightRuleId={highlightRuleId}
             highlight={highlight}
           />
@@ -370,6 +374,7 @@ function HealthChecksColumn({
   ruleTitle,
   ruleScope,
   ruleSendsTo,
+  ruleStates,
   highlightRuleId,
   highlight,
 }: {
@@ -384,6 +389,8 @@ function HealthChecksColumn({
   ruleScope: (r: ScopeRef) => { label: string; to: string } | null;
   // Where its firings go: own channels, or the profile that routes it.
   ruleSendsTo: (r: AlertRule) => string;
+  // Where each rule stands now, by rule id (no data, for one).
+  ruleStates: Record<string, RuleState>;
   // Rule whose row should pulse — resolved from the ?instance= deep link
   // that notification emails carry.
   highlightRuleId: string | null;
@@ -500,6 +507,7 @@ function HealthChecksColumn({
               <span style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 2, justifyContent: "center" }} title={inst?.summary ?? ruleTitle(rule)}>
                 <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {inst && <span className="m-rule-badge" style={{ marginRight: 6, fontSize: 10, background: "var(--err)", borderColor: "var(--err)", color: "#fff" }}>firing</span>}
+                  {!inst && <NoDataBadge state={ruleStates[rule.id]} />}
                   <span className={`m-rule-badge sev-${rule.severity}`} style={{ marginRight: 6, fontSize: 10 }}>{rule.severity}</span>
                   {rule.name}
                   {alertSignalLabel(rule.signal) && <span className="muted" style={{ fontSize: 11, marginLeft: 6 }}>{alertSignalLabel(rule.signal)}</span>}

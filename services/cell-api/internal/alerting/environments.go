@@ -71,6 +71,12 @@ func (e *Engine) perEnvironment(ctx context.Context, rule AlertRule, eval func(c
 		return
 	}
 	e.retireLegacyInstance(ctx, rule)
+	// No environment to evaluate in, "production" on an integration that
+	// has no production environment for example, is an evaluation that
+	// found no data, not one that did not happen.
+	if len(envs) == 0 {
+		noteEvaluated(ctx, false)
+	}
 	for _, env := range envs {
 		eval(envctx.With(ctx, env), rule)
 	}

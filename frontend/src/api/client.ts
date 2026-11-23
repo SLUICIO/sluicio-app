@@ -6,6 +6,7 @@
 import type {
   CompletionDryRun,
   RuleDelivery,
+  RuleState,
   IntegrationSource,
   IntegrationSourceView,
   EnvironmentRole,
@@ -986,7 +987,9 @@ export const api = {
     if (opts.integration) p.set("integration", opts.integration);
     if (opts.system) p.set("system", opts.system);
     const qs = p.toString();
-    return get<{ rules: AlertRule[]; delivery?: Record<string, RuleDelivery> }>(`/alert-rules${qs ? `?${qs}` : ""}`);
+    return get<{ rules: AlertRule[]; states?: Record<string, RuleState>; delivery?: Record<string, RuleDelivery> }>(
+      `/alert-rules${qs ? `?${qs}` : ""}`,
+    );
   },
   createAlertRule: (body: AlertRuleInput) => post<AlertRule>(`/alert-rules`, body),
   updateAlertRule: (id: string, body: AlertRuleInput) =>

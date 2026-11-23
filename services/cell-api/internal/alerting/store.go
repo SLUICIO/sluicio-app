@@ -583,6 +583,22 @@ func (s *Store) RecordReading(ctx context.Context, ruleID uuid.UUID, value float
 	return nil
 }
 
+// RecordEvaluation notes that the engine just evaluated a metric check
+// and whether it found data. A reading is only recorded when there was
+// one, so without this a check whose scope matches nothing left no trace
+// of ever running and read as "ok".
+func (s *Store) RecordEvaluation(ctx context.Context, ruleID uuid.UUID, hadData bool) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO alert_rule_evaluations (alert_rule_id, evaluated_at, had_data)
+		VALUES ($1, now(), $2)
+		ON CONFLICT (alert_rule_id)
+		DO UPDATE SET evaluated_at = EXCLUDED.evaluated_at, had_data = EXCLUDED.had_data`, ruleID, hadData)
+	if err != nil {
+		return fmt.Errorf("record evaluation: %w", err)
+	}
+	return nil
+}
+
 // LatestReading returns the most recent reading for a rule, or nil if
 // none has been recorded yet.
 func (s *Store) LatestReading(ctx context.Context, ruleID uuid.UUID) (*Reading, error) {
@@ -1167,14 +1183,18 @@ func dedupe(ids []uuid.UUID) []uuid.UUID {
 // rather than incidents: whether it is firing (and since when), and the
 // last value a metric check read.
 type RuleState struct {
-	// State is "firing", "ok" or "disabled". A check that has never had
-	// data reads as "ok": the engine opens nothing without a breach.
+	// State is "firing", "ok", "no_data" or "disabled". no_data is a
+	// metric check whose last evaluation found nothing to read: it cannot
+	// fire, so it must not look healthy. A check not evaluated yet (just
+	// created, or a cell that has not run a tick since upgrading) reads
+	// "ok" until its first evaluation.
 	State           string     `json:"state"`
 	FiringInstances int        `json:"firing_instances"`
 	FiringSince     *time.Time `json:"firing_since,omitempty"`
-	// LastEvaluatedAt is when the engine last looked at a firing
-	// instance, or last recorded a reading; empty when it has done
-	// neither.
+	// LastEvaluatedAt is when the engine last evaluated the check (a
+	// metric check, with or without data), last looked at a firing
+	// instance, or last recorded a reading; empty when none of these has
+	// happened.
 	LastEvaluatedAt *time.Time `json:"last_evaluated_at,omitempty"`
 	Value           *float64   `json:"value,omitempty"`
 }
@@ -1184,7 +1204,7 @@ func (s *Store) RuleStates(ctx context.Context, orgID uuid.UUID) (map[uuid.UUID]
 	rows, err := s.pool.Query(ctx, `
 		SELECT r.id, r.enabled,
 		       COALESCE(f.n, 0), f.since, f.evaluated,
-		       ar.value, ar.observed_at
+		       ar.value, ar.observed_at, ev.evaluated_at, ev.had_data
 		FROM alert_rules r
 		LEFT JOIN (
 			SELECT alert_rule_id, count(*) AS n, min(started_at) AS since, max(last_evaluated_at) AS evaluated
@@ -1192,6 +1212,7 @@ func (s *Store) RuleStates(ctx context.Context, orgID uuid.UUID) (map[uuid.UUID]
 			GROUP BY alert_rule_id
 		) f ON f.alert_rule_id = r.id
 		LEFT JOIN alert_rule_readings ar ON ar.alert_rule_id = r.id
+		LEFT JOIN alert_rule_evaluations ev ON ev.alert_rule_id = r.id
 		WHERE r.organization_id = $1`, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("rule states: %w", err)
@@ -1204,23 +1225,34 @@ func (s *Store) RuleStates(ctx context.Context, orgID uuid.UUID) (map[uuid.UUID]
 			enabled               bool
 			st                    RuleState
 			since, evaluated, obs *time.Time
+			ranAt                 *time.Time
+			hadData               *bool
 		)
-		if err := rows.Scan(&id, &enabled, &st.FiringInstances, &since, &evaluated, &st.Value, &obs); err != nil {
+		if err := rows.Scan(&id, &enabled, &st.FiringInstances, &since, &evaluated, &st.Value, &obs, &ranAt, &hadData); err != nil {
 			return nil, err
 		}
 		st.FiringSince = since
-		switch {
-		case !enabled:
-			st.State = "disabled"
-		case st.FiringInstances > 0:
-			st.State = "firing"
-		default:
-			st.State = "ok"
-		}
-		st.LastEvaluatedAt = latest(evaluated, obs)
+		st.State = ruleStateOf(enabled, st.FiringInstances, hadData)
+		st.LastEvaluatedAt = latest(latest(evaluated, obs), ranAt)
 		out[id] = st
 	}
 	return out, rows.Err()
+}
+
+// ruleStateOf is a rule's state from whether it is enabled, how many
+// instances are firing, and whether its last evaluation found data (nil
+// when it has not been evaluated, or is not a metric check). Firing wins
+// over no_data: a no-data alert is itself a firing instance.
+func ruleStateOf(enabled bool, firing int, hadData *bool) string {
+	switch {
+	case !enabled:
+		return "disabled"
+	case firing > 0:
+		return "firing"
+	case hadData != nil && !*hadData:
+		return "no_data"
+	}
+	return "ok"
 }
 
 func latest(a, b *time.Time) *time.Time {

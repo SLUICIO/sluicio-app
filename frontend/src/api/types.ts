@@ -2460,6 +2460,16 @@ export interface TraceCompletionSpan {
 }
 
 // Where a check's firings go, beside the rule lists (cell-api ruleDelivery).
+// Where a rule stands now (GET /alert-rules states). no_data is a metric
+// check whose last evaluation found nothing to read: it cannot fire.
+export interface RuleState {
+  state: "firing" | "ok" | "no_data" | "disabled";
+  firing_instances: number;
+  firing_since?: string;
+  last_evaluated_at?: string;
+  value?: number;
+}
+
 export interface RuleDelivery {
   // "channels": the rule's own. "profile": the profile that applies.
   // "none": no channels of its own and no profile.

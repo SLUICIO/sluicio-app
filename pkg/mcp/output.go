@@ -634,7 +634,7 @@ var deliveryItem = objOf("Where its firings go: its own channels, or the notific
 })
 
 var ruleStateItem = objOf("Where the rule stands now.", map[string]any{
-	"state":             strOut("firing | ok | disabled. A check that never had data reads ok."),
+	"state":             strOut("firing | ok | no_data | disabled. no_data: a metric check whose last evaluation found nothing in its scope (wrong metric, service or environment, or a source that stopped); it cannot fire until it finds data. A check not evaluated yet reads ok."),
 	"firing_instances":  intOut("Open firings (one per environment or split value)."),
 	"firing_since":      strOut("When the oldest open firing started (RFC3339)."),
 	"last_evaluated_at": strOut("When the engine last looked at it, when known (RFC3339)."),

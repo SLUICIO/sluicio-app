@@ -65,7 +65,7 @@ func (s *Server) mergeInto(payload map[string]any, key, path string, q url.Value
 func configTools(s *Server) []tool {
 	return []tool{
 		{Name: "sluicio_list_alert_rules", Output: listAlertRulesOut,
-			Description: "List alert rules with where each stands now. A health check is an alert rule bound to an integration, a service or a system; filter by one of them to get that entity's checks. Each rule carries its signal and spec (metric aggregation, operator, threshold and for_window; or a log, failed-trace, span-attribute, low-traffic or latency spec), severity, enabled, channel_ids, runbook and environment scope. states maps rule id to firing | ok | disabled with firing_since, the last value a metric check read and when it last evaluated. delivery maps rule id to where its firings go: its own channels or the notification profile that routes it. Rules you may not see are left out.",
+			Description: "List alert rules with where each stands now. A health check is an alert rule bound to an integration, a service or a system; filter by one of them to get that entity's checks. Each rule carries its signal and spec (metric aggregation, operator, threshold and for_window; or a log, failed-trace, span-attribute, low-traffic or latency spec), severity, enabled, channel_ids, runbook and environment scope. states maps rule id to firing | ok | no_data | disabled with firing_since, the last value a metric check read and when it last evaluated. delivery maps rule id to where its firings go: its own channels or the notification profile that routes it. Rules you may not see are left out.",
 			Schema: objSchema(map[string]any{
 				"integration": strProp("Only checks bound to this integration (uuid)."),
 				"service":     strProp("Only checks bound to this service name."),
@@ -81,7 +81,7 @@ func configTools(s *Server) []tool {
 				return s.get("/api/v1/alert-rules", q)
 			}},
 		{Name: "sluicio_get_alert_rule", Output: getAlertRuleOut,
-			Description: "Get one alert rule by id, with its full spec, scope, channel_ids, runbook, state (firing | ok | disabled, firing_since, last value, last evaluated) and delivery (where its firings go).",
+			Description: "Get one alert rule by id, with its full spec, scope, channel_ids, runbook, state (firing | ok | no_data | disabled, firing_since, last value, last evaluated) and delivery (where its firings go).",
 			Schema:      objSchema(map[string]any{"id": strProp("The alert rule id (uuid).")}, "id"),
 			Call: func(a map[string]any) (string, error) {
 				id := argStr(a, "id")

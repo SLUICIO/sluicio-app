@@ -481,7 +481,31 @@ func (e *Engine) evaluateOnce(ctx context.Context) {
 		return
 	}
 	for _, rule := range rules {
-		e.perEnvironment(ctx, rule, e.evaluateRule)
+		t := &evalTally{}
+		e.perEnvironment(context.WithValue(ctx, evalTallyKey{}, t), rule, e.evaluateRule)
+		if t.ran {
+			if err := e.store.RecordEvaluation(ctx, rule.ID, t.hadData); err != nil {
+				e.log.Warn("alert eval: record evaluation failed", "rule", rule.ID, "err", err)
+			}
+		}
+	}
+}
+
+// evalTally collects, across the environments one metric check is
+// evaluated in on a tick, whether it ran and whether any of them found
+// data, for RecordEvaluation. Carried in the context so perEnvironment,
+// shared by every signal, stays as it is.
+type evalTally struct{ ran, hadData bool }
+
+type evalTallyKey struct{}
+
+// noteEvaluated records one evaluation's outcome on the tick's tally, if
+// the context carries one. A query that failed is not noted: it says
+// nothing about the data.
+func noteEvaluated(ctx context.Context, hadData bool) {
+	if t, ok := ctx.Value(evalTallyKey{}).(*evalTally); ok {
+		t.ran = true
+		t.hadData = t.hadData || hadData
 	}
 }
 
@@ -497,6 +521,7 @@ func (e *Engine) evaluateRule(ctx context.Context, rule AlertRule) {
 		e.log.Error("alert eval: aggregate failed", "rule", rule.ID, "err", err)
 		return
 	}
+	noteEvaluated(ctx, samples > 0)
 	// Persist the computed value so a "show on service page" check can
 	// render its latest reading without re-querying ClickHouse. Only when
 	// the series had samples — a 0-from-no-data reading would mislead.
@@ -696,6 +721,7 @@ func (e *Engine) evaluateSplitRule(ctx context.Context, rule AlertRule) {
 			breaching = append(breaching, g)
 		}
 	}
+	noteEvaluated(ctx, totalSamples > 0)
 	breached := len(breaching) > 0
 
 	// No-data on a split rule means the metric went silent ENTIRELY.
@@ -715,10 +741,12 @@ func (e *Engine) evaluateSplitRule(ctx context.Context, rule AlertRule) {
 		breached = true
 	}
 
-	// Persist a reading for "show on service page" — the worst (highest)
-	// group value — so a split-by check's value tile isn't perpetually empty
-	// (the scalar path records its single value; the split path didn't).
-	if rule.DisplayOnService {
+	// Persist a reading - the worst (highest) group value - as the scalar
+	// path does. It feeds the "show on service page" tile, and it is what
+	// arms no-data: recorded only for a check shown on the service page,
+	// a split check's FireOnNoData could never fire and its state never
+	// showed an evaluation.
+	{
 		var worst float64
 		var have bool
 		for _, g := range groups {

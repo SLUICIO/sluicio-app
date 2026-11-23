@@ -24,8 +24,10 @@ import type {
   LogFieldEntry,
   MetricRuleSpec,
   RetentionResponse,
+  RuleState,
 } from "../../api/types";
 import SearchableSelect from "../SearchableSelect";
+import NoDataBadge from "./NoDataBadge";
 import { orderMetricOptions, sourceMetrics } from "../../lib/metricSuggestions";
 import { EditDrawer } from "../primitives";
 import { anchorTransform, useAnchoredPosition } from "../primitives/useAnchoredPosition";
@@ -264,6 +266,7 @@ export default function HealthChecks({
   // at all: it showed that a check existed, not that it had been firing
   // since Tuesday.
   const [firing, setFiring] = useState<Map<string, AlertInstance>>(new Map());
+  const [states, setStates] = useState<Record<string, RuleState>>({});
   const [loading, setLoading] = useState(true);
   // editing = an existing rule (PUT); creating = a new rule of a kind (POST).
   const [editing, setEditing] = useState<AlertRule | null>(null);
@@ -286,7 +289,10 @@ export default function HealthChecks({
     setLoading(true);
     api
       .listAlertRules(scopeQuery(scope, target))
-      .then((r) => setRules(r.rules ?? []))
+      .then((r) => {
+        setRules(r.rules ?? []);
+        setStates(r.states ?? {});
+      })
       .catch(() => setRules([]))
       .finally(() => setLoading(false));
     // Firing state is a separate feed and deliberately not awaited: a
@@ -503,6 +509,7 @@ export default function HealthChecks({
                   <div className={`m-ex-bar ${barStateClass(rule, firing.has(rule.id))}`} />
                   <div className="m-ex-mid">
                     <div className="m-ex-name">
+                      {!firing.has(rule.id) && <NoDataBadge state={states[rule.id]} />}
                       {rule.name}
                       {alertSignalLabel(rule.signal) && (
                         <span className="m-rule-badge" style={{ marginLeft: 6 }}>{alertSignalLabel(rule.signal)}</span>
