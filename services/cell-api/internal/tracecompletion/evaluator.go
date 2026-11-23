@@ -636,7 +636,7 @@ func (e *Evaluator) scanTraces(ctx context.Context, spec RuleSpec, services []st
 	// span that carried none. Read through the cell's environment setting
 	// (its key and aliases), as every other environment read is, so the
 	// label matches what the environment picker offers.
-	sb.WriteString(", max(" + store.EnvironmentExpr() + ") AS env")
+	sb.WriteString(", max(" + store.EnvironmentExprIn(store.SpansPrimaryMap) + ") AS env")
 	fmt.Fprintf(&sb, " FROM traces WHERE Timestamp >= ? AND Timestamp <= ? AND ServiceName IN (%s)", qPlaceholders(len(services)))
 	args = append(args, from, to)
 	for _, s := range services {

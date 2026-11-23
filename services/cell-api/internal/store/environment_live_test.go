@@ -117,10 +117,12 @@ func TestEnvironmentLive(t *testing.T) {
 		t.Errorf("by environment: %+v", byEnv)
 	}
 
-	// A configured key replaces the default ones.
+	// A configured key is read first, and the default ones still apply
+	// where it is absent: t2 carries both and reads "old"; p1 and p2 carry
+	// only the default and keep "production".
 	SetEnvironmentConfig(EnvironmentConfig{Key: "deployment.environment"})
 	got = envs()
-	if got["old"].Messages != 1 || got["test"].Messages != 1 || got[""].Messages != 3 {
+	if got["old"].Messages != 1 || got["test"].Messages != 1 || got["production"].Messages != 2 || got[""].Messages != 1 {
 		t.Errorf("custom key: %+v", got)
 	}
 }

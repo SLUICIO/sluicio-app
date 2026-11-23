@@ -97,7 +97,9 @@ func WithEnvironmentParam(next http.Handler) http.Handler {
 			if p, ok := middleware.PrincipalFromContext(ctx); ok && p.OrgID != uuid.Nil {
 				org = p.OrgID.String()
 			}
-			ctx = imclickhouse.WithTableFilter(ctx, org, environmentPredicate(envs))
+			ctx = imclickhouse.WithTableFilters(ctx, org, func(table string) string {
+				return environmentPredicate(table, envs)
+			})
 			r = r.WithContext(ctx)
 		}
 		next.ServeHTTP(w, r)
@@ -105,13 +107,14 @@ func WithEnvironmentParam(next http.Handler) http.Handler {
 }
 
 // environmentPredicate is "the row's environment is one of envs", over
-// the canonical environment every telemetry table can compute.
-func environmentPredicate(envs []string) string {
+// the canonical environment of the table's rows, which reads the table's
+// own record attributes as well as the resource.
+func environmentPredicate(table string, envs []string) string {
 	lits := make([]string, len(envs))
 	for i, e := range envs {
 		lits[i] = "'" + strings.NewReplacer(`\`, `\\`, "'", `\'`).Replace(e) + "'"
 	}
-	return "(" + store.EnvironmentExpr() + ") IN (" + strings.Join(lits, ", ") + ")"
+	return "(" + store.EnvironmentExprIn(store.PrimaryMapOf(table)) + ") IN (" + strings.Join(lits, ", ") + ")"
 }
 
 // envStatusOrder orders statuses worst first, for the per-environment

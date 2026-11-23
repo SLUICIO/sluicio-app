@@ -86,7 +86,7 @@ func (s *Store) ListServicesIn(ctx context.Context, from, to time.Time, envs []s
 	where := "Timestamp >= ? AND Timestamp <= ?"
 	args := []any{from, to}
 	if len(envs) > 0 {
-		where += " AND (" + EnvironmentExpr() + ") IN (" + strings.TrimSuffix(strings.Repeat("?,", len(envs)), ",") + ")"
+		where += " AND (" + EnvironmentExprIn(SpansPrimaryMap) + ") IN (" + strings.TrimSuffix(strings.Repeat("?,", len(envs)), ",") + ")"
 		for _, e := range envs {
 			args = append(args, e)
 		}
@@ -3137,7 +3137,7 @@ func attrClauseIn(primaryMap string, f LogAttrFilter) (string, []any) {
 	// The environment is derived, not a map entry (#40): exists means a
 	// row has one, and every value comparison reads the canonical name.
 	if f.Key == EnvironmentAttrKey {
-		eff = EnvironmentExpr()
+		eff = EnvironmentExprIn(primaryMap)
 		switch f.Op {
 		case AttrOpExists:
 			return "(" + eff + ") != ''", nil

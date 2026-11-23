@@ -115,6 +115,6 @@ func buildLatestTriggeringSQL(table, primaryMap, traceCol string, q TriggerQuery
 		FROM %s
 		WHERE %s
 		ORDER BY Timestamp DESC
-		LIMIT 1`, traceCol, EnvironmentExpr(), strings.Join(exprs, ", "), table, strings.Join(where, " AND "))
+		LIMIT 1`, traceCol, EnvironmentExprIn(primaryMap), strings.Join(exprs, ", "), table, strings.Join(where, " AND "))
 	return sql, args
 }

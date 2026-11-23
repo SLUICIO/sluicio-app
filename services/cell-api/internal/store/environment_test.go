@@ -11,24 +11,37 @@ func TestEnvironmentExpr(t *testing.T) {
 	t.Cleanup(func() { SetEnvironmentConfig(EnvironmentConfig{}) })
 
 	SetEnvironmentConfig(EnvironmentConfig{})
-	if got := EnvironmentExpr(); got != "Environment" {
-		t.Errorf("default: %s", got)
+	if got := EnvironmentExprIn(""); got != "coalesce(nullIf(Environment, ''), '')" {
+		t.Errorf("resource only: %s", got)
+	}
+	// The resource first, then the record: a metric labelled per data
+	// point still has an environment.
+	want := "coalesce(nullIf(Environment, ''), nullIf(MetricAttributes['deployment.environment.name'], ''), nullIf(MetricAttributes['deployment.environment'], ''), '')"
+	if got := EnvironmentExprIn(MetricsPrimaryMap); got != want {
+		t.Errorf("default on metrics:\n got %s\nwant %s", got, want)
 	}
 
-	SetEnvironmentConfig(EnvironmentConfig{Key: "k8s.namespace.name"})
-	if got := EnvironmentExpr(); got != "ResourceAttributes['k8s.namespace.name']" {
-		t.Errorf("custom key: %s", got)
+	// A configured key comes first, on the resource and then the record,
+	// and the defaults still apply where it is absent.
+	SetEnvironmentConfig(EnvironmentConfig{Key: "environment"})
+	want = "coalesce(nullIf(ResourceAttributes['environment'], ''), nullIf(Environment, ''), " +
+		"nullIf(SpanAttributes['environment'], ''), nullIf(SpanAttributes['deployment.environment.name'], ''), nullIf(SpanAttributes['deployment.environment'], ''), '')"
+	if got := EnvironmentExprIn(SpansPrimaryMap); got != want {
+		t.Errorf("custom key on spans:\n got %s\nwant %s", got, want)
 	}
 
 	// Aliases are case-insensitive on the way in, and a hostile setting
 	// cannot break out of its literal.
 	SetEnvironmentConfig(EnvironmentConfig{Aliases: map[string]string{"PRD": "production", "it's": "x'); DROP"}})
-	got := EnvironmentExpr()
-	for _, want := range []string{"transform(lower(Environment), ['it\\'s', 'prd'], ['x\\'); DROP', 'production'], Environment)"} {
-		if got != want {
-			t.Errorf("aliases:\n got %s\nwant %s", got, want)
-		}
+	raw := "coalesce(nullIf(Environment, ''), '')"
+	if got, want := EnvironmentExprIn(""), "transform(lower("+raw+"), ['it\\'s', 'prd'], ['x\\'); DROP', 'production'], "+raw+")"; got != want {
+		t.Errorf("aliases:\n got %s\nwant %s", got, want)
 	}
+	SetEnvironmentConfig(EnvironmentConfig{Key: "it's"})
+	if got := EnvironmentExprIn(LogsPrimaryMap); !strings.Contains(got, "ResourceAttributes['it\\'s']") || !strings.Contains(got, "LogAttributes['it\\'s']") {
+		t.Errorf("a hostile key is not escaped: %s", got)
+	}
+	SetEnvironmentConfig(EnvironmentConfig{Aliases: map[string]string{"PRD": "production"}})
 	if CanonicalEnvironment("Prd") != "production" || CanonicalEnvironment("test") != "test" {
 		t.Error("CanonicalEnvironment does not follow the aliases")
 	}
@@ -55,11 +68,11 @@ func TestWithEnvironment(t *testing.T) {
 	}
 
 	sql, args := attrGroupsClause("MetricAttributes", WithEnvironment(nil, "test"), zeroTime(), zeroTime())
-	if !strings.Contains(sql, "(Environment) = ?") || len(args) != 1 || args[0] != "test" {
+	if !strings.Contains(sql, "("+EnvironmentExprIn(MetricsPrimaryMap)+") = ?") || len(args) != 1 || args[0] != "test" {
 		t.Errorf("clause: %s %v", sql, args)
 	}
 	sql, _ = attrClauseIn("SpanAttributes", LogAttrFilter{Key: EnvironmentAttrKey, Op: AttrOpNotExists})
-	if sql != "(Environment) = ''" {
+	if sql != "("+EnvironmentExprIn(SpansPrimaryMap)+") = ''" {
 		t.Errorf("not exists: %s", sql)
 	}
 }

@@ -190,7 +190,7 @@ func sliceTraceStatsSQL(slices []IntegrationSlice, q SliceQuery) (string, []any)
 		// order the placeholders are read: the SELECT list first.
 		envSelect, groupBy := "", ""
 		if q.ByEnvironment {
-			envSelect = "\n\t\t       " + EnvironmentExpr() + " AS env,"
+			envSelect = "\n\t\t       " + EnvironmentExprIn(SpansPrimaryMap) + " AS env,"
 			groupBy = "\n\t\tGROUP BY env"
 		}
 		branches = append(branches, `

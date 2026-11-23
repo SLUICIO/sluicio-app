@@ -29,9 +29,11 @@ const NoEnvironment = ""
 
 // EnvironmentConfig is the cell's environment setting.
 type EnvironmentConfig struct {
-	// Key, when set, is the resource attribute to read the environment
-	// from instead of deployment.environment.name / deployment.environment
-	// (for installations that use `env` or a namespace).
+	// Key, when set, is an attribute to read the environment from before
+	// deployment.environment.name / deployment.environment (for
+	// installations that use `env`, `environment` or a namespace). It is
+	// read on the resource and then on the record, and the defaults still
+	// apply where it is absent (see EnvironmentExprIn).
 	Key string `json:"key,omitempty"`
 	// Aliases map a value as sent onto its canonical name, compared case
 	// insensitively: {"prd": "production", "prod": "production"}.
@@ -70,15 +72,71 @@ func sqlString(s string) string {
 	return "'" + strings.NewReplacer(`\`, `\\`, `'`, `\'`).Replace(s) + "'"
 }
 
-// EnvironmentExpr is the SQL for a row's environment on any signal table:
-// the materialized Environment column, or the configured key, with
-// aliases mapped onto canonical names.
-func EnvironmentExpr() string {
-	c := CurrentEnvironmentConfig()
-	raw := "Environment"
-	if c.Key != "" {
-		raw = "ResourceAttributes[" + sqlString(c.Key) + "]"
+// The record-level attribute map of each telemetry table.
+const (
+	SpansPrimaryMap   = "SpanAttributes"
+	LogsPrimaryMap    = "LogAttributes"
+	MetricsPrimaryMap = "MetricAttributes"
+)
+
+// PrimaryMapOf is the record-level attribute map of a telemetry table.
+func PrimaryMapOf(table string) string {
+	switch table {
+	case "traces":
+		return SpansPrimaryMap
+	case "logs":
+		return LogsPrimaryMap
+	case "metrics":
+		return MetricsPrimaryMap
 	}
+	return ""
+}
+
+// defaultEnvironmentKeys are OpenTelemetry's environment attribute, new
+// name first (it replaced the old one in semantic conventions v1.27).
+var defaultEnvironmentKeys = []string{"deployment.environment.name", "deployment.environment"}
+
+// EnvironmentExprIn is the SQL for a row's environment on the table whose
+// record-level attribute map is primaryMap (SpanAttributes, LogAttributes,
+// MetricAttributes), with aliases mapped onto canonical names. The first
+// of these that is set wins:
+//
+//  1. the configured key, on the resource;
+//  2. OpenTelemetry's environment attribute, on the resource (the
+//     materialized Environment column);
+//  3. the configured key, then OpenTelemetry's, on the record itself.
+//
+// The record level is there because not every pipeline puts the
+// environment on the resource. A collector that scrapes one cloud
+// account for several environments, Azure Monitor for a Service Bus
+// namespace per environment for example, can only label each data point,
+// and reading the resource alone made every such metric "(no
+// environment)": an integration's checks scoped to production read
+// nothing at all, and per-environment checks folded test into prod.
+//
+// A configured key used to replace the defaults; it now comes first and
+// the defaults still apply where it is absent, so a cell can name the
+// key its metrics carry without losing the environment of its traces.
+//
+// primaryMap "" reads the resource only, for a query over no single
+// table.
+func EnvironmentExprIn(primaryMap string) string {
+	c := CurrentEnvironmentConfig()
+	var parts []string
+	if c.Key != "" {
+		parts = append(parts, "nullIf(ResourceAttributes["+sqlString(c.Key)+"], '')")
+	}
+	parts = append(parts, "nullIf(Environment, '')")
+	if primaryMap != "" {
+		keys := defaultEnvironmentKeys
+		if c.Key != "" {
+			keys = append([]string{c.Key}, keys...)
+		}
+		for _, k := range keys {
+			parts = append(parts, "nullIf("+primaryMap+"["+sqlString(k)+"], '')")
+		}
+	}
+	raw := "coalesce(" + strings.Join(parts, ", ") + ", '')"
 	if len(c.Aliases) == 0 {
 		return raw
 	}
@@ -171,7 +229,6 @@ func (s *Store) EnvironmentsIn(ctx context.Context, services []string, groups []
 	if len(services) == 0 {
 		return []EnvironmentVolume{}, nil
 	}
-	env := EnvironmentExpr()
 	byEnv := map[string]*EnvironmentVolume{}
 	get := func(e string) *EnvironmentVolume {
 		v, ok := byEnv[e]
@@ -197,7 +254,7 @@ func (s *Store) EnvironmentsIn(ctx context.Context, services []string, groups []
 
 	where, args := base("SpanAttributes")
 	rows, err := s.conn.Query(ctx, `
-		SELECT `+env+` AS env,
+		SELECT `+EnvironmentExprIn(SpansPrimaryMap)+` AS env,
 		       toUInt64(uniqExact(TraceId)),
 		       toUInt64(uniqExactIf(TraceId, StatusCode = 'Error'))
 		FROM traces WHERE `+where+` GROUP BY env`, args...)
@@ -224,7 +281,7 @@ func (s *Store) EnvironmentsIn(ctx context.Context, services []string, groups []
 		{"metrics", "MetricAttributes", func(v *EnvironmentVolume, n uint64) { v.MetricRows = n }},
 	} {
 		where, args := base(t.primary)
-		rows, err := s.conn.Query(ctx, `SELECT `+env+` AS env, toUInt64(count()) FROM `+t.table+` WHERE `+where+` GROUP BY env`, args...)
+		rows, err := s.conn.Query(ctx, `SELECT `+EnvironmentExprIn(t.primary)+` AS env, toUInt64(count()) FROM `+t.table+` WHERE `+where+` GROUP BY env`, args...)
 		if err != nil {
 			return nil, fmt.Errorf("environments: %s: %w", t.table, err)
 		}
@@ -254,7 +311,6 @@ func (s *Store) EnvironmentsIn(ctx context.Context, services []string, groups []
 // messages and failures; logs and metrics count too, so a service that
 // only reports metrics (a broker) still shows where it runs.
 func (s *Store) ServiceEnvironments(ctx context.Context, from, to time.Time) (map[string][]EnvironmentVolume, error) {
-	env := EnvironmentExpr()
 	type key struct{ svc, env string }
 	vols := map[key]*EnvironmentVolume{}
 	get := func(svc, e string) *EnvironmentVolume {
@@ -267,7 +323,7 @@ func (s *Store) ServiceEnvironments(ctx context.Context, from, to time.Time) (ma
 		return v
 	}
 	rows, err := s.conn.Query(ctx, `
-		SELECT ServiceName, `+env+` AS env,
+		SELECT ServiceName, `+EnvironmentExprIn(SpansPrimaryMap)+` AS env,
 		       toUInt64(uniq(TraceId)),
 		       toUInt64(uniqIf(TraceId, StatusCode = 'Error'))
 		FROM traces WHERE Timestamp >= ? AND Timestamp <= ?
@@ -294,7 +350,7 @@ func (s *Store) ServiceEnvironments(ctx context.Context, from, to time.Time) (ma
 		{"metrics", func(v *EnvironmentVolume, n uint64) { v.MetricRows = n }},
 	} {
 		rows, err := s.conn.Query(ctx, `
-			SELECT ServiceName, `+env+` AS env, toUInt64(count())
+			SELECT ServiceName, `+EnvironmentExprIn(PrimaryMapOf(t.table))+` AS env, toUInt64(count())
 			FROM `+t.table+` WHERE Timestamp >= ? AND Timestamp <= ?
 			GROUP BY ServiceName, env LIMIT 20000`, from, to)
 		if err != nil {

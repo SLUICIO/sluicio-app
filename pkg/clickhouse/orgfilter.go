@@ -40,24 +40,36 @@ func WithOrgFilter(ctx context.Context, org string) context.Context {
 // extra must be valid SQL over columns every telemetry table has. Both
 // empty returns ctx unchanged.
 func WithTableFilter(ctx context.Context, org, extra string) context.Context {
-	var conds []string
-	if org != "" {
-		conds = append(conds, "OrganizationId = '"+strings.ReplaceAll(org, "'", "''")+"'")
-	}
-	if extra != "" {
-		conds = append(conds, "("+extra+")")
-	}
-	if len(conds) == 0 {
-		return ctx
-	}
-	// Each table's filter is a single-quoted string inside the map; its
-	// quotes are doubled to escape them there. org is a UUID, but it is
-	// escaped defensively like the predicate.
-	inner := strings.Join(conds, " AND ")
-	quoted := "'" + strings.NewReplacer(`\`, `\\`, "'", "''").Replace(inner) + "'"
+	return WithTableFilters(ctx, org, func(string) string { return extra })
+}
+
+// WithTableFilters is WithTableFilter with a predicate per table, for a
+// condition whose SQL depends on the table: the environment is read from
+// SpanAttributes, LogAttributes or MetricAttributes as well as the
+// resource. extra("") is never asked; an empty answer adds nothing for
+// that table.
+func WithTableFilters(ctx context.Context, org string, extra func(table string) string) context.Context {
 	parts := make([]string, 0, len(orgFilteredTables))
 	for _, t := range orgFilteredTables {
+		var conds []string
+		if org != "" {
+			conds = append(conds, "OrganizationId = '"+strings.ReplaceAll(org, "'", "''")+"'")
+		}
+		if x := extra(t); x != "" {
+			conds = append(conds, "("+x+")")
+		}
+		if len(conds) == 0 {
+			continue
+		}
+		// Each table's filter is a single-quoted string inside the map; its
+		// quotes are doubled to escape them there. org is a UUID, but it is
+		// escaped defensively like the predicate.
+		inner := strings.Join(conds, " AND ")
+		quoted := "'" + strings.NewReplacer(`\`, `\\`, "'", "''").Replace(inner) + "'"
 		parts = append(parts, fmt.Sprintf("'%s':%s", t, quoted))
+	}
+	if len(parts) == 0 {
+		return ctx
 	}
 	val := "{" + strings.Join(parts, ",") + "}"
 	return clickhouse.Context(ctx, clickhouse.WithSettings(clickhouse.Settings{

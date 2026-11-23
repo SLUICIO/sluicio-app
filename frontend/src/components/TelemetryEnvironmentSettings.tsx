@@ -119,11 +119,12 @@ export default function TelemetryEnvironmentSettings() {
       <p className="muted" style={{ fontSize: 13, marginBottom: 18, lineHeight: 1.55 }}>
         Integrations are read and alerted on per environment. By default the environment is the resource
         attribute <code>{loaded.default_keys[0]}</code>, or <code>{loaded.default_keys[1]}</code> where only the
-        older name is sent. Telemetry with neither shows as “(no environment)”. Changes apply at once and
-        rewrite no data.
+        older name is sent. Where the resource has none, the same attributes are read from the span, log
+        record or metric data point, for pipelines that can only label each data point. Telemetry with
+        neither shows as “(no environment)”. Changes apply at once and rewrite no data.
       </p>
       <label className="form__label" style={{ display: "block", marginBottom: 12 }}>
-        Read the environment from <span className="muted">(optional, replaces the default attributes)</span>
+        Read the environment from <span className="muted">(optional, read first; the default attributes still apply where it is absent)</span>
         <input
           className="search__input"
           value={key}
