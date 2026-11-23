@@ -433,13 +433,15 @@ test.describe("MCP — trace questions by attribute, in the integration's words"
       const rule = await admin.post(`/api/v1/integrations/${integId}/completion-rules`, {
         data: {
           name: "Invoice posted",
+          severity: "warning",
           enabled: true,
           start_span_name: "invoice.receive",
-          stages: [{ span_names: ["invoice.post"], timeout_seconds: 600 }],
-          lookback_seconds: 3600,
+          stages: [{ spans: [{ span_name: "invoice.post" }], require: "any" }],
+          default_timeout_seconds: 600,
+          channel_ids: [],
         },
       });
-      expect(rule.ok(), `creating the completion rule failed: ${rule.status()}`).toBeTruthy();
+      expect(rule.ok(), `creating the completion rule failed: ${rule.status()} ${await rule.text()}`).toBeTruthy();
       let completion: any;
       await expect
         .poll(
