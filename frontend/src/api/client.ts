@@ -7,6 +7,7 @@ import type {
   CompletionDryRun,
   RuleDelivery,
   RuleState,
+  TraceCompletionStatus,
   IntegrationSource,
   IntegrationSourceView,
   EnvironmentRole,
@@ -1402,6 +1403,13 @@ export const api = {
   // Distinct span names across the integration's traces, and its
   // services: suggestions for the start/stage span pickers in the rule
   // editor. service narrows the names to what that one member emits.
+  // Where each listed message stands against the integration's
+  // trace-completion rules: the completion column, fetched after the list.
+  completionStatus: (integrationID: string, traceIDs: string[], from: string) =>
+    post<{ statuses: Record<string, TraceCompletionStatus[]> }>(
+      `/integrations/${encodeURIComponent(integrationID)}/completion-status`,
+      { trace_ids: traceIDs, from },
+    ),
   integrationSpanNames: (integrationID: string, range = "7d", service = "") =>
     get<{ span_names: string[]; services?: string[] }>(
       `/integrations/${encodeURIComponent(integrationID)}/span-names?range=${encodeURIComponent(range)}` +

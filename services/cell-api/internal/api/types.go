@@ -547,8 +547,9 @@ type TraceSearchResult struct {
 	Promoted map[string]string `json:"promoted,omitempty"`
 	// Completion is where the message stands against each enabled
 	// trace-completion rule of the integration the search is scoped to:
-	// complete, or waiting or delayed at a stage. Present when the
-	// completion column is shown or the request asked for it.
+	// complete, or waiting or delayed at a stage. Present when the request
+	// asked for it (the MCP search); the Messages view reads it from
+	// completion-status after the list has rendered.
 	Completion []tracecompletion.TraceStatus `json:"completion,omitempty"`
 }
 

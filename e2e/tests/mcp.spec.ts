@@ -456,6 +456,13 @@ test.describe("MCP — trace questions by attribute, in the integration's words"
         )
         .toBe("complete");
       expect(completion.results[0].completion[0]).toMatchObject({ rule_name: "Invoice posted", stages: 1, reached: 1 });
+      // The Messages view reads the same verdict from its own request,
+      // after the list has rendered.
+      const status = await admin.post(`/api/v1/integrations/${integId}/completion-status`, {
+        data: { trace_ids: [traceId], from: completion.results[0].trace_start },
+      });
+      expect(status.ok(), `completion-status failed: ${status.status()}`).toBeTruthy();
+      expect((await status.json()).statuses?.[traceId]?.[0]?.state).toBe("complete");
 
       const trace = (await callTool(request, token, "sluicio_get_trace", { trace_id: traceId, integration: integId })).structuredContent;
       expect(trace.attribute_labels?.["e2e.iId"]).toBe("Invoice Id");

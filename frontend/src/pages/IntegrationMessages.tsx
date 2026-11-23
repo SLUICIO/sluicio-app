@@ -42,6 +42,7 @@ import type {
   MessageFilter,
   MessageView,
   TraceSearchResult,
+  TraceCompletionStatus,
 } from "../api/types";
 import type { SavedView } from "../components/search/types";
 import { formatDateTime, formatDurationMs, formatRelative } from "../lib/format";
@@ -242,6 +243,43 @@ export default function IntegrationMessagesPage() {
   const [messageColumns, setMessageColumns] = useState<MessageColumn[]>([]);
   const [showColumns, setShowColumns] = useState(false);
   const columns = messageColumns.length > 0 ? messageColumns : DEFAULT_COLUMNS_WHILE_LOADING;
+  // The completion column is filled after the list has rendered, by its
+  // own request, so showing it never makes the list slower: a page of
+  // messages spread over a week costs a read of their spans per rule.
+  // Keyed by trace id; a trace being fetched is absent and shows as
+  // loading.
+  const showCompletion = columns.some((c) => c.kind === "builtin" && c.key === "completion");
+  const [completion, setCompletion] = useState<Record<string, TraceCompletionStatus[]>>({});
+  const completionAsked = useRef(new Set<string>());
+  useEffect(() => {
+    if (!showCompletion || !id) return;
+    const todo = results.filter((r) => r.trace_id && !completionAsked.current.has(r.trace_id));
+    if (todo.length === 0) return;
+    todo.forEach((r) => completionAsked.current.add(r.trace_id));
+    const from = todo.reduce((min, r) => (r.trace_start < min ? r.trace_start : min), todo[0].trace_start);
+    api
+      .completionStatus(
+        id,
+        todo.map((r) => r.trace_id),
+        from,
+      )
+      .then((res) => {
+        setCompletion((prev) => {
+          const next = { ...prev };
+          // A trace no rule classified gets an empty list: answered, not loading.
+          for (const r of todo) next[r.trace_id] = res.statuses?.[r.trace_id] ?? [];
+          return next;
+        });
+      })
+      .catch(() => {
+        // Answered with nothing: the cell shows a dash rather than spinning.
+        setCompletion((prev) => {
+          const next = { ...prev };
+          for (const r of todo) next[r.trace_id] = [];
+          return next;
+        });
+      });
+  }, [results, showCompletion, id]);
   const [hasResults, setHasResults] = useState(false);
   const [nextCursor, setNextCursor] = useState<MessageCursor | undefined>(undefined);
   const [hasMore, setHasMore] = useState(false);
@@ -465,6 +503,10 @@ export default function IntegrationMessagesPage() {
         viewId: activeView?.id,
       })
       .then((r) => {
+        // A new search reads completion afresh: a message waiting a
+        // minute ago may be complete now.
+        completionAsked.current = new Set();
+        setCompletion({});
         setResults(r.results ?? []);
         setNextCursor(r.next_cursor);
         setHasMore(!!r.next_cursor);
@@ -1031,7 +1073,7 @@ export default function IntegrationMessagesPage() {
                           </span>
                         );
                       case "completion":
-                        return <CompletionCell key={c.key} statuses={r.completion} />;
+                        return <CompletionCell key={c.key} statuses={completion[r.trace_id]} loading={!(r.trace_id in completion)} />;
                       default:
                         return <span key={c.key} />;
                     }

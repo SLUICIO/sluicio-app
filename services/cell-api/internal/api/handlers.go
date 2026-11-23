@@ -1756,6 +1756,7 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	// mutations require admin since rules drive alerts.
 	mux.HandleFunc("GET /api/v1/integrations/{id}/completion-rules", h.listTraceCompletionRules)
 	mux.HandleFunc("GET /api/v1/integrations/{id}/completion-counts", h.completionCounts)
+	mux.HandleFunc("POST /api/v1/integrations/{id}/completion-status", h.completionStatus)
 	mux.HandleFunc("GET /api/v1/integrations/{id}/completion-firings", h.listCompletionFirings)
 	// A read with a body: a draft rule tried against stored traces.
 	mux.HandleFunc("POST /api/v1/integrations/{id}/completion-rules/dry-run", h.dryRunCompletionRule)

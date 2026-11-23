@@ -43,7 +43,14 @@ const STYLE: Record<TraceCompletionStatus["state"], string> = {
   not_started: "",
 };
 
-export default function CompletionCell({ statuses }: { statuses?: TraceCompletionStatus[] }) {
+export default function CompletionCell({ statuses, loading }: { statuses?: TraceCompletionStatus[]; loading?: boolean }) {
+  if (loading) {
+    return (
+      <span className="text-xs text-muted" title="Reading where this message stands…">
+        …
+      </span>
+    );
+  }
   // Rules that do not follow this message say nothing worth a pill; a
   // message no rule follows shows a dash, like an absent attribute.
   const shown = (statuses ?? []).filter((s) => s.state !== "not_started");

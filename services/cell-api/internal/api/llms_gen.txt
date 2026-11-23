@@ -210,6 +210,7 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 - DELETE /api/v1/integrations/{id}/tags/{tagId} — Delete integration
 - GET /api/v1/integrations/{id}/completion-rules — List integrations
 - GET /api/v1/integrations/{id}/completion-counts — List integrations
+- POST /api/v1/integrations/{id}/completion-status — Create integration
 - GET /api/v1/integrations/{id}/completion-firings — List integrations
 - POST /api/v1/integrations/{id}/completion-rules/dry-run — Create integration
 - POST /api/v1/integrations/{id}/completion-rules — Create integration

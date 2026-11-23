@@ -29,4 +29,9 @@ describe("CompletionCell", () => {
     render(<CompletionCell statuses={[{ ...rule, state: "not_started", reached: 0 }]} />);
     expect(screen.getByText("—").getAttribute("title")).toMatch(/does not follow it/);
   });
+
+  it("shows it is still reading while the list has already rendered", () => {
+    render(<CompletionCell loading />);
+    expect(screen.getByText("…").getAttribute("title")).toMatch(/Reading/);
+  });
 });

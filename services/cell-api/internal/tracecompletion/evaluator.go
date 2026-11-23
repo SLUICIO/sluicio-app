@@ -546,6 +546,22 @@ func (e *Evaluator) StatusOf(ctx context.Context, rule Rule, traceIDs []string, 
 	return out, nil
 }
 
+// spanNamesOf is every span name a gated rule reads: its start span and
+// each stage's spans, once each.
+func spanNamesOf(spec RuleSpec) []string {
+	seen := map[string]bool{spec.StartSpanName: true}
+	out := []string{spec.StartSpanName}
+	for _, st := range spec.EffectiveStages() {
+		for _, m := range st.Spans {
+			if !seen[m.SpanName] {
+				seen[m.SpanName] = true
+				out = append(out, m.SpanName)
+			}
+		}
+	}
+	return out
+}
+
 // statusOf is StatusOf's verdict for one scanned trace.
 func statusOf(rule Rule, a traceAgg, now time.Time) TraceStatus {
 	stages := rule.Spec.EffectiveStages()
@@ -742,6 +758,20 @@ func (e *Evaluator) scanTraces(ctx context.Context, spec RuleSpec, services []st
 		args = append(args, s)
 	}
 	if len(traceIDs) > 0 {
+		// For a gated rule only its own spans matter: the start span is
+		// the clock's origin and the stages are read by name. Saying so
+		// lets the table's sort key (ServiceName, SpanName, Timestamp)
+		// skip every other step of the integration's traces, which is
+		// most of what a list page of messages spread over a week would
+		// otherwise read. An ungated rule starts its clock at the trace's
+		// first span, of any name, so it reads them all.
+		if gated {
+			names := spanNamesOf(spec)
+			fmt.Fprintf(&sb, " AND SpanName IN (%s)", qPlaceholders(len(names)))
+			for _, n := range names {
+				args = append(args, n)
+			}
+		}
 		fmt.Fprintf(&sb, " AND TraceId IN (%s)", qPlaceholders(len(traceIDs)))
 		for _, id := range traceIDs {
 			args = append(args, id)

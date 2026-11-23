@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -21,6 +22,7 @@ import (
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/integrations"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/messageviews"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/store"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/tracecompletion"
 )
 
 // MessageViewWire is the JSON shape returned to the frontend. It
@@ -892,8 +894,15 @@ func (h *Handlers) searchMessages(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	if integID != uuid.Nil && (req.Completion || integrations.HasBuiltin(messageColumns, integrations.BuiltinCompletion)) {
-		h.attachCompletion(r, integID, results)
+	// Asked for inline (the MCP search) rather than for the completion
+	// column: the Messages view fetches that separately, after the list
+	// has rendered, so the list never waits for it (completionStatus).
+	if integID != uuid.Nil && req.Completion {
+		ids, from := completionTargets(results)
+		byTrace := h.completionStatuses(r, integID, ids, from)
+		for i := range results {
+			results[i].Completion = byTrace[results[i].TraceID]
+		}
 	}
 
 	// Messages is the most-used view in the product, so it is also the
@@ -1079,45 +1088,105 @@ func intersectStrings(a, b []string) []string {
 	return out
 }
 
-// attachCompletion sets each result's state against the integration's
-// enabled trace-completion rules, classified as the evaluator does when
-// it decides what to fire, so the list and the alerts agree. It reads
-// only the page's traces, from the earliest of them to now. A failure
-// leaves the column blank rather than failing the search: the messages
-// are the answer, their completion is an annotation.
-func (h *Handlers) attachCompletion(r *http.Request, integID uuid.UUID, results []TraceSearchResult) {
-	if h.TraceCompletion == nil || h.TraceCompletionEvaluator == nil || len(results) == 0 {
-		return
-	}
-	rules, err := h.TraceCompletion.ListForIntegration(r.Context(), middleware.OrgID(r), integID)
-	if err != nil {
-		h.Logger.Warn("messages: completion rules", "err", err)
-		return
-	}
+// completionTargets is a result page's trace ids and the earliest of
+// their starts, which is as far back as a status read has to look.
+func completionTargets(results []TraceSearchResult) ([]string, time.Time) {
 	ids := make([]string, 0, len(results))
-	from := results[0].TraceStart
+	var from time.Time
 	for _, res := range results {
 		if res.TraceID == "" {
 			continue
 		}
 		ids = append(ids, res.TraceID)
-		if res.TraceStart.Before(from) {
+		if from.IsZero() || res.TraceStart.Before(from) {
 			from = res.TraceStart
 		}
 	}
+	return ids, from
+}
+
+// completionStatuses is where each trace stands against every enabled
+// trace-completion rule of the integration, classified as the evaluator
+// does when it decides what to fire, so the list and the alerts agree.
+// The rules are read concurrently: each is one ClickHouse query over the
+// given traces. A failure leaves those traces without a status rather
+// than failing the caller: the messages are the answer, their
+// completion is an annotation.
+func (h *Handlers) completionStatuses(r *http.Request, integID uuid.UUID, ids []string, from time.Time) map[string][]tracecompletion.TraceStatus {
+	out := map[string][]tracecompletion.TraceStatus{}
+	if h.TraceCompletion == nil || h.TraceCompletionEvaluator == nil || len(ids) == 0 {
+		return out
+	}
+	rules, err := h.TraceCompletion.ListForIntegration(r.Context(), middleware.OrgID(r), integID)
+	if err != nil {
+		h.Logger.Warn("completion status: rules", "err", err)
+		return out
+	}
+	var enabled []tracecompletion.Rule
 	for _, rule := range rules {
-		if !rule.Enabled {
-			continue
+		if rule.Enabled {
+			enabled = append(enabled, rule)
 		}
-		byTrace, err := h.TraceCompletionEvaluator.StatusOf(r.Context(), rule, ids, from)
-		if err != nil {
-			h.Logger.Warn("messages: completion status", "rule_id", rule.ID, "err", err)
-			continue
-		}
-		for i := range results {
-			if st, ok := byTrace[results[i].TraceID]; ok {
-				results[i].Completion = append(results[i].Completion, st)
+	}
+	perRule := make([]map[string]tracecompletion.TraceStatus, len(enabled))
+	var wg sync.WaitGroup
+	for i, rule := range enabled {
+		wg.Add(1)
+		go func(i int, rule tracecompletion.Rule) {
+			defer wg.Done()
+			byTrace, err := h.TraceCompletionEvaluator.StatusOf(r.Context(), rule, ids, from)
+			if err != nil {
+				h.Logger.Warn("completion status", "rule_id", rule.ID, "err", err)
+				return
+			}
+			perRule[i] = byTrace
+		}(i, rule)
+	}
+	wg.Wait()
+	// In rule order, so a message's pills do not shuffle between loads.
+	for _, byTrace := range perRule {
+		for _, id := range ids {
+			if st, ok := byTrace[id]; ok {
+				out[id] = append(out[id], st)
 			}
 		}
 	}
+	return out
+}
+
+// completionStatus: POST /api/v1/integrations/{id}/completion-status
+// {trace_ids, from}
+//
+// The completion column of the Messages view. Fetched after the list has
+// rendered rather than inside the search, so showing the column never
+// makes the list itself slower: a page of messages spread over a week
+// costs a read of their spans per rule. Gated like the integration's
+// other completion reads; the traces are read within its services only.
+func (h *Handlers) completionStatus(w http.ResponseWriter, r *http.Request) {
+	integID, ok := h.parsePathUUID(w, r, "id")
+	if !ok {
+		return
+	}
+	if _, vok := h.gateIntegrationMembers(w, r, integID); !vok {
+		return
+	}
+	var body struct {
+		TraceIDs []string  `json:"trace_ids"`
+		From     time.Time `json:"from"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&body); err != nil {
+		httpserver.WriteError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if len(body.TraceIDs) > 1000 {
+		httpserver.WriteError(w, http.StatusBadRequest, "at most 1000 trace ids")
+		return
+	}
+	from := body.From
+	// Never further back than the longest message window, whatever the
+	// client sends.
+	if floor := time.Now().Add(-45 * 24 * time.Hour); from.IsZero() || from.Before(floor) {
+		from = floor
+	}
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"statuses": h.completionStatuses(r, integID, body.TraceIDs, from)})
 }
