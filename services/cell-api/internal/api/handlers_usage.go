@@ -58,6 +58,23 @@ func (h *Handlers) integrationUsage(r *http.Request) integrationUsage {
 	if h.License != nil {
 		limit = h.License.MaxIntegrations()
 	}
+	// The deployment's limit, when it sets one, is the one that holds: a
+	// trigger in Postgres refuses the integration or system past it, while
+	// the licence's cap is advisory. They can disagree, because a plan
+	// change reaches the deployment (and restarts the instance) without
+	// reissuing the licence: a customer moved from 25 to 50 kept reading
+	// "23 of 25" here while the portal, which reads the deployment, said
+	// "23 of 50". The deployment's limit covers the whole instance, so it
+	// is measured against the whole instance's count.
+	if h.MonitoredEntityLimit > 0 {
+		limit = h.MonitoredEntityLimit
+		if h.Limits != nil {
+			if c, err := h.Limits.Count(r.Context()); err == nil {
+				integrations, systems = c.Integrations, c.Systems
+				used = c.Integrations + c.Systems
+			}
+		}
+	}
 	u := integrationUsage{
 		Used:             used,
 		IntegrationCount: integrations,
