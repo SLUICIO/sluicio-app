@@ -18,6 +18,7 @@
 //   - scope banner above the editor (role + accessible-integration
 //     count + redacted-fields note)
 
+import CompletionCell from "../components/integrations/CompletionCell";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api/client";
@@ -120,6 +121,8 @@ function columnWidth(c: MessageColumn): string {
       return "minmax(110px,0.9fr)";
     case "duration":
       return "80px";
+    case "completion":
+      return "minmax(130px,1fr)";
     default:
       return "minmax(90px,1fr)";
   }
@@ -1027,6 +1030,8 @@ export default function IntegrationMessagesPage() {
                             {formatDurationMs(r.duration_ms)}
                           </span>
                         );
+                      case "completion":
+                        return <CompletionCell key={c.key} statuses={r.completion} />;
                       default:
                         return <span key={c.key} />;
                     }

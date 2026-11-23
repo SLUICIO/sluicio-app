@@ -479,6 +479,101 @@ func (e *Evaluator) CountsFor(ctx context.Context, rule Rule) (Counts, error) {
 	return counts, err
 }
 
+// Completion states of one trace against one rule, as a reader sees
+// them: the evaluator's own states (completed, pending, delayed) plus
+// not_started, a trace that never emitted the rule's start span, which
+// the rule therefore does not follow.
+const (
+	StatusComplete   = "complete"
+	StatusWaiting    = "waiting"
+	StatusDelayed    = "delayed"
+	StatusNotStarted = "not_started"
+)
+
+// TraceStatus is where one trace stands against one rule: complete, or
+// waiting (still inside its timeout) or delayed (past it) at a stage.
+type TraceStatus struct {
+	RuleID   uuid.UUID `json:"rule_id"`
+	RuleName string    `json:"rule_name"`
+	State    string    `json:"state"`
+	// Stage is the 1-based stage the trace is waiting or delayed at, and
+	// StageName its spans; both empty when complete or not started.
+	Stage     int    `json:"stage,omitempty"`
+	StageName string `json:"stage_name,omitempty"`
+	// Stages is how many stages the rule has; Reached how many of them
+	// the trace has passed, in order.
+	Stages  int `json:"stages"`
+	Reached int `json:"reached"`
+}
+
+// StatusOf classifies the given traces against one rule, the same way
+// the evaluator does when it decides what to fire: complete once every
+// stage has been reached, else waiting or delayed at the first stage
+// that has not. It reads only those traces, from `from` (the earliest
+// any of them can have started) to now, so a message list can show the
+// state of the rows it already has.
+//
+// A trace with no span on the integration's services in the window
+// reads not_started, as does one without the start span of a gated rule.
+func (e *Evaluator) StatusOf(ctx context.Context, rule Rule, traceIDs []string, from time.Time) (map[string]TraceStatus, error) {
+	out := make(map[string]TraceStatus, len(traceIDs))
+	if len(traceIDs) == 0 {
+		return out, nil
+	}
+	stages := rule.Spec.EffectiveStages()
+	notStarted := TraceStatus{RuleID: rule.ID, RuleName: rule.Name, State: StatusNotStarted, Stages: len(stages)}
+	for _, id := range traceIDs {
+		out[id] = notStarted
+	}
+	if err := rule.Spec.Validate(); err != nil || len(stages) == 0 {
+		return out, nil
+	}
+	services, err := e.catalog.IntegrationServices(ctx, rule.IntegrationID)
+	if err != nil {
+		return nil, err
+	}
+	if len(services) == 0 {
+		return out, nil
+	}
+	now := time.Now().UTC()
+	aggs, err := e.scanTraces(ctx, rule.Spec, services, from, now, traceIDs)
+	if err != nil {
+		return nil, err
+	}
+	for _, a := range aggs {
+		out[a.TraceID] = statusOf(rule, a, now)
+	}
+	return out, nil
+}
+
+// statusOf is StatusOf's verdict for one scanned trace.
+func statusOf(rule Rule, a traceAgg, now time.Time) TraceStatus {
+	stages := rule.Spec.EffectiveStages()
+	st := TraceStatus{RuleID: rule.ID, RuleName: rule.Name, Stages: len(stages)}
+	if rule.Spec.Gated() && !a.HasStart {
+		st.State = StatusNotStarted
+		return st
+	}
+	for i := range stages {
+		if i >= len(a.HasStage) || !a.HasStage[i] {
+			break
+		}
+		st.Reached++
+	}
+	c := classify(rule.Spec, a, now)
+	switch c.State {
+	case StateCompleted:
+		st.State = StatusComplete
+	case StateDelayed:
+		st.State = StatusDelayed
+		st.Stage, st.StageName = c.DelayedStage, c.DelayedStageName
+	default:
+		st.State = StatusWaiting
+		st.Stage, st.StageName = c.DelayedStage, c.DelayedStageName
+	}
+	return st
+}
+
 // ── classification internals ─────────────────────────────────────────
 
 // traceAgg is one trace's per-stage aggregate scanned from ClickHouse.
@@ -592,7 +687,7 @@ func appendSpanColumns(sb *strings.Builder, args []any, stages []EffectiveStage)
 // scanAndBucket scans the gated traces in [from, to] and buckets them as
 // of `now`, returning the delayed classifications plus the full counts.
 func (e *Evaluator) scanAndBucket(ctx context.Context, spec RuleSpec, services []string, now, from, to time.Time) ([]TraceClassification, Counts, error) {
-	aggs, err := e.scanTraces(ctx, spec, services, from, to)
+	aggs, err := e.scanTraces(ctx, spec, services, from, to, nil)
 	if err != nil {
 		return nil, Counts{}, err
 	}
@@ -616,7 +711,11 @@ func (e *Evaluator) scanAndBucket(ctx context.Context, spec RuleSpec, services [
 // scanTraces runs the per-stage GROUP BY TraceId query. For a gated rule
 // the HAVING clause drops every trace that doesn't carry the start span,
 // so only the integration's own traces are returned.
-func (e *Evaluator) scanTraces(ctx context.Context, spec RuleSpec, services []string, from, to time.Time) ([]traceAgg, error) {
+//
+// With traceIDs the scan reads those traces alone and keeps the ones
+// without the start span, so a caller can tell "not one of this rule's
+// messages" from "not found".
+func (e *Evaluator) scanTraces(ctx context.Context, spec RuleSpec, services []string, from, to time.Time, traceIDs []string) ([]traceAgg, error) {
 	stages := spec.EffectiveStages()
 	gated := spec.Gated()
 
@@ -642,8 +741,14 @@ func (e *Evaluator) scanTraces(ctx context.Context, spec RuleSpec, services []st
 	for _, s := range services {
 		args = append(args, s)
 	}
+	if len(traceIDs) > 0 {
+		fmt.Fprintf(&sb, " AND TraceId IN (%s)", qPlaceholders(len(traceIDs)))
+		for _, id := range traceIDs {
+			args = append(args, id)
+		}
+	}
 	sb.WriteString(" GROUP BY TraceId")
-	if gated {
+	if gated && len(traceIDs) == 0 {
 		// The start-span gate: only traces carrying the start span are
 		// evaluated/counted as this integration's messages.
 		sb.WriteString(" HAVING has_start")
@@ -813,7 +918,7 @@ func (e *Evaluator) DryRun(ctx context.Context, spec RuleSpec, services []string
 		return res, fmt.Errorf("clickhouse query: %w", err)
 	}
 	res.TracesOnServices = int(total)
-	aggs, err := e.scanTraces(ctx, spec, services, from, to)
+	aggs, err := e.scanTraces(ctx, spec, services, from, to, nil)
 	if err != nil {
 		return res, err
 	}

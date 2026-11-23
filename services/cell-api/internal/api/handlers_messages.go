@@ -709,6 +709,7 @@ func (h *Handlers) searchMessages(w http.ResponseWriter, r *http.Request) {
 	// so each message's summary can be bounded to the slice as well.
 	var sliceClauses []string
 	var sliceArgs []any
+	var integID uuid.UUID
 	if plan.IntegrationName != "" {
 		names, err := h.resolveIntegrationServices(r.Context(), plan.IntegrationName, tr)
 		if err != nil {
@@ -721,6 +722,7 @@ func (h *Handlers) searchMessages(w http.ResponseWriter, r *http.Request) {
 		// Messages view shows only the integration's slice of its services'
 		// traffic.
 		if id, ok := h.integrationIDByName(r.Context(), plan.IntegrationName); ok {
+			integID = id
 			if clause, cargs := store.SpanAttrGroupsClause(h.integrationGroups(r.Context(), id), tr.From, tr.To); clause != "" {
 				plan.Clauses = append(plan.Clauses, clause)
 				plan.Args = append(plan.Args, cargs...)
@@ -888,6 +890,10 @@ func (h *Handlers) searchMessages(w http.ResponseWriter, r *http.Request) {
 			Attributes:       mergeAttributes(t.MatchedResourceAttrs, t.MatchedSpanAttrs),
 			Promoted:         promotedByKey(messageColumns, t.Promoted),
 		})
+	}
+
+	if integID != uuid.Nil && (req.Completion || integrations.HasBuiltin(messageColumns, integrations.BuiltinCompletion)) {
+		h.attachCompletion(r, integID, results)
 	}
 
 	// Messages is the most-used view in the product, so it is also the
@@ -1071,4 +1077,47 @@ func intersectStrings(a, b []string) []string {
 		}
 	}
 	return out
+}
+
+// attachCompletion sets each result's state against the integration's
+// enabled trace-completion rules, classified as the evaluator does when
+// it decides what to fire, so the list and the alerts agree. It reads
+// only the page's traces, from the earliest of them to now. A failure
+// leaves the column blank rather than failing the search: the messages
+// are the answer, their completion is an annotation.
+func (h *Handlers) attachCompletion(r *http.Request, integID uuid.UUID, results []TraceSearchResult) {
+	if h.TraceCompletion == nil || h.TraceCompletionEvaluator == nil || len(results) == 0 {
+		return
+	}
+	rules, err := h.TraceCompletion.ListForIntegration(r.Context(), middleware.OrgID(r), integID)
+	if err != nil {
+		h.Logger.Warn("messages: completion rules", "err", err)
+		return
+	}
+	ids := make([]string, 0, len(results))
+	from := results[0].TraceStart
+	for _, res := range results {
+		if res.TraceID == "" {
+			continue
+		}
+		ids = append(ids, res.TraceID)
+		if res.TraceStart.Before(from) {
+			from = res.TraceStart
+		}
+	}
+	for _, rule := range rules {
+		if !rule.Enabled {
+			continue
+		}
+		byTrace, err := h.TraceCompletionEvaluator.StatusOf(r.Context(), rule, ids, from)
+		if err != nil {
+			h.Logger.Warn("messages: completion status", "rule_id", rule.ID, "err", err)
+			continue
+		}
+		for i := range results {
+			if st, ok := byTrace[results[i].TraceID]; ok {
+				results[i].Completion = append(results[i].Completion, st)
+			}
+		}
+	}
 }

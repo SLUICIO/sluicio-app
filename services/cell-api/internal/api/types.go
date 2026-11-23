@@ -9,6 +9,7 @@ import (
 
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/erroracks"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/integrations"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/tracecompletion"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/tags"
 )
 
@@ -544,6 +545,11 @@ type TraceSearchResult struct {
 	// trace, not only the matched one. A key the trace never carried is
 	// absent, which the UI renders as a blank cell.
 	Promoted map[string]string `json:"promoted,omitempty"`
+	// Completion is where the message stands against each enabled
+	// trace-completion rule of the integration the search is scoped to:
+	// complete, or waiting or delayed at a stage. Present when the
+	// completion column is shown or the request asked for it.
+	Completion []tracecompletion.TraceStatus `json:"completion,omitempty"`
 }
 
 // MessageCursorJSON is the keyset cursor for the next page of message

@@ -85,7 +85,7 @@ func TestFanOutLive(t *testing.T) {
 	store.SetEnvironmentConfig(store.EnvironmentConfig{Aliases: map[string]string{"prd": "production"}})
 	defer store.SetEnvironmentConfig(store.EnvironmentConfig{})
 
-	aggs, err := e.scanTraces(ctx, spec, services, now.Add(-time.Hour), now)
+	aggs, err := e.scanTraces(ctx, spec, services, now.Add(-time.Hour), now, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

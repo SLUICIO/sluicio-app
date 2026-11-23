@@ -1200,7 +1200,21 @@ export interface ServiceReadingsResponse {
   readings: ServiceReading[];
 }
 
+// Where a message stands against one of its integration's trace-completion
+// rules (the completion column, and the MCP search).
+export interface TraceCompletionStatus {
+  rule_id: string;
+  rule_name: string;
+  state: "complete" | "waiting" | "delayed" | "not_started";
+  stage?: number;
+  stage_name?: string;
+  stages: number;
+  reached: number;
+}
+
 export interface TraceSearchResult {
+  // Present when the completion column is shown, inside an integration.
+  completion?: TraceCompletionStatus[];
   trace_id: string;
   trace_start: string;
   duration_ms: number;
@@ -1242,7 +1256,7 @@ export const isAttributeColumn = (c: MessageColumn) => c.kind !== "builtin";
 // the timestamp and the "open" affordance are deliberately NOT here:
 // they are not columns and cannot be removed. A message list with no
 // time cannot be read and one with no way in cannot be used.
-export const BUILTIN_COLUMNS = ["msg_id", "service", "step", "duration"] as const;
+export const BUILTIN_COLUMNS = ["msg_id", "service", "step", "duration", "completion"] as const;
 export type BuiltinColumnID = (typeof BUILTIN_COLUMNS)[number];
 
 // The server's cap on ATTRIBUTE columns, mirrored so the picker can

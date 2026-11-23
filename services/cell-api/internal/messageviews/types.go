@@ -288,6 +288,10 @@ type SearchRequest struct {
 	// query and the headers then come from one answer, and a client
 	// holding a stale view cannot label a column it did not query.
 	ViewID string `json:"viewId,omitempty"`
+	// Completion asks for each message's state against the integration's
+	// trace-completion rules, whether or not the completion column is
+	// shown. Only meaningful in a search scoped to one integration.
+	Completion bool `json:"completion,omitempty"`
 }
 
 // SearchCursor is the keyset position for the next page of results.

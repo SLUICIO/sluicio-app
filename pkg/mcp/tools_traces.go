@@ -208,7 +208,14 @@ func (s *Server) searchTraces(a map[string]any) (string, error) {
 	}
 	q := rangeArg(a, "24h")
 	envArg(q, a)
-	raw, err := s.post("/api/v1/messages/search", q, map[string]any{"filters": filters, "limit": limit})
+	body := map[string]any{"filters": filters, "limit": limit}
+	// Within an integration, each message also says where it stands
+	// against the integration's trace-completion rules: complete, or
+	// waiting or delayed at a stage.
+	if integ.ID != "" {
+		body["completion"] = true
+	}
+	raw, err := s.post("/api/v1/messages/search", q, body)
 	if err != nil {
 		return "", err
 	}

@@ -57,6 +57,11 @@ const (
 	BuiltinService  = "service"
 	BuiltinStep     = "step"
 	BuiltinDuration = "duration"
+	// BuiltinCompletion is where each message stands against the
+	// integration's trace-completion rules: complete, or waiting or
+	// delayed at a stage. Not in the defaults: it costs a query per page
+	// and only means something on an integration with such a rule.
+	BuiltinCompletion = "completion"
 )
 
 // builtinLabels is the default heading for each built-in, and doubles
@@ -64,10 +69,11 @@ const (
 // dropped, because a typo that silently loses a column is worse than an
 // error that says which one.
 var builtinLabels = map[string]string{
-	BuiltinMsgID:    "msg id",
-	BuiltinService:  "service",
-	BuiltinStep:     "step",
-	BuiltinDuration: "duration",
+	BuiltinMsgID:      "msg id",
+	BuiltinService:    "service",
+	BuiltinStep:       "step",
+	BuiltinDuration:   "duration",
+	BuiltinCompletion: "completion",
 }
 
 // MessageColumn is one column of the message list: either a built-in
@@ -179,6 +185,16 @@ func NormalizeMessageColumns(in []MessageColumn) ([]MessageColumn, error) {
 		return nil, fmt.Errorf("%w: at most %d attribute columns", ErrInvalidMessageColumns, MaxMessageColumns)
 	}
 	return out, nil
+}
+
+// HasBuiltin reports whether a column set shows the given built-in.
+func HasBuiltin(cols []MessageColumn, key string) bool {
+	for _, c := range cols {
+		if c.Kind == ColumnKindBuiltin && c.Key == key {
+			return true
+		}
+	}
+	return false
 }
 
 // MessageColumnKeys is the ATTRIBUTE key list in column order, for the

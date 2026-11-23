@@ -3,6 +3,8 @@
 package tracecompletion
 
 import (
+	"github.com/google/uuid"
+
 	"encoding/json"
 	"strings"
 	"testing"
@@ -321,5 +323,44 @@ func TestSpecJSONRoundTrip(t *testing.T) {
 	back.Normalize()
 	if got := back.EffectiveStages()[1]; !got.All || len(got.Spans) != 2 || got.Spans[1].Service != "wms-loader" {
 		t.Fatalf("round trip: %+v from %s", got, raw)
+	}
+}
+
+// What a message list and the MCP show per trace: complete, or waiting
+// or delayed at a named stage, with how far it got; and not started for
+// a trace the rule does not follow.
+func TestStatusOf(t *testing.T) {
+	rule := Rule{ID: uuid.New(), Name: "send", Spec: twoStageSpec()}
+	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	mk := func(mut func(*traceAgg)) traceAgg {
+		a := traceAgg{TraceID: "t", HasStart: true, StartAt: now.Add(-10 * time.Second),
+			StageAt: make([]time.Time, 2), HasStage: make([]bool, 2), TraceMin: now.Add(-10 * time.Second)}
+		mut(&a)
+		return a
+	}
+	for _, c := range []struct {
+		name    string
+		agg     traceAgg
+		state   string
+		stage   int
+		reached int
+	}{
+		{"complete", mk(func(a *traceAgg) {
+			a.HasStage[0], a.StageAt[0] = true, now.Add(-5*time.Second)
+			a.HasStage[1], a.StageAt[1] = true, now
+		}), StatusComplete, 0, 2},
+		{"waiting at the first stage", mk(func(*traceAgg) {}), StatusWaiting, 1, 0},
+		{"delayed at the second stage", mk(func(a *traceAgg) {
+			a.HasStage[0], a.StageAt[0] = true, now.Add(-90*time.Second)
+		}), StatusDelayed, 2, 1},
+		{"not started without the start span", mk(func(a *traceAgg) { a.HasStart = false }), StatusNotStarted, 0, 0},
+	} {
+		got := statusOf(rule, c.agg, now)
+		if got.State != c.state || got.Stage != c.stage || got.Reached != c.reached || got.Stages != 2 || got.RuleID != rule.ID {
+			t.Errorf("%s: %+v, want %s at stage %d, %d of 2 reached", c.name, got, c.state, c.stage, c.reached)
+		}
+		if (got.Stage > 0) != (got.StageName != "") {
+			t.Errorf("%s: stage %d named %q", c.name, got.Stage, got.StageName)
+		}
 	}
 }

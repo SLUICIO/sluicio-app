@@ -221,3 +221,19 @@ func TestGetTraceInAnIntegrationCarriesItsLabels(t *testing.T) {
 		t.Errorf("a plain trace read made %d requests: %v", len(seen), seen)
 	}
 }
+
+// Within an integration the search asks for each message's completion
+// state, so "is invoice 123 complete or stuck, and where" is one call.
+func TestSearchTracesAsksForCompletionInAnIntegration(t *testing.T) {
+	seen, _ := callRecording(t, "sluicio_search_traces", map[string]any{
+		"integration": "invoices",
+		"attributes":  []any{map[string]any{"key": "iId", "value": "123"}},
+	}, invoiceReplies)
+	if body := searchBody(t, seen); body["completion"] != true {
+		t.Errorf("search body = %v, want completion requested", body)
+	}
+	seen, _ = callRecording(t, "sluicio_search_traces", map[string]any{"window": "1h"}, invoiceReplies)
+	if body := searchBody(t, seen); body["completion"] != nil {
+		t.Errorf("a search outside an integration asked for completion: %v", body)
+	}
+}

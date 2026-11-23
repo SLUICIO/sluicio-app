@@ -31,6 +31,7 @@ const BUILTIN_LABELS: Record<BuiltinColumnID, string> = {
   service: "service",
   step: "step",
   duration: "duration",
+  completion: "completion",
 };
 
 interface Props {

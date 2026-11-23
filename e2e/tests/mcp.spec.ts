@@ -425,11 +425,44 @@ test.describe("MCP — trace questions by attribute, in the integration's words"
       expect(found.spans_included).toBe(1);
       expect((hit.spans ?? []).map((sp: { span_name: string }) => sp.span_name).sort()).toEqual(["invoice.post", "invoice.receive"]);
 
+      // "Did invoice 123 get through?": with a completion rule on the
+      // integration, each result says complete, or waiting or delayed at
+      // which stage. The rule reads the integration's stored membership,
+      // which the reconciler writes shortly after the integration is
+      // created, so this one is polled.
+      const rule = await admin.post(`/api/v1/integrations/${integId}/completion-rules`, {
+        data: {
+          name: "Invoice posted",
+          enabled: true,
+          start_span_name: "invoice.receive",
+          stages: [{ span_names: ["invoice.post"], timeout_seconds: 600 }],
+          lookback_seconds: 3600,
+        },
+      });
+      expect(rule.ok(), `creating the completion rule failed: ${rule.status()}`).toBeTruthy();
+      let completion: any;
+      await expect
+        .poll(
+          async () => {
+            const res = await callTool(request, token, "sluicio_search_traces", {
+              integration: `invoices-${stamp}`,
+              attributes: [{ key: "Invoice Id", value: invoice }],
+              window: "1h",
+            });
+            completion = res.structuredContent;
+            return completion?.results?.[0]?.completion?.[0]?.state;
+          },
+          { timeout: 90_000 },
+        )
+        .toBe("complete");
+      expect(completion.results[0].completion[0]).toMatchObject({ rule_name: "Invoice posted", stages: 1, reached: 1 });
+
       const trace = (await callTool(request, token, "sluicio_get_trace", { trace_id: traceId, integration: integId })).structuredContent;
       expect(trace.attribute_labels?.["e2e.iId"]).toBe("Invoice Id");
 
       const problems: string[] = [];
       validate("sluicio_search_traces", schemaOf("sluicio_search_traces"), found, problems);
+      validate("sluicio_search_traces", schemaOf("sluicio_search_traces"), completion, problems);
       validate("sluicio_get_trace", schemaOf("sluicio_get_trace"), trace, problems);
       const integ = (await callTool(request, token, "sluicio_get_integration", { id: integId })).structuredContent;
       expect(integ.integration?.message_columns?.[0]?.label).toBe("Invoice Id");
