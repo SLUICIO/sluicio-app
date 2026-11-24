@@ -39,7 +39,8 @@ export default function OnboardingGuide() {
     let cancelled = false;
     Promise.all([
       api.listServices(windowVal).then((r) => r.services ?? []).catch(() => []),
-      api.listIntegrations(windowVal).then((r) => r.integrations ?? []).catch(() => []),
+      // Only whether any exist: the Postgres half, not the counts.
+      api.listIntegrations(windowVal, { stats: "defer" }).then((r) => r.integrations ?? []).catch(() => []),
       api.listIngestKeys().then((r) => r.keys ?? []).catch(() => [] as IngestKey[]),
     ]).then(([services, integrations, ingestKeys]) => {
       if (cancelled) return;

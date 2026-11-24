@@ -1008,6 +1008,7 @@ export interface IntegrationStats {
   error_trace_count?: number;
   delayed_trace_count?: number;
   traffic_series?: number[];
+  p95_duration_ms?: number;
   environments?: EnvironmentStatus[];
 }
 

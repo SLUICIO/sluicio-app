@@ -25,6 +25,7 @@ import { usePageTitle } from "../lib/usePageTitle";
 import { useTableSort } from "../lib/useTableSort";
 import { useTimeWindow } from "../lib/useTimeWindow";
 import { envQuery, useEnvironmentParam } from "../lib/activeEnvironment";
+import { fillStatsInBatches, mergeStats } from "../lib/integrationStats";
 import { EnvironmentChips, ListEnvironmentPicker } from "../components/EnvironmentListControls";
 
 const INTEGRATION_STATUS_RANK: Record<string, number> = {
@@ -146,7 +147,6 @@ export default function Integrations() {
   // row are telemetry reads, and on a cell with many integrations they
   // are what kept the page blank for seconds. They now fill in a batch
   // at a time, top down, which is also the order the reader looks.
-  const STATS_BATCH = 10;
   const refresh = () => {
     setLoading(true);
     setError(null);
@@ -178,39 +178,27 @@ export default function Integrations() {
       .catch(() => setAllTags([]));
   };
 
-  // One batch at a time rather than all at once: the server caps a
-  // request, and a single burst would put the whole slow query back on
-  // one connection and undo the point of splitting it.
-  const fillStats = async (ids: string[], run: number) => {
-    for (let i = 0; i < ids.length; i += STATS_BATCH) {
-      const batch = ids.slice(i, i + STATS_BATCH);
-      try {
-        // Per-environment chips only when reading all environments;
-        // narrowed to one, the row's status already is that environment's.
-        const d = await api.integrationStats(batch, windowVal, { environments: listEnv === null });
+  // The batching, the merge and the stale-pass rule are shared with the
+  // dashboard (lib/integrationStats.ts).
+  const fillStats = (ids: string[], run: number) =>
+    fillStatsInBatches(
+      ids,
+      // Per-environment chips only when reading all environments;
+      // narrowed to one, the row's status already is that environment's.
+      (batch) => api.integrationStats(batch, windowVal, { environments: listEnv === null }).then((d) => d.stats ?? []),
+      {
         // A window change (or a refresh) started a newer pass; this
         // one's answers describe a range nobody is looking at.
-        if (statsRun.current !== run) return;
-        const byID = new Map((d.stats ?? []).map((sRow) => [sRow.id, sRow]));
-        setItems((prev) =>
-          (prev ?? []).map((row) => {
-            const stats = byID.get(row.id);
-            return stats ? { ...row, ...stats } : row;
+        isCurrent: () => statsRun.current === run,
+        stats: (stats) => setItems((prev) => mergeStats(prev ?? [], stats)),
+        done: (batch) =>
+          setPendingStats((prev) => {
+            const next = new Set(prev);
+            for (const id of batch) next.delete(id);
+            return next;
           }),
-        );
-      } catch {
-        // A failed batch leaves those rows without numbers rather than
-        // taking the page down: the names, members and tags are still
-        // the thing most visits came for.
-      }
-      if (statsRun.current !== run) return;
-      setPendingStats((prev) => {
-        const next = new Set(prev);
-        for (const id of batch) next.delete(id);
-        return next;
-      });
-    }
-  };
+      },
+    );
 
   // Keyed off the window alone. refresh and fillStats are redefined on
   // every render, so listing them would refetch the page on every

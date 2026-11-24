@@ -25,6 +25,13 @@ interface Props {
    */
   emphasis?: "none" | "selected" | "attention";
   tone?: "default" | "ok" | "warn" | "err";
+  /**
+   * The numbers behind the tile are still arriving. Shows "···" in
+   * place of the value and drops the sub-row, tone and emphasis: a
+   * zero, a green "all clear" or a red border read off part of the
+   * data would be a claim the page has not earned yet.
+   */
+  pending?: boolean;
   children?: ReactNode;
 }
 
@@ -35,8 +42,19 @@ export default function KpiCard({
   to,
   emphasis = "none",
   tone = "default",
+  pending = false,
   children,
 }: Props) {
+  if (pending) {
+    tone = "default";
+    emphasis = "none";
+    sub = undefined;
+    value = (
+      <span aria-label="loading" title="Still loading" style={{ color: "var(--muted)" }}>
+        ···
+      </span>
+    );
+  }
   const toneColor = {
     default: "var(--ink)",
     ok: "var(--ok)",

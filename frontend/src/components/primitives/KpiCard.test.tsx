@@ -36,4 +36,15 @@ describe("KpiCard", () => {
     const card = container.firstElementChild as HTMLElement;
     expect(card.style.borderLeft).toContain("var(--err)");
   });
+
+  it("shows a loading mark instead of a value, sub-row and accent while pending", () => {
+    const { container } = render(
+      <KpiCard label="Down" value={3} sub={<span>p95</span>} emphasis="attention" tone="err" pending />,
+    );
+    expect(screen.getByLabelText("loading")).toHaveTextContent("···");
+    expect(screen.queryByText("3")).not.toBeInTheDocument();
+    expect(screen.queryByText("p95")).not.toBeInTheDocument();
+    const card = container.firstElementChild as HTMLElement;
+    expect(card.style.borderLeft).toBe("");
+  });
 });

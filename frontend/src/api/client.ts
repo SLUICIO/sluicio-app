@@ -500,11 +500,25 @@ export const api = {
 
   // The deferred half: the numbers for a handful of integrations. The
   // server caps the batch, so the caller chunks.
-  integrationStats: (ids: string[], window: string = "1h", opts: { series?: boolean; environments?: boolean } = {}) =>
+  // env as in listIntegrations: the dashboard reads its own
+  // environments, which the page-wide one does not stamp.
+  integrationStats: (
+    ids: string[],
+    window: string = "1h",
+    opts: { series?: boolean; environments?: boolean; env?: string | string[] | null } = {},
+  ) =>
     get<{ stats: IntegrationStats[] }>(
       `/integrations/stats?ids=${encodeURIComponent(ids.join(","))}&range=${encodeURIComponent(
         window,
-      )}${opts.series ? "&series=1" : ""}${opts.environments ? "&environments=1" : ""}`
+      )}${opts.series ? "&series=1" : ""}${opts.environments ? "&environments=1" : ""}${(opts.env === undefined ||
+      opts.env === null
+        ? []
+        : Array.isArray(opts.env)
+          ? opts.env
+          : [opts.env]
+      )
+        .map((e) => `&env=${encodeURIComponent(envToParam(e))}`)
+        .join("")}`
     ),
 
   // Environments (issue #40).

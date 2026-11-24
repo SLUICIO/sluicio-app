@@ -17,12 +17,11 @@
 //   - autoIncludeAll=false → render only the integrations listed in
 //     items, in items[].position order. The curated case.
 //
-// Data: still drives off api.listIntegrations(window) — Integration[].
-// Per-card sparkline / error / latency values use deterministic
-// pseudo-data because the cell-api doesn't yet expose per-integration
-// timeseries; swap in real series when the endpoint lands.
+// Data: the integration names from api.listIntegrations(window, { stats:
+// "defer" }), then their numbers a batch at a time from
+// api.integrationStats, refreshed every REFRESH_MS while in view.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigationReach } from "../lib/useNavigationReach";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
@@ -30,6 +29,7 @@ import { materializeItems, ruleIntegrations, toItemRequest } from "../lib/dashbo
 import { PRODUCTION_TOKEN, environmentLabel, expandProduction, useEnvironmentParam } from "../lib/activeEnvironment";
 import { orderDashboards, pickActiveDashboard } from "../lib/dashboardPick";
 import { byHealthThenName } from "../lib/healthOrder";
+import { carryStats, fillStatsInBatches, mergeStats, prioritise } from "../lib/integrationStats";
 import { useAccess } from "../lib/useAccess";
 import { useCurrentUser } from "../lib/useCurrentUser";
 import {
@@ -58,6 +58,11 @@ import { pickAttentionTarget } from "../lib/needsAttention";
 import { usePageTitle } from "../lib/usePageTitle";
 import { useTimeWindow } from "../lib/useTimeWindow";
 import { useSystemKindLabel } from "../lib/useSystemTypes";
+
+// How long after one read of the numbers finishes the next one starts.
+// Counted from the end of a pass rather than on a fixed interval, so a
+// cell whose pass takes longer than this is never asked twice at once.
+const REFRESH_MS = 10_000;
 
 // Remembers the last-active dashboard between sessions. Server stores
 // is_default; this is purely a per-browser nicety so a power user with
@@ -113,7 +118,13 @@ export default function Health() {
   // Integrations: source of truth for which cards *could* appear.
   const [integrations, setIntegrations] = useState<Integration[] | null>(null);
   const [intError, setIntError] = useState<string | null>(null);
-  const [intLoading, setIntLoading] = useState(true);
+  // The integrations whose numbers have not arrived yet on this read.
+  // Empty again once the first pass is through; a refresh keeps the
+  // numbers on screen instead of putting them back in here.
+  const [pendingStats, setPendingStats] = useState<Set<string>>(new Set());
+  // Bumped at every auto-refresh, so the smaller reads beside the
+  // integrations (systems, system services) refresh with them.
+  const [refreshTick, setRefreshTick] = useState(0);
 
   // Dashboards: the user's saved layouts. Editing happens locally
   // (`draft`) and is committed via Save.
@@ -148,27 +159,6 @@ export default function Health() {
   const waitingForRoles = viewEnv === null && envDashSource.includes(PRODUCTION_TOKEN) && !known.loaded;
   const envKey = effectiveEnvs.join("\u0000");
   const [metadataFields, setMetadataFields] = useState<{ key: string; label: string; options?: string[] }[]>([]);
-
-  useEffect(() => {
-    if (waitingForRoles) return;
-    setIntLoading(true);
-    setIntError(null);
-    api
-      .listIntegrations(windowVal, {
-        series: true,
-        // Every number on a card is read in the dashboard's
-        // environments, and several add a row per environment.
-        env: effectiveEnvs.length > 0 ? effectiveEnvs : null,
-        environments: effectiveEnvs.length > 1,
-      })
-      .then((r) => {
-        setIntegrations(r.integrations ?? []);
-        setMetadataFields((r.metadata_fields ?? []).map((f) => ({ key: f.key, label: f.label, options: f.options })));
-      })
-      .catch((e) => setIntError(String(e.message ?? e)))
-      .finally(() => setIntLoading(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [windowVal, envKey, waitingForRoles]);
 
   // Dashboards load once — they don't depend on the time window. The
   // editor reloads from the server after save/delete so any new
@@ -243,9 +233,115 @@ export default function Health() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sourceEnvKey]);
 
+  // Which dashboard's cards to fill first, read when a pass starts.
+  const visibleRef = useRef(visibleSource);
+  visibleRef.current = visibleSource;
+
+  // The numbers wait for the dashboard to be known, because its
+  // environments decide what they are read in. Reading first and again
+  // once the dashboard arrived paid for the slow read twice, and the
+  // first answer could land after the second and overwrite it.
+  const dashReady =
+    dashError !== null ||
+    (dashboards !== null &&
+      (dashboards.length === 0 || (activeId !== null && envDashSource.join("\u0000") === sourceEnvKey)));
+  const envReady = !waitingForRoles && (viewEnv !== null || dashReady);
+
+  // The names first, then the numbers a batch at a time (the same split
+  // as the Integrations page, lib/integrationStats.ts): the cards are on
+  // screen as soon as Postgres answers and fill in top down, instead of
+  // the whole page waiting for the slowest telemetry read. Then again
+  // every REFRESH_MS while the tab is in view, keeping the numbers on
+  // screen until the new ones arrive.
+  useEffect(() => {
+    if (!envReady) return;
+    // Cleared when the window or environment changes: an older pass's
+    // answers describe a read nobody is looking at.
+    let current = true;
+    const isCurrent = () => current;
+    // Every number on a card is read in the dashboard's environments,
+    // and several add a row per environment.
+    const env = effectiveEnvs.length > 0 ? effectiveEnvs : null;
+    const perEnv = effectiveEnvs.length > 1;
+    let timer: number | undefined;
+
+    const pass = async (first: boolean) => {
+      try {
+        const r = await api.listIntegrations(windowVal, { stats: "defer", env, environments: perEnv });
+        if (!isCurrent()) return;
+        const rows = r.integrations ?? [];
+        // A first pass (a new window or environment) drops the old
+        // numbers: they describe a read nobody is looking at any more.
+        setIntegrations((prev) => (first ? rows : carryStats(prev, rows)));
+        setMetadataFields((r.metadata_fields ?? []).map((f) => ({ key: f.key, label: f.label, options: f.options })));
+        setIntError(null);
+        const order = prioritise(
+          rows.map((x) => x.id),
+          composeCards(rows, visibleRef.current, false).map((c) => c.integration.id),
+        );
+        if (!r.stats_pending) {
+          setPendingStats(new Set());
+        } else {
+          if (first) setPendingStats(new Set(order));
+          await fillStatsInBatches(
+            order,
+            (batch) =>
+              api.integrationStats(batch, windowVal, { series: true, env, environments: perEnv }).then((d) => d.stats ?? []),
+            {
+              isCurrent,
+              stats: (stats) => setIntegrations((prev) => mergeStats(prev ?? [], stats)),
+              done: (batch) => {
+                if (!first) return;
+                setPendingStats((prev) => {
+                  const next = new Set(prev);
+                  for (const id of batch) next.delete(id);
+                  return next;
+                });
+              },
+            },
+          );
+        }
+      } catch (e) {
+        if (!isCurrent()) return;
+        // A failed refresh keeps the last numbers rather than blanking a
+        // page someone may have up on a wall screen; only a failed first
+        // read has nothing to show and says so.
+        if (first) {
+          setIntError(String((e as Error)?.message ?? e));
+          setPendingStats(new Set());
+        }
+      }
+      if (!isCurrent()) return;
+      timer = window.setTimeout(tick, REFRESH_MS);
+    };
+    // A tab out of view is not read: a dashboard left open in a
+    // background tab would otherwise read the whole cell every ten
+    // seconds for nobody.
+    const tick = () => {
+      if (document.hidden) {
+        timer = window.setTimeout(tick, REFRESH_MS);
+        return;
+      }
+      setRefreshTick((n) => n + 1);
+      void pass(false);
+    };
+    void pass(true);
+    return () => {
+      current = false;
+      window.clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [windowVal, envKey, envReady]);
+
+  // Until the first pass is through, totals and health would be read off
+  // part of the integrations: an "All clear" that is really "not read".
+  const statsLoading = integrations === null || pendingStats.size > 0;
+
+  // Ordered by name while the numbers arrive, by health once they are
+  // in: otherwise every batch would shuffle the cards under the reader.
   const cards = useMemo(
-    () => composeCards(integrations ?? [], visibleSource),
-    [integrations, visibleSource],
+    () => composeCards(integrations ?? [], visibleSource, !statsLoading),
+    [integrations, visibleSource, statsLoading],
   );
 
   // Systems pinned to the dashboard render as their own strip (status +
@@ -255,8 +351,10 @@ export default function Health() {
     api
       .listServices(windowVal)
       .then((r) => setSystems(r.services ?? []))
-      .catch(() => setSystems([]));
-  }, [windowVal]);
+      .catch(() => {
+        /* keep what is shown */
+      });
+  }, [windowVal, refreshTick]);
 
   const systemCards = useMemo(() => {
     const byName = new Map(systems.map((s) => [s.service_name, s] as const));
@@ -280,9 +378,16 @@ export default function Health() {
   // System entities (phase 2/4) for the org-wide "systems running" KPI — their
   // own list with a rollup health status, independent of the pinned cards.
   const [systemEntities, setSystemEntities] = useState<System[]>([]);
+  const [systemsLoaded, setSystemsLoaded] = useState(false);
   useEffect(() => {
-    api.listSystems().then((r) => setSystemEntities(r.systems ?? [])).catch(() => setSystemEntities([]));
-  }, []);
+    api
+      .listSystems()
+      .then((r) => setSystemEntities(r.systems ?? []))
+      .catch(() => {
+        /* keep what is shown */
+      })
+      .finally(() => setSystemsLoaded(true));
+  }, [refreshTick]);
 
   // Systems pinned as ENTITIES — keyed by id, and carrying the server's
   // rollup status, which already folds in the checks bound to the system
@@ -332,7 +437,7 @@ export default function Health() {
     const m = new Map<string, PipKind>();
     for (const d of dashboards ?? []) {
       let worst: PipKind = "muted";
-      for (const c of composeCards(integrations ?? [], d)) {
+      for (const c of composeCards(integrations ?? [], d, true)) {
         const k = pipForStatus(c.integration.status);
         if (PIP_RANK[k] > PIP_RANK[worst]) worst = k;
       }
@@ -552,8 +657,6 @@ export default function Health() {
 
   // ── render ──────────────────────────────────────────────────────
 
-  const loading = intLoading && !integrations;
-
   return (
     <div>
       <div className="mb-6 flex items-end justify-between">
@@ -581,364 +684,369 @@ export default function Health() {
           {dashError}
         </div>
       )}
-      {loading && <div className="placeholder">Loading integrations…</div>}
+      <>
+        {/* KPI row — org-wide, dashboard-independent. */}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-6">
+          <KpiCard
+            // When integrations are unhealthy the tile flips to a red,
+            // attention-bordered "N of M unhealthy" so a degraded org reads
+            // at a glance instead of hiding behind a healthy-looking
+            // "running" count. "Unhealthy" (not "down") because an
+            // integration can be degraded/erroring while still serving
+            // traffic. All-healthy keeps the calm "running / total".
+            label={summary.err > 0 ? "integrations unhealthy" : "integrations running"}
+            pending={statsLoading}
+            to={summary.err > 0 ? "/integrations?status=unhealthy" : "/integrations"}
+            tone={summary.err > 0 ? "err" : "default"}
+            emphasis={summary.err > 0 ? "attention" : "none"}
+            value={
+              summary.err > 0 ? (
+                <>
+                  {summary.err}
+                  <span className="ml-1 text-base font-normal text-muted">
+                    of {summary.total} unhealthy
+                  </span>
+                </>
+              ) : (
+                <>
+                  {summary.running}
+                  <span className="ml-1 text-base font-normal text-muted">
+                    / {summary.total}
+                  </span>
+                </>
+              )
+            }
+            sub={
+              <div className="flex flex-wrap items-center gap-3">
+                <StatusPip kind="ok" label={`${summary.ok} ok`} />
+                {summary.quiet > 0 && (
+                  <StatusPip kind="muted" label={`${summary.quiet} quiet`} />
+                )}
+                {summary.err > 0 && (
+                  <StatusPip kind="err" label={`${summary.err} unhealthy`} />
+                )}
+              </div>
+            }
+          />
 
-      {integrations && (
-        <>
-          {/* KPI row — org-wide, dashboard-independent. */}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-6">
-            <KpiCard
-              // When integrations are unhealthy the tile flips to a red,
-              // attention-bordered "N of M unhealthy" so a degraded org reads
-              // at a glance instead of hiding behind a healthy-looking
-              // "running" count. "Unhealthy" (not "down") because an
-              // integration can be degraded/erroring while still serving
-              // traffic. All-healthy keeps the calm "running / total".
-              label={summary.err > 0 ? "integrations unhealthy" : "integrations running"}
-              to={summary.err > 0 ? "/integrations?status=unhealthy" : "/integrations"}
-              tone={summary.err > 0 ? "err" : "default"}
-              emphasis={summary.err > 0 ? "attention" : "none"}
-              value={
-                summary.err > 0 ? (
-                  <>
-                    {summary.err}
-                    <span className="ml-1 text-base font-normal text-muted">
-                      of {summary.total} unhealthy
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    {summary.running}
-                    <span className="ml-1 text-base font-normal text-muted">
-                      / {summary.total}
-                    </span>
-                  </>
-                )
-              }
-              sub={
-                <div className="flex flex-wrap items-center gap-3">
-                  <StatusPip kind="ok" label={`${summary.ok} ok`} />
-                  {summary.quiet > 0 && (
-                    <StatusPip kind="muted" label={`${summary.quiet} quiet`} />
-                  )}
-                  {summary.err > 0 && (
-                    <StatusPip kind="err" label={`${summary.err} unhealthy`} />
+          {/* Dropped for a reader who cannot reach systems at all
+              (issue #32). The tile links to /systems and counts things
+              they are refused, so at best it reads 0/0 and at worst it
+              says how many exist. */}
+          {reach?.systems !== false && (
+          <KpiCard
+            // Mirrors "integrations running": green running/total when all
+            // healthy, red "N of M unhealthy" when a system's member checks
+            // are firing. Driven by the system entities' rollup status.
+            label={sysSummary.err > 0 ? "systems unhealthy" : "systems running"}
+            pending={!systemsLoaded}
+            to={sysSummary.err > 0 ? "/systems?status=unhealthy" : "/systems"}
+            tone={sysSummary.err > 0 ? "err" : "default"}
+            emphasis={sysSummary.err > 0 ? "attention" : "none"}
+            value={
+              sysSummary.err > 0 ? (
+                <>
+                  {sysSummary.err}
+                  <span className="ml-1 text-base font-normal text-muted">
+                    of {sysSummary.total} unhealthy
+                  </span>
+                </>
+              ) : (
+                <>
+                  {sysSummary.running}
+                  <span className="ml-1 text-base font-normal text-muted">
+                    / {sysSummary.total}
+                  </span>
+                </>
+              )
+            }
+            sub={
+              <div className="flex flex-wrap items-center gap-3">
+                <StatusPip kind="ok" label={`${sysSummary.ok} ok`} />
+                {sysSummary.quiet > 0 && (
+                  <StatusPip kind="muted" label={`${sysSummary.quiet} quiet`} />
+                )}
+                {sysSummary.err > 0 && (
+                  <StatusPip kind="err" label={`${sysSummary.err} unhealthy`} />
+                )}
+              </div>
+            }
+          />
+          )}
+
+          <KpiCard
+            label={`messages / ${windowVal}`}
+            pending={statsLoading}
+            value={formatNumber(summary.messages)}
+            sub={
+              <Sparkline
+                data={summary.messagesSeries}
+                seed={summary.messages || 7}
+                width={220}
+                height={40}
+                tone="default"
+                stretch
+              />
+            }
+          />
+
+          <KpiCard
+            label="success rate"
+            pending={statsLoading}
+            value={
+              <div className="flex items-center gap-3">
+                <Donut size={64} pct={summary.successRate} sub="ok" />
+                <div className="text-xs leading-relaxed text-muted">
+                  ok&nbsp;&nbsp;
+                  <span className="font-medium text-foreground">
+                    {formatNumber(Math.max(0, summary.messages - summary.errors - summary.delayed))}
+                  </span>
+                  <br />
+                  err&nbsp;
+                  <span className="font-medium" style={{ color: "var(--err)" }}>
+                    {formatNumber(summary.errors)}
+                  </span>
+                  {summary.delayed > 0 && (
+                    <>
+                      <br />
+                      delayed&nbsp;
+                      <span className="font-medium" style={{ color: "var(--warn)" }}>
+                        {formatNumber(summary.delayed)}
+                      </span>
+                    </>
                   )}
                 </div>
-              }
-            />
+              </div>
+            }
+          />
 
-            {/* Dropped for a reader who cannot reach systems at all
-                (issue #32). The tile links to /systems and counts things
-                they are refused, so at best it reads 0/0 and at worst it
-                says how many exist. */}
-            {reach?.systems !== false && (
-            <KpiCard
-              // Mirrors "integrations running": green running/total when all
-              // healthy, red "N of M unhealthy" when a system's member checks
-              // are firing. Driven by the system entities' rollup status.
-              label={sysSummary.err > 0 ? "systems unhealthy" : "systems running"}
-              to={sysSummary.err > 0 ? "/systems?status=unhealthy" : "/systems"}
-              tone={sysSummary.err > 0 ? "err" : "default"}
-              emphasis={sysSummary.err > 0 ? "attention" : "none"}
-              value={
-                sysSummary.err > 0 ? (
-                  <>
-                    {sysSummary.err}
-                    <span className="ml-1 text-base font-normal text-muted">
-                      of {sysSummary.total} unhealthy
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    {sysSummary.running}
-                    <span className="ml-1 text-base font-normal text-muted">
-                      / {sysSummary.total}
-                    </span>
-                  </>
-                )
-              }
-              sub={
-                <div className="flex flex-wrap items-center gap-3">
-                  <StatusPip kind="ok" label={`${sysSummary.ok} ok`} />
-                  {sysSummary.quiet > 0 && (
-                    <StatusPip kind="muted" label={`${sysSummary.quiet} quiet`} />
-                  )}
-                  {sysSummary.err > 0 && (
-                    <StatusPip kind="err" label={`${sysSummary.err} unhealthy`} />
-                  )}
+          <KpiCard
+            label={`delayed / ${windowVal}`}
+            pending={statsLoading}
+            tone={summary.delayed > 0 ? "warn" : "default"}
+            value={formatNumber(summary.delayed)}
+            sub={
+              summary.delayed > 0 ? (
+                <>
+                  {summary.delayedIntegrations} integration
+                  {summary.delayedIntegrations === 1 ? "" : "s"} · missed SLA
+                </>
+              ) : (
+                <>all traces within SLA</>
+              )
+            }
+          />
+
+          <KpiCard
+            label="needs attention"
+            pending={statsLoading}
+            emphasis={needsAttention ? "attention" : "none"}
+            value={
+              needsAttention ? (
+                <div className="text-xl font-semibold leading-tight">
+                  {needsAttention.name}
                 </div>
-              }
-            />
-            )}
-
-            <KpiCard
-              label={`messages / ${windowVal}`}
-              value={formatNumber(summary.messages)}
-              sub={
-                <Sparkline
-                  data={summary.messagesSeries}
-                  seed={summary.messages || 7}
-                  width={220}
-                  height={40}
-                  tone="default"
-                  stretch
-                />
-              }
-            />
-
-            <KpiCard
-              label="success rate"
-              value={
-                <div className="flex items-center gap-3">
-                  <Donut size={64} pct={summary.successRate} sub="ok" />
-                  <div className="text-xs leading-relaxed text-muted">
-                    ok&nbsp;&nbsp;
-                    <span className="font-medium text-foreground">
-                      {formatNumber(Math.max(0, summary.messages - summary.errors - summary.delayed))}
-                    </span>
-                    <br />
-                    err&nbsp;
-                    <span className="font-medium" style={{ color: "var(--err)" }}>
-                      {formatNumber(summary.errors)}
-                    </span>
-                    {summary.delayed > 0 && (
+              ) : (
+                <span className="text-base text-muted">All clear</span>
+              )
+            }
+            sub={
+              needsAttention ? (
+                <>
+                  <div style={{ color: "var(--ink)" }}>
+                    {needsAttention.kind === "system" ? (
+                      <>system · a bound health check is firing</>
+                    ) : (
                       <>
-                        <br />
-                        delayed&nbsp;
-                        <span className="font-medium" style={{ color: "var(--warn)" }}>
-                          {formatNumber(summary.delayed)}
-                        </span>
+                        {needsAttention.errorTraceCount} error traces ·{" "}
+                        {needsAttention.unhealthyCount} unhealthy services
                       </>
                     )}
                   </div>
-                </div>
-              }
-            />
-
-            <KpiCard
-              label={`delayed / ${windowVal}`}
-              tone={summary.delayed > 0 ? "warn" : "default"}
-              value={formatNumber(summary.delayed)}
-              sub={
-                summary.delayed > 0 ? (
-                  <>
-                    {summary.delayedIntegrations} integration
-                    {summary.delayedIntegrations === 1 ? "" : "s"} · missed SLA
-                  </>
-                ) : (
-                  <>all traces within SLA</>
-                )
-              }
-            />
-
-            <KpiCard
-              label="needs attention"
-              emphasis={needsAttention ? "attention" : "none"}
-              value={
-                needsAttention ? (
-                  <div className="text-xl font-semibold leading-tight">
-                    {needsAttention.name}
-                  </div>
-                ) : (
-                  <span className="text-base text-muted">All clear</span>
-                )
-              }
-              sub={
-                needsAttention ? (
-                  <>
-                    <div style={{ color: "var(--ink)" }}>
-                      {needsAttention.kind === "system" ? (
-                        <>system · a bound health check is firing</>
-                      ) : (
-                        <>
-                          {needsAttention.errorTraceCount} error traces ·{" "}
-                          {needsAttention.unhealthyCount} unhealthy services
-                        </>
-                      )}
-                    </div>
-                    <Link
-                      to={needsAttention.href}
-                      className="mt-2 inline-block text-sm font-medium underline-offset-2 hover:underline"
-                      style={{ color: "var(--primary)" }}
-                    >
-                      open →
-                    </Link>
-                  </>
-                ) : (
-                  <span className="text-muted">
-                    No incidents in the current window.
-                  </span>
-                )
-              }
-            />
-          </div>
-
-          {/* Dashboard picker + edit controls */}
-          <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
-            <DashboardTabs
-              dashboards={orderedDashboards}
-              activeId={activeId}
-              statusByDashboard={statusByDashboard}
-              onSelect={setActiveId}
-              onNew={access.writeAnywhere ? () => setNewOpen(true) : undefined}
-            />
-            <div className="flex items-center gap-2 text-xs text-muted">
-              <EnvironmentSwitch
-                dashboardEnvs={visibleSource?.environments ?? []}
-                viewEnv={viewEnv}
-                setViewEnv={setViewEnv}
-                window={windowVal}
-              />
-              {!editing && active && (active.canManage ?? true) && (
-                <button
-                  type="button"
-                  onClick={() => setEditing(true)}
-                  className="rounded-md border px-2.5 py-1 hover:border-border-strong"
-                  style={{ borderColor: "var(--border)" }}
-                >
-                  edit dashboard
-                </button>
-              )}
-              {editing && (
-                <>
-                  <button
-                    type="button"
-                    onClick={saveDraft}
-                    disabled={saving}
-                    className="rounded-md px-2.5 py-1 font-medium text-white"
-                    style={{ background: "var(--primary)" }}
+                  <Link
+                    to={needsAttention.href}
+                    className="mt-2 inline-block text-sm font-medium underline-offset-2 hover:underline"
+                    style={{ color: "var(--primary)" }}
                   >
-                    {saving ? "saving…" : "save"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={cancelEdit}
-                    disabled={saving}
-                    className="rounded-md border px-2.5 py-1"
-                    style={{ borderColor: "var(--border)" }}
-                  >
-                    cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={deleteActive}
-                    disabled={saving}
-                    className="rounded-md border px-2.5 py-1"
-                    style={{ borderColor: "var(--border)", color: "var(--err)" }}
-                  >
-                    delete
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-
-          {/* Editor: title, mode, default widget */}
-          {editing && draft && (
-            <DashboardEditorBar
-              draft={draft}
-              integrations={integrations}
-              cards={cards}
-              systemEntities={systemEntities}
-              pinnedSystemEntities={systemEntityCards.map((s) => s.id)}
-              onChange={updateDraft}
-              onAddCard={addCard}
-              onAddSystemEntity={addSystemEntity}
-              metadataFields={metadataFields}
-              window={windowVal}
-            />
-          )}
-
-          {newOpen && (
-            <NewDashboardDialog
-              onCancel={() => setNewOpen(false)}
-              onCreate={createDashboard}
-              saving={saving}
-              editorGroups={access.editorGroups}
-              orgWide={canOrgWrite}
-            />
-          )}
-
-          {/* Cards */}
-          {cards.length === 0 && systemCards.length === 0 && systemEntityCards.length === 0 ? (
-            <div className="placeholder mt-3">
-              {integrations.length === 0 ? (
-                <>
-                  No integrations yet.{" "}
-                  <Link to="/integrations/new" style={{ color: "var(--primary)" }}>
-                    Create one →
+                    open →
                   </Link>
                 </>
-              ) : editing && draft && !draft.autoIncludeAll ? (
-                <>This dashboard is empty. Use the picker above to add integrations or systems.</>
               ) : (
-                <>This dashboard has nothing pinned to it.</>
-              )}
-            </div>
-          ) : (
-            <>
-              {cards.length > 0 && (
-                <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-                  {cards.map((c) => (
-                    <IntegrationCard
-                      key={c.integration.id}
-                      it={c.integration}
-                      widget={c.widget}
-                      envs={effectiveEnvs.length > 1 ? effectiveEnvs : undefined}
+                <span className="text-muted">
+                  No incidents in the current window.
+                </span>
+              )
+            }
+          />
+        </div>
+
+        {/* Dashboard picker + edit controls */}
+        <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
+          <DashboardTabs
+            dashboards={orderedDashboards}
+            activeId={activeId}
+            statusByDashboard={statusByDashboard}
+            onSelect={setActiveId}
+            onNew={access.writeAnywhere ? () => setNewOpen(true) : undefined}
+          />
+          <div className="flex items-center gap-2 text-xs text-muted">
+            <EnvironmentSwitch
+              dashboardEnvs={visibleSource?.environments ?? []}
+              viewEnv={viewEnv}
+              setViewEnv={setViewEnv}
+              window={windowVal}
+            />
+            {!editing && active && (active.canManage ?? true) && (
+              <button
+                type="button"
+                onClick={() => setEditing(true)}
+                className="rounded-md border px-2.5 py-1 hover:border-border-strong"
+                style={{ borderColor: "var(--border)" }}
+              >
+                edit dashboard
+              </button>
+            )}
+            {editing && (
+              <>
+                <button
+                  type="button"
+                  onClick={saveDraft}
+                  disabled={saving}
+                  className="rounded-md px-2.5 py-1 font-medium text-white"
+                  style={{ background: "var(--primary)" }}
+                >
+                  {saving ? "saving…" : "save"}
+                </button>
+                <button
+                  type="button"
+                  onClick={cancelEdit}
+                  disabled={saving}
+                  className="rounded-md border px-2.5 py-1"
+                  style={{ borderColor: "var(--border)" }}
+                >
+                  cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={deleteActive}
+                  disabled={saving}
+                  className="rounded-md border px-2.5 py-1"
+                  style={{ borderColor: "var(--border)", color: "var(--err)" }}
+                >
+                  delete
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Editor: title, mode, default widget */}
+        {editing && draft && (
+          <DashboardEditorBar
+            draft={draft}
+            integrations={integrations ?? []}
+            cards={cards}
+            systemEntities={systemEntities}
+            pinnedSystemEntities={systemEntityCards.map((s) => s.id)}
+            onChange={updateDraft}
+            onAddCard={addCard}
+            onAddSystemEntity={addSystemEntity}
+            metadataFields={metadataFields}
+            window={windowVal}
+          />
+        )}
+
+        {newOpen && (
+          <NewDashboardDialog
+            onCancel={() => setNewOpen(false)}
+            onCreate={createDashboard}
+            saving={saving}
+            editorGroups={access.editorGroups}
+            orgWide={canOrgWrite}
+          />
+        )}
+
+        {/* Cards */}
+        {integrations === null && !intError ? (
+          <div className="placeholder mt-3">Loading integrations…</div>
+        ) : cards.length === 0 && systemCards.length === 0 && systemEntityCards.length === 0 ? (
+          <div className="placeholder mt-3">
+            {(integrations ?? []).length === 0 ? (
+              <>
+                No integrations yet.{" "}
+                <Link to="/integrations/new" style={{ color: "var(--primary)" }}>
+                  Create one →
+                </Link>
+              </>
+            ) : editing && draft && !draft.autoIncludeAll ? (
+              <>This dashboard is empty. Use the picker above to add integrations or systems.</>
+            ) : (
+              <>This dashboard has nothing pinned to it.</>
+            )}
+          </div>
+        ) : (
+          <>
+            {cards.length > 0 && (
+              <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                {cards.map((c) => (
+                  <IntegrationCard
+                    key={c.integration.id}
+                    it={c.integration}
+                    widget={c.widget}
+                    envs={effectiveEnvs.length > 1 ? effectiveEnvs : undefined}
+                  pending={pendingStats.has(c.integration.id)}
+                    editing={editing}
+                    onWidgetChange={(w) => setCardWidget(c.integration.id, w)}
+                    onRemove={() => removeCard(c.integration.id)}
+                    onQuickRemove={() => quickRemove(c.integration.id)}
+                    busy={saving}
+                  />
+                ))}
+              </div>
+            )}
+            {systemEntityCards.length > 0 && (
+              <div className="mt-3">
+                <div className="muted" style={{ fontSize: 13, fontWeight: 600, margin: "8px 0 6px" }}>Systems</div>
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                  {systemEntityCards.map((sc) => (
+                    <SystemEntityCard
+                      key={sc.id}
+                      id={sc.id}
+                      system={sc.system}
                       editing={editing}
-                      onWidgetChange={(w) => setCardWidget(c.integration.id, w)}
-                      onRemove={() => removeCard(c.integration.id)}
-                      onQuickRemove={() => quickRemove(c.integration.id)}
+                      onRemove={() => removeSystemEntity(sc.id)}
                       busy={saving}
                     />
                   ))}
                 </div>
-              )}
-              {systemEntityCards.length > 0 && (
-                <div className="mt-3">
-                  <div className="muted" style={{ fontSize: 13, fontWeight: 600, margin: "8px 0 6px" }}>Systems</div>
-                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-                    {systemEntityCards.map((sc) => (
-                      <SystemEntityCard
-                        key={sc.id}
-                        id={sc.id}
-                        system={sc.system}
-                        editing={editing}
-                        onRemove={() => removeSystemEntity(sc.id)}
-                        busy={saving}
-                      />
-                    ))}
-                  </div>
+              </div>
+            )}
+            {systemCards.length > 0 && (
+              <div className="mt-3">
+                <div className="muted" style={{ fontSize: 13, fontWeight: 600, margin: "8px 0 6px" }}>
+                  {/* Always distinct from "Systems" above: these are
+                      SERVICES flagged is_system, pinned before the
+                      editor stopped offering them. Calling both strips
+                      "Systems" is what made the old picker confusing. */}
+                  System services
                 </div>
-              )}
-              {systemCards.length > 0 && (
-                <div className="mt-3">
-                  <div className="muted" style={{ fontSize: 13, fontWeight: 600, margin: "8px 0 6px" }}>
-                    {/* Always distinct from "Systems" above: these are
-                        SERVICES flagged is_system, pinned before the
-                        editor stopped offering them. Calling both strips
-                        "Systems" is what made the old picker confusing. */}
-                    System services
-                  </div>
-                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-                    {systemCards.map((sc) => (
-                      <SystemCard
-                        key={sc.name}
-                        name={sc.name}
-                        summary={sc.summary}
-                        editing={editing}
-                        onRemove={() => removeSystem(sc.name)}
-                        busy={saving}
-                      />
-                    ))}
-                  </div>
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                  {systemCards.map((sc) => (
+                    <SystemCard
+                      key={sc.name}
+                      name={sc.name}
+                      summary={sc.summary}
+                      editing={editing}
+                      onRemove={() => removeSystem(sc.name)}
+                      busy={saving}
+                    />
+                  ))}
                 </div>
-              )}
-            </>
-          )}
-        </>
-      )}
+              </div>
+            )}
+          </>
+        )}
+      </>
     </div>
   );
 }
@@ -1237,6 +1345,9 @@ interface CardProps {
   // The environments the dashboard reads, when it reads several: one
   // status row each.
   envs?: string[];
+  // Its numbers have not arrived yet: "···" rather than zeroes, which
+  // would read as an integration that carried nothing.
+  pending?: boolean;
   editing: boolean;
   busy: boolean;
   onWidgetChange: (w: DashboardWidgetType) => void;
@@ -1252,6 +1363,7 @@ function IntegrationCard({
   it,
   widget,
   envs,
+  pending = false,
   editing,
   busy,
   onWidgetChange,
@@ -1290,7 +1402,14 @@ function IntegrationCard({
       </div>
 
       <div className="mt-3">
-        <CardWidget it={it} widget={widget} status={status} />
+        {pending ? (
+          // The sparkline's height, so the card does not jump when it lands.
+          <div className="flex items-center text-muted" style={{ height: 44 }} aria-label="loading" title="Still loading">
+            ···
+          </div>
+        ) : (
+          <CardWidget it={it} widget={widget} status={status} />
+        )}
       </div>
 
       <div
@@ -1298,7 +1417,7 @@ function IntegrationCard({
       >
         <div>
           <div className="text-[11px] uppercase tracking-wide text-muted">msgs</div>
-          <div className="font-medium tabular-nums">{formatNumber(traces)}</div>
+          <div className="font-medium tabular-nums">{pending ? <PendingMark /> : formatNumber(traces)}</div>
         </div>
         <div>
           <div className="text-[11px] uppercase tracking-wide text-muted">ok %</div>
@@ -1315,7 +1434,7 @@ function IntegrationCard({
                       : "var(--err)",
             }}
           >
-            {okPct === null ? "—" : `${okPct.toFixed(1)}%`}
+            {pending ? <PendingMark /> : okPct === null ? "—" : `${okPct.toFixed(1)}%`}
           </div>
         </div>
         <div>
@@ -1324,7 +1443,7 @@ function IntegrationCard({
             className="font-medium tabular-nums"
             style={{ color: errors > 0 ? "var(--err)" : "var(--ink)" }}
           >
-            {formatNumber(errors)}
+            {pending ? <PendingMark /> : formatNumber(errors)}
           </div>
         </div>
         {delayed > 0 && (
@@ -1339,7 +1458,7 @@ function IntegrationCard({
 
       {/* One row per environment the dashboard reads (issue #40), so
           "production ok, test failing" reads off the card. */}
-      {envs && <CardEnvironmentRows it={it} envs={envs} />}
+      {envs && !pending && <CardEnvironmentRows it={it} envs={envs} />}
 
       {editing && (
         <div
@@ -1425,6 +1544,14 @@ function IntegrationCard({
         {body}
       </Link>
     </div>
+  );
+}
+
+function PendingMark() {
+  return (
+    <span className="text-muted" aria-label="loading" title="Still loading">
+      ···
+    </span>
   );
 }
 
@@ -1744,6 +1871,9 @@ interface ComposedCard {
 function composeCards(
   integrations: Integration[],
   dashboard: Dashboard | null,
+  // false while the numbers are still arriving: name order only, so the
+  // cards hold still until every status is in.
+  byHealth: boolean,
 ): ComposedCard[] {
   const byId = new Map(integrations.map((i) => [i.id, i] as const));
 
@@ -1752,7 +1882,7 @@ function composeCards(
   // used to decide this, which buried a broken integration under the
   // busy healthy ones.
   const ordered = (cards: ComposedCard[]) =>
-    cards.sort(byHealthThenName((c) => c.integration.status, (c) => c.integration.name));
+    cards.sort(byHealthThenName((c) => (byHealth ? c.integration.status : undefined), (c) => c.integration.name));
 
   if (!dashboard) {
     return ordered(integrations.map((i) => ({ integration: i, widget: "traffic_sparkline" })));
