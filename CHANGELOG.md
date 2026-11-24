@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.220 — 2026-11-24
+
+- perf(dashboard): the cards render before their numbers and refresh every 10s (dccd141)
+
 ## v0.11.219 — 2026-11-23
 
+- release v0.11.219 - refresh internal changelog (c4e5724)
 - test(e2e): give the completion rule in the MCP test a severity (e96d790)
 - fix(usage): measure integrations against the limit that holds (8bda710)
 
