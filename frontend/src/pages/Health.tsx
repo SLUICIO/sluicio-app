@@ -427,6 +427,18 @@ export default function Health() {
   }, []);
   const sysSummary = useMemo(() => summariseSystems(systemEntities), [systemEntities]);
 
+  // Team names, to say whose a team dashboard is. Every member may list
+  // the teams; a failure leaves the id unnamed rather than the page down.
+  const [teamNames, setTeamNames] = useState<Map<string, string>>(new Map());
+  useEffect(() => {
+    api
+      .listGroups()
+      .then((r) => setTeamNames(new Map((r.groups ?? []).map((g) => [g.id, g.name] as const))))
+      .catch(() => {
+        /* unnamed */
+      });
+  }, []);
+
   // Per-dashboard rolled-up health for the tab pips: the worst status
   // among the integrations that dashboard shows (composeCards honours its
   // scope — every integration for an auto-include dashboard, only the
@@ -886,6 +898,7 @@ export default function Health() {
             dashboards={orderedDashboards}
             activeId={activeId}
             statusByDashboard={statusByDashboard}
+            teamNames={teamNames}
             onSelect={setActiveId}
             onNew={access.writeAnywhere ? () => setNewOpen(true) : undefined}
           />
@@ -953,6 +966,7 @@ export default function Health() {
             onAddSystemEntity={addSystemEntity}
             metadataFields={metadataFields}
             window={windowVal}
+            teamName={draft.groupId ? (teamNames.get(draft.groupId) ?? "a team") : null}
           />
         )}
 
@@ -1058,11 +1072,12 @@ interface TabsProps {
   activeId: string | null;
   // Rolled-up health per dashboard id, for the per-tab status pip.
   statusByDashboard: Map<string, PipKind>;
+  teamNames: Map<string, string>;
   onSelect: (id: string) => void;
   onNew?: () => void;
 }
 
-function DashboardTabs({ dashboards, activeId, statusByDashboard, onSelect, onNew }: TabsProps) {
+function DashboardTabs({ dashboards, activeId, statusByDashboard, teamNames, onSelect, onNew }: TabsProps) {
   return (
     <div className="flex flex-wrap items-center gap-1">
       {dashboards.map((d) => {
@@ -1088,6 +1103,15 @@ function DashboardTabs({ dashboards, activeId, statusByDashboard, onSelect, onNe
                 style={{ color: "var(--muted)" }}
               >
                 default
+              </span>
+            )}
+            {d.groupId && (
+              <span
+                className="ml-1.5 text-[10px] uppercase"
+                style={{ color: "var(--muted)" }}
+                title="A team dashboard: its members see it, and so do org editors"
+              >
+                {teamNames.get(d.groupId) ?? "team"}
               </span>
             )}
           </button>
@@ -1121,6 +1145,8 @@ interface EditorBarProps {
   onAddSystemEntity: (id: string) => void;
   metadataFields: { key: string; label: string; options?: string[] }[];
   window: string;
+  /** The team the dashboard belongs to; null for an org-wide one. */
+  teamName: string | null;
 }
 
 function DashboardEditorBar({
@@ -1134,6 +1160,7 @@ function DashboardEditorBar({
   onAddSystemEntity,
   metadataFields,
   window: windowVal,
+  teamName,
 }: EditorBarProps) {
   // Integrations not already in the visible card list — candidates for
   // the "+ add integration" picker. In auto mode this is empty (every
@@ -1164,6 +1191,12 @@ function DashboardEditorBar({
           style={{ borderColor: "var(--border)", color: "var(--ink)" }}
         />
       </label>
+
+      {/* Chosen when the dashboard is created; not changed here. */}
+      <span className="flex items-center gap-2 text-sm text-muted" title="Chosen when the dashboard was created">
+        {teamName ? "team" : "shared with"}
+        <span style={{ color: "var(--ink)" }}>{teamName ?? "everyone (org-wide)"}</span>
+      </span>
 
       <label className="flex items-center gap-2 text-sm text-muted">
         <input
