@@ -3,8 +3,13 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.221 — 2026-11-25
+
+- fix(access): offer an org editor every team for a team dashboard or view (32cb5d1)
+
 ## v0.11.220 — 2026-11-24
 
+- release v0.11.220 - refresh internal changelog (fbd0485)
 - perf(dashboard): the cards render before their numbers and refresh every 10s (dccd141)
 
 ## v0.11.219 — 2026-11-23
