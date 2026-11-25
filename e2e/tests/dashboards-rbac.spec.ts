@@ -126,7 +126,21 @@ test.describe("Dashboards × RBAC", () => {
     const otherDash = await makeDashboard(admin, { name: `E2E TeamB2 Board ${stamp}`, groupId: teamB });
     cleanup.dashboards.push(otherDash.id);
 
+    // An org admin may save for any team, so every team is offered,
+    // including ones the admin is not a member of. Offering only the
+    // admin's own teams left one who belongs to none with nothing to pick.
+    const adminTeams = ((await (await admin.get("/api/v1/me/access")).json()).editor_groups ?? []).map((g: { id: string }) => g.id);
+    expect(adminTeams).toEqual(expect.arrayContaining([teamA, teamB]));
+    await page.goto("/health");
+    await page.getByTitle("New dashboard").click();
+    await expect(page.getByRole("combobox").filter({ has: page.locator(`option[value="${teamB}"]`) })).toHaveCount(1);
+    await page.getByRole("button", { name: "cancel" }).click();
+
     const editor = await userPage(browser, EDITOR_EMAIL, EDITOR_PASSWORD);
+    // A team editor is offered only the teams they edit.
+    const editorTeams = ((await (await editor.request.get("/api/v1/me/access")).json()).editor_groups ?? []).map((g: { id: string }) => g.id);
+    expect(editorTeams).toContain(teamA);
+    expect(editorTeams).not.toContain(teamB);
     // Org-wide creation needs an org-wide editor role — refused.
     expect((await makeDashboard(editor.request, { name: `E2E Nope ${stamp}` })).status).toBe(403);
     // Someone else's team — refused (unknown team from their view? no:

@@ -289,8 +289,16 @@ func (h *Handlers) meAccess(w http.ResponseWriter, r *http.Request) {
 	}
 	if p.Role.CanWrite() {
 		out.WriteAnywhere, out.ManageAll = true, true
+		// An org editor may save a dashboard or a view for any team, not
+		// only the teams they are an editor in (createDashboard and the
+		// saved-view handlers already allow it). Listing only their own
+		// teams left an admin who belongs to none with no team to pick.
 		if h.featureEntitled(license.FeatureRBACAdvanced) {
-			fillEditorGroups()
+			if groups, err := h.Identity.ListGroups(r.Context(), p.OrgID); err == nil {
+				for _, g := range groups {
+					out.EditorGroups = append(out.EditorGroups, editorGroup{ID: g.ID.String(), Slug: g.Slug, Name: g.Name})
+				}
+			}
 		}
 		httpserver.WriteJSON(w, http.StatusOK, out)
 		return
