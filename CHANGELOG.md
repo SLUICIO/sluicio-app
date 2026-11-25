@@ -3,8 +3,14 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.222 — 2026-11-25
+
+- feat(dashboard): say which team a dashboard belongs to (c114785)
+- feat(seed-traces): a file-transfer estate, one service per transfer (fbd09ec)
+
 ## v0.11.221 — 2026-11-25
 
+- release v0.11.221 - refresh internal changelog (6898208)
 - fix(access): offer an org editor every team for a team dashboard or view (32cb5d1)
 
 ## v0.11.220 — 2026-11-24
