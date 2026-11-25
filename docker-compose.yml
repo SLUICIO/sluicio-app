@@ -167,6 +167,30 @@ services:
     ports:
       - "4318:4318"
 
+  # On demand, not started by a plain `up`: file moves from one system to
+  # another, one service per transfer, to put integrations on
+  # (seed-traces -estate transfers). Start and stop it with
+  #   podman compose --profile transfers up -d --build --no-deps transfer-seeder
+  #   podman compose --profile transfers stop transfer-seeder
+  # TRANSFERS replaces the built-in transfers: "name=from>to,..."
+  transfer-seeder:
+    profiles: [transfers]
+    build:
+      context: .
+      dockerfile: deploy/demo/Dockerfile.seeder
+    # No depends_on: starting it must not recreate a running cell-ingest.
+    # It posts over the network and restarts until cell-ingest answers.
+    restart: unless-stopped
+    command:
+      - "-estate=transfers"
+      - "-transfers=${TRANSFERS:-}"
+      - "-continuous"
+      - "-interval=${TRANSFER_SEED_INTERVAL:-30s}"
+      - "-batch=${TRANSFER_SEED_BATCH:-30}"
+      - "-endpoint=http://cell-ingest:4318/v1/traces"
+      - "-logs-endpoint=http://cell-ingest:4318/v1/logs"
+      - "-metrics-endpoint=http://cell-ingest:4318/v1/metrics"
+
 volumes:
   postgres_data:
   clickhouse_data:

@@ -18,7 +18,9 @@
 // The synthetic data models a small integration estate (an order API,
 // a payment service, a fulfillment worker, and a partner EDI feed)
 // with a realistic mix of successful and failed spans. -estate demo
-// seeds the public demo's two integrations instead (estate_demo.go). Each batch also
+// seeds the public demo's two integrations instead (estate_demo.go), and
+// -estate transfers file moves, one service per transfer
+// (estate_transfers.go). Each batch also
 // emits logs (varied severities) and metrics (a gauge, a monotonic
 // counter, and a histogram) for the same services — see
 // seed_logs_metrics.go.
@@ -178,14 +180,25 @@ func main() {
 	batchSize := flag.Int("batch", 50, "spans per request")
 	continuous := flag.Bool("continuous", false, "keep emitting until interrupted")
 	interval := flag.Duration("interval", 5*time.Second, "wait between batches in continuous mode")
-	estate := flag.String("estate", "full", "what to seed: full (every shape the product needs, for development and tests) or demo (two integrations, the public demo)")
+	estate := flag.String("estate", "full", "what to seed: full (every shape the product needs, for development and tests), demo (two integrations, the public demo) or transfers (file moves, one service per transfer)")
+	transfers := flag.String("transfers", "", "with -estate transfers: your own transfers instead of the built-in ones, as name=from>to separated by commas (mft-crm-to-erp=crm>erp)")
 	flag.Parse()
 	switch *estate {
 	case "full":
 	case "demo":
 		useDemoEstate()
+	case "transfers":
+		list := defaultTransfers
+		if *transfers != "" {
+			var err error
+			if list, err = parseTransfers(*transfers); err != nil {
+				fmt.Fprintf(os.Stderr, "seed-traces: -transfers: %v\n", err)
+				os.Exit(2)
+			}
+		}
+		useTransfersEstate(list)
 	default:
-		fmt.Fprintf(os.Stderr, "seed-traces: unknown -estate %q (full or demo)\n", *estate)
+		fmt.Fprintf(os.Stderr, "seed-traces: unknown -estate %q (full, demo or transfers)\n", *estate)
 		os.Exit(2)
 	}
 
