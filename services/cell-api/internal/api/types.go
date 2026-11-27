@@ -5,12 +5,13 @@
 package api
 
 import (
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/payloadlinks"
 	"time"
 
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/erroracks"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/integrations"
-	"github.com/sluicio/sluicio-app/services/cell-api/internal/tracecompletion"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/tags"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/tracecompletion"
 )
 
 // IntegrationRef is a compact reference to an integration, attached
@@ -468,6 +469,9 @@ type SpanSummary struct {
 	// EventsTotal is how many events the span carried before truncation
 	// at ingest; greater than len(Events) means the rest were dropped.
 	EventsTotal uint32 `json:"events_total,omitempty"`
+	// PayloadLinks are the span's own links to a payload, one per
+	// configured link attribute it carries.
+	PayloadLinks []payloadlinks.SpanLink `json:"payload_links,omitempty"`
 }
 
 // SpanEvent is one event on a span.
@@ -551,6 +555,11 @@ type TraceSearchResult struct {
 	// asked for it (the MCP search); the Messages view reads it from
 	// completion-status after the list has rendered.
 	Completion []tracecompletion.TraceStatus `json:"completion,omitempty"`
+	// PayloadLinks are the message's links to its payload, per configured
+	// link attribute. Present when the request asked for them (the MCP
+	// search, the CSV export); the message lists read them from
+	// /payload-links after the list has rendered.
+	PayloadLinks map[string]payloadlinks.Links `json:"payload_links,omitempty"`
 }
 
 // MessageCursorJSON is the keyset cursor for the next page of message

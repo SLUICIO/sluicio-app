@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/alerting"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/payloadlinks"
 )
 
 // ConflictError is a natural-key collision under ModeStrict. The
@@ -78,6 +79,7 @@ func Import(ctx context.Context, tx pgx.Tx, orgID string, b *Bundle, opts Option
 		{"alert_rules", r.importAlertRules(b.Sections.AlertRules)},
 		{"dashboards", r.importDashboards(b.Sections.Dashboards)},
 		{"cell_settings", r.importCellSettings(b.Sections.CellSettings)},
+		{"payload_links", r.importPayloadLinks(b.Sections.PayloadLinks)},
 	}
 	for _, s := range steps {
 		if err := s.fn(); err != nil {
@@ -1223,6 +1225,39 @@ func (r *resolver) importCellSettings(settings []CellSetting) func() error {
 			_ = ct
 			sec.Updated++
 		}
+		return nil
+	}
+}
+
+// importPayloadLinks replaces the organization's link attributes with the
+// bundle's, validated as a save from the settings page is. One list per
+// organization, so both modes replace it.
+func (r *resolver) importPayloadLinks(links *[]PayloadLink) func() error {
+	return func() error {
+		sec := r.rep.section("payload_links")
+		defer r.rep.save("payload_links", sec)
+		if links == nil {
+			return nil
+		}
+		attrs := make([]payloadlinks.Attribute, 0, len(*links))
+		for _, l := range *links {
+			attrs = append(attrs, payloadlinks.Attribute{Attribute: l.Attribute, Label: l.Label, BaseURL: l.BaseURL})
+		}
+		attrs, err := payloadlinks.Normalize(attrs)
+		if err != nil {
+			return &ValidationError{Msg: "payload_links: " + err.Error()}
+		}
+		raw, err := json.Marshal(attrs)
+		if err != nil {
+			return err
+		}
+		if _, err := r.tx.Exec(r.ctx, `
+			INSERT INTO org_payload_links (organization_id, attributes) VALUES ($1, $2)
+			ON CONFLICT (organization_id) DO UPDATE SET attributes = EXCLUDED.attributes, updated_at = now()`,
+			r.org, raw); err != nil {
+			return err
+		}
+		sec.Updated++
 		return nil
 	}
 }

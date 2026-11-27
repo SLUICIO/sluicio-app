@@ -113,3 +113,33 @@ func conditionSQL(m Mapping) (string, []any) {
 	// Validate() should keep us out of this branch in practice.
 	return "1=0", nil
 }
+
+// RoleExprByService is the effective io.role across several services in
+// one query: each service with mappings gets its own cascade (as
+// BuildResolver compiles it), picked by ServiceName; every other span
+// reads the raw attribute. For reads that span many services at once,
+// such as the payload links of a page of messages.
+func RoleExprByService(mappings []Mapping) (string, []any) {
+	byService := map[string][]Mapping{}
+	var order []string
+	for _, m := range mappings {
+		if _, ok := byService[m.ServiceName]; !ok {
+			order = append(order, m.ServiceName)
+		}
+		byService[m.ServiceName] = append(byService[m.ServiceName], m)
+	}
+	identity := IdentityResolver().RoleExpr
+	if len(order) == 0 {
+		return identity, nil
+	}
+	parts := make([]string, 0, 2*len(order)+1)
+	var args []any
+	for _, svc := range order {
+		r := BuildResolver(byService[svc])
+		parts = append(parts, "ServiceName = ?", r.RoleExpr)
+		args = append(args, svc)
+		args = append(args, r.RoleArgs...)
+	}
+	parts = append(parts, identity)
+	return "multiIf(" + strings.Join(parts, ", ") + ")", args
+}

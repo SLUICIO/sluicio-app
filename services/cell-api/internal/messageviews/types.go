@@ -292,6 +292,9 @@ type SearchRequest struct {
 	// trace-completion rules, whether or not the completion column is
 	// shown. Only meaningful in a search scoped to one integration.
 	Completion bool `json:"completion,omitempty"`
+	// PayloadLinks asks for each message's payload links inline, for a
+	// caller that would rather wait than make a second call.
+	PayloadLinks bool `json:"payload_links,omitempty"`
 }
 
 // SearchCursor is the keyset position for the next page of results.

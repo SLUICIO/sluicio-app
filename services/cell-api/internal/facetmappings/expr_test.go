@@ -180,3 +180,28 @@ func TestConditionSQLOperators(t *testing.T) {
 		})
 	}
 }
+
+// Several services in one read: each with mappings gets its own cascade,
+// and the binds follow the placeholders in order.
+func TestRoleExprByService(t *testing.T) {
+	if expr, args := RoleExprByService(nil); expr != "SpanAttributes['io.role']" || len(args) != 0 {
+		t.Fatalf("no mappings: %s %v", expr, args)
+	}
+	expr, args := RoleExprByService([]Mapping{
+		{ServiceName: "mft-a", AttributeSource: AttrSourceSpan, AttributeKey: "op", MatchOperator: OperatorEquals, MatchValue: "pickup", SetIORole: "input"},
+		{ServiceName: "mft-a", AttributeSource: AttrSourceSpan, AttributeKey: "op", MatchOperator: OperatorEquals, MatchValue: "deliver", SetIORole: "output"},
+		{ServiceName: "mft-b", AttributeSource: AttrSourceSpan, AttributeKey: "dir", MatchOperator: OperatorExists, SetIORole: "input"},
+	})
+	if !strings.HasPrefix(expr, "multiIf(ServiceName = ?, coalesce(nullIf(SpanAttributes['io.role'], '')") || !strings.HasSuffix(expr, ", SpanAttributes['io.role'])") {
+		t.Fatalf("expr: %s", expr)
+	}
+	if strings.Count(expr, "?") != len(args) {
+		t.Fatalf("%d placeholders, %d binds: %s %v", strings.Count(expr, "?"), len(args), expr, args)
+	}
+	want := []any{"mft-a", "op", "pickup", "input", "op", "deliver", "output", "mft-b", "dir", "input"}
+	for i := range want {
+		if args[i] != want[i] {
+			t.Fatalf("binds %v, want %v", args, want)
+		}
+	}
+}

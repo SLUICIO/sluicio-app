@@ -341,9 +341,10 @@ var (
 		}),
 		"spans_included": intOut("How many results carry their spans, with include_spans."),
 		"results": arrOf("Matching traces. Drill in with sluicio_get_trace.", map[string]any{
-			"columns":  objOf("The message's column values under the column labels, e.g. Invoice Id: 123, as the Messages view shows them.", nil),
-			"promoted": objOf("The same values keyed by attribute key.", nil),
-			"spans":    arrOf("With include_spans, every span of the trace (the integration's slice of it when one was given).", spanItem),
+			"columns":       objOf("The message's column values under the column labels, e.g. Invoice Id: 123, as the Messages view shows them.", nil),
+			"promoted":      objOf("The same values keyed by attribute key.", nil),
+			"spans":         arrOf("With include_spans, every span of the trace (the integration's slice of it when one was given).", spanItem),
+			"payload_links": objOf("Links to the message's payload, keyed by the configured link attribute (e.g. io.payload.url). Each holds links: the distinct addresses, earliest first (for a flow, where the message entered), each with the spans that carried it; and more: how many distinct links were left out beyond 20. A link without url is a value that is not an address. Sluicio does not fetch the payload: hand the url to the person asking, whose own access opens it. Absent when the message carries none.", nil),
 			"completion": arrOf("With an integration: where the message stands against each of its enabled trace-completion rules. complete means every stage was reached; waiting and delayed name the stage it has not reached yet, inside or past that stage's timeout.", map[string]any{
 				"rule_id":    strOut("The trace-completion rule."),
 				"rule_name":  strOut("Its name, e.g. Send step must complete."),
@@ -788,6 +789,12 @@ var spanItem = map[string]any{
 		"attributes": objOf("The event's attributes.", nil),
 	}),
 	"events_total": intOut("Events the span carried before truncation at ingest. More than len(events) means some were dropped."),
+	"payload_links": arrOf("The span's links to a payload, one per configured link attribute it carries. Sluicio does not fetch them: hand the url to the person asking.", map[string]any{
+		"attribute": strOut("The span attribute, e.g. io.payload.url."),
+		"label":     strOut("What the organization calls it, e.g. Payload."),
+		"url":       strOut("The address. Absent when the value is not one (then only value is set)."),
+		"value":     strOut("The attribute's value as recorded."),
+	}),
 }
 
 // messageColumnItem is one column of an integration's Messages view.

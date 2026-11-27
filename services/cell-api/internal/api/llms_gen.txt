@@ -384,6 +384,9 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 - GET /api/v1/orgs/{id} — Get org
 - PATCH /api/v1/orgs/{id} — Update org
 
+## payload-links
+- POST /api/v1/payload-links — Create payload-link
+
 ## proposals
 - POST /api/v1/proposals — Create proposal
 - GET /api/v1/proposals — List proposals
@@ -480,6 +483,8 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 - PUT /api/v1/settings/notification-templates — Update setting
 - GET /api/v1/settings/groups/{id}/notification-template — List settings
 - PUT /api/v1/settings/groups/{id}/notification-template — Update setting
+- GET /api/v1/settings/payload-links — List settings
+- PUT /api/v1/settings/payload-links — Update setting
 - GET /api/v1/settings/config-export — List settings
 - POST /api/v1/settings/config-import — Create setting
 - GET /api/v1/settings/groups — List settings

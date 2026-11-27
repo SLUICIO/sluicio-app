@@ -84,6 +84,7 @@ import (
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/notifyprofiles"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/notifytemplates"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/oauth"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/payloadlinks"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/proposals"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/retention"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/schemas"
@@ -384,6 +385,7 @@ func main() {
 		Alerts:              alertStore,
 		Maintenance:         maintenance.NewStore(pg),
 		NotifyTemplates:     notifytemplates.NewStore(pg),
+		PayloadLinks:        payloadlinks.NewStore(pg),
 		EventSubs:           eventSubsStore,
 		Proposals:           proposalStore,
 		PGPool:              pg,

@@ -5,6 +5,7 @@ package api
 import (
 	"context"
 	"fmt"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/payloadlinks"
 	"log/slog"
 	"net/http"
 	"sort"
@@ -84,6 +85,9 @@ type Handlers struct {
 	// NotifyTemplates backs the org→team notification message-template
 	// ladder (issue #5, handlers_notification_templates.go).
 	NotifyTemplates *notifytemplates.Store
+	// PayloadLinks keeps each organization's link attributes: the span
+	// attributes shown as links to a message's payload.
+	PayloadLinks *payloadlinks.Store
 	// Events fans domain events out to event subscriptions (issue #4,
 	// handlers_events.go). Nil = feature dormant, emission no-ops.
 	Events *eventsubs.Emitter
@@ -1757,6 +1761,8 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/integrations/{id}/completion-rules", h.listTraceCompletionRules)
 	mux.HandleFunc("GET /api/v1/integrations/{id}/completion-counts", h.completionCounts)
 	mux.HandleFunc("POST /api/v1/integrations/{id}/completion-status", h.completionStatus)
+	// The payload-link columns of a message list, fetched after the list.
+	mux.HandleFunc("POST /api/v1/payload-links", h.resolvePayloadLinks)
 	mux.HandleFunc("GET /api/v1/integrations/{id}/completion-firings", h.listCompletionFirings)
 	// A read with a body: a draft rule tried against stored traces.
 	mux.HandleFunc("POST /api/v1/integrations/{id}/completion-rules/dry-run", h.dryRunCompletionRule)
@@ -1872,6 +1878,11 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 		mux.HandleFunc("GET /api/v1/settings/groups/{id}/notification-template", h.getGroupNotificationTemplates)
 		mux.HandleFunc("PUT /api/v1/settings/groups/{id}/notification-template", h.blockDemo(h.putGroupNotificationTemplates))
 		mux.HandleFunc("GET /api/v1/alerting/template-context-schema", h.templateContextSchema)
+
+		// Payload links: which span attributes link to a message's payload.
+		// Every reader needs the list to label the columns; admins change it.
+		mux.HandleFunc("GET /api/v1/settings/payload-links", h.getPayloadLinks)
+		mux.HandleFunc("PUT /api/v1/settings/payload-links", admin(h.blockDemo(h.putPayloadLinks)))
 
 		// Org-scoped announcement management was removed 2026-07-24 — one
 		// cell serves one org, so cell-wide (operator) is the single
@@ -3380,9 +3391,15 @@ func (h *Handlers) traceDetail(w http.ResponseWriter, r *http.Request) {
 	// the whole span, not on any one field of it.
 	h.recordDemandServices(r, demand.SignalTrace, spanServices(rows))
 
+	spans := toSpanSummaries(rows)
+	if attrs := h.payloadLinkAttributes(r); len(attrs) > 0 {
+		for i := range spans {
+			spans[i].PayloadLinks = payloadlinks.ForSpan(attrs, spans[i].SpanAttributes)
+		}
+	}
 	out := TraceDetail{
 		TraceID:   traceID,
-		Spans:     toSpanSummaries(rows),
+		Spans:     spans,
 		Truncated: truncated,
 	}
 	if since, err := h.Store.LinksRecordedSince(r.Context()); err == nil && !since.IsZero() {

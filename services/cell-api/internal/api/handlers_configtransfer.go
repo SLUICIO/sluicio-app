@@ -137,6 +137,9 @@ func (h *Handlers) importConfig(w http.ResponseWriter, r *http.Request) {
 		httpserver.WriteError(w, http.StatusInternalServerError, "import failed — nothing was changed")
 		return
 	}
+	if h.PayloadLinks != nil {
+		h.PayloadLinks.Forget(orgID)
+	}
 	h.recordAudit(r, "config.imported", "org", orgID.String(), map[string]any{
 		"mode": string(mode), "source_org": bundle.Source.OrgSlug, "report": report.Sections,
 	})
@@ -153,5 +156,13 @@ func sectionCounts(b *configtransfer.Bundle) map[string]int {
 		"monitoring_templates": len(s.Templates), "notification_channels": len(s.Channels),
 		"notification_profiles": len(s.Profiles), "alert_rules": len(s.AlertRules),
 		"dashboards": len(s.Dashboards), "cell_settings": len(s.CellSettings),
+		"payload_links": payloadLinkCount(s.PayloadLinks),
 	}
+}
+
+func payloadLinkCount(l *[]configtransfer.PayloadLink) int {
+	if l == nil {
+		return 0
+	}
+	return len(*l)
 }

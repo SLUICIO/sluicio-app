@@ -208,7 +208,9 @@ func (s *Server) searchTraces(a map[string]any) (string, error) {
 	}
 	q := rangeArg(a, "24h")
 	envArg(q, a)
-	body := map[string]any{"filters": filters, "limit": limit}
+	// Payload links travel inline: an agent would rather wait than make a
+	// second call for them.
+	body := map[string]any{"filters": filters, "limit": limit, "payload_links": true}
 	// Within an integration, each message also says where it stands
 	// against the integration's trace-completion rules: complete, or
 	// waiting or delayed at a stage.

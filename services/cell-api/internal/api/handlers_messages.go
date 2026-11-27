@@ -905,6 +905,14 @@ func (h *Handlers) searchMessages(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if req.PayloadLinks {
+		ids, from := completionTargets(results)
+		byTrace := h.payloadLinksFor(r, ids, from, integID)
+		for i := range results {
+			results[i].PayloadLinks = byTrace[results[i].TraceID]
+		}
+	}
+
 	// Messages is the most-used view in the product, so it is also the
 	// truest statement of what people consume. Recording it here — after
 	// the query has succeeded, never on the 400/500 paths above — is what

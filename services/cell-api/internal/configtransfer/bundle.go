@@ -68,6 +68,17 @@ type Sections struct {
 	AlertRules      []AlertRule       `json:"alert_rules,omitempty"`
 	Dashboards      []Dashboard       `json:"dashboards,omitempty"`
 	CellSettings    []CellSetting     `json:"cell_settings,omitempty"`
+	// PayloadLinks is the organization's list of link attributes. Absent
+	// when the organization never changed the defaults, so the target
+	// keeps its own; an empty list means every attribute was removed.
+	PayloadLinks *[]PayloadLink `json:"payload_links,omitempty"`
+}
+
+// PayloadLink is one span attribute shown as a link to a message's payload.
+type PayloadLink struct {
+	Attribute string `json:"attribute"`
+	Label     string `json:"label,omitempty"`
+	BaseURL   string `json:"base_url,omitempty"`
 }
 
 // ── section shapes (natural-key references only) ─────────────────────

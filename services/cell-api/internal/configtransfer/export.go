@@ -5,6 +5,7 @@ package configtransfer
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -65,6 +66,7 @@ func Export(ctx context.Context, tx pgx.Tx, orgID string, appVersion string) (*B
 		{"alert_rules", func() error { return exportAlertRules(ctx, tx, orgID, b, integSlug, groupSlug, channelName) }},
 		{"dashboards", func() error { return exportDashboards(ctx, tx, orgID, b, groupSlug, integSlug) }},
 		{"cell_settings", func() error { return exportCellSettings(ctx, tx, b) }},
+		{"payload_links", func() error { return exportPayloadLinks(ctx, tx, orgID, b) }},
 	}
 	for _, s := range steps {
 		if err := s.fn(); err != nil {
@@ -931,4 +933,23 @@ func exportCellSettings(ctx context.Context, tx pgx.Tx, b *Bundle) error {
 		b.Sections.CellSettings = append(b.Sections.CellSettings, s)
 	}
 	return rows.Err()
+}
+
+// exportPayloadLinks carries the organization's link attributes, when it
+// has saved a list of its own.
+func exportPayloadLinks(ctx context.Context, tx pgx.Tx, org string, b *Bundle) error {
+	var raw []byte
+	err := tx.QueryRow(ctx, `SELECT attributes FROM org_payload_links WHERE organization_id=$1`, org).Scan(&raw)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	links := []PayloadLink{}
+	if err := json.Unmarshal(raw, &links); err != nil {
+		return err
+	}
+	b.Sections.PayloadLinks = &links
+	return nil
 }

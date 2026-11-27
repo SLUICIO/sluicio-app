@@ -101,6 +101,9 @@ func TestSearchTracesByColumnLabelInAnIntegration(t *testing.T) {
 	if integ == nil || integ["value"] != "Invoices" {
 		t.Errorf("integration filter = %v, want the integration's name", integ)
 	}
+	if searchBody(t, seen)["payload_links"] != true {
+		t.Error("the search did not ask for payload links inline")
+	}
 	if attr == nil || attr["fieldPath"] != "iId" || attr["op"] != "equals" || attr["value"] != "123" {
 		t.Errorf("attribute filter = %v, want iId equals 123", attr)
 	}
