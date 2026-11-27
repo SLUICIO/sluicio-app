@@ -25,11 +25,17 @@ var sensitiveKeyParts = []string{
 	"password", "passwd", "secret", "token", "apikey", "authorization",
 	"credential", "privatekey", "bearer", "cookie", "accesskey",
 	"connectionstring", "signature", "passphrase",
+	"instrumentationkey", "sharedkey", "accountkey", "signingkey", "encryptionkey", "masterkey", "licensekey", "subscriptionkey",
 }
 
 // sensitiveKeysExact are too short to match as parts without masking
 // harmless keys (keyfile, dsnresolver).
-var sensitiveKeysExact = map[string]bool{"pwd": true, "dsn": true, "key": true, "pass": true, "auth": true, "keypem": true}
+//
+// "key" is not among them: it names an attribute far more often than it
+// holds one (the resource and attributes processors' key: service.name),
+// and hiding those hides which attributes a configuration sets. Under a
+// TLS block it is the private key, and maskNode masks it there.
+var sensitiveKeysExact = map[string]bool{"pwd": true, "dsn": true, "pass": true, "auth": true, "keypem": true}
 
 // envRef is a value that only points at an environment variable. It
 // carries no secret and is exactly what the documentation recommends, so
@@ -83,7 +89,7 @@ var componentSections = map[string]bool{"receivers": true, "processors": true, "
 // as maskNode does.
 func maskDocument(doc *yaml.Node) {
 	if doc.Kind != yaml.DocumentNode || len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
-		maskNode(doc, false)
+		maskNode(doc, false, false)
 		return
 	}
 	top := doc.Content[0]
@@ -91,22 +97,22 @@ func maskDocument(doc *yaml.Node) {
 		key, val := top.Content[i].Value, top.Content[i+1]
 		if componentSections[key] && val.Kind == yaml.MappingNode {
 			for j := 0; j+1 < len(val.Content); j += 2 {
-				maskNode(val.Content[j+1], false)
+				maskNode(val.Content[j+1], false, false)
 			}
 			continue
 		}
-		maskNode(val, sensitiveKey(key))
+		maskNode(val, sensitiveKey(key), tlsBlock(key))
 	}
 }
 
 // maskNode walks the tree. underSecret is set below a sensitive key, so a
 // secret given as a list or a map (headers: {authorization: [...]}) is
 // masked all the way down.
-func maskNode(n *yaml.Node, underSecret bool) {
+func maskNode(n *yaml.Node, underSecret, inTLS bool) {
 	switch n.Kind {
 	case yaml.DocumentNode, yaml.SequenceNode:
 		for _, c := range n.Content {
-			maskNode(c, underSecret)
+			maskNode(c, underSecret, false)
 		}
 	case yaml.MappingNode:
 		// A pair spelled as {name: authorization, value: ...}, which is how
@@ -120,13 +126,21 @@ func maskNode(n *yaml.Node, underSecret bool) {
 		}
 		for i := 0; i+1 < len(n.Content); i += 2 {
 			k := n.Content[i].Value
-			maskNode(n.Content[i+1], underSecret || sensitiveKey(k) || (namedSecret && k == "value"))
+			secret := underSecret || sensitiveKey(k) || (namedSecret && k == "value") || (inTLS && k == "key")
+			maskNode(n.Content[i+1], secret, tlsBlock(k))
 		}
 	case yaml.ScalarNode:
 		maskScalar(n, underSecret)
 	case yaml.AliasNode:
 		// The anchor it points at is masked where it is defined.
 	}
+}
+
+// tlsBlock says whether a key opens a TLS settings block, where "key" is
+// the private key (tls, tls_settings, ssl, tls_config).
+func tlsBlock(k string) bool {
+	n := strings.ToLower(k)
+	return strings.HasPrefix(n, "tls") || strings.HasPrefix(n, "ssl")
 }
 
 func maskScalar(n *yaml.Node, secret bool) {

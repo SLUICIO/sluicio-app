@@ -309,3 +309,45 @@ func TestNormalizeSupervisorPort(t *testing.T) {
 		t.Fatal("a port that is not the supervisor's own endpoint was touched")
 	}
 }
+
+// "key" names an attribute almost everywhere and is shown; under a TLS
+// block it is the private key and is masked.
+func TestMaskKeyByPlace(t *testing.T) {
+	in := `processors:
+  resource:
+    attributes:
+      - key: service.name
+        value: orders
+        action: upsert
+      - key: api_key
+        value: k-attr-secret
+        action: insert
+  attributes/env:
+    actions:
+      - key: deployment.environment
+        value: prod
+exporters:
+  kafka:
+    tls:
+      cert_file: /certs/client.pem
+      key: k-inline-key
+      key_file: /certs/client.key
+  azure_monitor:
+    instrumentation_key: k-instrumentation
+    shared_key: k-shared
+`
+	out, ok := MaskConfig(in)
+	if !ok {
+		t.Fatal("unparseable")
+	}
+	for _, kept := range []string{"key: service.name", "value: orders", "key: deployment.environment", "value: prod", "key: api_key", "key_file: /certs/client.key", "cert_file: /certs/client.pem"} {
+		if !strings.Contains(out, kept) {
+			t.Errorf("lost %q:\n%s", kept, out)
+		}
+	}
+	for _, secret := range []string{"k-attr-secret", "k-inline-key", "k-instrumentation", "k-shared"} {
+		if strings.Contains(out, secret) {
+			t.Errorf("not masked: %s\n%s", secret, out)
+		}
+	}
+}
