@@ -17,7 +17,6 @@ import StatusPip from "../primitives/StatusPip";
 import { deploymentStatus } from "../../lib/deploymentStatus";
 import ConfigDiff from "./ConfigDiff";
 
-
 export default function DeploymentsPanel({
   collectorId,
   canPush,
@@ -139,7 +138,9 @@ export default function DeploymentsPanel({
                       ? "API"
                       : d.via === "rollback"
                         ? "restore"
-                        : "UI"}
+                        : d.via === "advisor"
+                          ? "Advisor"
+                          : "UI"}
                     {st.waiting && (
                       <>
                         {" "}

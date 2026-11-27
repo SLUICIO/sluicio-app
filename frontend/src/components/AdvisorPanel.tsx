@@ -12,16 +12,19 @@
 // happens they stop trusting the whole feature. The loss statement is
 // not a disclaimer here; it is the part that makes accepting safe.
 //
-// Nothing on this page changes a collector. Accepting records a
-// decision and leaves a paper trail — the operator still has to paste
-// the snippet. That gap is honest: v1 cannot know the collector
-// changed, so the card says "accepted", and only a later evaluation
-// that stops finding the problem promotes it to "verified".
+// Accepting records a decision and leaves a paper trail; the operator
+// still has to paste the snippet, so the card says "accepted", and only a
+// later evaluation that stops finding the problem promotes it to
+// "verified". With collector management on, an unused metric can instead
+// be applied to a supervisor-run collector: that becomes a change the
+// collector's team approves, never a change made from here directly.
 
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { AdvisorLedger, AdvisorSuggestion } from "../api/types";
 import { ledgerMessage, runOutcomeMessage } from "../lib/advisorLedger";
+import { useCurrentUser } from "../lib/useCurrentUser";
+import AdvisorCollectorDrawer from "./collectors/AdvisorCollectorDrawer";
 import { formatBytes } from "../lib/format";
 
 type Tab = "telemetry" | "alerting";
@@ -215,6 +218,10 @@ function SuggestionCard({
   onDecide: (s: AdvisorSuggestion, action: "accept" | "dismiss") => void;
 }) {
   const [copied, setCopied] = useState(false);
+  const [applying, setApplying] = useState(false);
+  const { collectorsEnabled } = useCurrentUser();
+  // Unused metrics can be applied to a collector; the other classes not yet.
+  const applicable = collectorsEnabled && s.class === "T1" && s.state !== "dismissed";
   const decided = s.state !== "open";
   const compliance = s.evidence?.compliance === true;
 
@@ -282,16 +289,26 @@ function SuggestionCard({
         </details>
       )}
 
-      {!decided && (
+      {(!decided || applicable) && (
         <div style={{ display: "flex", gap: 8 }}>
-          <button className="btn btn--primary btn--sm" disabled={busy} onClick={() => onDecide(s, "accept")}>
-            Accept
-          </button>
-          <button className="btn btn--sm" disabled={busy} onClick={() => onDecide(s, "dismiss")}>
-            Dismiss
-          </button>
+          {!decided && (
+            <button className="btn btn--primary btn--sm" disabled={busy} onClick={() => onDecide(s, "accept")}>
+              Accept
+            </button>
+          )}
+          {applicable && (
+            <button className="btn btn--sm" disabled={busy} onClick={() => setApplying(true)}>
+              Apply to a collector
+            </button>
+          )}
+          {!decided && (
+            <button className="btn btn--sm" disabled={busy} onClick={() => onDecide(s, "dismiss")}>
+              Dismiss
+            </button>
+          )}
         </div>
       )}
+      {applying && <AdvisorCollectorDrawer suggestion={s} onClose={() => setApplying(false)} />}
       {s.state === "accepted" && (
         <p className="muted" style={{ fontSize: 12, margin: 0 }}>
           Accepted — paste the config into your collector. This will show as verified once the

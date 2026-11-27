@@ -22,6 +22,8 @@ import type {
   CollectorTarget,
   NavigationReach,
   ErrorBreakdownResponse,
+  AdvisorCollectorChange,
+  AdvisorCollectorRow,
   AdvisorSuggestion,
   AdvisorSuggestionsResponse,
   Announcement,
@@ -286,6 +288,12 @@ export const api = {
     post<AdvisorSuggestion>(`/advisor/suggestions/${encodeURIComponent(id)}/accept`, { note }),
   dismissAdvisorSuggestion: (id: string, note = "") =>
     post<AdvisorSuggestion>(`/advisor/suggestions/${encodeURIComponent(id)}/dismiss`, { note }),
+  listAdvisorSuggestionCollectors: (id: string) =>
+    get<{ collectors: AdvisorCollectorRow[] }>(`/advisor/suggestions/${encodeURIComponent(id)}/collectors`),
+  previewAdvisorCollectorChange: (id: string, collectorId: string) =>
+    get<AdvisorCollectorChange>(
+      `/advisor/suggestions/${encodeURIComponent(id)}/collectors/${encodeURIComponent(collectorId)}`,
+    ),
   runAdvisor: () =>
     post<{ open_suggestions: number; ledger: AdvisorLedger }>(`/advisor/run`, {}),
   // Records that somebody followed a notification's deep link. Fire and
@@ -1149,7 +1157,10 @@ export const api = {
     post<{ checked: boolean; validation?: CollectorValidation }>(`/collectors/${encodeURIComponent(id)}/validate`, { config }),
   listCollectorDeployments: (id: string) =>
     get<{ deployments: CollectorDeployment[] }>(`/collectors/${encodeURIComponent(id)}/deployments`),
-  sendCollectorConfig: (id: string, body: { config: string; message: string; force?: boolean }) =>
+  sendCollectorConfig: (
+    id: string,
+    body: { config: string; message: string; force?: boolean; suggestion_id?: string },
+  ) =>
     post<CollectorSendResult>(`/collectors/${encodeURIComponent(id)}/deployments`, body),
   collectorDeploymentDiff: (id: string, dep: string) =>
     get<CollectorDeploymentDiff>(`/collectors/${encodeURIComponent(id)}/deployments/${encodeURIComponent(dep)}/diff`),

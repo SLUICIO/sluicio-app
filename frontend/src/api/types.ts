@@ -3588,6 +3588,27 @@ export interface CollectorDeployment {
   finished_at?: string;
 }
 
+// An Advisor suggestion applied to one collector (stage 3).
+export interface AdvisorPipelineSkip {
+  pipeline: string;
+  reason: string;
+}
+export interface AdvisorCollectorRow {
+  collector: Collector;
+  changed: string[];
+  skipped: AdvisorPipelineSkip[];
+  already_dropped: boolean;
+  unavailable?: string;
+}
+export interface AdvisorCollectorChange {
+  before: string;
+  config: string;
+  changed: string[];
+  skipped: AdvisorPipelineSkip[];
+  already_dropped: boolean;
+  unavailable?: string;
+}
+
 export interface CollectorValidation {
   valid: boolean;
   diagnostics: { severity: string; message: string; path?: string; line?: number; hint?: string }[] | null;

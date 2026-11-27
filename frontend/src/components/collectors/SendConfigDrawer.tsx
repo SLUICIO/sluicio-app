@@ -6,7 +6,7 @@
 // something next to it. OTelFlow checks the text first; the review step
 // shows the change line by line before anything is sent.
 
-import { lazy, Suspense, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../api/client";
 import type { CollectorValidation } from "../../api/types";
@@ -20,6 +20,8 @@ export default function SendConfigDrawer({
   collectorName,
   current,
   requireApproval,
+  initial,
+  suggestionId,
   onClose,
   onSent,
 }: {
@@ -28,10 +30,16 @@ export default function SendConfigDrawer({
   // The configuration as written, masked, as the tab shows it.
   current: string;
   requireApproval: boolean;
+  // A change prepared elsewhere (an Advisor suggestion): the drawer opens
+  // on its review rather than on an unchanged editor.
+  initial?: string;
+  // Sends the change as this Advisor suggestion, which always waits for
+  // the owner team's approval.
+  suggestionId?: string;
   onClose: () => void;
   onSent: () => void;
 }) {
-  const [text, setText] = useState(current);
+  const [text, setText] = useState(initial ?? current);
   const [message, setMessage] = useState("");
   const [step, setStep] = useState<"edit" | "review">("edit");
   const [checking, setChecking] = useState(false);
@@ -66,6 +74,15 @@ export default function SendConfigDrawer({
     }
   };
 
+  // A prepared change goes straight to its check and review, once.
+  const reviewed = useRef(false);
+  useEffect(() => {
+    if (initial === undefined || reviewed.current) return;
+    reviewed.current = true;
+    void check();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initial]);
+
   const send = async (force: boolean) => {
     setBusy(true);
     setError(null);
@@ -74,6 +91,7 @@ export default function SendConfigDrawer({
         config: text,
         message,
         force,
+        suggestion_id: suggestionId,
       });
       setDone({ proposal: r.proposal?.id, delivered: r.delivered });
       onSent();
@@ -95,7 +113,9 @@ export default function SendConfigDrawer({
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {done.proposal ? (
             <div className="alert alert--info" style={{ margin: 0 }}>
-              The change waits for approval by someone else in the team.{" "}
+              {suggestionId
+                ? "The change waits for approval by the collector's team."
+                : "The change waits for approval by someone else in the team."}{" "}
               <Link to="/proposals">Open Proposals</Link>
             </div>
           ) : (
@@ -189,7 +209,11 @@ export default function SendConfigDrawer({
             Why
             <input
               className="search__input"
-              placeholder="e.g. drop debug logs from the payments pipeline"
+              placeholder={
+                suggestionId
+                  ? "Optional: the Advisor's finding is used when left empty"
+                  : "e.g. drop debug logs from the payments pipeline"
+              }
               value={message}
               onChange={(e) => setMessage(e.target.value)}
             />
