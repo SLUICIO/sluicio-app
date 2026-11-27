@@ -684,7 +684,10 @@ code, .mono {
 }
 .form__label input,
 .form__label textarea,
-.form__label select {
+.form__label select,
+/* SearchableSelect's field trigger, so a picker sits level with the text
+   fields beside it. */
+.form__label button.search__input {
   font-size: 14px;
   /* .search__input is shared with the top-bar search where the bigger
      padding looks right; inside form labels it makes inputs feel
