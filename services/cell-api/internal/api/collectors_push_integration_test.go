@@ -181,6 +181,11 @@ func TestCollectorPush(t *testing.T) {
 		t.Errorf("a complete configuration to an effective-only collector: %d %v, want 201", code, out)
 	}
 
+	// A time-limited change is Enterprise: 402 without a licence.
+	if code, _ := do(editor, "POST", base+"/deployments", map[string]any{"config": edited, "duration_minutes": 30}); code != http.StatusPaymentRequired {
+		t.Errorf("a temporary change without a licence: %d, want 402", code)
+	}
+
 	// Restoring an applied configuration is Enterprise: 402 without a licence.
 	if code, _ := do(admin, "POST", base+"/deployments/"+depID.String()+"/rollback", nil); code != http.StatusPaymentRequired {
 		t.Errorf("rollback without a licence: %d, want 402", code)
@@ -335,6 +340,37 @@ func TestCollectorPushEnterprise(t *testing.T) {
 	}
 	if st, ps := statusOf(rejDep); st != "proposed" || ps != "rejected" {
 		t.Fatalf("rejected proposal: %s/%s", st, ps)
+	}
+
+	// Time-limited changes (approval off for this part).
+	if code, _ := do(admin, "PUT", settings, map[string]any{"require_approval": false}); code != 200 {
+		t.Fatal("turn approval off")
+	}
+	if code, _ := do(author, "POST", base+"/deployments", map[string]any{"config": edit("filesystem"), "duration_minutes": 1}); code != http.StatusBadRequest {
+		t.Errorf("a one-minute temporary change: %d, want 400", code)
+	}
+	code, out = do(author, "POST", base+"/deployments", map[string]any{"config": edit("filesystem"), "duration_minutes": 30, "message": "debug for an incident"})
+	if code != http.StatusCreated || out["deployment"].(map[string]any)["duration_seconds"] != float64(1800) {
+		t.Fatalf("temporary change: %d %v", code, out)
+	}
+	tmpID := out["deployment"].(map[string]any)["id"].(string)
+	if code, _ := do(author, "POST", base+"/deployments", map[string]any{"config": edit("network"), "duration_minutes": 30}); code != http.StatusConflict {
+		t.Errorf("a second temporary change: %d, want 409", code)
+	}
+	code, out = do(author, "POST", base+"/deployments", map[string]any{"config": edit("processes")})
+	heldID := out["deployment"].(map[string]any)["id"].(string)
+	if code != http.StatusCreated || out["deployment"].(map[string]any)["status"] != "held" || out["delivered"] != false {
+		t.Fatalf("a permanent change while temporary: %d %v", code, out)
+	}
+	if code, _ := do(teamViewer, "POST", base+"/deployments/"+tmpID+"/end", nil); code != http.StatusForbidden {
+		t.Errorf("a team viewer ended a temporary change: %d", code)
+	}
+	code, out = do(author, "POST", base+"/deployments/"+tmpID+"/end", nil)
+	if code != 200 || out["base"].(map[string]any)["id"] != heldID {
+		t.Fatalf("end now: %d %v", code, out)
+	}
+	if code, _ := do(author, "POST", base+"/deployments/"+tmpID+"/end", nil); code != http.StatusConflict {
+		t.Errorf("ending twice: %d, want 409", code)
 	}
 
 	// Restore: send the applied configuration again, at once.

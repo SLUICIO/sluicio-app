@@ -2,7 +2,8 @@
 //
 // What was sent to a collector and what it said (stage 2), with the
 // change each deployment made and, in Enterprise, a one-step restore of a
-// configuration the collector applied.
+// configuration the collector applied and an early end to a time-limited
+// change.
 
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
@@ -11,10 +12,17 @@ import type {
   CollectorDeployment,
   CollectorDeploymentDiff,
 } from "../../api/types";
-import { formatDateTime, formatRelative } from "../../lib/format";
+import {
+  formatDateTime,
+  formatDurationSeconds,
+  formatRelative,
+} from "../../lib/format";
 import { useFeature } from "../../lib/useLicense";
 import StatusPip from "../primitives/StatusPip";
-import { deploymentStatus } from "../../lib/deploymentStatus";
+import {
+  deploymentStatus,
+  isActiveTemporary,
+} from "../../lib/deploymentStatus";
 import { effectSummary } from "../../lib/deploymentEffect";
 import ConfigDiff from "./ConfigDiff";
 
@@ -41,13 +49,35 @@ export default function DeploymentsPanel({
       .catch((e) => setError(String((e as Error).message ?? e)));
   }, [collectorId]);
   useEffect(refresh, [refresh, refreshKey]);
-  // While something is on its way, follow it.
+  // While something is on its way, follow it; while a temporary change
+  // runs, follow it to its end (the server ends it, nobody here).
   useEffect(() => {
-    if (!list?.some((d) => ["pending", "sent", "applying"].includes(d.status)))
-      return;
-    const t = setInterval(refresh, 3000);
+    const moving = list?.some((d) =>
+      ["pending", "sent", "applying"].includes(d.status),
+    );
+    const temporary = list?.some(isActiveTemporary);
+    if (!moving && !temporary) return;
+    const t = setInterval(refresh, moving ? 3000 : 15000);
     return () => clearInterval(t);
   }, [list, refresh]);
+
+  const endNow = async (d: CollectorDeployment) => {
+    if (
+      !confirm(
+        "End this temporary change now? The collector is sent its base configuration again.",
+      )
+    )
+      return;
+    setBusy(true);
+    try {
+      await api.endCollectorDeployment(collectorId, d.id);
+      refresh();
+    } catch (e) {
+      setError(String((e as Error).message ?? e));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const toggle = async (d: CollectorDeployment) => {
     if (open === d.id) {
@@ -141,7 +171,12 @@ export default function DeploymentsPanel({
                         ? "restore"
                         : d.via === "advisor"
                           ? "Advisor"
-                          : "UI"}
+                          : d.via === "revert"
+                            ? "after a temporary change"
+                            : "UI"}
+                    {d.duration_seconds
+                      ? ` · temporary, ${formatDurationSeconds(d.duration_seconds)}`
+                      : ""}
                     {st.waiting && (
                       <>
                         {" "}
@@ -166,9 +201,19 @@ export default function DeploymentsPanel({
                   <button className="btn btn--sm" onClick={() => toggle(d)}>
                     {open === d.id ? "Hide change" : "Show change"}
                   </button>
+                  {canPush && restoreEntitled && isActiveTemporary(d) && (
+                    <button
+                      className="btn btn--sm"
+                      disabled={busy}
+                      onClick={() => endNow(d)}
+                    >
+                      End now
+                    </button>
+                  )}
                   {canPush &&
                     restoreEntitled &&
                     d.status === "applied" &&
+                    !d.duration_seconds &&
                     list[0].id !== d.id && (
                       <button
                         className="btn btn--sm"

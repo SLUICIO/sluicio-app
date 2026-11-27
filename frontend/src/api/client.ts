@@ -1168,6 +1168,7 @@ export const api = {
       force?: boolean;
       suggestion_id?: string;
       suggestion_hash?: boolean;
+      duration_minutes?: number;
     },
   ) =>
     post<CollectorSendResult>(`/collectors/${encodeURIComponent(id)}/deployments`, body),
@@ -1176,6 +1177,11 @@ export const api = {
   collectorDeploymentEffect: (id: string, dep: string) =>
     get<CollectorDeploymentEffect>(
       `/collectors/${encodeURIComponent(id)}/deployments/${encodeURIComponent(dep)}/effect`,
+    ),
+  endCollectorDeployment: (id: string, dep: string) =>
+    post<{ base: CollectorDeployment; delivered: boolean }>(
+      `/collectors/${encodeURIComponent(id)}/deployments/${encodeURIComponent(dep)}/end`,
+      {},
     ),
   restoreCollectorDeployment: (id: string, dep: string) =>
     post<CollectorSendResult>(`/collectors/${encodeURIComponent(id)}/deployments/${encodeURIComponent(dep)}/rollback`, {}),

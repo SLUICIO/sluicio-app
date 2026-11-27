@@ -31,6 +31,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -91,6 +92,10 @@ type collectorConfigBody struct {
 	// SuggestionHash hashes a personal-data value (T6) instead of
 	// deleting the attribute, as the preview did with ?hash=true.
 	SuggestionHash bool `json:"suggestion_hash"`
+	// DurationMinutes makes the change temporary (Enterprise): the
+	// collector is sent its base again this long after it applied the
+	// change. Zero is permanent.
+	DurationMinutes int `json:"duration_minutes"`
 }
 
 func (h *Handlers) validateWithOtelflow(ctx context.Context, c collectors.Collector, config string) (*collectors.Validation, error) {
@@ -156,6 +161,28 @@ func (h *Handlers) createCollectorDeployment(w http.ResponseWriter, r *http.Requ
 	if strings.TrimSpace(body.Config) == "" {
 		httpserver.WriteError(w, http.StatusBadRequest, "config is required")
 		return
+	}
+	duration := time.Duration(body.DurationMinutes) * time.Minute
+	if duration != 0 {
+		if !h.featureEntitled(license.FeatureAdvisor) {
+			httpserver.WriteError(w, http.StatusPaymentRequired, "time-limited changes are a Sluicio Enterprise feature")
+			return
+		}
+		if duration < collectors.MinTemporary || duration > collectors.MaxTemporary {
+			httpserver.WriteError(w, http.StatusBadRequest, "a temporary change lasts from 5 minutes to 7 days")
+			return
+		}
+		if body.SuggestionID != "" {
+			httpserver.WriteError(w, http.StatusBadRequest, "an Advisor suggestion is applied permanently")
+			return
+		}
+		if active, err := h.Collectors.ActiveTemporary(r.Context(), c.ID); err != nil {
+			httpserver.WriteError(w, http.StatusInternalServerError, "query failed")
+			return
+		} else if active != nil {
+			httpserver.WriteError(w, http.StatusConflict, errTemporaryActive)
+			return
+		}
 	}
 	var suggestion *advisor.Suggestion
 	if body.SuggestionID != "" {
@@ -234,7 +261,7 @@ func (h *Handlers) createCollectorDeployment(w http.ResponseWriter, r *http.Requ
 	}
 	nd := collectors.NewDeployment{
 		CollectorID: c.ID, Body: payload, Message: message,
-		CreatedBy: p.UserID, CreatedByName: h.actorLabel(r), Via: via, Proposed: approval,
+		CreatedBy: p.UserID, CreatedByName: h.actorLabel(r), Via: via, Proposed: approval, Duration: duration,
 	}
 	if suggestion != nil {
 		t, _ := adviceFor(*suggestion)
@@ -242,6 +269,10 @@ func (h *Handlers) createCollectorDeployment(w http.ResponseWriter, r *http.Requ
 		nd.AdvisorSuggestionID, nd.AdvisorClass, nd.AdvisorTarget = &suggestion.ID, suggestion.Class, &t
 	}
 	d, err := h.Collectors.CreateDeployment(r.Context(), nd)
+	if errors.Is(err, collectors.ErrTemporaryActive) {
+		httpserver.WriteError(w, http.StatusConflict, errTemporaryActive)
+		return
+	}
 	if err != nil {
 		h.Logger.Error("create deployment failed", "err", err)
 		httpserver.WriteError(w, http.StatusInternalServerError, "could not store the configuration")
@@ -263,8 +294,46 @@ func (h *Handlers) createCollectorDeployment(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	delivered := h.OpAMP != nil && h.OpAMP.Deliver(r.Context(), c.ID)
-	h.recordAudit(r, "collector.config_sent", "collector", c.ID.String(), map[string]any{"deployment_id": d.ID.String(), "forced": body.Force && v != nil && v.Errors() > 0})
+	meta := map[string]any{"deployment_id": d.ID.String(), "forced": body.Force && v != nil && v.Errors() > 0}
+	if duration > 0 {
+		meta["duration_minutes"] = body.DurationMinutes
+	}
+	if d.Status == collectors.DeploymentHeld {
+		meta["held"] = true
+	}
+	h.recordAudit(r, "collector.config_sent", "collector", c.ID.String(), meta)
 	httpserver.WriteJSON(w, http.StatusCreated, map[string]any{"deployment": d, "delivered": delivered, "validation": v})
+}
+
+const errTemporaryActive = "a temporary change is already active on this collector; end it first (a permanent change can be sent meanwhile: it takes effect when the temporary one ends)"
+
+// endCollectorDeployment: POST /api/v1/collectors/{id}/deployments/{dep}/end
+//
+// Ends a temporary change before its time and sends the collector its
+// base: a permanent change made meanwhile, else the last permanent one
+// it applied, else its local configuration. Enterprise.
+func (h *Handlers) endCollectorDeployment(w http.ResponseWriter, r *http.Request) {
+	c, ok := h.pushableCollector(w, r)
+	if !ok {
+		return
+	}
+	depID, ok := deploymentFromPath(w, r)
+	if !ok {
+		return
+	}
+	base, err := h.Collectors.EndTemporary(r.Context(), c.ID, depID, collectors.EndedEarly)
+	if errors.Is(err, collectors.ErrNotFound) {
+		httpserver.WriteError(w, http.StatusConflict, "this is not an active temporary change")
+		return
+	}
+	if err != nil {
+		h.Logger.Error("end temporary deployment failed", "err", err)
+		httpserver.WriteError(w, http.StatusInternalServerError, "could not end the temporary change")
+		return
+	}
+	delivered := h.OpAMP != nil && h.OpAMP.Deliver(r.Context(), c.ID)
+	h.recordAudit(r, "collector.config_temporary_ended", "collector", c.ID.String(), map[string]any{"deployment_id": depID.String(), "base_id": base.ID.String()})
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"base": base, "delivered": delivered})
 }
 
 // proposeCollectorConfig files the proposal a proposed deployment waits on.
@@ -487,6 +556,9 @@ func init() {
 				return errors.New("a change is approved by someone other than its author")
 			}
 			if err := h.Collectors.Release(r.Context(), c.ID, d.ID); err != nil {
+				if errors.Is(err, collectors.ErrTemporaryActive) {
+					return errors.New(errTemporaryActive)
+				}
 				return errors.New("the deployment is no longer waiting for approval")
 			}
 			if h.OpAMP != nil {

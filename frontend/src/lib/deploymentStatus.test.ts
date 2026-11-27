@@ -35,4 +35,27 @@ describe("deploymentStatus", () => {
       deploymentStatus({ status: "applied", proposal_state: "approved" }).label,
     ).toBe("Applied");
   });
+
+  it("says how long a temporary change has left, and how it ended", () => {
+    const now = Date.parse("2026-11-27T12:00:00Z");
+    expect(
+      deploymentStatus(
+        {
+          status: "applied",
+          duration_seconds: 3600,
+          expires_at: "2026-11-27T12:42:00Z",
+        },
+        now,
+      ).label,
+    ).toBe("Applied for now, 42 min left");
+    expect(
+      deploymentStatus({ status: "ended", ended_reason: "expired" }).label,
+    ).toBe("Ended: its time was up");
+    expect(
+      deploymentStatus({ status: "ended", ended_reason: "ended" }).label,
+    ).toBe("Ended early");
+    expect(deploymentStatus({ status: "held" }).label).toBe(
+      "Waits for the temporary change to end",
+    );
+  });
 });

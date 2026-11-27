@@ -3568,7 +3568,16 @@ export interface CollectorDetailResponse {
   require_approval: boolean;
 }
 
-export type DeploymentStatus = "proposed" | "pending" | "sent" | "applying" | "applied" | "failed" | "superseded";
+export type DeploymentStatus =
+  | "proposed"
+  | "pending"
+  | "held"
+  | "sent"
+  | "applying"
+  | "applied"
+  | "failed"
+  | "superseded"
+  | "ended";
 
 export interface CollectorDeployment {
   id: string;
@@ -3582,6 +3591,12 @@ export interface CollectorDeployment {
   proposal_id?: string;
   // State of the proposal a proposed deployment waits on.
   proposal_state?: string;
+  // A time-limited change: its length, when it ends (set once applied),
+  // and how it ended (expired, ended).
+  duration_seconds?: number;
+  expires_at?: string;
+  ended_at?: string;
+  ended_reason?: string;
   // A change made from an Advisor suggestion, and what it drops.
   advisor_suggestion_id?: string;
   advisor_class?: string;

@@ -89,6 +89,10 @@ func (f *fakeRegistry) revoke(token string) {
 
 func (f *fakeRegistry) TouchToken(context.Context, uuid.UUID) error { return nil }
 
+func (f *fakeRegistry) ExpireDue(context.Context, time.Time) ([]collectors.Expiry, []uuid.UUID, error) {
+	return nil, nil, nil
+}
+
 func (f *fakeRegistry) Observe(_ context.Context, o collectors.Observation) (uuid.UUID, bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

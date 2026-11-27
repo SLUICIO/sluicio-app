@@ -4,16 +4,30 @@
 // is the masked configuration: a secret that stays masked is restored by
 // the server from the stored value, so nobody reads one to change
 // something next to it. OTelFlow checks the text first; the review step
-// shows the change line by line before anything is sent.
+// shows the change line by line before anything is sent. In Enterprise a
+// change can be sent for a limited time, after which the server sends the
+// collector its base again.
 
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../api/client";
 import type { CollectorValidation } from "../../api/types";
+import { useFeature } from "../../lib/useLicense";
 import { EditDrawer } from "../primitives";
 import ConfigDiff from "./ConfigDiff";
 
 const CodeEditor = lazy(() => import("../CodeEditor"));
+
+// How long a temporary change can run; the server accepts 5 minutes to 7
+// days.
+const DURATIONS = [
+  { minutes: 0, label: "Permanently" },
+  { minutes: 15, label: "15 minutes" },
+  { minutes: 60, label: "1 hour" },
+  { minutes: 240, label: "4 hours" },
+  { minutes: 1440, label: "1 day" },
+  { minutes: 10080, label: "7 days" },
+];
 
 export default function SendConfigDrawer({
   collectorId,
@@ -55,7 +69,11 @@ export default function SendConfigDrawer({
   const [done, setDone] = useState<{
     proposal?: string;
     delivered?: boolean;
+    held?: boolean;
   } | null>(null);
+  const temporaryEntitled = useFeature("advisor");
+  const [minutes, setMinutes] = useState(0);
+  const durationLabel = DURATIONS.find((d) => d.minutes === minutes)?.label;
   const dirty = text !== current;
   const errors = useMemo(
     () => (validation?.diagnostics ?? []).filter((d) => d.severity === "error"),
@@ -96,8 +114,13 @@ export default function SendConfigDrawer({
         force,
         suggestion_id: suggestionId,
         suggestion_hash: suggestionHash,
+        duration_minutes: minutes || undefined,
       });
-      setDone({ proposal: r.proposal?.id, delivered: r.delivered });
+      setDone({
+        proposal: r.proposal?.id,
+        delivered: r.delivered,
+        held: r.deployment?.status === "held",
+      });
       onSent();
     } catch (e) {
       setError(String((e as Error).message ?? e));
@@ -124,9 +147,13 @@ export default function SendConfigDrawer({
             </div>
           ) : (
             <div className="alert alert--info" style={{ margin: 0 }}>
-              {done.delivered
-                ? "Sent. The Deployments tab shows when the collector has applied it."
-                : "Stored. The collector gets it when it next connects or polls."}
+              {done.held
+                ? "Stored. A temporary change is running on this collector; this one takes effect when it ends."
+                : done.delivered
+                  ? minutes
+                    ? `Sent for ${durationLabel?.toLowerCase()}, counted from when the collector applies it. Then it is sent its base configuration again.`
+                    : "Sent. The Deployments tab shows when the collector has applied it."
+                  : "Stored. The collector gets it when it next connects or polls."}
             </div>
           )}
           <div>
@@ -222,6 +249,36 @@ export default function SendConfigDrawer({
               onChange={(e) => setMessage(e.target.value)}
             />
           </label>
+          {temporaryEntitled && !suggestionId && (
+            <label
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 4,
+                fontSize: 13,
+              }}
+            >
+              For how long
+              <select
+                className="search__input"
+                value={minutes}
+                onChange={(e) => setMinutes(Number(e.target.value))}
+              >
+                {DURATIONS.map((d) => (
+                  <option key={d.minutes} value={d.minutes}>
+                    {d.label}
+                  </option>
+                ))}
+              </select>
+              {minutes > 0 && (
+                <span className="muted" style={{ fontSize: 12 }}>
+                  Counted from when the collector applies it. Then the server
+                  sends it its base again: a permanent change made meanwhile,
+                  else the last permanent one, else its local configuration.
+                </span>
+              )}
+            </label>
+          )}
           {error && <div className="alert alert--error">{error}</div>}
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <button
@@ -231,13 +288,14 @@ export default function SendConfigDrawer({
             >
               {busy
                 ? "Sending…"
-                : requireApproval
-                  ? errors.length
-                    ? "Propose despite errors"
-                    : "Propose for approval"
-                  : errors.length
-                    ? "Send despite errors"
-                    : "Send to collector"}
+                : (requireApproval
+                    ? errors.length
+                      ? "Propose despite errors"
+                      : "Propose for approval"
+                    : errors.length
+                      ? "Send despite errors"
+                      : "Send to collector") +
+                  (minutes ? ` for ${durationLabel?.toLowerCase()}` : "")}
             </button>
             <button
               className="btn"

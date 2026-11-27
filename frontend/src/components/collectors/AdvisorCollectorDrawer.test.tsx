@@ -25,6 +25,7 @@ const api = vi.hoisted(() => ({
 }));
 vi.mock("../../api/client", () => ({ api }));
 vi.mock("../CodeEditor", () => ({ default: () => null }));
+vi.mock("../../lib/useLicense", () => ({ useFeature: () => true }));
 
 const { default: AdvisorCollectorDrawer } =
   await import("./AdvisorCollectorDrawer");

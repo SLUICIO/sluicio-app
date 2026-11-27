@@ -34,6 +34,23 @@ const (
 	// DeploymentSuperseded: a newer deployment replaced it before it
 	// applied.
 	DeploymentSuperseded DeploymentStatus = "superseded"
+	// DeploymentHeld: a permanent change sent while a temporary one is
+	// active. It is the base the collector returns to, delivered when the
+	// temporary change ends.
+	DeploymentHeld DeploymentStatus = "held"
+	// DeploymentEnded: a temporary deployment whose time is up, or that
+	// was ended early; the collector has been sent its base again.
+	DeploymentEnded DeploymentStatus = "ended"
+)
+
+// ErrTemporaryActive: a temporary change is already active on the
+// collector; end it before sending another.
+var ErrTemporaryActive = errors.New("collectors: a temporary change is already active")
+
+// Limits on a temporary change's duration.
+const (
+	MinTemporary = 5 * time.Minute
+	MaxTemporary = 7 * 24 * time.Hour
 )
 
 // Deployment is one configuration sent, or to be sent, to a collector.
@@ -59,9 +76,16 @@ type Deployment struct {
 	AdvisorSuggestionID *uuid.UUID     `json:"advisor_suggestion_id,omitempty"`
 	AdvisorClass        string         `json:"advisor_class,omitempty"`
 	AdvisorTarget       *AdvisorTarget `json:"advisor_target,omitempty"`
-	CreatedAt           time.Time      `json:"created_at"`
-	SentAt              *time.Time     `json:"sent_at,omitempty"`
-	FinishedAt          *time.Time     `json:"finished_at,omitempty"`
+	// DurationSeconds is set on a temporary deployment. ExpiresAt is set
+	// once the collector applied it; EndedAt and EndedReason (expired,
+	// ended) when it was reverted.
+	DurationSeconds *int       `json:"duration_seconds,omitempty"`
+	ExpiresAt       *time.Time `json:"expires_at,omitempty"`
+	EndedAt         *time.Time `json:"ended_at,omitempty"`
+	EndedReason     string     `json:"ended_reason,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
+	SentAt          *time.Time `json:"sent_at,omitempty"`
+	FinishedAt      *time.Time `json:"finished_at,omitempty"`
 }
 
 // AdvisorTarget is what an Advisor change drops or changes: a metric
@@ -97,18 +121,23 @@ type NewDeployment struct {
 	AdvisorSuggestionID *uuid.UUID
 	AdvisorClass        string
 	AdvisorTarget       *AdvisorTarget
+	// Duration makes it temporary: the collector is sent its base again
+	// this long after it applied it. Zero is permanent.
+	Duration time.Duration
 	// Proposed stores it for approval instead of for delivery.
 	Proposed bool
 }
 
 const deploymentCols = `id, collector_id, config_hash, status, error_message, message, created_by, created_by_name, via,
-	proposal_id, rolled_back_from, advisor_suggestion_id, advisor_class, advisor_target, created_at, sent_at, finished_at`
+	proposal_id, rolled_back_from, advisor_suggestion_id, advisor_class, advisor_target,
+	duration_seconds, expires_at, ended_at, ended_reason, created_at, sent_at, finished_at`
 
 // dest is where a row of deploymentCols scans into, in that order, with
 // any extra columns after.
 func (d *Deployment) dest(extra ...any) []any {
 	return append([]any{&d.ID, &d.CollectorID, &d.Hash, &d.Status, &d.ErrorMessage, &d.Message, &d.CreatedBy, &d.CreatedByName, &d.Via,
-		&d.ProposalID, &d.RolledBackFrom, &d.AdvisorSuggestionID, &d.AdvisorClass, &d.AdvisorTarget, &d.CreatedAt, &d.SentAt, &d.FinishedAt}, extra...)
+		&d.ProposalID, &d.RolledBackFrom, &d.AdvisorSuggestionID, &d.AdvisorClass, &d.AdvisorTarget,
+		&d.DurationSeconds, &d.ExpiresAt, &d.EndedAt, &d.EndedReason, &d.CreatedAt, &d.SentAt, &d.FinishedAt}, extra...)
 }
 
 func scanDeployment(row pgx.Row) (Deployment, error) {
@@ -123,6 +152,9 @@ func deploymentFiles(body string) []ConfigFile {
 
 // CreateDeployment stores a configuration to send. Anything still waiting
 // for the same collector is superseded: only the newest is delivered.
+// While a temporary change is active, a permanent one is held as the base
+// the collector returns to, and another temporary one is refused
+// (ErrTemporaryActive).
 func (s *Store) CreateDeployment(ctx context.Context, nd NewDeployment) (Deployment, error) {
 	if s.keys == nil {
 		return Deployment{}, ErrNoKey
@@ -137,34 +169,67 @@ func (s *Store) CreateDeployment(ctx context.Context, nd NewDeployment) (Deploym
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	// A proposal waits beside whatever is being delivered; a deployment
-	// to deliver supersedes what has not applied yet.
-	status := DeploymentPending
-	if nd.Proposed {
-		status = DeploymentProposed
-	} else if err := supersede(ctx, tx, nd.CollectorID); err != nil {
-		return Deployment{}, err
+	// to deliver supersedes what has not applied yet, or is held behind a
+	// temporary change.
+	status := DeploymentProposed
+	if !nd.Proposed {
+		if status, err = queue(ctx, tx, nd.CollectorID, nd.Duration > 0); err != nil {
+			return Deployment{}, err
+		}
 	}
 	via := nd.Via
 	if via == "" {
 		via = "ui"
 	}
+	var duration *int
+	if nd.Duration > 0 {
+		v := int(nd.Duration / time.Second)
+		duration = &v
+	}
 	d, err := scanDeployment(tx.QueryRow(ctx, `
 		INSERT INTO collector_deployments (collector_id, config_hash, config_enc, message, created_by, created_by_name, via, proposal_id, rolled_back_from, status,
-		                                   advisor_suggestion_id, advisor_class, advisor_target)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		                                   advisor_suggestion_id, advisor_class, advisor_target, duration_seconds)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 		RETURNING `+deploymentCols,
 		nd.CollectorID, hash, sealed, nd.Message, nd.CreatedBy, nd.CreatedByName, via, nd.ProposalID, nd.RolledBackFrom, string(status),
-		nd.AdvisorSuggestionID, nd.AdvisorClass, nd.AdvisorTarget))
+		nd.AdvisorSuggestionID, nd.AdvisorClass, nd.AdvisorTarget, duration))
 	if err != nil {
 		return Deployment{}, fmt.Errorf("collectors: create deployment: %w", err)
 	}
 	return d, tx.Commit(ctx)
 }
 
+// queue makes room for a deployment about to be delivered and says what
+// status it gets: pending, superseding what has not applied yet; held,
+// when a temporary change is active and this one is permanent (an older
+// held one is superseded, the newest base wins); or ErrTemporaryActive
+// for a second temporary change.
+func queue(ctx context.Context, tx pgx.Tx, collectorID uuid.UUID, temporary bool) (DeploymentStatus, error) {
+	var active bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS (SELECT 1 FROM collector_deployments
+		               WHERE collector_id = $1 AND duration_seconds IS NOT NULL
+		                 AND status IN ('pending', 'sent', 'applying', 'applied')
+		               FOR UPDATE)`, collectorID).Scan(&active); err != nil {
+		return "", fmt.Errorf("collectors: active temporary: %w", err)
+	}
+	switch {
+	case active && temporary:
+		return "", ErrTemporaryActive
+	case active:
+		if _, err := tx.Exec(ctx, `UPDATE collector_deployments SET status = 'superseded', finished_at = now()
+			WHERE collector_id = $1 AND status = 'held'`, collectorID); err != nil {
+			return "", fmt.Errorf("collectors: supersede held: %w", err)
+		}
+		return DeploymentHeld, nil
+	}
+	return DeploymentPending, supersede(ctx, tx, collectorID)
+}
+
 func supersede(ctx context.Context, tx pgx.Tx, collectorID uuid.UUID) error {
 	if _, err := tx.Exec(ctx, `
 		UPDATE collector_deployments SET status = 'superseded', finished_at = now()
-		WHERE collector_id = $1 AND status IN ('pending', 'sent', 'applying')`, collectorID); err != nil {
+		WHERE collector_id = $1 AND status IN ('pending', 'sent', 'applying', 'held')`, collectorID); err != nil {
 		return fmt.Errorf("collectors: supersede: %w", err)
 	}
 	return nil
@@ -185,15 +250,21 @@ func (s *Store) Release(ctx context.Context, collectorID, id uuid.UUID) error {
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if err := supersede(ctx, tx, collectorID); err != nil {
-		return err
+	var temporary bool
+	err = tx.QueryRow(ctx, `SELECT duration_seconds IS NOT NULL FROM collector_deployments
+		WHERE id = $1 AND collector_id = $2 AND status = 'proposed' FOR UPDATE`, id, collectorID).Scan(&temporary)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
 	}
-	tag, err := tx.Exec(ctx, `UPDATE collector_deployments SET status = 'pending' WHERE id = $1 AND collector_id = $2 AND status = 'proposed'`, id, collectorID)
 	if err != nil {
 		return err
 	}
-	if tag.RowsAffected() == 0 {
-		return ErrNotFound
+	status, err := queue(ctx, tx, collectorID, temporary)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE collector_deployments SET status = $3 WHERE id = $1 AND collector_id = $2`, id, collectorID, string(status)); err != nil {
+		return err
 	}
 	return tx.Commit(ctx)
 }
@@ -237,10 +308,13 @@ func (s *Store) MarkSent(ctx context.Context, id uuid.UUID) error {
 // already finished deployment changes nothing.
 func (s *Store) ReportStatus(ctx context.Context, collectorID uuid.UUID, hash string, status DeploymentStatus, errMsg string) error {
 	finished := status == DeploymentApplied || status == DeploymentFailed
+	// A temporary deployment's time starts when the collector applied it.
 	_, err := s.pool.Exec(ctx, `
 		UPDATE collector_deployments SET status = $3, error_message = $4,
 		       sent_at = COALESCE(sent_at, now()),
-		       finished_at = CASE WHEN $5 THEN now() ELSE finished_at END
+		       finished_at = CASE WHEN $5 THEN now() ELSE finished_at END,
+		       expires_at = CASE WHEN $3 = 'applied' AND duration_seconds IS NOT NULL
+		                         THEN now() + make_interval(secs => duration_seconds) ELSE expires_at END
 		WHERE id = (SELECT id FROM collector_deployments
 		            WHERE collector_id = $1 AND config_hash = $2 AND status IN ('pending', 'sent', 'applying')
 		            ORDER BY created_at DESC LIMIT 1)`,

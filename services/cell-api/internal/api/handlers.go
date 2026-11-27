@@ -1539,6 +1539,7 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 		mux.HandleFunc("GET /api/v1/collectors/{id}/deployments", h.listCollectorDeployments)
 		mux.HandleFunc("POST /api/v1/collectors/{id}/deployments", h.blockDemo(h.createCollectorDeployment))
 		mux.HandleFunc("GET /api/v1/collectors/{id}/deployments/{dep}/diff", h.collectorDeploymentDiff)
+		mux.HandleFunc("POST /api/v1/collectors/{id}/deployments/{dep}/end", h.requireFeature(license.FeatureAdvisor, h.blockDemo(h.endCollectorDeployment)))
 		mux.HandleFunc("GET /api/v1/collectors/{id}/deployments/{dep}/effect", h.requireFeature(license.FeatureAdvisor, h.collectorDeploymentEffect))
 		mux.HandleFunc("POST /api/v1/collectors/{id}/deployments/{dep}/rollback", h.requireFeature(license.FeatureAdvisor, h.blockDemo(h.rollbackCollectorDeployment)))
 		mux.HandleFunc("GET /api/v1/settings/groups/{id}/collector-settings", h.getCollectorTeamSettings)

@@ -61,6 +61,7 @@ type Registry interface {
 	NextToDeliver(ctx context.Context, collectorID uuid.UUID) (*collectors.Deployment, string, error)
 	MarkSent(ctx context.Context, id uuid.UUID) error
 	ReportStatus(ctx context.Context, collectorID uuid.UUID, hash string, status collectors.DeploymentStatus, errMsg string) error
+	ExpireDue(ctx context.Context, now time.Time) ([]collectors.Expiry, []uuid.UUID, error)
 }
 
 // Server holds the live connections.
@@ -315,6 +316,8 @@ func deploymentStatus(s protobufs.RemoteConfigStatuses) (collectors.DeploymentSt
 func (s *Server) Run(ctx context.Context) {
 	t := time.NewTicker(staleAfter / 3)
 	defer t.Stop()
+	exp := time.NewTicker(expirySweep)
+	defer exp.Stop()
 	for {
 		select {
 		case <-ctx.Done():
@@ -323,7 +326,30 @@ func (s *Server) Run(ctx context.Context) {
 			if n := s.reap(now); n > 0 {
 				s.logger.Info("opamp: closed silent agent connections", "count", n)
 			}
+		case now := <-exp.C:
+			s.expire(ctx, now)
 		}
+	}
+}
+
+// expirySweep is how often time-limited deployments are checked: a
+// temporary change ends at most this long after its time is up.
+const expirySweep = 10 * time.Second
+
+// expire ends temporary deployments whose time is up and sends their
+// collectors the base; the server enforces the end, so it happens with
+// nobody watching. An offline collector gets the base when it connects.
+func (s *Server) expire(ctx context.Context, now time.Time) {
+	ended, free, err := s.reg.ExpireDue(ctx, now)
+	if err != nil {
+		s.logger.Warn("opamp: expire temporary deployments failed", "err", err)
+	}
+	for _, e := range ended {
+		s.logger.Info("opamp: temporary configuration expired", "collector", e.CollectorID, "deployment", e.Ended, "base", e.Base.ID)
+		s.Deliver(ctx, e.CollectorID)
+	}
+	for _, id := range free {
+		s.Deliver(ctx, id)
 	}
 }
 
