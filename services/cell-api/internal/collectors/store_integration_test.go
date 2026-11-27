@@ -10,6 +10,7 @@ package collectors_test
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -295,5 +296,41 @@ func TestNoTeamlessCollectors(t *testing.T) {
 	_ = pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM collectors) + (SELECT count(*) FROM collector_tokens)`).Scan(&n)
 	if n != 0 {
 		t.Fatalf("%d rows left after the org was deleted", n)
+	}
+}
+
+// A supervisor reports twice per start: first its merged files alone,
+// then the collector's effective configuration with the raw file beside
+// it, both carrying a port it picks at random. Neither repeat is a change.
+func TestSupervisorRestartsAddNoVersions(t *testing.T) {
+	pool, ctx := newDB(t)
+	org := seedOrg(t, ctx, pool, "acme")
+	team := seedTeam(t, ctx, pool, org, "a")
+	s := collectors.New(pool, newKeys(t))
+	_, tok, _ := s.CreateToken(ctx, org, team, "t", nil)
+	id, _, _ := s.Observe(ctx, collectors.Observation{OrgID: org, GroupID: team, TokenID: tok.ID, InstanceUID: "sup", Transport: "websocket"})
+
+	start := func(port int) {
+		merged := fmt.Sprintf("receivers:\n  host_metrics:\n    scrapers:\n      load: {}\nextensions:\n  opamp:\n    server:\n      ws:\n        endpoint: ws://127.0.0.1:%d/v1/opamp\n", port)
+		effective := strings.Replace(merged, "    scrapers:\n      load: {}\n", "    collection_interval: 1m0s\n", 1)
+		if _, err := s.RecordConfig(ctx, id, []collectors.ConfigFile{{Body: merged}}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.RecordConfig(ctx, id, []collectors.ConfigFile{{Body: effective}, {Name: collectors.RawConfigFile, Body: merged}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	start(39439)
+	first, _ := s.History(ctx, id, 10)
+	for _, port := range []int{36913, 41000, 45555} {
+		start(port)
+	}
+	after, _ := s.History(ctx, id, 10)
+	if len(after) != len(first) {
+		t.Fatalf("restarts added versions: %d after the first start, %d after three more", len(first), len(after))
+	}
+	// A real change still lands.
+	if changed, _ := s.RecordConfig(ctx, id, []collectors.ConfigFile{{Body: "e: 2"}, {Name: collectors.RawConfigFile, Body: "r: 2"}}); !changed {
+		t.Fatal("a changed configuration was not stored")
 	}
 }

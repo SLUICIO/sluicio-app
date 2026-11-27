@@ -135,9 +135,26 @@ func (s *Store) ResetConnections(ctx context.Context) error {
 
 // RecordConfig stores the configuration if it differs from the newest
 // stored version. Without a key it stores nothing and reports ErrNoKey.
+//
+// Two things a collector reports are not changes and are not stored:
+// the supervisor's own port for its collector (see Normalize), and the
+// supervisor's interim report while its collector starts, which is the
+// configuration as written (its merged files) and so repeats the "raw"
+// file of the version already stored. Without that, a supervisor added two
+// versions on every restart without anything having changed.
 func (s *Store) RecordConfig(ctx context.Context, collectorID uuid.UUID, files []ConfigFile) (bool, error) {
 	if s.keys == nil {
 		return false, ErrNoKey
+	}
+	files = Normalize(files)
+	if len(files) == 1 && files[0].Name == "" {
+		if latest, err := s.latestFiles(ctx, collectorID); err == nil {
+			for _, f := range latest {
+				if f.Name == RawConfigFile && f.Body == files[0].Body {
+					return false, nil
+				}
+			}
+		}
 	}
 	hash, sealed, err := s.keys.Seal(collectorID, files)
 	if err != nil {
@@ -155,6 +172,19 @@ func (s *Store) RecordConfig(ctx context.Context, collectorID uuid.UUID, files [
 		return false, fmt.Errorf("collectors: record config: %w", err)
 	}
 	return tag.RowsAffected() == 1, nil
+}
+
+// latestFiles opens the newest stored version, unmasked, for comparison
+// inside the store only.
+func (s *Store) latestFiles(ctx context.Context, collectorID uuid.UUID) ([]ConfigFile, error) {
+	var hash, sealed string
+	err := s.pool.QueryRow(ctx, `
+		SELECT config_hash, config_enc FROM collector_configs WHERE collector_id = $1
+		ORDER BY received_at DESC, id DESC LIMIT 1`, collectorID).Scan(&hash, &sealed)
+	if err != nil {
+		return nil, err
+	}
+	return s.keys.Open(collectorID, hash, sealed)
 }
 
 // Scope says which collectors a caller may read: every team's in the

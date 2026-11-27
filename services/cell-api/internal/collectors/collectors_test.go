@@ -298,3 +298,14 @@ exporters:
 		}
 	}
 }
+
+func TestNormalizeSupervisorPort(t *testing.T) {
+	a := Normalize([]ConfigFile{{Body: "endpoint: ws://127.0.0.1:39439/v1/opamp\nother: ws://127.0.0.1:4318/v1/traces"}})
+	b := Normalize([]ConfigFile{{Body: "endpoint: ws://127.0.0.1:36913/v1/opamp\nother: ws://127.0.0.1:4318/v1/traces"}})
+	if a[0].Body != b[0].Body {
+		t.Fatalf("supervisor port not normalized:\n%s\n%s", a[0].Body, b[0].Body)
+	}
+	if !strings.Contains(a[0].Body, "ws://127.0.0.1:4318/v1/traces") {
+		t.Fatal("a port that is not the supervisor's own endpoint was touched")
+	}
+}

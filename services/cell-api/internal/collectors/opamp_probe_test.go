@@ -265,7 +265,8 @@ func extensionConfig(opampPort, sinkPort, scraper string, stamp bool) string {
           Authorization: "Bearer ${env:SLUICIO_COLLECTOR_TOKEN}"
         tls:
           ca_file: /certs/ca.pem
-%[4]s    capabilities:
+%[4]s    reports_raw_config: true
+    capabilities:
       reports_effective_config: true
       reports_health: true
 receivers:
@@ -482,6 +483,19 @@ func TestRealCollectors(t *testing.T) {
 				c.Kind, f.Name, f.ContentType, len(f.Body), reportsSecret, reportsToken)
 			if strings.Contains(shown[i].Body, "literal-secret-in-config") || strings.Contains(shown[i].Body, tokenA) || strings.Contains(shown[i].Body, tokenB) {
 				t.Fatalf("masked configuration still shows a secret:\n%s", shown[i].Body)
+			}
+		}
+		// The extension reports the configuration as written beside the
+		// effective one, scrapers and all.
+		if c.Kind == collectors.KindExtension {
+			var raw string
+			for _, f := range plain {
+				if f.Name == collectors.RawConfigFile {
+					raw = f.Body
+				}
+			}
+			if !strings.Contains(raw, "scrapers") {
+				t.Fatalf("%s: no raw configuration with its scrapers (files: %d)", c.InstanceUID, len(plain))
 			}
 		}
 		// Each collector's history holds its own configuration: only A has

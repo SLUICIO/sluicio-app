@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"sort"
 
 	"github.com/google/uuid"
@@ -57,6 +58,27 @@ type ConfigFile struct {
 	Name        string `json:"name"`
 	ContentType string `json:"content_type"`
 	Body        string `json:"body"`
+}
+
+// RawConfigFile is the key under which the OpAMP extension reports the
+// configuration as written (unexpanded) when reports_raw_config is on,
+// beside the effective configuration under "".
+const RawConfigFile = "raw"
+
+// supervisorLocalEndpoint is the supervisor's own OpAMP server for the
+// collector it runs, on a port it picks at random on every start.
+var supervisorLocalEndpoint = regexp.MustCompile(`ws://127\.0\.0\.1:\d+/v1/opamp`)
+
+// Normalize removes what changes without the configuration changing: the
+// port of the supervisor's own endpoint for its collector. Everything
+// else is kept as reported.
+func Normalize(files []ConfigFile) []ConfigFile {
+	out := make([]ConfigFile, len(files))
+	for i, f := range files {
+		f.Body = supervisorLocalEndpoint.ReplaceAllString(f.Body, "ws://127.0.0.1/v1/opamp")
+		out[i] = f
+	}
+	return out
 }
 
 // canonical serialises files in name order, so the same configuration
