@@ -473,14 +473,25 @@ func TestAdvisorSuggestionToCollector(t *testing.T) {
 	}
 	// Attributes: a statement on the service's spans in the traces
 	// pipeline; the spans themselves are never dropped.
+	// Personal data is deleted by default; hashing is asked for.
 	for c, want := range map[string]string{
-		"T3": `delete_key(attributes, "debug.blob") where resource.attributes["service.name"] == "orders-api"`,
-		"T6": `set(attributes["customer.email"], SHA256(attributes["customer.email"]))`,
+		"T3":           `delete_key(attributes, "debug.blob") where resource.attributes["service.name"] == "orders-api"`,
+		"T6":           `delete_key(attributes, "customer.email") where resource.attributes["service.name"] == "orders-api"`,
+		"T6?hash=true": `set(attributes["customer.email"], SHA256(attributes["customer.email"]))`,
+		"T3?hash=true": `delete_key(attributes, "debug.blob")`,
 	} {
-		code, out := do(admin, "GET", "/api/v1/advisor/suggestions/"+ids[c]+"/collectors/"+gw.String(), nil)
+		class, query, _ := strings.Cut(c, "?")
+		path := "/api/v1/advisor/suggestions/" + ids[class] + "/collectors/" + gw.String()
+		if query != "" {
+			path += "?" + query
+		}
+		code, out := do(admin, "GET", path, nil)
 		cfg, _ := out["config"].(string)
 		if code != 200 || !strings.Contains(cfg, want) || !strings.Contains(cfg, "transform/sluicio-advisor") {
 			t.Fatalf("%s preview: %d %v", c, code, out)
+		}
+		if class == "T6" && query == "" && strings.Contains(cfg, "SHA256") {
+			t.Fatal("the default personal-data change hashes instead of deleting")
 		}
 	}
 	// Unread logs: the floor goes into the logs pipeline, records without

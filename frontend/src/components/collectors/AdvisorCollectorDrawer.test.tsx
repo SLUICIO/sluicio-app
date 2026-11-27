@@ -114,6 +114,89 @@ describe("applying an Advisor suggestion to a collector", () => {
       message: "",
       force: false,
       suggestion_id: "s1",
+      suggestion_hash: false,
     });
+  });
+
+  it("deletes personal data by default and hashes it only when chosen", async () => {
+    vi.clearAllMocks();
+    api.listAdvisorSuggestionCollectors.mockResolvedValue({
+      collectors: [
+        {
+          collector: collector("c1", "gw-1"),
+          changed: ["traces"],
+          skipped: [],
+          already_dropped: false,
+        },
+      ],
+    });
+    api.previewAdvisorCollectorChange.mockResolvedValue({
+      before,
+      config: after,
+      changed: ["traces"],
+      skipped: [],
+      already_dropped: false,
+    });
+    api.validateCollectorConfig.mockResolvedValue({
+      checked: true,
+      validation: { valid: true, diagnostics: [] },
+    });
+    api.sendCollectorConfig.mockResolvedValue({
+      deployment: { id: "d" },
+      proposal: { id: "p" },
+    });
+    const t6 = {
+      id: "s6",
+      class: "T6",
+      scope_id: "orders-api.customer.email",
+      title: "pii",
+    } as never;
+
+    const { unmount } = render(
+      <MemoryRouter>
+        <AdvisorCollectorDrawer suggestion={t6} onClose={() => undefined} />
+      </MemoryRouter>,
+    );
+    const select = await screen.findByRole("combobox");
+    expect(select).toHaveValue("delete");
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Review change" }),
+    );
+    await screen.findByText(/OTelFlow found no errors/);
+    expect(api.previewAdvisorCollectorChange).toHaveBeenLastCalledWith(
+      "s6",
+      "c1",
+      false,
+    );
+    unmount();
+
+    render(
+      <MemoryRouter>
+        <AdvisorCollectorDrawer suggestion={t6} onClose={() => undefined} />
+      </MemoryRouter>,
+    );
+    fireEvent.change(await screen.findByRole("combobox"), {
+      target: { value: "hash" },
+    });
+    expect(
+      screen.getByText(/pseudonymisation, not anonymisation/),
+    ).toBeInTheDocument();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Review change" }),
+    );
+    await screen.findByText(/OTelFlow found no errors/);
+    expect(api.previewAdvisorCollectorChange).toHaveBeenLastCalledWith(
+      "s6",
+      "c1",
+      true,
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Propose for approval" }),
+    );
+    await screen.findByText(/waits for approval by the collector's team/);
+    expect(api.sendCollectorConfig).toHaveBeenLastCalledWith(
+      "c1",
+      expect.objectContaining({ suggestion_id: "s6", suggestion_hash: true }),
+    );
   });
 });

@@ -88,6 +88,9 @@ type collectorConfigBody struct {
 	// this collector (Enterprise, org admins). It always waits for the
 	// owner team's approval.
 	SuggestionID string `json:"suggestion_id"`
+	// SuggestionHash hashes a personal-data value (T6) instead of
+	// deleting the attribute, as the preview did with ?hash=true.
+	SuggestionHash bool `json:"suggestion_hash"`
 }
 
 func (h *Handlers) validateWithOtelflow(ctx context.Context, c collectors.Collector, config string) (*collectors.Validation, error) {
@@ -235,6 +238,7 @@ func (h *Handlers) createCollectorDeployment(w http.ResponseWriter, r *http.Requ
 	}
 	if suggestion != nil {
 		t, _ := adviceFor(*suggestion)
+		t = withHash(*suggestion, t, body.SuggestionHash)
 		nd.AdvisorSuggestionID, nd.AdvisorClass, nd.AdvisorTarget = &suggestion.ID, suggestion.Class, &t
 	}
 	d, err := h.Collectors.CreateDeployment(r.Context(), nd)

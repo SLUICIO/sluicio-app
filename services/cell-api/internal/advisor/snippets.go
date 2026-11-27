@@ -176,13 +176,13 @@ service:
 		prefix, service, transform, ottlEsc(reEsc(prefix)), yamlEsc(service)), nil
 }
 
-// snippetRedactAttr masks values that look like personal data.
+// snippetRedactAttr removes values that look like personal data.
 //
-// Redaction rather than deletion, deliberately: the attribute is
-// presumably there for a reason, and an operator dealing with a
-// compliance finding needs the key to keep working while the values stop
-// being retained. Hashing preserves "same customer twice" without
-// storing who.
+// Deletion by default: it is the one change that certainly stops the
+// personal data being stored. Hashing keeps "the same customer twice"
+// working, but it is pseudonymisation, not anonymisation (a guessable
+// value can be found again by hashing candidates), so it is offered as
+// the alternative, commented out, for when the correlation is needed.
 func snippetRedactAttr(service, key string, t collectorversion.Target) (string, error) {
 	transform, err := collectorversion.Name(collectorversion.TransformProcessor, t)
 	if err != nil {
@@ -193,18 +193,19 @@ func snippetRedactAttr(service, key string, t collectorversion.Target) (string, 
 # patterns). Sluicio stores span attributes for the full retention
 # period, so this is worth a look regardless of cost.
 #
-# This hashes the value instead of deleting the key: correlation still
-# works ("the same customer twice") and the readable value is no longer
-# stored. Hashing is pseudonymisation, not anonymisation: a value from a
-# guessable set (an ID number, an email) can be found again by hashing
-# candidates. Swap to delete_key() if the attribute is not needed at all.
+# This deletes the attribute. If you need to tell "the same customer
+# twice" apart, hash the value instead with the commented statement:
+# the readable value is then not stored, but hashing is
+# pseudonymisation, not anonymisation (a value from a guessable set,
+# an ID number or an email, can be found again by hashing candidates).
 processors:
   %[3]s/sluicio-advisor:
     error_mode: ignore
     trace_statements:
       - context: span
         statements:
-          - set(attributes["%[4]s"], SHA256(attributes["%[4]s"])) where resource.attributes["service.name"] == "%[5]s" and attributes["%[4]s"] != nil
+          - delete_key(attributes, "%[4]s") where resource.attributes["service.name"] == "%[5]s"
+          # - set(attributes["%[4]s"], SHA256(attributes["%[4]s"])) where resource.attributes["service.name"] == "%[5]s" and attributes["%[4]s"] != nil
 
 service:
   pipelines:

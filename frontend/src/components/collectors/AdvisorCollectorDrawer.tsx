@@ -26,6 +26,10 @@ export default function AdvisorCollectorDrawer({
   const [rows, setRows] = useState<AdvisorCollectorRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  // Personal data (T6): deleted by default; hashing keeps "the same value
+  // twice" matching, and is pseudonymous rather than anonymous.
+  const personal = suggestion.class === "T6";
+  const [hash, setHash] = useState(false);
   const [chosen, setChosen] = useState<{
     row: AdvisorCollectorRow;
     change: AdvisorCollectorChange;
@@ -45,6 +49,7 @@ export default function AdvisorCollectorDrawer({
       const change = await api.previewAdvisorCollectorChange(
         suggestion.id,
         row.collector.id,
+        personal && hash,
       );
       if (change.unavailable || !change.config) {
         setError(change.unavailable ?? "Nothing to change on this collector.");
@@ -67,6 +72,7 @@ export default function AdvisorCollectorDrawer({
         current={chosen.change.before}
         initial={chosen.change.config}
         suggestionId={suggestion.id}
+        suggestionHash={personal && hash}
         requireApproval
         onClose={onClose}
         onSent={() => undefined}
@@ -83,6 +89,33 @@ export default function AdvisorCollectorDrawer({
           change goes only into pipelines that send to Sluicio alone, and goes
           to the collector&apos;s team for approval.
         </p>
+        {personal && (
+          <label
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: 4,
+              fontSize: 13,
+            }}
+          >
+            What to do with the value
+            <select
+              className="search__input"
+              value={hash ? "hash" : "delete"}
+              onChange={(e) => setHash(e.target.value === "hash")}
+            >
+              <option value="delete">Delete the attribute</option>
+              <option value="hash">Hash the value (SHA-256)</option>
+            </select>
+            {hash && (
+              <span className="muted" style={{ fontSize: 12 }}>
+                The same value still matches itself, but this is
+                pseudonymisation, not anonymisation: an ID number or an email
+                address can be found again by hashing candidates.
+              </span>
+            )}
+          </label>
+        )}
         {error && <div className="alert alert--error">{error}</div>}
         {!rows && !error && <div className="placeholder">Loading…</div>}
         {rows && rows.length === 0 && (

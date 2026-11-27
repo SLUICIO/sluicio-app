@@ -22,6 +22,7 @@ export default function SendConfigDrawer({
   requireApproval,
   initial,
   suggestionId,
+  suggestionHash,
   onClose,
   onSent,
 }: {
@@ -36,6 +37,8 @@ export default function SendConfigDrawer({
   // Sends the change as this Advisor suggestion, which always waits for
   // the owner team's approval.
   suggestionId?: string;
+  // With suggestionId: a personal-data value is hashed, not deleted.
+  suggestionHash?: boolean;
   onClose: () => void;
   onSent: () => void;
 }) {
@@ -92,6 +95,7 @@ export default function SendConfigDrawer({
         message,
         force,
         suggestion_id: suggestionId,
+        suggestion_hash: suggestionHash,
       });
       setDone({ proposal: r.proposal?.id, delivered: r.delivered });
       onSent();

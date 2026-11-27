@@ -477,11 +477,10 @@ func evalPIIAttributes(ctx context.Context, in TelemetryInput, attrs []SpanAttrS
 			ScopeKind:   "attribute",
 			ScopeID:     a.Service + "." + a.Key,
 			Title:       fmt.Sprintf("%q on %s carries values that look like %s", a.Key, a.Service, pluralPattern(kind)),
-			Loss: "The readable value is no longer stored; the same value still matches itself, so " +
-				"correlation keeps working. Hashing is pseudonymisation, not anonymisation: values from a " +
-				"small or guessable set (ID numbers, email addresses) can be found again by hashing " +
-				"candidates, so the hashes may still be personal data. If the value is not needed at all, " +
-				"delete the attribute instead.",
+			Loss: fmt.Sprintf("You can no longer filter or group %s's messages by %q; the messages "+
+				"themselves are untouched. If you need to match the same value twice, hash it instead: "+
+				"that is pseudonymisation, not anonymisation, since values from a small or guessable set "+
+				"(ID numbers, email addresses) can be found again by hashing candidates.", a.Service, a.Key),
 			// Compliance findings rank above cost ones: a big number
 			// should not push a personal-data finding down the page.
 			Weight:   int64(a.EstBytesPerDay) + 1<<40,

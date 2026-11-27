@@ -291,9 +291,11 @@ export const api = {
     post<AdvisorSuggestion>(`/advisor/suggestions/${encodeURIComponent(id)}/dismiss`, { note }),
   listAdvisorSuggestionCollectors: (id: string) =>
     get<{ collectors: AdvisorCollectorRow[] }>(`/advisor/suggestions/${encodeURIComponent(id)}/collectors`),
-  previewAdvisorCollectorChange: (id: string, collectorId: string) =>
+  // hash: a personal-data value (T6) is hashed instead of the attribute
+  // deleted.
+  previewAdvisorCollectorChange: (id: string, collectorId: string, hash = false) =>
     get<AdvisorCollectorChange>(
-      `/advisor/suggestions/${encodeURIComponent(id)}/collectors/${encodeURIComponent(collectorId)}`,
+      `/advisor/suggestions/${encodeURIComponent(id)}/collectors/${encodeURIComponent(collectorId)}${hash ? "?hash=true" : ""}`,
     ),
   runAdvisor: () =>
     post<{ open_suggestions: number; ledger: AdvisorLedger }>(`/advisor/run`, {}),
@@ -1160,7 +1162,13 @@ export const api = {
     get<{ deployments: CollectorDeployment[] }>(`/collectors/${encodeURIComponent(id)}/deployments`),
   sendCollectorConfig: (
     id: string,
-    body: { config: string; message: string; force?: boolean; suggestion_id?: string },
+    body: {
+      config: string;
+      message: string;
+      force?: boolean;
+      suggestion_id?: string;
+      suggestion_hash?: boolean;
+    },
   ) =>
     post<CollectorSendResult>(`/collectors/${encodeURIComponent(id)}/deployments`, body),
   collectorDeploymentDiff: (id: string, dep: string) =>

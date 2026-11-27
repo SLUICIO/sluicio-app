@@ -35,7 +35,7 @@ import (
 // classes that can be turned into a collector change: an unused metric
 // (T1), a service's unread logs below a severity (T2), an unread
 // attribute (T3), echoed request metadata (T5) and personal-data-shaped
-// values (T6, hashed). A high-cardinality attribute (T4) is not one: the
+// values (T6: deleted, or hashed when asked for, see withHash). A high-cardinality attribute (T4) is not one: the
 // Advisor flags it for review because it is often the useful key, and a
 // button that deletes it would say the opposite.
 func adviceFor(s advisor.Suggestion) (collectors.AdvisorTarget, error) {
@@ -65,13 +65,24 @@ func adviceFor(s advisor.Suggestion) (collectors.AdvisorTarget, error) {
 			return collectors.AdvisorTarget{}, errors.New("run the Advisor again first: this finding predates the check for whether Sluicio's own configuration reads the attribute")
 		}
 		if referenced {
-			return collectors.AdvisorTarget{}, errors.New("Sluicio's own configuration (a matcher, facet or rule) reads this attribute, and hashing it would break that; change that configuration first, or handle the attribute at its source")
+			return collectors.AdvisorTarget{}, errors.New("Sluicio's own configuration (a matcher, facet or rule) reads this attribute, and deleting or hashing it would break that; change that configuration first, or handle the attribute at its source")
 		}
-		return collectors.AdvisorTarget{Service: svc, Attribute: key, Hash: true}, nil
+		return collectors.AdvisorTarget{Service: svc, Attribute: key}, nil
 	case s.Class == "T4":
 		return collectors.AdvisorTarget{}, errors.New("a high-cardinality attribute is flagged for review, not removal: it is often the key you search by; if it is not needed, remove it at its source or with the snippet")
 	}
 	return collectors.AdvisorTarget{}, errors.New("this suggestion cannot be applied to a collector")
+}
+
+// withHash turns a personal-data change (T6) from deleting the attribute,
+// the default, into hashing its value: asked for when "the same value
+// twice" has to keep matching. Pseudonymous, not anonymous. Any other
+// class is returned as it is.
+func withHash(s advisor.Suggestion, t collectors.AdvisorTarget, hash bool) collectors.AdvisorTarget {
+	if hash && s.Class == "T6" {
+		t.Hash = true
+	}
+	return t
 }
 
 // subjectOf names what an Advisor change acts on, for its measured effect.
@@ -149,7 +160,7 @@ type advisorChange struct {
 	Unavailable string `json:"unavailable,omitempty"`
 }
 
-func (h *Handlers) adviseCollector(r *http.Request, s advisor.Suggestion, c collectors.Collector) advisorChange {
+func (h *Handlers) adviseCollector(r *http.Request, s advisor.Suggestion, c collectors.Collector, hash bool) advisorChange {
 	out := advisorChange{FilterChange: collectors.FilterChange{Changed: []string{}, Skipped: []collectors.PipelineSkip{}}}
 	if c.Kind != collectors.KindSupervisor {
 		out.Unavailable = "read only: it does not accept a configuration"
@@ -174,6 +185,7 @@ func (h *Handlers) adviseCollector(r *http.Request, s advisor.Suggestion, c coll
 		target.Version = v
 	}
 	t, _ := adviceFor(s)
+	t = withHash(s, t, hash)
 	component, signal := collectorversion.FilterProcessor, "metrics"
 	switch {
 	case t.Below != "":
@@ -238,13 +250,15 @@ func (h *Handlers) listAdvisorSuggestionCollectors(w http.ResponseWriter, r *htt
 		if c.Kind != collectors.KindSupervisor {
 			continue
 		}
-		a := h.adviseCollector(r, s, c)
+		a := h.adviseCollector(r, s, c, false)
 		out = append(out, row{Collector: c, Changed: a.Changed, Skipped: a.Skipped, AlreadyDropped: a.AlreadyDropped, Unavailable: a.Unavailable})
 	}
 	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"suggestion": s, "collectors": out})
 }
 
 // previewAdvisorCollectorChange: GET /api/v1/advisor/suggestions/{id}/collectors/{cid}
+//
+// ?hash=true hashes a personal-data value (T6) instead of deleting it.
 func (h *Handlers) previewAdvisorCollectorChange(w http.ResponseWriter, r *http.Request) {
 	s, ok := h.collectorSuggestion(w, r, r.PathValue("id"))
 	if !ok {
@@ -260,7 +274,7 @@ func (h *Handlers) previewAdvisorCollectorChange(w http.ResponseWriter, r *http.
 		httpserver.WriteError(w, http.StatusNotFound, "collector not found")
 		return
 	}
-	httpserver.WriteJSON(w, http.StatusOK, h.adviseCollector(r, s, c))
+	httpserver.WriteJSON(w, http.StatusOK, h.adviseCollector(r, s, c, r.URL.Query().Get("hash") == "true"))
 }
 
 // collectorDeploymentEffect: GET /api/v1/collectors/{id}/deployments/{dep}/effect
