@@ -1140,6 +1140,7 @@ export const api = {
   getCollector: (id: string) => get<CollectorDetailResponse>(`/collectors/${encodeURIComponent(id)}`),
   getCollectorConfig: (id: string, version = "latest") =>
     get<CollectorConfigResponse>(`/collectors/${encodeURIComponent(id)}/configs/${encodeURIComponent(version)}`),
+  deleteCollector: (id: string) => del(`/collectors/${encodeURIComponent(id)}`),
   listCollectorTeams: () => get<{ teams: CollectorTeam[] }>(`/collector-teams`),
   listCollectorTokens: (teamId: string) =>
     get<{ tokens: CollectorToken[] }>(`/settings/groups/${encodeURIComponent(teamId)}/collector-tokens`),

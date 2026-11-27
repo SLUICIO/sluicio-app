@@ -125,7 +125,7 @@ func (h *Handlers) deleteGroupAdmin(w http.ResponseWriter, r *http.Request) {
 		// configuration history goes with it, so a team that still owns
 		// collectors is not deleted (the foreign key refuses it).
 		if pgErr := (*pgconn.PgError)(nil); errors.As(err, &pgErr) && pgErr.Code == "23503" && pgErr.TableName == "collectors" {
-			httpserver.WriteError(w, http.StatusConflict, "this team still owns collectors; remove them or wait until none are registered before deleting the team")
+			httpserver.WriteError(w, http.StatusConflict, "this team still owns collectors; remove them on the Collectors page before deleting the team")
 			return
 		}
 		h.Logger.Error("delete group failed", "err", err)

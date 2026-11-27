@@ -5,6 +5,7 @@
 //   GET    /api/v1/collectors                                  collectors the caller may read
 //   GET    /api/v1/collectors/{id}                             one collector and its history
 //   GET    /api/v1/collectors/{id}/configs/{version}           one version, masked ("latest" for the newest)
+//   DELETE /api/v1/collectors/{id}                             remove an offline collector and its history
 //   GET    /api/v1/collector-teams                             teams the caller sees here, and which it manages
 //   GET    /api/v1/settings/groups/{id}/collector-tokens                a team's tokens
 //   POST   /api/v1/settings/groups/{id}/collector-tokens                mint (plaintext returned once)
@@ -106,6 +107,9 @@ type collectorDetailResponse struct {
 	Collector     collectors.Collector       `json:"collector"`
 	History       []collectors.ConfigVersion `json:"history"`
 	ConfigStorage bool                       `json:"config_storage"`
+	// CanManage: the caller may remove this collector (its team's admins
+	// and org admins). A hint for the UI; the DELETE route checks again.
+	CanManage bool `json:"can_manage"`
 }
 
 func (h *Handlers) collectorFromPath(w http.ResponseWriter, r *http.Request) (collectors.Collector, bool) {
@@ -139,7 +143,43 @@ func (h *Handlers) getCollector(w http.ResponseWriter, r *http.Request) {
 		httpserver.WriteError(w, http.StatusInternalServerError, "query failed")
 		return
 	}
-	httpserver.WriteJSON(w, http.StatusOK, collectorDetailResponse{Collector: c, History: hist, ConfigStorage: h.Collectors.ConfigStorage()})
+	httpserver.WriteJSON(w, http.StatusOK, collectorDetailResponse{
+		Collector: c, History: hist, ConfigStorage: h.Collectors.ConfigStorage(),
+		CanManage: h.canManageCollectorTokens(r, c.GroupID, nil),
+	})
+}
+
+// deleteCollector: DELETE /api/v1/collectors/{id}
+//
+// Removes a collector the agent is no longer behind (a host gone, an
+// extension restarted without a fixed instance_uid) and its configuration
+// history, so a team can be cleaned up and, once empty, deleted. Managed
+// like the team's tokens. An online collector is refused: it would be
+// back with its next message; revoke its token first.
+func (h *Handlers) deleteCollector(w http.ResponseWriter, r *http.Request) {
+	c, ok := h.collectorFromPath(w, r)
+	if !ok {
+		return
+	}
+	if !h.canManageCollectorTokens(r, c.GroupID, nil) {
+		httpserver.WriteError(w, http.StatusForbidden, "only the team's admins and org admins can remove a collector")
+		return
+	}
+	if c.Online {
+		httpserver.WriteError(w, http.StatusConflict, "the collector is online and would register again; stop it or revoke its token first")
+		return
+	}
+	if err := h.Collectors.Delete(r.Context(), h.collectorScope(r), c.ID); err != nil {
+		if errors.Is(err, collectors.ErrNotFound) {
+			httpserver.WriteError(w, http.StatusNotFound, "collector not found")
+			return
+		}
+		h.Logger.Error("delete collector failed", "err", err)
+		httpserver.WriteError(w, http.StatusInternalServerError, "delete failed")
+		return
+	}
+	h.recordAudit(r, "collector.deleted", "collector", c.ID.String(), map[string]any{"group_id": c.GroupID.String(), "instance_uid": c.InstanceUID})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 type collectorConfigResponse struct {

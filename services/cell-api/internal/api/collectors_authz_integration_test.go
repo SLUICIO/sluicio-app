@@ -11,6 +11,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -45,6 +46,7 @@ func TestCollectorAuthz(t *testing.T) {
 	mux.HandleFunc("POST /api/v1/settings/groups/{id}/collector-tokens", h.blockDemo(h.createCollectorToken))
 	mux.HandleFunc("DELETE /api/v1/settings/groups/{id}/collector-tokens/{token}", h.blockDemo(h.revokeCollectorToken))
 	mux.HandleFunc("DELETE /api/v1/settings/groups/{id}", h.AuthMW.RequireRole(identity.Role.CanAdmin, h.deleteGroupAdmin))
+	mux.HandleFunc("DELETE /api/v1/collectors/{id}", h.blockDemo(h.deleteCollector))
 	root := h.AuthMW.Wrap(nil, mux)
 
 	org, err := idStore.CreateOrg(ctx, "Acme", "acme")
@@ -279,6 +281,32 @@ func TestCollectorAuthz(t *testing.T) {
 		}
 	})
 
+	t.Run("removing a collector", func(t *testing.T) {
+		// Seed collectors are "connected"; mark the Platform one offline.
+		if err := store.Disconnected(ctx, platform, mustInstanceUID(t, store, org.ID, cPlatform)); err != nil {
+			t.Fatal(err)
+		}
+		if code, _ := do(teamViewer, "DELETE", "/api/v1/collectors/"+cPayments.String(), ""); code != http.StatusForbidden {
+			t.Errorf("team viewer removed a collector: %d", code)
+		}
+		if code, _ := do(teamAdmin, "DELETE", "/api/v1/collectors/"+cPayments.String(), ""); code != http.StatusNotFound {
+			t.Errorf("team admin reached another team's collector: %d", code)
+		}
+		if code, _ := do(admin, "DELETE", "/api/v1/collectors/"+cPayments.String(), ""); code != http.StatusConflict {
+			t.Errorf("an online collector was removed: %d", code)
+		}
+		if code, body := do(teamAdmin, "DELETE", "/api/v1/collectors/"+cPlatform.String(), ""); code != http.StatusNoContent {
+			t.Fatalf("team admin removing an offline collector: %d %s", code, body)
+		}
+		if code, _ := do(admin, "GET", "/api/v1/collectors/"+cPlatform.String(), ""); code != http.StatusNotFound {
+			t.Errorf("removed collector still readable: %d", code)
+		}
+		// The team is now empty and can go.
+		if code, body := do(admin, "DELETE", "/api/v1/settings/groups/"+platform.String(), ""); code != http.StatusNoContent {
+			t.Errorf("deleting the emptied team: %d %s", code, body)
+		}
+	})
+
 	t.Run("a team that owns collectors cannot be deleted", func(t *testing.T) {
 		code, body := do(admin, "DELETE", "/api/v1/settings/groups/"+payments.String(), "")
 		if code != http.StatusConflict || !strings.Contains(body, "collectors") {
@@ -288,4 +316,13 @@ func TestCollectorAuthz(t *testing.T) {
 			t.Fatalf("delete team without collectors: %d %s", code, body)
 		}
 	})
+}
+
+func mustInstanceUID(t *testing.T, store *collectors.Store, orgID, id uuid.UUID) string {
+	t.Helper()
+	c, err := store.Get(context.Background(), collectors.Scope{OrgID: orgID, All: true}, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c.InstanceUID
 }

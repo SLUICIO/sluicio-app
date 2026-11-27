@@ -3560,6 +3560,8 @@ export interface CollectorDetailResponse {
   collector: Collector;
   history: CollectorConfigVersion[];
   config_storage: boolean;
+  // The caller may remove this collector (team admins, org admins).
+  can_manage: boolean;
 }
 
 export interface CollectorConfigFile {

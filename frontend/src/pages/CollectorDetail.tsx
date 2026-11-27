@@ -5,7 +5,12 @@
 // masked by the server; this page never sees a secret.
 
 import { useEffect, useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import {
+  Link,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router-dom";
 import { api } from "../api/client";
 import type {
   CollectorConfigResponse,
@@ -195,6 +200,8 @@ type TabKey = (typeof TABS)[number]["key"];
 export default function CollectorDetail() {
   const { id = "" } = useParams();
   const { otelflowUrl } = useCurrentUser();
+  const navigate = useNavigate();
+  const [removeError, setRemoveError] = useState<string | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const tab: TabKey =
     TABS.find((t) => t.key === searchParams.get("tab"))?.key ?? "agent";
@@ -278,7 +285,31 @@ export default function CollectorDetail() {
             {formatRelative(c.last_seen_at)}.
           </p>
         </div>
+        {detail.can_manage && !c.online && (
+          <div className="toolbar">
+            <button
+              className="btn"
+              onClick={async () => {
+                if (
+                  !confirm(
+                    `Remove ${collectorName(c)} and its configuration history? It reappears if it connects again.`,
+                  )
+                )
+                  return;
+                try {
+                  await api.deleteCollector(c.id);
+                  navigate("/collectors");
+                } catch (e) {
+                  setRemoveError(String((e as Error).message ?? e));
+                }
+              }}
+            >
+              Remove collector
+            </button>
+          </div>
+        )}
       </div>
+      {removeError && <div className="alert alert--error">{removeError}</div>}
 
       <TabStrip
         ariaLabel="Collector sections"

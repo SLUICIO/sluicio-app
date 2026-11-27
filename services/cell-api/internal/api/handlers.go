@@ -1525,6 +1525,7 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 		mux.HandleFunc("GET /api/v1/collectors", h.listCollectors)
 		mux.HandleFunc("GET /api/v1/collectors/{id}", h.getCollector)
 		mux.HandleFunc("GET /api/v1/collectors/{id}/configs/{version}", h.getCollectorConfig)
+		mux.HandleFunc("DELETE /api/v1/collectors/{id}", h.blockDemo(h.deleteCollector))
 		mux.HandleFunc("GET /api/v1/collector-teams", h.listCollectorTeams)
 		mux.HandleFunc("GET /api/v1/settings/groups/{id}/collector-tokens", h.listCollectorTokens)
 		mux.HandleFunc("POST /api/v1/settings/groups/{id}/collector-tokens", h.blockDemo(h.createCollectorToken))

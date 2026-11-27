@@ -118,6 +118,7 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 - GET /api/v1/collectors — List collectors
 - GET /api/v1/collectors/{id} — Get collector
 - GET /api/v1/collectors/{id}/configs/{version} — Get collector
+- DELETE /api/v1/collectors/{id} — Delete collector
 
 ## dashboards
 - GET /api/v1/dashboards — List dashboards

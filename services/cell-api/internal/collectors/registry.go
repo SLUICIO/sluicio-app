@@ -316,6 +316,26 @@ func (s *Store) MaskedConfig(ctx context.Context, collectorID uuid.UUID, version
 	return v, out, nil
 }
 
+// Delete removes a collector and its configuration history, if the scope
+// may read it. The caller decides who may delete and refuses a collector
+// that is still online: it would only register again with its next message.
+func (s *Store) Delete(ctx context.Context, scope Scope, id uuid.UUID) error {
+	if !scope.All && len(scope.Groups) == 0 {
+		return ErrNotFound
+	}
+	tag, err := s.pool.Exec(ctx, `
+		DELETE FROM collectors
+		WHERE id = $4 AND organization_id = $1 AND ($2 OR group_id = ANY($3))`,
+		scope.OrgID, scope.All, scope.Groups, id)
+	if err != nil {
+		return fmt.Errorf("collectors: delete: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // CountForGroup says how many collectors a team owns; a team that owns any
 // cannot be deleted.
 func (s *Store) CountForGroup(ctx context.Context, groupID uuid.UUID) (int, error) {
