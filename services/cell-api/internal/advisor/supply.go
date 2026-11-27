@@ -124,7 +124,11 @@ func LogStreamsSupply(ctx context.Context, conn driver.Conn, orgID uuid.UUID, fr
 		       -- Int64 in ClickHouse, and the driver refuses to narrow it
 		       -- on scan. Doing it in SQL keeps the Go struct field the
 		       -- same type as SeverityNumber everywhere else.
-		       toInt32(intDiv(greatest(SeverityNumber, 1) - 1, 4) * 4 + 1) AS band,
+		       --
+		       -- 0 (unspecified) stays 0: a record without a severity
+		       -- is not a trace record, and may well be an error the
+		       -- emitter never labelled.
+		       toInt32(if(SeverityNumber = 0, 0, intDiv(SeverityNumber - 1, 4) * 4 + 1)) AS band,
 		       any(SeverityText)                                  AS severityText,
 		       count()                                            AS rows,
 		       min(Timestamp)                                     AS firstSeen,

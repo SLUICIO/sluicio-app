@@ -98,13 +98,14 @@ func snippetLogFloor(service, floor string, t collectorversion.Target) (string, 
 	}
 	return fmt.Sprintf(`# Stop shipping %[1]s's logs below %[2]s. Everything at
 # %[2]s and above keeps flowing, so you can still alert on it —
-# only the quieter records nobody has opened are dropped.
+# only the quieter records nobody has opened are dropped. Records
+# without a severity are kept: they may be errors nobody labelled.
 processors:
   %[3]s/sluicio-advisor:
     error_mode: ignore
     logs:
       log_record:
-        - 'resource.attributes["service.name"] == "%[4]s" and severity_number < %[5]s'
+        - 'resource.attributes["service.name"] == "%[4]s" and severity_number > SEVERITY_NUMBER_UNSPECIFIED and severity_number < %[5]s'
 
 service:
   pipelines:

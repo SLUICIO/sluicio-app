@@ -116,6 +116,14 @@ func TestWarningsAndErrorsAreNeverProposedForDropping(t *testing.T) {
 			t.Errorf("severity band %d was proposed for dropping: %s", band, got[0].Title)
 		}
 	}
+	// Records without a severity are not trace records: a floor cannot
+	// tell their errors from their noise.
+	if got := evalUnviewedLogs(in, []LogStreamSupply{{
+		Service: "orders-api", SeverityNumber: 0, Rows: 5_000_000,
+		FirstSeen: old, EstBytesPerDay: 900_000_000,
+	}}); len(got) != 0 {
+		t.Errorf("logs without a severity were proposed for dropping: %s", got[0].Title)
+	}
 	// …while debug on the same service is fair game.
 	got := evalUnviewedLogs(in, []LogStreamSupply{{
 		Service: "orders-api", SeverityNumber: 5, Rows: 5_000_000,

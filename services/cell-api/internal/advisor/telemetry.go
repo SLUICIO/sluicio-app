@@ -256,8 +256,15 @@ func evalUnusedMetrics(in TelemetryInput, metrics []MetricSupply) []Suggestion {
 
 // bandFloor maps a severity band to the floor an operator would set to
 // drop it: dropping DEBUG means flooring at INFO, and so on.
+//
+// Band 0 is records without a severity (a filelog receiver with no
+// severity parser sends every line that way). It is never proposed: a
+// floor cannot tell its errors from its noise, and an unlabelled error
+// line is the worst one to lose.
 func bandFloor(band int32) (name, floor string) {
 	switch {
+	case band <= 0:
+		return "", ""
 	case band <= 4:
 		return "TRACE", "info"
 	case band <= 8:
@@ -267,6 +274,20 @@ func bandFloor(band int32) (name, floor string) {
 	default:
 		return "", "" // warn and above are never proposed for dropping
 	}
+}
+
+// FloorForBand is the severity a T2 suggestion's records are dropped
+// below, from the band its evidence names: TRACE and DEBUG below INFO,
+// INFO below WARN. ok is false for any other band, which is never
+// proposed.
+func FloorForBand(band string) (floor string, ok bool) {
+	switch band {
+	case "TRACE", "DEBUG":
+		return "INFO", true
+	case "INFO":
+		return "WARN", true
+	}
+	return "", false
 }
 
 func evalUnviewedLogs(in TelemetryInput, streams []LogStreamSupply) []Suggestion {
