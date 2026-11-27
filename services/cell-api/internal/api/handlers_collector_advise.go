@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: FSL-1.1-Apache-2.0
 //
 // An Advisor suggestion as a change to a collector's configuration
-// (stage 3). The Telemetry Advisor finds a metric nothing reads; here it
-// becomes a diff against the configuration a supervisor-type collector
+// (stage 3). The Telemetry Advisor finds a metric nothing reads, or a
+// service's logs below a severity nobody opens; here that becomes a diff against the configuration a supervisor-type collector
 // runs, which then goes the way every configuration change goes: checked,
 // reviewed, and sent. A change that comes from the Advisor is always
 // approved by the team that owns the collector, whatever the team's own
 // setting, because the person applying it (an org admin reading the
 // org's suggestions) is not the person who answers for the collector.
 //
-// Which collector carries the metric is not known yet: Sluicio sees the
-// metric, not the path it took. So the admin chooses the collector; the
+// Which collector carries the telemetry is not known yet: Sluicio sees
+// the telemetry, not the path it took. So the admin chooses the collector; the
 // list says where the change would apply and where it would not.
 
 package api
@@ -31,9 +31,25 @@ import (
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/collectorversion"
 )
 
-// advisorCollectorClasses are the suggestion classes that can be turned
-// into a collector change. Metrics first (T1: a metric nothing reads).
-var advisorCollectorClasses = map[string]bool{"T1": true}
+// adviceFor is what a suggestion asks a collector to drop, for the
+// classes that can be turned into a collector change: an unused metric
+// (T1) and a service's unread logs below a severity (T2).
+func adviceFor(s advisor.Suggestion) (collectors.AdvisorTarget, bool) {
+	switch {
+	case s.Class == "T1" && s.ScopeKind == "metric" && s.ScopeID != "":
+		return collectors.AdvisorTarget{Metric: s.ScopeID}, true
+	case s.Class == "T2" && s.ScopeKind == "service" && s.ScopeID != "":
+		band, _ := s.Evidence["severity_band"].(string)
+		if floor, ok := advisor.FloorForBand(band); ok {
+			return collectors.AdvisorTarget{Service: s.ScopeID, Below: floor}, true
+		}
+	}
+	return collectors.AdvisorTarget{}, false
+}
+
+// severityNumbers are the OTTL severities a T2 change drops below, as
+// stored severity numbers, for measuring it.
+var severityNumbers = map[string]int32{"INFO": 9, "WARN": 13}
 
 // collectorSuggestion loads a suggestion that can become a collector
 // change.
@@ -56,8 +72,8 @@ func (h *Handlers) collectorSuggestion(w http.ResponseWriter, r *http.Request, r
 		httpserver.WriteError(w, http.StatusInternalServerError, "query failed")
 		return advisor.Suggestion{}, false
 	}
-	if !advisorCollectorClasses[s.Class] || s.ScopeKind != "metric" || s.ScopeID == "" {
-		httpserver.WriteError(w, http.StatusConflict, "this suggestion cannot be applied to a collector yet; only unused metrics can")
+	if _, ok := adviceFor(s); !ok {
+		httpserver.WriteError(w, http.StatusConflict, "this suggestion cannot be applied to a collector yet; only unused metrics and unread logs can")
 		return advisor.Suggestion{}, false
 	}
 	if s.State == "dismissed" {
@@ -82,7 +98,7 @@ func (h *Handlers) sluicioExporter(r *http.Request) collectors.SluicioExporter {
 
 // advisorChange is a suggestion applied to one collector's configuration.
 type advisorChange struct {
-	collectors.MetricDrop
+	collectors.FilterChange
 	// Before is the configuration as written, masked, that the change is
 	// made against; Config (After) is the same with the change.
 	Before string `json:"before"`
@@ -91,7 +107,7 @@ type advisorChange struct {
 }
 
 func (h *Handlers) adviseCollector(r *http.Request, s advisor.Suggestion, c collectors.Collector) advisorChange {
-	out := advisorChange{MetricDrop: collectors.MetricDrop{Changed: []string{}, Skipped: []collectors.PipelineSkip{}}}
+	out := advisorChange{FilterChange: collectors.FilterChange{Changed: []string{}, Skipped: []collectors.PipelineSkip{}}}
 	if c.Kind != collectors.KindSupervisor {
 		out.Unavailable = "read only: it does not accept a configuration"
 		return out
@@ -119,15 +135,23 @@ func (h *Handlers) adviseCollector(r *http.Request, s advisor.Suggestion, c coll
 		out.Unavailable = err.Error()
 		return out
 	}
-	drop, err := collectors.DropMetric(masked, filter, s.ScopeID, h.sluicioExporter(r))
+	t, _ := adviceFor(s)
+	var drop collectors.FilterChange
+	signal := "metrics"
+	if t.Metric != "" {
+		drop, err = collectors.DropMetric(masked, filter, t.Metric, h.sluicioExporter(r))
+	} else {
+		signal = "logs"
+		drop, err = collectors.DropLogsBelow(masked, filter, t.Service, "SEVERITY_NUMBER_"+t.Below, h.sluicioExporter(r))
+	}
 	if err != nil {
 		out.Unavailable = err.Error()
 		return out
 	}
-	out.MetricDrop = drop
+	out.FilterChange = drop
 	out.Before = masked
 	if !drop.AlreadyDropped && len(drop.Changed) == 0 {
-		out.Unavailable = "none of its metrics pipelines sends only to Sluicio"
+		out.Unavailable = "none of its " + signal + " pipelines sends only to Sluicio"
 	}
 	return out
 }
@@ -185,11 +209,12 @@ func (h *Handlers) previewAdvisorCollectorChange(w http.ResponseWriter, r *http.
 
 // collectorDeploymentEffect: GET /api/v1/collectors/{id}/deployments/{dep}/effect
 //
-// What an applied Advisor change did: the metric's volume in the window
-// before the collector applied it and the window after. Enterprise. The
-// numbers are the org's ingest of the metric, not this collector's
-// share (Sluicio cannot tell that apart yet), so a metric that also
-// arrives through another collector does not drop to zero. Visible to
+// What an applied Advisor change did: the volume of what it drops (the
+// metric, or the service's logs below the severity) in the window before
+// the collector applied it and the window after. Enterprise. The numbers
+// are the org's ingest, not this collector's share (Sluicio cannot tell
+// that apart yet), so telemetry that also arrives through another
+// collector does not drop to zero. Visible to
 // org admins and to whoever may change this collector: the team that
 // approved the change.
 func (h *Handlers) collectorDeploymentEffect(w http.ResponseWriter, r *http.Request) {
@@ -214,23 +239,33 @@ func (h *Handlers) collectorDeploymentEffect(w http.ResponseWriter, r *http.Requ
 		httpserver.WriteError(w, http.StatusInternalServerError, "query failed")
 		return
 	}
-	if d.AdvisorMetric == "" {
+	t := d.AdvisorTarget
+	if t == nil || (t.Metric == "" && (t.Service == "" || severityNumbers[t.Below] == 0)) {
 		httpserver.WriteError(w, http.StatusConflict, "only a change made from an Advisor suggestion has a measured effect")
 		return
 	}
+	subject := t.Metric
+	if subject == "" {
+		subject = t.Service + "'s logs below " + t.Below
+	}
 	if d.Status != collectors.DeploymentApplied || d.FinishedAt == nil {
-		httpserver.WriteJSON(w, http.StatusOK, map[string]any{"metric": d.AdvisorMetric, "applied": false})
+		httpserver.WriteJSON(w, http.StatusOK, map[string]any{"subject": subject, "applied": false})
 		return
 	}
 	if h.ClickHouseConn == nil {
 		httpserver.WriteError(w, http.StatusServiceUnavailable, "telemetry storage is not available")
 		return
 	}
-	e, err := advisor.MeasureMetric(r.Context(), h.ClickHouseConn, middleware.OrgID(r), d.AdvisorMetric, *d.FinishedAt, time.Now())
+	var e advisor.Effect
+	if t.Metric != "" {
+		e, err = advisor.MeasureMetric(r.Context(), h.ClickHouseConn, middleware.OrgID(r), t.Metric, *d.FinishedAt, time.Now())
+	} else {
+		e, err = advisor.MeasureLogs(r.Context(), h.ClickHouseConn, middleware.OrgID(r), t.Service, severityNumbers[t.Below], *d.FinishedAt, time.Now())
+	}
 	if err != nil {
 		h.Logger.Error("measure collector change failed", "err", err)
 		httpserver.WriteError(w, http.StatusInternalServerError, "measuring failed")
 		return
 	}
-	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"metric": d.AdvisorMetric, "applied": true, "effect": e})
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"subject": subject, "applied": true, "effect": e})
 }

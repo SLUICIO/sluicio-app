@@ -18,23 +18,56 @@ import (
 // place what Sluicio advised dropping.
 const AdvisorProcessorName = "sluicio-advisor"
 
-// PipelineSkip is a metrics pipeline a change was not applied to, and why.
+// PipelineSkip is a pipeline a change was not applied to, and why.
 type PipelineSkip struct {
 	Pipeline string `json:"pipeline"`
 	Reason   string `json:"reason"`
 }
 
-// MetricDrop is an Advisor suggestion applied to one configuration.
-type MetricDrop struct {
+// FilterChange is an Advisor suggestion applied to one configuration.
+type FilterChange struct {
 	Config string `json:"config"`
-	// Changed are the metrics pipelines the filter was added to.
+	// Changed are the pipelines of the signal the filter was added to.
 	Changed []string `json:"changed"`
-	// Skipped are the metrics pipelines left alone: they do not send to
-	// Sluicio, or they also send somewhere else, where dropping the metric
-	// would take it from a backend that may well use it.
+	// Skipped are the pipelines of the signal left alone: they do not
+	// send to Sluicio, or they also send somewhere else, where dropping
+	// the data would take it from a backend that may well use it.
 	Skipped []PipelineSkip `json:"skipped"`
-	// AlreadyDropped: the configuration drops the metric already.
+	// AlreadyDropped: the configuration drops this already.
 	AlreadyDropped bool `json:"already_dropped"`
+}
+
+// FilterSignal is a signal the filter processor can drop from: the
+// pipeline type, the processor's section for it and the OTTL context its
+// conditions are written in.
+type FilterSignal struct {
+	Pipeline, Section, Context string
+}
+
+var (
+	MetricsSignal = FilterSignal{Pipeline: "metrics", Section: "metrics", Context: "metric"}
+	LogsSignal    = FilterSignal{Pipeline: "logs", Section: "logs", Context: "log_record"}
+)
+
+// ottlString quotes s as an OTTL string literal.
+func ottlString(s string) string {
+	return `"` + strings.ReplaceAll(strings.ReplaceAll(s, `\`, `\\`), `"`, `\"`) + `"`
+}
+
+// DropMetric drops one metric from every metrics pipeline that sends only
+// to Sluicio (filterType is the version's name for the filter processor).
+func DropMetric(config, filterType, metric string, sluicio SluicioExporter) (FilterChange, error) {
+	return AddFilter(config, filterType, MetricsSignal, "name == "+ottlString(metric), sluicio)
+}
+
+// DropLogsBelow drops one service's log records below severity (an OTTL
+// severity enum, SEVERITY_NUMBER_WARN) from every logs pipeline that
+// sends only to Sluicio. Records without a severity are kept: a floor
+// cannot tell their errors from their noise.
+func DropLogsBelow(config, filterType, service, severity string, sluicio SluicioExporter) (FilterChange, error) {
+	cond := `resource.attributes["service.name"] == ` + ottlString(service) +
+		" and severity_number > SEVERITY_NUMBER_UNSPECIFIED and severity_number < " + severity
+	return AddFilter(config, filterType, LogsSignal, cond, sluicio)
 }
 
 // SluicioExporter tells an exporter that sends to this cell: an OTLP
@@ -81,32 +114,32 @@ func (s SluicioExporter) Is(id string, settings *yaml.Node) bool {
 	return false
 }
 
-// DropMetric adds a filter processor (filterType, the version's name for
-// it) that drops metric to every metrics pipeline that sends only to
-// Sluicio. config is the configuration as written; a masked one stays
-// masked. Nothing else in it changes.
-func DropMetric(config, filterType, metric string, sluicio SluicioExporter) (MetricDrop, error) {
+// AddFilter adds condition to the Advisor's filter processor (filterType
+// is the version's name for it) for sig, and the processor to every
+// pipeline of sig that sends only to Sluicio. config is the
+// configuration as written; a masked one stays masked. Nothing else in
+// it changes.
+func AddFilter(config, filterType string, sig FilterSignal, condition string, sluicio SluicioExporter) (FilterChange, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal([]byte(config), &doc); err != nil {
-		return MetricDrop{}, fmt.Errorf("the configuration is not YAML: %w", err)
+		return FilterChange{}, fmt.Errorf("the configuration is not YAML: %w", err)
 	}
 	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
-		return MetricDrop{}, errors.New("the configuration is not a YAML map")
+		return FilterChange{}, errors.New("the configuration is not a YAML map")
 	}
 	root := doc.Content[0]
 	pipelines := mapGet(mapGet(root, "service"), "pipelines")
 	if pipelines == nil || pipelines.Kind != yaml.MappingNode {
-		return MetricDrop{}, errors.New("the configuration has no service pipelines")
+		return FilterChange{}, errors.New("the configuration has no service pipelines")
 	}
 	exporters := mapGet(root, "exporters")
 	procID := filterType + "/" + AdvisorProcessorName
-	condition := fmt.Sprintf("name == %q", metric)
 
-	out := MetricDrop{Changed: []string{}, Skipped: []PipelineSkip{}}
+	out := FilterChange{Changed: []string{}, Skipped: []PipelineSkip{}}
 	var eligible []*yaml.Node
 	for i := 0; i+1 < len(pipelines.Content); i += 2 {
 		name, p := pipelines.Content[i].Value, pipelines.Content[i+1]
-		if name != "metrics" && !strings.HasPrefix(name, "metrics/") {
+		if name != sig.Pipeline && !strings.HasPrefix(name, sig.Pipeline+"/") {
 			continue
 		}
 		toSluicio, elsewhere := 0, []string{}
@@ -121,7 +154,7 @@ func DropMetric(config, filterType, metric string, sluicio SluicioExporter) (Met
 		case toSluicio == 0:
 			out.Skipped = append(out.Skipped, PipelineSkip{name, "does not send to Sluicio"})
 		case len(elsewhere) > 0:
-			out.Skipped = append(out.Skipped, PipelineSkip{name, "also sends to " + strings.Join(elsewhere, ", ") + ", which would lose the metric too"})
+			out.Skipped = append(out.Skipped, PipelineSkip{name, "also sends to " + strings.Join(elsewhere, ", ") + ", which would lose the data too"})
 		default:
 			eligible = append(eligible, p)
 			out.Changed = append(out.Changed, name)
@@ -143,15 +176,15 @@ func DropMetric(config, filterType, metric string, sluicio SluicioExporter) (Met
 		setKey(proc, "error_mode", scalar("ignore"))
 		mapSet(processors, procID, proc)
 	}
-	metrics := mapGet(proc, "metrics")
-	if metrics == nil {
-		metrics = &yaml.Node{Kind: yaml.MappingNode}
-		setKey(proc, "metrics", metrics)
+	section := mapGet(proc, sig.Section)
+	if section == nil {
+		section = &yaml.Node{Kind: yaml.MappingNode}
+		setKey(proc, sig.Section, section)
 	}
-	conds := mapGet(metrics, "metric")
+	conds := mapGet(section, sig.Context)
 	if conds == nil || conds.Kind != yaml.SequenceNode {
 		conds = &yaml.Node{Kind: yaml.SequenceNode}
-		mapSet(metrics, "metric", conds)
+		mapSet(section, sig.Context, conds)
 	}
 	have := false
 	for _, c := range conds.Content {
@@ -190,7 +223,7 @@ func DropMetric(config, filterType, metric string, sluicio SluicioExporter) (Met
 	}
 	s, err := encode(&doc)
 	if err != nil {
-		return MetricDrop{}, err
+		return FilterChange{}, err
 	}
 	out.Config = s
 	sort.Strings(out.Changed)

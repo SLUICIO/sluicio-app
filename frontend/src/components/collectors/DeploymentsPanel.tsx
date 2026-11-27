@@ -151,7 +151,7 @@ export default function DeploymentsPanel({
                   </div>
                   {restoreEntitled &&
                     canPush &&
-                    d.advisor_metric &&
+                    d.advisor_class &&
                     d.status === "applied" && (
                       <EffectLine
                         collectorId={collectorId}

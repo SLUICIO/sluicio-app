@@ -3582,9 +3582,10 @@ export interface CollectorDeployment {
   proposal_id?: string;
   // State of the proposal a proposed deployment waits on.
   proposal_state?: string;
-  // A change made from an Advisor suggestion, and the metric it drops.
+  // A change made from an Advisor suggestion, and what it drops.
   advisor_suggestion_id?: string;
-  advisor_metric?: string;
+  advisor_class?: string;
+  advisor_target?: { metric?: string; service?: string; below?: string };
   rolled_back_from?: string;
   created_at: string;
   sent_at?: string;
@@ -3620,10 +3621,10 @@ export interface MetricEffectWindow {
   per_hour: number;
 }
 export interface CollectorDeploymentEffect {
-  metric: string;
+  // What the change drops: a metric, or "<service>'s logs below WARN".
+  subject: string;
   applied: boolean;
   effect?: {
-    metric: string;
     applied_at: string;
     ready: boolean;
     before: MetricEffectWindow;

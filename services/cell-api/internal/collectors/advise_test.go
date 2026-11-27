@@ -140,3 +140,50 @@ func TestDropMetricKeepsMaskedValues(t *testing.T) {
 		t.Fatalf("%d lines added, want 5 (the processor block; the pipeline entry goes in the existing line):\n%s", d, got.Config)
 	}
 }
+
+func TestDropLogsBelow(t *testing.T) {
+	cfg := `receivers:
+  otlp:
+    protocols:
+      http: {}
+exporters:
+  otlp_http/sluicio:
+    endpoint: https://ingest.example.test
+  otlp/siem:
+    endpoint: siem.internal:4317
+service:
+  pipelines:
+    logs:
+      receivers: [otlp]
+      exporters: [otlp_http/sluicio]
+    logs/siem:
+      receivers: [otlp]
+      exporters: [otlp/siem]
+    metrics:
+      receivers: [otlp]
+      exporters: [otlp_http/sluicio]
+`
+	got, err := DropLogsBelow(cfg, "filter", `orders-"api"`, "SEVERITY_NUMBER_WARN", SluicioExporter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(got.Changed, ",") != "logs" || len(got.Skipped) != 1 || got.Skipped[0].Pipeline != "logs/siem" {
+		t.Fatalf("changed %v skipped %v", got.Changed, got.Skipped)
+	}
+	want := `- 'resource.attributes["service.name"] == "orders-\"api\"" and severity_number > SEVERITY_NUMBER_UNSPECIFIED and severity_number < SEVERITY_NUMBER_WARN'`
+	if !strings.Contains(got.Config, want) || !strings.Contains(got.Config, "    logs:\n      log_record:") {
+		t.Fatalf("condition:\n%s", got.Config)
+	}
+	if strings.Contains(got.Config, "processors: [filter/sluicio-advisor]\n      exporters: [otlp/siem]") {
+		t.Fatal("the SIEM pipeline would lose the logs too")
+	}
+
+	// A metric drop on the same collector shares the processor.
+	both, err := DropMetric(got.Config, "filter", "m", SluicioExporter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(both.Config, "filter/sluicio-advisor:") != 1 || !strings.Contains(both.Config, "      metric:\n") || !strings.Contains(both.Config, "      log_record:\n") {
+		t.Fatalf("one processor for both:\n%s", both.Config)
+	}
+}

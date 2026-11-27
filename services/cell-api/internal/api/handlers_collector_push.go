@@ -234,7 +234,8 @@ func (h *Handlers) createCollectorDeployment(w http.ResponseWriter, r *http.Requ
 		CreatedBy: p.UserID, CreatedByName: h.actorLabel(r), Via: via, Proposed: approval,
 	}
 	if suggestion != nil {
-		nd.AdvisorSuggestionID, nd.AdvisorMetric = &suggestion.ID, suggestion.ScopeID
+		t, _ := adviceFor(*suggestion)
+		nd.AdvisorSuggestionID, nd.AdvisorClass, nd.AdvisorTarget = &suggestion.ID, suggestion.Class, &t
 	}
 	d, err := h.Collectors.CreateDeployment(r.Context(), nd)
 	if err != nil {

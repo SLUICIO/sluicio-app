@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: FSL-1.1-Apache-2.0
 //
 // Applying an Advisor suggestion to a collector (stage 3). Sluicio sees
-// the metric, not the collector it came through, so the admin picks the
+// the telemetry, not the collector it came through, so the admin picks the
 // collector; each row says where the change would go and where it would
 // not. The chosen change opens in the usual send drawer, on its review,
 // and is filed for the owner team's approval.
@@ -75,17 +75,13 @@ export default function AdvisorCollectorDrawer({
   }
 
   return (
-    <EditDrawer
-      title={`Apply to a collector: ${suggestion.scope_id}`}
-      width="medium"
-      onClose={onClose}
-    >
+    <EditDrawer title="Apply to a collector" width="medium" onClose={onClose}>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-          Sluicio cannot tell yet which collector this metric comes through, so
-          choose the one that sends it. The change drops the metric only on
-          metrics pipelines that send to Sluicio alone, and goes to the
-          collector&apos;s team for approval.
+          <strong>{suggestion.title}.</strong> Sluicio cannot tell yet which
+          collector this comes through, so choose the one that sends it. The
+          change goes only into pipelines that send to Sluicio alone, and goes
+          to the collector&apos;s team for approval.
         </p>
         {error && <div className="alert alert--error">{error}</div>}
         {!rows && !error && <div className="placeholder">Loading…</div>}

@@ -397,7 +397,7 @@ func TestAdvisorSuggestionToCollector(t *testing.T) {
 	gw := observe("gw", sup)
 	other := observe("other", sup)
 	readOnly := observe("ro", ext)
-	written := "receivers:\n  host_metrics:\n    scrapers:\n      load: {}\nexporters:\n  otlp_http/sluicio:\n    endpoint: https://ingest.example.test\n    headers:\n      authorization: Bearer real-secret\n  debug: {}\nservice:\n  pipelines:\n    metrics:\n      receivers: [host_metrics]\n      exporters: [otlp_http/sluicio]\n"
+	written := "receivers:\n  host_metrics:\n    scrapers:\n      load: {}\n  otlp:\n    protocols:\n      http: {}\nexporters:\n  otlp_http/sluicio:\n    endpoint: https://ingest.example.test\n    headers:\n      authorization: Bearer real-secret\n  debug: {}\nservice:\n  pipelines:\n    metrics:\n      receivers: [host_metrics]\n      exporters: [otlp_http/sluicio]\n    logs:\n      receivers: [otlp]\n      exporters: [otlp_http/sluicio]\n"
 	if _, err := store.RecordConfig(ctx, gw, []collectors.ConfigFile{{Body: "effective: {}"}, {Name: collectors.RawConfigFile, Body: written}}); err != nil {
 		t.Fatal(err)
 	}
@@ -407,6 +407,9 @@ func TestAdvisorSuggestionToCollector(t *testing.T) {
 	}
 
 	if err := adv.Upsert(ctx, org.ID, advisor.Suggestion{Fingerprint: "T1|metric|system.cpu.load_average.15m", Class: "T1", Advisor: "telemetry", ScopeKind: "metric", ScopeID: "system.cpu.load_average.15m", Title: `Nothing reads the "system.cpu.load_average.15m" metric`, Evidence: map[string]any{}, Weight: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := adv.Upsert(ctx, org.ID, advisor.Suggestion{Fingerprint: "T2|log|orders-api|DEBUG", Class: "T2", Advisor: "telemetry", ScopeKind: "service", ScopeID: "orders-api", Title: "Nobody has opened orders-api's DEBUG logs", Evidence: map[string]any{"severity_band": "DEBUG"}, Weight: 1}); err != nil {
 		t.Fatal(err)
 	}
 	if err := adv.Upsert(ctx, org.ID, advisor.Suggestion{Fingerprint: "T3|attr|svc|k", Class: "T3", Advisor: "telemetry", ScopeKind: "attribute", ScopeID: "k", Title: "attr", Evidence: map[string]any{}, Weight: 1}); err != nil {
@@ -447,7 +450,13 @@ func TestAdvisorSuggestionToCollector(t *testing.T) {
 	base := "/api/v1/advisor/suggestions/" + ids["T1"] + "/collectors"
 
 	if code, _ := do(admin, "GET", "/api/v1/advisor/suggestions/"+ids["T3"]+"/collectors", nil); code != http.StatusConflict {
-		t.Errorf("an attribute suggestion: %d, want 409 (metrics only)", code)
+		t.Errorf("an attribute suggestion: %d, want 409 (metrics and logs only)", code)
+	}
+	// Unread logs: the floor goes into the logs pipeline, records without
+	// a severity kept.
+	code, logPreview := do(admin, "GET", "/api/v1/advisor/suggestions/"+ids["T2"]+"/collectors/"+gw.String(), nil)
+	if lp, _ := logPreview["config"].(string); code != 200 || !strings.Contains(lp, `resource.attributes["service.name"] == "orders-api" and severity_number > SEVERITY_NUMBER_UNSPECIFIED and severity_number < SEVERITY_NUMBER_INFO`) {
+		t.Fatalf("log preview: %d %v", code, logPreview)
 	}
 	if code, _ := do(editor, "GET", base, nil); code != http.StatusForbidden {
 		t.Errorf("a team editor read the advisor: %d", code)
@@ -499,7 +508,7 @@ func TestAdvisorSuggestionToCollector(t *testing.T) {
 	if next == nil || !strings.Contains(body, "Bearer real-secret") || !strings.Contains(body, `name == "system.cpu.load_average.15m"`) {
 		t.Fatalf("delivered body:\n%s", body)
 	}
-	if next.AdvisorMetric != "system.cpu.load_average.15m" || next.AdvisorSuggestionID == nil || next.AdvisorSuggestionID.String() != ids["T1"] {
+	if next.AdvisorClass != "T1" || next.AdvisorTarget == nil || next.AdvisorTarget.Metric != "system.cpu.load_average.15m" || next.AdvisorSuggestionID == nil || next.AdvisorSuggestionID.String() != ids["T1"] {
 		t.Fatalf("the deployment does not record the suggestion: %+v", next)
 	}
 	// The team's approval is the decision the suggestion waited for.
@@ -509,7 +518,7 @@ func TestAdvisorSuggestionToCollector(t *testing.T) {
 
 	// The effect: nothing to measure until the collector applied it.
 	effect := "/api/v1/collectors/" + gw.String() + "/deployments/" + next.ID.String() + "/effect"
-	if code, out := do(editor, "GET", effect, nil); code != 200 || out["applied"] != false || out["metric"] != "system.cpu.load_average.15m" {
+	if code, out := do(editor, "GET", effect, nil); code != 200 || out["applied"] != false || out["subject"] != "system.cpu.load_average.15m" {
 		t.Fatalf("effect before applying: %d %v", code, out)
 	}
 	if err := store.ReportStatus(ctx, gw, next.Hash, collectors.DeploymentApplied, ""); err != nil {

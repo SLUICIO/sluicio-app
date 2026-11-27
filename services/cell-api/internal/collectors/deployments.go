@@ -54,13 +54,24 @@ type Deployment struct {
 	// change nobody approved would read as still waiting.
 	ProposalState  string     `json:"proposal_state,omitempty"`
 	RolledBackFrom *uuid.UUID `json:"rolled_back_from,omitempty"`
-	// AdvisorSuggestionID and AdvisorMetric: the change came from an
-	// Advisor suggestion and drops this metric (stage 3).
-	AdvisorSuggestionID *uuid.UUID `json:"advisor_suggestion_id,omitempty"`
-	AdvisorMetric       string     `json:"advisor_metric,omitempty"`
-	CreatedAt           time.Time  `json:"created_at"`
-	SentAt              *time.Time `json:"sent_at,omitempty"`
-	FinishedAt          *time.Time `json:"finished_at,omitempty"`
+	// AdvisorSuggestionID, AdvisorClass and AdvisorTarget: the change came
+	// from an Advisor suggestion and drops this (stage 3).
+	AdvisorSuggestionID *uuid.UUID     `json:"advisor_suggestion_id,omitempty"`
+	AdvisorClass        string         `json:"advisor_class,omitempty"`
+	AdvisorTarget       *AdvisorTarget `json:"advisor_target,omitempty"`
+	CreatedAt           time.Time      `json:"created_at"`
+	SentAt              *time.Time     `json:"sent_at,omitempty"`
+	FinishedAt          *time.Time     `json:"finished_at,omitempty"`
+}
+
+// AdvisorTarget is what an Advisor change drops: a metric (T1), or one
+// service's log records below a severity (T2).
+type AdvisorTarget struct {
+	Metric  string `json:"metric,omitempty"`
+	Service string `json:"service,omitempty"`
+	// Below is the OTTL severity the records are dropped below: INFO or
+	// WARN.
+	Below string `json:"below,omitempty"`
 }
 
 // NewDeployment is what a push stores. Body is the configuration as it
@@ -74,21 +85,23 @@ type NewDeployment struct {
 	Via            string
 	ProposalID     *uuid.UUID
 	RolledBackFrom *uuid.UUID
-	// AdvisorSuggestionID and AdvisorMetric record an Advisor change.
+	// AdvisorSuggestionID, AdvisorClass and AdvisorTarget record an
+	// Advisor change.
 	AdvisorSuggestionID *uuid.UUID
-	AdvisorMetric       string
+	AdvisorClass        string
+	AdvisorTarget       *AdvisorTarget
 	// Proposed stores it for approval instead of for delivery.
 	Proposed bool
 }
 
 const deploymentCols = `id, collector_id, config_hash, status, error_message, message, created_by, created_by_name, via,
-	proposal_id, rolled_back_from, advisor_suggestion_id, advisor_metric, created_at, sent_at, finished_at`
+	proposal_id, rolled_back_from, advisor_suggestion_id, advisor_class, advisor_target, created_at, sent_at, finished_at`
 
 // dest is where a row of deploymentCols scans into, in that order, with
 // any extra columns after.
 func (d *Deployment) dest(extra ...any) []any {
 	return append([]any{&d.ID, &d.CollectorID, &d.Hash, &d.Status, &d.ErrorMessage, &d.Message, &d.CreatedBy, &d.CreatedByName, &d.Via,
-		&d.ProposalID, &d.RolledBackFrom, &d.AdvisorSuggestionID, &d.AdvisorMetric, &d.CreatedAt, &d.SentAt, &d.FinishedAt}, extra...)
+		&d.ProposalID, &d.RolledBackFrom, &d.AdvisorSuggestionID, &d.AdvisorClass, &d.AdvisorTarget, &d.CreatedAt, &d.SentAt, &d.FinishedAt}, extra...)
 }
 
 func scanDeployment(row pgx.Row) (Deployment, error) {
@@ -130,11 +143,11 @@ func (s *Store) CreateDeployment(ctx context.Context, nd NewDeployment) (Deploym
 	}
 	d, err := scanDeployment(tx.QueryRow(ctx, `
 		INSERT INTO collector_deployments (collector_id, config_hash, config_enc, message, created_by, created_by_name, via, proposal_id, rolled_back_from, status,
-		                                   advisor_suggestion_id, advisor_metric)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		                                   advisor_suggestion_id, advisor_class, advisor_target)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		RETURNING `+deploymentCols,
 		nd.CollectorID, hash, sealed, nd.Message, nd.CreatedBy, nd.CreatedByName, via, nd.ProposalID, nd.RolledBackFrom, string(status),
-		nd.AdvisorSuggestionID, nd.AdvisorMetric))
+		nd.AdvisorSuggestionID, nd.AdvisorClass, nd.AdvisorTarget))
 	if err != nil {
 		return Deployment{}, fmt.Errorf("collectors: create deployment: %w", err)
 	}

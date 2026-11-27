@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: FSL-1.1-Apache-2.0
 //
-// Measuring what a change did (collector management, stage 3): a metric's
-// ingest in the window before a collector applied a change and in the
-// window after. Counted the way MetricsSupply counts the finding, so the
-// number that justified the change and the number that measures it are
-// the same kind of number.
+// Measuring what a change did (collector management, stage 3): the
+// ingest of what it drops (a metric, or a service's logs below a
+// severity) in the window before a collector applied a change and in the
+// window after. Counted the way the supply queries count the finding, so
+// the number that justified the change and the number that measures it
+// are the same kind of number.
 
 package advisor
 
@@ -40,22 +41,43 @@ type Window struct {
 	PerHour float64   `json:"per_hour"`
 }
 
-// MetricEffect is a metric's volume around the moment a change applied.
-type MetricEffect struct {
-	Metric    string    `json:"metric"`
+// Effect is the volume of what a change drops, around the moment it
+// applied.
+type Effect struct {
 	AppliedAt time.Time `json:"applied_at"`
 	// Ready is false until EffectMinAfter has passed since AppliedAt.
 	Ready  bool   `json:"ready"`
 	Before Window `json:"before"`
 	After  Window `json:"after"`
-	// ChangePct is the change in rows per hour, -100 when the metric
-	// stopped arriving. Nil when nothing arrived before.
+	// ChangePct is the change in rows per hour, -100 when it stopped
+	// arriving. Nil when nothing arrived before.
 	ChangePct *float64 `json:"change_pct,omitempty"`
 }
 
 // MeasureMetric measures metric for one org around appliedAt, as of now.
-func MeasureMetric(ctx context.Context, conn driver.Conn, orgID uuid.UUID, metric string, appliedAt, now time.Time) (MetricEffect, error) {
-	e := MetricEffect{Metric: metric, AppliedAt: appliedAt}
+func MeasureMetric(ctx context.Context, conn driver.Conn, orgID uuid.UUID, metric string, appliedAt, now time.Time) (Effect, error) {
+	return measure(ctx, conn, appliedAt, now, `
+		SELECT countIf(Timestamp < ?), countIf(Timestamp >= ?)
+		FROM metrics
+		WHERE OrganizationId = ? AND MetricName = ? AND Timestamp >= ? AND Timestamp < ?`, orgID.String(), metric)
+}
+
+// MeasureLogs measures one service's log records with a severity below
+// below (a severity number: 9 INFO, 13 WARN), records without a severity
+// left out as the change leaves them.
+func MeasureLogs(ctx context.Context, conn driver.Conn, orgID uuid.UUID, service string, below int32, appliedAt, now time.Time) (Effect, error) {
+	return measure(ctx, conn, appliedAt, now, `
+		SELECT countIf(Timestamp < ?), countIf(Timestamp >= ?)
+		FROM logs
+		WHERE OrganizationId = ? AND ServiceName = ? AND SeverityNumber > 0 AND SeverityNumber < ?
+		  AND Timestamp >= ? AND Timestamp < ?`, orgID.String(), service, below)
+}
+
+// measure runs query, which counts rows before and after its first two
+// arguments (appliedAt) within its last two (the windows' outer bounds),
+// with args between.
+func measure(ctx context.Context, conn driver.Conn, appliedAt, now time.Time, query string, args ...any) (Effect, error) {
+	e := Effect{AppliedAt: appliedAt}
 	end := appliedAt.Add(EffectWindow)
 	if settled := now.Add(-IngestLag); settled.Before(end) {
 		end = settled
@@ -70,12 +92,9 @@ func MeasureMetric(ctx context.Context, conn driver.Conn, orgID uuid.UUID, metri
 	}
 	e.Ready = true
 	var before, after uint64
-	if err := conn.QueryRow(ctx, `
-		SELECT countIf(Timestamp < ?), countIf(Timestamp >= ?)
-		FROM metrics
-		WHERE OrganizationId = ? AND MetricName = ? AND Timestamp >= ? AND Timestamp < ?`,
-		appliedAt, appliedAt, orgID.String(), metric, e.Before.From, e.After.To).Scan(&before, &after); err != nil {
-		return MetricEffect{}, err
+	all := append(append([]any{appliedAt, appliedAt}, args...), e.Before.From, e.After.To)
+	if err := conn.QueryRow(ctx, query, all...).Scan(&before, &after); err != nil {
+		return Effect{}, err
 	}
 	e.Before.Rows, e.After.Rows = before, after
 	e.Before.PerHour = perHour(before, e.Before)

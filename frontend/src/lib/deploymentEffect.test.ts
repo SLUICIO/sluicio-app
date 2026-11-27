@@ -11,10 +11,9 @@ const w = (from: string, to: string, rows: number, per_hour: number) => ({
 });
 const applied = "2026-11-27T12:00:00Z";
 const effect = (before: number, after: number, change_pct?: number) => ({
-  metric: "system.cpu.load_average.15m",
+  subject: "system.cpu.load_average.15m",
   applied: true,
   effect: {
-    metric: "system.cpu.load_average.15m",
     applied_at: applied,
     ready: true,
     before: w("2026-11-27T10:00:00Z", applied, before * 2, before),
@@ -40,7 +39,17 @@ describe("effectSummary", () => {
     const e = effect(1, 1, 0);
     e.effect.ready = false;
     expect(effectSummary(e)).toMatch(/measured from 15 minutes after/);
-    expect(effectSummary({ metric: "m", applied: false })).toBe("");
+    expect(effectSummary({ subject: "m", applied: false })).toBe("");
+  });
+
+  it("names a log floor as its subject", () => {
+    const e = {
+      ...effect(900, 0, -100),
+      subject: "orders-api's logs below WARN",
+    };
+    expect(effectSummary(e)).toMatch(
+      /^orders-api's logs below WARN: 900\/h before, 0\/h after .*it stopped arriving\.$/,
+    );
   });
 
   it("does not invent a percentage from nothing", () => {

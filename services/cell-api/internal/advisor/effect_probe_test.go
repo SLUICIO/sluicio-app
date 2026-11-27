@@ -61,6 +61,19 @@ func TestMeasureMetricProbe(t *testing.T) {
 	if early.Ready {
 		t.Error("measured five minutes after applying")
 	}
+
+	// Logs, with ADVISOR_PROBE_LOG_SERVICE: a service with steady records
+	// below WARN.
+	if svc := os.Getenv("ADVISOR_PROBE_LOG_SERVICE"); svc != "" {
+		l, err := MeasureLogs(ctx, conn, org, svc, 13, applied, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("%s logs below WARN: before %d rows (%.0f/h), after %d rows (%.0f/h)", svc, l.Before.Rows, l.Before.PerHour, l.After.Rows, l.After.PerHour)
+		if !l.Ready || l.Before.Rows == 0 || l.After.Rows == 0 {
+			t.Fatalf("a steady log stream measured nothing: %+v", l)
+		}
+	}
 }
 
 // A change applied for real: ADVISOR_PROBE_APPLIED is when the collector

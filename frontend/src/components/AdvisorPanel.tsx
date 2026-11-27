@@ -15,9 +15,10 @@
 // Accepting records a decision and leaves a paper trail; the operator
 // still has to paste the snippet, so the card says "accepted", and only a
 // later evaluation that stops finding the problem promotes it to
-// "verified". With collector management on, an unused metric can instead
-// be applied to a supervisor-run collector: that becomes a change the
-// collector's team approves, never a change made from here directly.
+// "verified". With collector management on, an unused metric or unread
+// logs can instead be applied to a supervisor-run collector: that becomes
+// a change the collector's team approves, never a change made from here
+// directly.
 
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api/client";
@@ -220,8 +221,10 @@ function SuggestionCard({
   const [copied, setCopied] = useState(false);
   const [applying, setApplying] = useState(false);
   const { collectorsEnabled } = useCurrentUser();
-  // Unused metrics can be applied to a collector; the other classes not yet.
-  const applicable = collectorsEnabled && s.class === "T1" && s.state !== "dismissed";
+  // Unused metrics and unread logs can be applied to a collector; the
+  // other classes not yet.
+  const applicable =
+    collectorsEnabled && (s.class === "T1" || s.class === "T2") && s.state !== "dismissed";
   const decided = s.state !== "open";
   const compliance = s.evidence?.compliance === true;
 
