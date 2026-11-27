@@ -61,6 +61,37 @@ type proposalTarget struct {
 	// apply writes the approved values, as the reviewer whose request r
 	// is.
 	apply func(h *Handlers, r *http.Request, id *uuid.UUID, changes []proposals.Change) error
+	// mayDecide, when set, replaces the org-wide write gate for deciding
+	// this kind: deciding is gated like making the change by hand, and
+	// for a kind owned by a team (a collector) that is the team's right,
+	// which an org viewer who edits in the team has and an org editor
+	// outside it does not.
+	mayDecide func(h *Handlers, r *http.Request, p proposals.Proposal) bool
+}
+
+// proposalDecisionGate gates approving or rejecting one proposal: the
+// kind's own mayDecide when it has one, the org-wide write gate
+// otherwise. A proposal that cannot be read falls through to the default
+// gate, and the handler answers for it.
+func (h *Handlers) proposalDecisionGate(next http.HandlerFunc) http.HandlerFunc {
+	gated := h.writeAnywhere(next)
+	return func(w http.ResponseWriter, r *http.Request) {
+		if h.Proposals != nil {
+			if id, err := uuid.Parse(r.PathValue("id")); err == nil {
+				if p, err := h.Proposals.Get(r.Context(), middleware.OrgID(r), id); err == nil {
+					if t, ok := proposalTargets[p.TargetKind]; ok && t.mayDecide != nil {
+						if !t.mayDecide(h, r, p) {
+							httpserver.WriteError(w, http.StatusForbidden, "insufficient role for this action")
+							return
+						}
+						next(w, r)
+						return
+					}
+				}
+			}
+		}
+		gated(w, r)
+	}
 }
 
 // alertRuleTunables are the knobs an agent may propose changing on an

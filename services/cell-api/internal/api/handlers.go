@@ -1899,13 +1899,15 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 		// nothing by creating one. DECIDING is gated exactly like making
 		// the change by hand (writeAnywhere, same as PUT /alert-rules) —
 		// approval must never be a cheaper path to a write than the UI.
+		// A kind owned by a team (a collector configuration) is decided by
+		// whoever could make that change: proposalDecisionGate asks the kind.
 		mux.HandleFunc("POST /api/v1/proposals", h.createProposal)
 		mux.HandleFunc("GET /api/v1/proposals", h.listProposals)
 		mux.HandleFunc("GET /api/v1/proposals/{id}", h.getProposal)
 		// What a proposal may contain, read by the agent writing one.
 		mux.HandleFunc("GET /api/v1/proposals/options", h.proposalOptions)
-		mux.HandleFunc("POST /api/v1/proposals/{id}/approve", h.writeAnywhere(h.approveProposal))
-		mux.HandleFunc("POST /api/v1/proposals/{id}/reject", h.writeAnywhere(h.rejectProposal))
+		mux.HandleFunc("POST /api/v1/proposals/{id}/approve", h.proposalDecisionGate(h.approveProposal))
+		mux.HandleFunc("POST /api/v1/proposals/{id}/reject", h.proposalDecisionGate(h.rejectProposal))
 		// A batch: several proposals filed and decided together.
 		mux.HandleFunc("POST /api/v1/proposals/batch", h.createProposalBatch)
 		mux.HandleFunc("POST /api/v1/proposals/batches/{id}/approve", h.writeAnywhere(h.approveProposalBatch))

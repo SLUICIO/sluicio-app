@@ -401,6 +401,15 @@ func init() {
 			v, _ := json.Marshal(c.ConfigHash)
 			return map[string]json.RawMessage{"deployment": v}, "Collector configuration: " + c.Description["host.name"], nil
 		},
+		// Deciding is the owner team's: its editors and admins, and org
+		// admins, exactly who could send the change directly.
+		mayDecide: func(h *Handlers, r *http.Request, p proposals.Proposal) bool {
+			if h.Collectors == nil || p.TargetID == nil {
+				return false
+			}
+			c, err := h.Collectors.Get(r.Context(), h.collectorScope(r), *p.TargetID)
+			return err == nil && h.canPushCollector(r, c.GroupID)
+		},
 		apply: func(h *Handlers, r *http.Request, id *uuid.UUID, changes []proposals.Change) error {
 			c, err := h.Collectors.Get(r.Context(), h.collectorScope(r), *id)
 			if err != nil {
