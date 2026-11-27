@@ -5,7 +5,7 @@
 // masked by the server; this page never sees a secret.
 
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import type {
   CollectorConfigResponse,
@@ -19,6 +19,7 @@ import KVTable, { attributeRows } from "../components/primitives/KVTable";
 import StatusPip from "../components/primitives/StatusPip";
 import SyntaxView from "../components/SyntaxView";
 import BetaBadge from "../components/BetaBadge";
+import TabStrip from "../components/primitives/TabStrip";
 import { KindBadge, collectorName, collectorStatus } from "./Collectors";
 
 function Section({
@@ -78,8 +79,30 @@ function healthRows(
   return rows;
 }
 
+// The tabs, in order. ?tab= keeps the choice in the URL, so a link or a
+// reload lands on the same tab.
+const TABS = [
+  { key: "agent", label: "Agent" },
+  { key: "health", label: "Health" },
+  { key: "configuration", label: "Configuration" },
+] as const;
+type TabKey = (typeof TABS)[number]["key"];
+
 export default function CollectorDetail() {
   const { id = "" } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tab: TabKey =
+    TABS.find((t) => t.key === searchParams.get("tab"))?.key ?? "agent";
+  const selectTab = (key: TabKey) =>
+    setSearchParams(
+      (prev) => {
+        const p = new URLSearchParams(prev);
+        if (key === "agent") p.delete("tab");
+        else p.set("tab", key);
+        return p;
+      },
+      { replace: true },
+    );
   const [detail, setDetail] = useState<CollectorDetailResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [version, setVersion] = useState<string>("latest");
@@ -135,150 +158,177 @@ export default function CollectorDetail() {
         </div>
       </div>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-        <Section
-          title="Agent"
-          subtitle="What the collector reported when it connected"
-        >
-          <KVTable
-            variant="mono"
-            rows={[
-              {
-                k: "instance_uid",
-                v: c.instance_uid,
-                copyValue: c.instance_uid,
-              },
-              { k: "team", v: c.group_name, copyValue: null },
-              {
-                k: "type",
-                v:
-                  c.kind === "supervisor"
-                    ? "supervisor (accepts remote configuration)"
-                    : "extension (read only)",
-                copyValue: null,
-              },
-              { k: "transport", v: c.transport || "-", copyValue: null },
-              {
-                k: "remote address",
-                v: c.remote_addr || "-",
-                copyValue: c.remote_addr || null,
-              },
-              {
-                k: "first seen",
-                v: formatDateTime(c.first_seen_at),
-                copyValue: null,
-              },
-              {
-                k: "last seen",
-                v: formatDateTime(c.last_seen_at),
-                copyValue: null,
-              },
-              {
-                k: "capabilities",
-                v: c.capabilities.join(", ") || "-",
-                copyValue: null,
-              },
-              ...attributeRows(c.description),
-            ]}
-          />
-        </Section>
+      <TabStrip
+        ariaLabel="Collector sections"
+        items={TABS.map((t) => ({
+          key: t.key,
+          label: t.label,
+          active: tab === t.key,
+          onClick: () => selectTab(t.key),
+          count: t.key === "configuration" ? detail.history.length : undefined,
+          countTitle: t.key === "configuration" ? "Stored versions" : undefined,
+        }))}
+      />
 
-        <Section
-          title="Health"
-          subtitle={
-            c.online
-              ? "As the collector reports it"
-              : "Last report before the collector went offline"
-          }
-        >
-          {c.health ? (
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 16,
+          marginTop: 16,
+        }}
+      >
+        {tab === "agent" && (
+          <Section
+            title="Agent"
+            subtitle="What the collector reported when it connected"
+          >
             <KVTable
               variant="mono"
-              rows={healthRows(c.health).map((r) => ({
-                ...r,
-                copyValue: null,
-              }))}
+              rows={[
+                {
+                  k: "instance_uid",
+                  v: c.instance_uid,
+                  copyValue: c.instance_uid,
+                },
+                { k: "team", v: c.group_name, copyValue: null },
+                {
+                  k: "type",
+                  v:
+                    c.kind === "supervisor"
+                      ? "supervisor (accepts remote configuration)"
+                      : "extension (read only)",
+                  copyValue: null,
+                },
+                { k: "transport", v: c.transport || "-", copyValue: null },
+                {
+                  k: "remote address",
+                  v: c.remote_addr || "-",
+                  copyValue: c.remote_addr || null,
+                },
+                {
+                  k: "first seen",
+                  v: formatDateTime(c.first_seen_at),
+                  copyValue: null,
+                },
+                {
+                  k: "last seen",
+                  v: formatDateTime(c.last_seen_at),
+                  copyValue: null,
+                },
+                {
+                  k: "capabilities",
+                  v: c.capabilities.join(", ") || "-",
+                  copyValue: null,
+                },
+                ...attributeRows(c.description),
+              ]}
             />
-          ) : (
-            <div className="muted" style={{ fontSize: 13 }}>
-              The collector has not reported its health.
-            </div>
-          )}
-        </Section>
+          </Section>
+        )}
 
-        <Section
-          title="Configuration"
-          subtitle="The effective configuration the collector reports, secrets masked. A new version is kept whenever it changes."
-        >
-          {!detail.config_storage ? (
-            <div className="alert alert--warn" style={{ margin: 0 }}>
-              Configurations are not stored on this cell:{" "}
-              <code>SLUICIO_COLLECTOR_CONFIG_KEY</code> is not set.
-            </div>
-          ) : detail.history.length === 0 ? (
-            <div className="muted" style={{ fontSize: 13 }}>
-              The collector has not reported a configuration. The OpAMP
-              extension needs <code>reports_effective_config: true</code>.
-            </div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              <label
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  fontSize: 13,
-                }}
+        {tab === "health" && (
+          <Section
+            title="Health"
+            subtitle={
+              c.online
+                ? "As the collector reports it"
+                : "Last report before the collector went offline"
+            }
+          >
+            {c.health ? (
+              <KVTable
+                variant="mono"
+                rows={healthRows(c.health).map((r) => ({
+                  ...r,
+                  copyValue: null,
+                }))}
+              />
+            ) : (
+              <div className="muted" style={{ fontSize: 13 }}>
+                The collector has not reported its health.
+              </div>
+            )}
+          </Section>
+        )}
+
+        {tab === "configuration" && (
+          <Section
+            title="Configuration"
+            subtitle="The effective configuration the collector reports, secrets masked. A new version is kept whenever it changes."
+          >
+            {!detail.config_storage ? (
+              <div className="alert alert--warn" style={{ margin: 0 }}>
+                Configurations are not stored on this cell:{" "}
+                <code>SLUICIO_COLLECTOR_CONFIG_KEY</code> is not set.
+              </div>
+            ) : detail.history.length === 0 ? (
+              <div className="muted" style={{ fontSize: 13 }}>
+                The collector has not reported a configuration. The OpAMP
+                extension needs <code>reports_effective_config: true</code>.
+              </div>
+            ) : (
+              <div
+                style={{ display: "flex", flexDirection: "column", gap: 10 }}
               >
-                Version
-                <select
-                  className="search__input"
-                  value={version}
-                  onChange={(e) => setVersion(e.target.value)}
-                  style={{ maxWidth: 360 }}
+                <label
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    fontSize: 13,
+                  }}
                 >
-                  {detail.history.map((v, i) => (
-                    <option key={v.id} value={i === 0 ? "latest" : v.id}>
-                      {formatDateTime(v.received_at)}
-                      {i === 0 ? " (current)" : ""} · {v.hash.slice(0, 8)}
-                    </option>
-                  ))}
-                </select>
-                <span className="muted">
-                  {detail.history.length} version
-                  {detail.history.length === 1 ? "" : "s"}
-                </span>
-              </label>
-              {configError && (
-                <div className="alert alert--error">{configError}</div>
-              )}
-              {config?.files.map((f) => (
-                <div key={f.name}>
-                  {config.files.length > 1 && (
-                    <div
-                      className="mono muted"
-                      style={{ fontSize: 12, marginBottom: 4 }}
-                    >
-                      {f.name || "(main)"}
-                    </div>
-                  )}
-                  {f.hidden ? (
-                    <div className="alert alert--warn" style={{ margin: 0 }}>
-                      This file could not be read to mask its secrets, so it is
-                      not shown.
-                    </div>
-                  ) : (
-                    <SyntaxView
-                      content={f.body}
-                      format="yaml"
-                      maxHeight={600}
-                    />
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </Section>
+                  Version
+                  <select
+                    className="search__input"
+                    value={version}
+                    onChange={(e) => setVersion(e.target.value)}
+                    style={{ maxWidth: 360 }}
+                  >
+                    {detail.history.map((v, i) => (
+                      <option key={v.id} value={i === 0 ? "latest" : v.id}>
+                        {formatDateTime(v.received_at)}
+                        {i === 0 ? " (current)" : ""} · {v.hash.slice(0, 8)}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="muted">
+                    {detail.history.length} version
+                    {detail.history.length === 1 ? "" : "s"}
+                  </span>
+                </label>
+                {configError && (
+                  <div className="alert alert--error">{configError}</div>
+                )}
+                {config?.files.map((f) => (
+                  <div key={f.name}>
+                    {config.files.length > 1 && (
+                      <div
+                        className="mono muted"
+                        style={{ fontSize: 12, marginBottom: 4 }}
+                      >
+                        {f.name || "(main)"}
+                      </div>
+                    )}
+                    {f.hidden ? (
+                      <div className="alert alert--warn" style={{ margin: 0 }}>
+                        This file could not be read to mask its secrets, so it
+                        is not shown.
+                      </div>
+                    ) : (
+                      <SyntaxView
+                        content={f.body}
+                        format="yaml"
+                        maxHeight={600}
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </Section>
+        )}
       </div>
     </div>
   );
