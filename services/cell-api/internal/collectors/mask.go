@@ -61,7 +61,7 @@ func MaskConfig(body string) (string, bool) {
 	if err := yaml.Unmarshal([]byte(body), &doc); err != nil {
 		return "", false
 	}
-	maskNode(&doc, false)
+	maskDocument(&doc)
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
@@ -70,6 +70,33 @@ func MaskConfig(body string) (string, bool) {
 	}
 	_ = enc.Close()
 	return buf.String(), true
+}
+
+// componentSections hold component IDs as keys ("otlp_http/secrets",
+// "bearertokenauth"). An ID names a component; it is no secret, and
+// reading it as one would mask the whole component, every endpoint and
+// setting in it.
+var componentSections = map[string]bool{"receivers": true, "processors": true, "exporters": true, "extensions": true, "connectors": true}
+
+// maskDocument masks a whole configuration. Each component's settings are
+// judged by their own keys, never by the component's ID; everything else
+// as maskNode does.
+func maskDocument(doc *yaml.Node) {
+	if doc.Kind != yaml.DocumentNode || len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+		maskNode(doc, false)
+		return
+	}
+	top := doc.Content[0]
+	for i := 0; i+1 < len(top.Content); i += 2 {
+		key, val := top.Content[i].Value, top.Content[i+1]
+		if componentSections[key] && val.Kind == yaml.MappingNode {
+			for j := 0; j+1 < len(val.Content); j += 2 {
+				maskNode(val.Content[j+1], false)
+			}
+			continue
+		}
+		maskNode(val, sensitiveKey(key))
+	}
 }
 
 // maskNode walks the tree. underSecret is set below a sensitive key, so a

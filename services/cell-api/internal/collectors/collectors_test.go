@@ -268,3 +268,33 @@ receivers:
 		}
 	}
 }
+
+// A component ID is a name, not a secret: "otlp_http/secrets" or
+// "bearertokenauth" must not mask every setting of the component.
+func TestMaskKeepsComponentsWithSecretLookingIDs(t *testing.T) {
+	in := `extensions:
+  bearertokenauth:
+    scheme: Bearer
+    token: c-ext-token
+exporters:
+  otlp_http/secrets:
+    endpoint: https://gw.example.test
+    timeout: 30s
+    headers:
+      x-api-key: c-header-key
+`
+	out, ok := MaskConfig(in)
+	if !ok {
+		t.Fatal("unparseable")
+	}
+	for _, kept := range []string{"scheme: Bearer", "endpoint: https://gw.example.test", "timeout: 30s", "otlp_http/secrets", "bearertokenauth"} {
+		if !strings.Contains(out, kept) {
+			t.Errorf("lost %q:\n%s", kept, out)
+		}
+	}
+	for _, secret := range []string{"c-ext-token", "c-header-key"} {
+		if strings.Contains(out, secret) {
+			t.Errorf("not masked: %s", secret)
+		}
+	}
+}
