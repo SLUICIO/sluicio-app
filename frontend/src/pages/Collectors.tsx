@@ -413,6 +413,29 @@ function TokensDrawer({
       "  extensions: [opamp]",
     ].join("\n");
 
+  // The supervisor's own file. validate_config and
+  // automatic_config_rollback keep a bad configuration from Sluicio from
+  // stopping the collector; the base file is merged under whatever is
+  // sent, so what it sets cannot be removed from Sluicio.
+  const supervisorSnippet = (token: string) =>
+    [
+      "server:",
+      `  endpoint: ${opampEndpoint()}`,
+      "  headers:",
+      `    Authorization: ["Bearer ${token}"]`,
+      "capabilities:",
+      "  accepts_remote_config: true",
+      "  reports_effective_config: true",
+      "  reports_health: true",
+      "agent:",
+      "  executable: /otelcol-contrib",
+      "  validate_config: true",
+      "  automatic_config_rollback: true",
+      "  config_files: [/etc/otelcol/base.yaml]",
+      "storage:",
+      "  directory: /var/lib/otelcol/supervisor",
+    ].join("\n");
+
   return (
     <EditDrawer
       title={`Collector settings: ${team.name}`}
@@ -497,6 +520,29 @@ function TokensDrawer({
               }}
             >
               {snippet(shown.token)}
+            </pre>
+            <div
+              className="muted"
+              style={{ fontSize: 12, margin: "12px 0 6px" }}
+            >
+              Or the supervisor&apos;s file, so the configuration can be changed
+              from Sluicio. Keep the base file small: what it sets stays in
+              effect whatever is sent. Add{" "}
+              <code>{"extensions: {opamp: {reports_raw_config: true}}"}</code>{" "}
+              to it to see the configuration as written.
+            </div>
+            <pre
+              className="mono"
+              style={{
+                margin: 0,
+                fontSize: 12,
+                background: "var(--surface)",
+                padding: 10,
+                borderRadius: 6,
+                overflowX: "auto",
+              }}
+            >
+              {supervisorSnippet(shown.token)}
             </pre>
           </div>
         )}
