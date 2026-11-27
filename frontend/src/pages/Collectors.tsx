@@ -346,6 +346,7 @@ function TokensDrawer({
       `        endpoint: ${opampEndpoint()}`,
       "        headers:",
       `          Authorization: "Bearer ${token}"`,
+      "    reports_raw_config: true",
       "    capabilities:",
       "      reports_effective_config: true",
       "      reports_health: true",

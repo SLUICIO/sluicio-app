@@ -104,12 +104,14 @@ function OtelflowEmbed({
   version,
   view,
   supervisor,
+  written,
 }: {
   base: string;
   yaml: string;
   version: string;
   view: "canvas" | "config";
   supervisor: boolean;
+  written: boolean;
 }) {
   const [payload, setPayload] = useState<string | null>(null);
   const [fallback, setFallback] = useState<string | null>(null);
@@ -143,10 +145,9 @@ function OtelflowEmbed({
         }}
       >
         <span>
-          Checked by OTelFlow as the collector reports it. The collector reports
-          its configuration with defaults filled in, some fields in another
-          shape and some left out (a receiver's scrapers, for example), so
-          OTelFlow can flag errors the running collector does not have.
+          {written
+            ? "The configuration as written, checked by OTelFlow. Secrets are masked."
+            : "The effective configuration, checked by OTelFlow. The collector reports it with defaults filled in, some fields in another shape and some left out (a receiver's scrapers, for example), so OTelFlow can flag errors the running collector does not have."}
           {supervisor && " Editing and sending a configuration comes later."}
         </span>
         <a
@@ -253,7 +254,30 @@ export default function CollectorDetail() {
   const c = detail.collector;
   const st = collectorStatus(c);
   // The collector reports one unnamed file; the flow view draws that one.
-  const mainFile = config?.files.find((f) => f.name === "") ?? config?.files[0];
+  // The configuration as written (the extension's reports_raw_config, or
+  // what a supervisor merged) is what the views show first; the effective
+  // configuration fills in defaults and leaves fields out, so it is a
+  // second choice. ?rep=effective switches when both are there.
+  const rawFile = config?.files.find((f) => f.name === "raw");
+  const effectiveFile = config?.files.find((f) => f.name === "");
+  const hasBoth = !!rawFile && !!effectiveFile;
+  const rep: "written" | "effective" =
+    rawFile && !(hasBoth && searchParams.get("rep") === "effective")
+      ? "written"
+      : "effective";
+  const mainFile =
+    (rep === "written" ? rawFile : effectiveFile) ?? config?.files[0];
+  const otherRep = rep === "written" ? effectiveFile : rawFile;
+  const selectRep = (r: "written" | "effective") =>
+    setSearchParams(
+      (prev) => {
+        const p = new URLSearchParams(prev);
+        if (r === "written") p.delete("rep");
+        else p.set("rep", r);
+        return p;
+      },
+      { replace: true },
+    );
   const canFlow = !!otelflowUrl && !!mainFile && !mainFile.hidden;
   // Flow by default where it can be drawn; ?view=yaml remembers the code
   // view in the URL like the tab.
@@ -408,7 +432,7 @@ export default function CollectorDetail() {
         {tab === "configuration" && (
           <Section
             title="Configuration"
-            subtitle="The effective configuration the collector reports, secrets masked. A new version is kept whenever it changes."
+            subtitle="The configuration the collector reports, secrets masked. A new version is kept whenever it changes."
           >
             {!detail.config_storage ? (
               <div className="alert alert--warn" style={{ margin: 0 }}>
@@ -459,39 +483,80 @@ export default function CollectorDetail() {
                       {detail.history.length === 1 ? "" : "s"}
                     </span>
                   </label>
-                  {canFlow && (
-                    <div
-                      className="m-seg"
-                      role="radiogroup"
-                      aria-label="Configuration view"
-                      style={{ marginLeft: "auto" }}
-                    >
-                      {(
-                        [
-                          ["flow", "Flow"],
-                          ["yaml", "YAML"],
-                        ] as const
-                      ).map(([v, label]) => (
-                        <button
-                          key={v}
-                          type="button"
-                          role="radio"
-                          aria-checked={configView === v}
-                          className={`m-seg-b ${configView === v ? "on" : ""}`}
-                          onClick={() => selectConfigView(v)}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                  <div
+                    style={{
+                      marginLeft: "auto",
+                      display: "flex",
+                      gap: 8,
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    {hasBoth && (
+                      <div
+                        className="m-seg"
+                        role="radiogroup"
+                        aria-label="Configuration shown"
+                      >
+                        {(
+                          [
+                            ["written", "As written"],
+                            ["effective", "Effective"],
+                          ] as const
+                        ).map(([r, label]) => (
+                          <button
+                            key={r}
+                            type="button"
+                            role="radio"
+                            aria-checked={rep === r}
+                            className={`m-seg-b ${rep === r ? "on" : ""}`}
+                            onClick={() => selectRep(r)}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {canFlow && (
+                      <div
+                        className="m-seg"
+                        role="radiogroup"
+                        aria-label="Configuration view"
+                      >
+                        {(
+                          [
+                            ["flow", "Flow"],
+                            ["yaml", "YAML"],
+                          ] as const
+                        ).map(([v, label]) => (
+                          <button
+                            key={v}
+                            type="button"
+                            role="radio"
+                            aria-checked={configView === v}
+                            className={`m-seg-b ${configView === v ? "on" : ""}`}
+                            onClick={() => selectConfigView(v)}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
                 {configError && (
                   <div className="alert alert--error">{configError}</div>
                 )}
+                {config && !rawFile && (
+                  <div className="muted" style={{ fontSize: 12.5 }}>
+                    To see the configuration as written, set{" "}
+                    <code>reports_raw_config: true</code> on the
+                    collector&apos;s OpAMP extension.
+                  </div>
+                )}
                 {canFlow && mainFile && (
                   <OtelflowEmbed
-                    key={configView}
+                    key={`${configView}-${rep}`}
+                    written={rep === "written" && !!rawFile}
                     base={otelflowUrl}
                     yaml={mainFile.body}
                     version={c.description["service.version"] ?? ""}
@@ -500,7 +565,7 @@ export default function CollectorDetail() {
                   />
                 )}
                 {config?.files
-                  .filter((f) => !canFlow || f !== mainFile)
+                  .filter((f) => f !== otherRep && !(canFlow && f === mainFile))
                   .map((f) => (
                     <div key={f.name}>
                       {config.files.length > 1 && (
