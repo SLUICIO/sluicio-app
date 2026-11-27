@@ -220,7 +220,7 @@ services:
   # set COMPOSE_PROFILES=collectors together with SLUICIO_COLLECTORS_ENABLED
   # and SLUICIO_OTELFLOW_URL=/otelflow/.
   otelflow:
-    image: ${OTELFLOW_IMAGE:-ghcr.io/sluicio/otelflow:0.9.0}
+    image: ${OTELFLOW_IMAGE:-ghcr.io/sluicio/otelflow:0.9.1}
     profiles: [collectors]
     restart: unless-stopped
     environment:

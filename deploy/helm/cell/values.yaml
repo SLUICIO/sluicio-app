@@ -87,7 +87,7 @@ collectors:
     enabled: true
     image:
       repository: ghcr.io/sluicio/otelflow
-      tag: "0.9.0"   # 0.9.0 or later: serving under a path prefix
+      tag: "0.9.1"   # 0.9.0 or later: serving under a path prefix
     resources:
       requests: { cpu: 10m, memory: 32Mi }
       limits:   { cpu: 200m, memory: 64Mi }
