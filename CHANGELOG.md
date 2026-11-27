@@ -3,8 +3,16 @@
 _Generated from git history by `scripts/changelog.sh` — do not edit by hand._
 _Internal: not shown anywhere in the Sluicio product._
 
+## v0.11.223 — 2026-11-27
+
+- feat(seed-traces): payload links on file transfers and invoices (b89dea8)
+- feat(messages): payload link columns, trace links and their settings (d79110b)
+- feat(payload-links): span attributes as links to a message's payload (dada269)
+- fix(ui): a picker inside a form label sits level with its text fields (38014c1)
+
 ## v0.11.222 — 2026-11-25
 
+- release v0.11.222 - refresh internal changelog (01fcb45)
 - feat(dashboard): say which team a dashboard belongs to (c114785)
 - feat(seed-traces): a file-transfer estate, one service per transfer (fbd09ec)
 
