@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: FSL-1.1-Apache-2.0
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { otelflowEmbedUrl, otelflowPayload } from "./otelflowEmbed";
+import {
+  otelflowConfigHeight,
+  otelflowEmbedUrl,
+  otelflowFallbackVersion,
+  otelflowPayload,
+} from "./otelflowEmbed";
 
 function fromB64Url(s: string): Uint8Array {
   const bin = atob(s.replace(/-/g, "+").replace(/_/g, "/"));
@@ -40,5 +45,28 @@ describe("otelflowEmbedUrl", () => {
     const url = otelflowEmbedUrl("/otelflow", "1.abc");
     expect(url).toBe("/otelflow/#embed=1.abc&view=canvas&theme=light");
     expect(url.split("#")[0]).not.toContain("abc");
+  });
+});
+
+describe("otelflowFallbackVersion", () => {
+  const meta = { versions: ["0.162.0", "0.163.0"], defaultVersion: "0.163.0" };
+  it("is null when OTelFlow knows the reported version", () => {
+    expect(otelflowFallbackVersion(meta, "0.163.0")).toBeNull();
+    expect(otelflowFallbackVersion(meta, "v0.162.0")).toBeNull();
+  });
+  it("names the version OTelFlow checks against instead", () => {
+    expect(otelflowFallbackVersion(meta, "0.166.0")).toBe("0.163.0");
+  });
+  it("says nothing without a version or without meta", () => {
+    expect(otelflowFallbackVersion(meta, "")).toBeNull();
+    expect(otelflowFallbackVersion(null, "0.166.0")).toBeNull();
+  });
+});
+
+describe("otelflowConfigHeight", () => {
+  it("follows the line count within OTelFlow's bounds", () => {
+    expect(otelflowConfigHeight("a: 1")).toBe(190);
+    expect(otelflowConfigHeight("x\n".repeat(20))).toBe(460); // 21 lines
+    expect(otelflowConfigHeight("x\n".repeat(500))).toBe(750);
   });
 });

@@ -49,3 +49,50 @@ export function otelflowEmbedUrl(
   const root = base.endsWith("/") ? base : base + "/";
   return `${root}#embed=${payload}&view=${view}&theme=light`;
 }
+
+/**
+ * Height for the read-only config view, the way OTelFlow's own share
+ * dialog computes it: lines at about 19px, clamped, plus its 40px bar.
+ * An embed is a snapshot, so the height stays right for it.
+ */
+export function otelflowConfigHeight(yaml: string): number {
+  const lines = yaml.split("\n").length;
+  const content = Math.min(Math.max(lines * 19 + 12, 140), 700);
+  return Math.ceil((content + 40 + 2) / 10) * 10;
+}
+
+export interface OtelflowMeta {
+  versions: string[];
+  defaultVersion: string;
+}
+
+// One request per page load and base: the versions an OTelFlow build
+// knows only change with a new image.
+const metaCache = new Map<string, Promise<OtelflowMeta | null>>();
+
+/** The collector versions this cell's OTelFlow can check, or null. */
+export function otelflowMeta(base: string): Promise<OtelflowMeta | null> {
+  const root = base.endsWith("/") ? base : base + "/";
+  let p = metaCache.get(root);
+  if (!p) {
+    p = fetch(`${root}api/meta`)
+      .then((r) => (r.ok ? (r.json() as Promise<OtelflowMeta>) : null))
+      .catch(() => null);
+    metaCache.set(root, p);
+  }
+  return p;
+}
+
+/**
+ * The version OTelFlow will actually check against when it does not know
+ * the reported one (it falls back to its default without saying so), or
+ * null when it knows it or there is nothing to compare.
+ */
+export function otelflowFallbackVersion(
+  meta: OtelflowMeta | null,
+  reported: string,
+): string | null {
+  const v = reported.replace(/^v/, "");
+  if (!meta || !v || meta.versions.includes(v)) return null;
+  return meta.defaultVersion;
+}

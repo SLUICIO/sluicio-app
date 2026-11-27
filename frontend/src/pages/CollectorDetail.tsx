@@ -21,7 +21,13 @@ import SyntaxView from "../components/SyntaxView";
 import BetaBadge from "../components/BetaBadge";
 import TabStrip from "../components/primitives/TabStrip";
 import { useCurrentUser } from "../lib/useCurrentUser";
-import { otelflowEmbedUrl, otelflowPayload } from "../lib/otelflowEmbed";
+import {
+  otelflowConfigHeight,
+  otelflowEmbedUrl,
+  otelflowFallbackVersion,
+  otelflowMeta,
+  otelflowPayload,
+} from "../lib/otelflowEmbed";
 import { KindBadge, collectorName, collectorStatus } from "./Collectors";
 
 function Section({
@@ -81,21 +87,27 @@ function healthRows(
   return rows;
 }
 
-// PipelineEmbed draws the configuration with the cell's own OTelFlow, read
-// only. The configuration travels in the URL fragment of the iframe, so it
-// reaches neither OTelFlow's server nor anything outside the cell.
-function PipelineEmbed({
+// OtelflowEmbed shows the configuration with the cell's own OTelFlow, read
+// only: the pipeline (Flow) or OTelFlow's own config viewer with its
+// highlighting and line diagnostics (YAML), so both views look and behave
+// like OTelFlow. The configuration travels in the URL fragment of the
+// iframe, so it reaches neither OTelFlow's server nor anything outside
+// the cell.
+function OtelflowEmbed({
   base,
   yaml,
   version,
+  view,
   supervisor,
 }: {
   base: string;
   yaml: string;
   version: string;
+  view: "canvas" | "config";
   supervisor: boolean;
 }) {
   const [payload, setPayload] = useState<string | null>(null);
+  const [fallback, setFallback] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
     otelflowPayload(yaml, version).then((p) => !cancelled && setPayload(p));
@@ -103,6 +115,15 @@ function PipelineEmbed({
       cancelled = true;
     };
   }, [yaml, version]);
+  useEffect(() => {
+    let cancelled = false;
+    otelflowMeta(base).then(
+      (m) => !cancelled && setFallback(otelflowFallbackVersion(m, version)),
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [base, version]);
   if (!payload) return null;
   const root = base.endsWith("/") ? base : base + "/";
   return (
@@ -117,10 +138,10 @@ function PipelineEmbed({
         }}
       >
         <span>
-          Pipeline drawn by OTelFlow from the configuration the collector
-          reports. The collector leaves some settings out of that report (a
-          receiver's scrapers, for example), so OTelFlow can flag them as
-          missing.
+          Checked by OTelFlow as the collector reports it. The collector reports
+          its configuration with defaults filled in, some fields in another
+          shape and some left out (a receiver's scrapers, for example), so
+          OTelFlow can flag errors the running collector does not have.
           {supervisor && " Editing and sending a configuration comes later."}
         </span>
         <a
@@ -132,12 +153,26 @@ function PipelineEmbed({
           Open in OTelFlow
         </a>
       </div>
+      {fallback && (
+        <div
+          className="alert alert--warn"
+          style={{ margin: 0, fontSize: 12.5 }}
+        >
+          This OTelFlow does not know collector v{version.replace(/^v/, "")}, so
+          it checks the configuration against v{fallback}. Findings may not
+          apply to the version the collector runs.
+        </div>
+      )}
       <iframe
-        title="Collector pipeline (OTelFlow)"
-        src={otelflowEmbedUrl(base, payload, "canvas")}
+        title={
+          view === "canvas"
+            ? "Collector pipeline (OTelFlow)"
+            : "Collector configuration (OTelFlow)"
+        }
+        src={otelflowEmbedUrl(base, payload, view)}
         style={{
           width: "100%",
-          height: 480,
+          height: view === "canvas" ? 480 : otelflowConfigHeight(yaml),
           border: "1px solid var(--border)",
           borderRadius: 8,
           background: "var(--surface)",
@@ -423,16 +458,19 @@ export default function CollectorDetail() {
                 {configError && (
                   <div className="alert alert--error">{configError}</div>
                 )}
-                {canFlow && configView === "flow" && mainFile && (
-                  <PipelineEmbed
+                {canFlow && mainFile && (
+                  <OtelflowEmbed
+                    key={configView}
                     base={otelflowUrl}
                     yaml={mainFile.body}
                     version={c.description["service.version"] ?? ""}
+                    view={configView === "flow" ? "canvas" : "config"}
                     supervisor={c.kind === "supervisor"}
                   />
                 )}
-                {!(canFlow && configView === "flow") &&
-                  config?.files.map((f) => (
+                {config?.files
+                  .filter((f) => !canFlow || f !== mainFile)
+                  .map((f) => (
                     <div key={f.name}>
                       {config.files.length > 1 && (
                         <div
