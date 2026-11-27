@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -65,7 +66,7 @@ func DropMetric(config, filterType, metric string, sluicio SluicioExporter) (Fil
 // sends only to Sluicio. Records without a severity are kept: a floor
 // cannot tell their errors from their noise.
 func DropLogsBelow(config, filterType, service, severity string, sluicio SluicioExporter) (FilterChange, error) {
-	cond := `resource.attributes["service.name"] == ` + ottlString(service) +
+	cond := serviceIs(service) +
 		" and severity_number > SEVERITY_NUMBER_UNSPECIFIED and severity_number < " + severity
 	return AddFilter(config, filterType, LogsSignal, cond, sluicio)
 }
@@ -114,12 +115,105 @@ func (s SluicioExporter) Is(id string, settings *yaml.Node) bool {
 	return false
 }
 
+// serviceIs is the OTTL condition for one service's data.
+func serviceIs(service string) string {
+	return `resource.attributes["service.name"] == ` + ottlString(service)
+}
+
+// DeleteSpanAttribute removes one attribute from a service's spans.
+func DeleteSpanAttribute(config, transformType, service, key string, sluicio SluicioExporter) (FilterChange, error) {
+	return AddSpanStatement(config, transformType, "delete_key(attributes, "+ottlString(key)+") where "+serviceIs(service), sluicio)
+}
+
+// DeleteSpanAttributePrefix removes every attribute whose key starts with
+// prefix from a service's spans (echoed request headers).
+func DeleteSpanAttributePrefix(config, transformType, service, prefix string, sluicio SluicioExporter) (FilterChange, error) {
+	re := "^" + regexp.QuoteMeta(prefix)
+	return AddSpanStatement(config, transformType, "delete_matching_keys(attributes, "+ottlString(re)+") where "+serviceIs(service), sluicio)
+}
+
+// HashSpanAttribute replaces one attribute's value on a service's spans
+// with its SHA-256, so equal values still match while the readable value
+// is not stored. Pseudonymous, not anonymous: a value from a small or
+// guessable set (a national ID number, an email address) can be found
+// again by hashing candidates.
+func HashSpanAttribute(config, transformType, service, key string, sluicio SluicioExporter) (FilterChange, error) {
+	a := "attributes[" + ottlString(key) + "]"
+	return AddSpanStatement(config, transformType, "set("+a+", SHA256("+a+")) where "+serviceIs(service)+" and "+a+" != nil", sluicio)
+}
+
 // AddFilter adds condition to the Advisor's filter processor (filterType
 // is the version's name for it) for sig, and the processor to every
 // pipeline of sig that sends only to Sluicio. config is the
 // configuration as written; a masked one stays masked. Nothing else in
 // it changes.
 func AddFilter(config, filterType string, sig FilterSignal, condition string, sluicio SluicioExporter) (FilterChange, error) {
+	return applyProcessor(config, filterType+"/"+AdvisorProcessorName, sig.Pipeline, sluicio, func(proc *yaml.Node) bool {
+		section := mapGet(proc, sig.Section)
+		if section == nil {
+			section = &yaml.Node{Kind: yaml.MappingNode}
+			setKey(proc, sig.Section, section)
+		}
+		conds := mapGet(section, sig.Context)
+		if conds == nil || conds.Kind != yaml.SequenceNode {
+			conds = &yaml.Node{Kind: yaml.SequenceNode}
+			mapSet(section, sig.Context, conds)
+		}
+		return addUnique(conds, condition)
+	})
+}
+
+// AddSpanStatement adds an OTTL statement in the span context to the
+// Advisor's transform processor (transformType is the version's name for
+// it), and the processor to every traces pipeline that sends only to
+// Sluicio. A statement only ever changes attributes: spans are never
+// dropped, so an integration's messages stay complete.
+func AddSpanStatement(config, transformType, statement string, sluicio SluicioExporter) (FilterChange, error) {
+	return applyProcessor(config, transformType+"/"+AdvisorProcessorName, "traces", sluicio, func(proc *yaml.Node) bool {
+		groups := mapGet(proc, "trace_statements")
+		if groups == nil || groups.Kind != yaml.SequenceNode {
+			groups = &yaml.Node{Kind: yaml.SequenceNode}
+			mapSet(proc, "trace_statements", groups)
+		}
+		var span *yaml.Node
+		for _, g := range groups.Content {
+			if c := mapGet(g, "context"); c != nil && c.Value == "span" {
+				span = g
+			}
+		}
+		if span == nil {
+			span = &yaml.Node{Kind: yaml.MappingNode}
+			setKey(span, "context", scalar("span"))
+			setKey(span, "statements", &yaml.Node{Kind: yaml.SequenceNode})
+			groups.Content = append(groups.Content, span)
+		}
+		stmts := mapGet(span, "statements")
+		if stmts == nil || stmts.Kind != yaml.SequenceNode {
+			stmts = &yaml.Node{Kind: yaml.SequenceNode}
+			mapSet(span, "statements", stmts)
+		}
+		return addUnique(stmts, statement)
+	})
+}
+
+// addUnique appends v as a single-quoted item unless the list has it, and
+// says whether it was there already.
+func addUnique(list *yaml.Node, v string) bool {
+	for _, c := range list.Content {
+		if c.Value == v {
+			return true
+		}
+	}
+	list.Content = append(list.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: v, Style: yaml.SingleQuotedStyle})
+	return false
+}
+
+// applyProcessor is the part every Advisor change shares: find the
+// pipelines of pipelineType that send to Sluicio alone, let add put the
+// change into the processor procID (made with error_mode: ignore when
+// missing; add reports whether the change was there already), and put
+// the processor into those pipelines.
+func applyProcessor(config, procID, pipelineType string, sluicio SluicioExporter, add func(proc *yaml.Node) bool) (FilterChange, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal([]byte(config), &doc); err != nil {
 		return FilterChange{}, fmt.Errorf("the configuration is not YAML: %w", err)
@@ -133,13 +227,12 @@ func AddFilter(config, filterType string, sig FilterSignal, condition string, sl
 		return FilterChange{}, errors.New("the configuration has no service pipelines")
 	}
 	exporters := mapGet(root, "exporters")
-	procID := filterType + "/" + AdvisorProcessorName
 
 	out := FilterChange{Changed: []string{}, Skipped: []PipelineSkip{}}
 	var eligible []*yaml.Node
 	for i := 0; i+1 < len(pipelines.Content); i += 2 {
 		name, p := pipelines.Content[i].Value, pipelines.Content[i+1]
-		if name != sig.Pipeline && !strings.HasPrefix(name, sig.Pipeline+"/") {
+		if name != pipelineType && !strings.HasPrefix(name, pipelineType+"/") {
 			continue
 		}
 		toSluicio, elsewhere := 0, []string{}
@@ -154,7 +247,7 @@ func AddFilter(config, filterType string, sig FilterSignal, condition string, sl
 		case toSluicio == 0:
 			out.Skipped = append(out.Skipped, PipelineSkip{name, "does not send to Sluicio"})
 		case len(elsewhere) > 0:
-			out.Skipped = append(out.Skipped, PipelineSkip{name, "also sends to " + strings.Join(elsewhere, ", ") + ", which would lose the data too"})
+			out.Skipped = append(out.Skipped, PipelineSkip{name, "also sends to " + strings.Join(elsewhere, ", ") + ", which would get the change too"})
 		default:
 			eligible = append(eligible, p)
 			out.Changed = append(out.Changed, name)
@@ -164,7 +257,7 @@ func AddFilter(config, filterType string, sig FilterSignal, condition string, sl
 		return out, nil
 	}
 
-	// The processor: one per collector, one condition per metric.
+	// The processor: one of each kind per collector, every change in it.
 	processors := mapGet(root, "processors")
 	if processors == nil {
 		processors = &yaml.Node{Kind: yaml.MappingNode}
@@ -176,28 +269,10 @@ func AddFilter(config, filterType string, sig FilterSignal, condition string, sl
 		setKey(proc, "error_mode", scalar("ignore"))
 		mapSet(processors, procID, proc)
 	}
-	section := mapGet(proc, sig.Section)
-	if section == nil {
-		section = &yaml.Node{Kind: yaml.MappingNode}
-		setKey(proc, sig.Section, section)
-	}
-	conds := mapGet(section, sig.Context)
-	if conds == nil || conds.Kind != yaml.SequenceNode {
-		conds = &yaml.Node{Kind: yaml.SequenceNode}
-		mapSet(section, sig.Context, conds)
-	}
-	have := false
-	for _, c := range conds.Content {
-		if c.Value == condition {
-			have = true
-		}
-	}
-	if !have {
-		conds.Content = append(conds.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: condition, Style: yaml.SingleQuotedStyle})
-	}
+	have := add(proc)
 
-	// Into each pipeline, early: dropped before anything spends work on
-	// it, but after a memory_limiter, which belongs first.
+	// Into each pipeline, early: before anything spends work on the
+	// data, but after a memory_limiter, which belongs first.
 	added := false
 	for _, p := range eligible {
 		list := mapGet(p, "processors")

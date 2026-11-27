@@ -31,20 +31,63 @@ import (
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/collectorversion"
 )
 
-// adviceFor is what a suggestion asks a collector to drop, for the
+// adviceFor is what a suggestion asks a collector to change, for the
 // classes that can be turned into a collector change: an unused metric
-// (T1) and a service's unread logs below a severity (T2).
-func adviceFor(s advisor.Suggestion) (collectors.AdvisorTarget, bool) {
+// (T1), a service's unread logs below a severity (T2), an unread
+// attribute (T3), echoed request metadata (T5) and personal-data-shaped
+// values (T6, hashed). A high-cardinality attribute (T4) is not one: the
+// Advisor flags it for review because it is often the useful key, and a
+// button that deletes it would say the opposite.
+func adviceFor(s advisor.Suggestion) (collectors.AdvisorTarget, error) {
+	// Attribute findings name service and key in the fingerprint
+	// (T3|attr|<service>|<key>); scope_id joins them with a dot that
+	// either may contain.
+	parts := strings.SplitN(s.Fingerprint, "|", 4)
+	svc, key := "", ""
+	if len(parts) == 4 {
+		svc, key = parts[2], parts[3]
+	}
 	switch {
 	case s.Class == "T1" && s.ScopeKind == "metric" && s.ScopeID != "":
-		return collectors.AdvisorTarget{Metric: s.ScopeID}, true
+		return collectors.AdvisorTarget{Metric: s.ScopeID}, nil
 	case s.Class == "T2" && s.ScopeKind == "service" && s.ScopeID != "":
 		band, _ := s.Evidence["severity_band"].(string)
 		if floor, ok := advisor.FloorForBand(band); ok {
-			return collectors.AdvisorTarget{Service: s.ScopeID, Below: floor}, true
+			return collectors.AdvisorTarget{Service: s.ScopeID, Below: floor}, nil
 		}
+	case s.Class == "T3" && svc != "" && key != "":
+		return collectors.AdvisorTarget{Service: svc, Attribute: key}, nil
+	case s.Class == "T5" && svc != "" && key != "":
+		return collectors.AdvisorTarget{Service: svc, Attribute: key, Prefix: true}, nil
+	case s.Class == "T6" && svc != "" && key != "":
+		referenced, known := s.Evidence["referenced_by_config"].(bool)
+		if !known {
+			return collectors.AdvisorTarget{}, errors.New("run the Advisor again first: this finding predates the check for whether Sluicio's own configuration reads the attribute")
+		}
+		if referenced {
+			return collectors.AdvisorTarget{}, errors.New("Sluicio's own configuration (a matcher, facet or rule) reads this attribute, and hashing it would break that; change that configuration first, or handle the attribute at its source")
+		}
+		return collectors.AdvisorTarget{Service: svc, Attribute: key, Hash: true}, nil
+	case s.Class == "T4":
+		return collectors.AdvisorTarget{}, errors.New("a high-cardinality attribute is flagged for review, not removal: it is often the key you search by; if it is not needed, remove it at its source or with the snippet")
 	}
-	return collectors.AdvisorTarget{}, false
+	return collectors.AdvisorTarget{}, errors.New("this suggestion cannot be applied to a collector")
+}
+
+// subjectOf names what an Advisor change acts on, for its measured effect.
+func subjectOf(t collectors.AdvisorTarget) string {
+	switch {
+	case t.Metric != "":
+		return t.Metric
+	case t.Below != "":
+		return t.Service + "'s logs below " + t.Below
+	case t.Hash:
+		return `unhashed "` + t.Attribute + `" values on ` + t.Service + "'s spans"
+	case t.Prefix:
+		return `"` + t.Attribute + `*" on ` + t.Service + "'s spans"
+	default:
+		return `"` + t.Attribute + `" on ` + t.Service + "'s spans"
+	}
 }
 
 // severityNumbers are the OTTL severities a T2 change drops below, as
@@ -72,8 +115,8 @@ func (h *Handlers) collectorSuggestion(w http.ResponseWriter, r *http.Request, r
 		httpserver.WriteError(w, http.StatusInternalServerError, "query failed")
 		return advisor.Suggestion{}, false
 	}
-	if _, ok := adviceFor(s); !ok {
-		httpserver.WriteError(w, http.StatusConflict, "this suggestion cannot be applied to a collector yet; only unused metrics and unread logs can")
+	if _, err := adviceFor(s); err != nil {
+		httpserver.WriteError(w, http.StatusConflict, err.Error())
 		return advisor.Suggestion{}, false
 	}
 	if s.State == "dismissed" {
@@ -130,19 +173,32 @@ func (h *Handlers) adviseCollector(r *http.Request, s advisor.Suggestion, c coll
 	if v := strings.TrimPrefix(c.Description["service.version"], "v"); collectorversion.Valid(v) {
 		target.Version = v
 	}
-	filter, err := collectorversion.Name(collectorversion.FilterProcessor, target)
+	t, _ := adviceFor(s)
+	component, signal := collectorversion.FilterProcessor, "metrics"
+	switch {
+	case t.Below != "":
+		signal = "logs"
+	case t.Attribute != "":
+		component, signal = collectorversion.TransformProcessor, "traces"
+	}
+	proc, err := collectorversion.Name(component, target)
 	if err != nil {
 		out.Unavailable = err.Error()
 		return out
 	}
-	t, _ := adviceFor(s)
+	sl := h.sluicioExporter(r)
 	var drop collectors.FilterChange
-	signal := "metrics"
-	if t.Metric != "" {
-		drop, err = collectors.DropMetric(masked, filter, t.Metric, h.sluicioExporter(r))
-	} else {
-		signal = "logs"
-		drop, err = collectors.DropLogsBelow(masked, filter, t.Service, "SEVERITY_NUMBER_"+t.Below, h.sluicioExporter(r))
+	switch {
+	case t.Metric != "":
+		drop, err = collectors.DropMetric(masked, proc, t.Metric, sl)
+	case t.Below != "":
+		drop, err = collectors.DropLogsBelow(masked, proc, t.Service, "SEVERITY_NUMBER_"+t.Below, sl)
+	case t.Hash:
+		drop, err = collectors.HashSpanAttribute(masked, proc, t.Service, t.Attribute, sl)
+	case t.Prefix:
+		drop, err = collectors.DeleteSpanAttributePrefix(masked, proc, t.Service, t.Attribute, sl)
+	default:
+		drop, err = collectors.DeleteSpanAttribute(masked, proc, t.Service, t.Attribute, sl)
 	}
 	if err != nil {
 		out.Unavailable = err.Error()
@@ -240,14 +296,11 @@ func (h *Handlers) collectorDeploymentEffect(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	t := d.AdvisorTarget
-	if t == nil || (t.Metric == "" && (t.Service == "" || severityNumbers[t.Below] == 0)) {
+	if t == nil || (t.Metric == "" && (t.Service == "" || (t.Attribute == "" && severityNumbers[t.Below] == 0))) {
 		httpserver.WriteError(w, http.StatusConflict, "only a change made from an Advisor suggestion has a measured effect")
 		return
 	}
-	subject := t.Metric
-	if subject == "" {
-		subject = t.Service + "'s logs below " + t.Below
-	}
+	subject := subjectOf(*t)
 	if d.Status != collectors.DeploymentApplied || d.FinishedAt == nil {
 		httpserver.WriteJSON(w, http.StatusOK, map[string]any{"subject": subject, "applied": false})
 		return
@@ -257,10 +310,14 @@ func (h *Handlers) collectorDeploymentEffect(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	var e advisor.Effect
-	if t.Metric != "" {
-		e, err = advisor.MeasureMetric(r.Context(), h.ClickHouseConn, middleware.OrgID(r), t.Metric, *d.FinishedAt, time.Now())
-	} else {
-		e, err = advisor.MeasureLogs(r.Context(), h.ClickHouseConn, middleware.OrgID(r), t.Service, severityNumbers[t.Below], *d.FinishedAt, time.Now())
+	org, at, now := middleware.OrgID(r), *d.FinishedAt, time.Now()
+	switch {
+	case t.Metric != "":
+		e, err = advisor.MeasureMetric(r.Context(), h.ClickHouseConn, org, t.Metric, at, now)
+	case t.Below != "":
+		e, err = advisor.MeasureLogs(r.Context(), h.ClickHouseConn, org, t.Service, severityNumbers[t.Below], at, now)
+	default:
+		e, err = advisor.MeasureSpans(r.Context(), h.ClickHouseConn, org, t.Service, t.Attribute, t.Prefix, t.Hash, at, now)
 	}
 	if err != nil {
 		h.Logger.Error("measure collector change failed", "err", err)

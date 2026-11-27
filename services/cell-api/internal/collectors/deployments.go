@@ -64,14 +64,21 @@ type Deployment struct {
 	FinishedAt          *time.Time     `json:"finished_at,omitempty"`
 }
 
-// AdvisorTarget is what an Advisor change drops: a metric (T1), or one
-// service's log records below a severity (T2).
+// AdvisorTarget is what an Advisor change drops or changes: a metric
+// (T1), one service's log records below a severity (T2), or an attribute
+// on one service's spans (T3 and T5 delete it, T6 hashes its value).
 type AdvisorTarget struct {
 	Metric  string `json:"metric,omitempty"`
 	Service string `json:"service,omitempty"`
 	// Below is the OTTL severity the records are dropped below: INFO or
 	// WARN.
 	Below string `json:"below,omitempty"`
+	// Attribute is a span attribute's key, or with Prefix set the start
+	// of a family of keys.
+	Attribute string `json:"attribute,omitempty"`
+	Prefix    bool   `json:"prefix,omitempty"`
+	// Hash: the value is hashed rather than the key deleted.
+	Hash bool `json:"hash,omitempty"`
 }
 
 // NewDeployment is what a push stores. Body is the configuration as it

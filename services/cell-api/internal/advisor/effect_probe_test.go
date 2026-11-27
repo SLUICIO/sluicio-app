@@ -117,3 +117,38 @@ func TestMeasureAppliedChangeProbe(t *testing.T) {
 		}
 	}
 }
+
+// Span attributes, with ADVISOR_PROBE_SPAN_SERVICE and
+// ADVISOR_PROBE_SPAN_APPLIED (a moment between spans sent before and
+// after a change that deleted debug.blob and the http.request.header.*
+// family and hashed customer.email): each must be present before and
+// gone after.
+func TestMeasureSpansProbe(t *testing.T) {
+	addr, svc := os.Getenv("ADVISOR_PROBE_CH"), os.Getenv("ADVISOR_PROBE_SPAN_SERVICE")
+	org, err := uuid.Parse(os.Getenv("ADVISOR_PROBE_ORG"))
+	applied, terr := time.Parse(time.RFC3339, os.Getenv("ADVISOR_PROBE_SPAN_APPLIED"))
+	if addr == "" || svc == "" || err != nil || terr != nil {
+		t.Skip("set ADVISOR_PROBE_CH, ADVISOR_PROBE_ORG, ADVISOR_PROBE_SPAN_SERVICE and ADVISOR_PROBE_SPAN_APPLIED")
+	}
+	conn, err := clickhouse.Open(&clickhouse.Options{
+		Addr: []string{addr},
+		Auth: clickhouse.Auth{Database: "telemetry", Username: os.Getenv("ADVISOR_PROBE_CH_USER"), Password: os.Getenv("ADVISOR_PROBE_CH_PASS")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := applied.Add(20 * time.Minute)
+	for _, c := range []struct {
+		key          string
+		prefix, hash bool
+	}{{"debug.blob", false, false}, {"http.request.header.", true, false}, {"customer.email", false, true}} {
+		e, err := MeasureSpans(context.Background(), conn, org, svc, c.key, c.prefix, c.hash, applied, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("%s (prefix %v, hash %v): %d spans before, %d after", c.key, c.prefix, c.hash, e.Before.Rows, e.After.Rows)
+		if e.Before.Rows == 0 || e.After.Rows != 0 {
+			t.Errorf("%s: before %d, after %d; want some, then none", c.key, e.Before.Rows, e.After.Rows)
+		}
+	}
+}

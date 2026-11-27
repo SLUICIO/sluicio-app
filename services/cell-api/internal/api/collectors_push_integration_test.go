@@ -397,7 +397,7 @@ func TestAdvisorSuggestionToCollector(t *testing.T) {
 	gw := observe("gw", sup)
 	other := observe("other", sup)
 	readOnly := observe("ro", ext)
-	written := "receivers:\n  host_metrics:\n    scrapers:\n      load: {}\n  otlp:\n    protocols:\n      http: {}\nexporters:\n  otlp_http/sluicio:\n    endpoint: https://ingest.example.test\n    headers:\n      authorization: Bearer real-secret\n  debug: {}\nservice:\n  pipelines:\n    metrics:\n      receivers: [host_metrics]\n      exporters: [otlp_http/sluicio]\n    logs:\n      receivers: [otlp]\n      exporters: [otlp_http/sluicio]\n"
+	written := "receivers:\n  host_metrics:\n    scrapers:\n      load: {}\n  otlp:\n    protocols:\n      http: {}\nexporters:\n  otlp_http/sluicio:\n    endpoint: https://ingest.example.test\n    headers:\n      authorization: Bearer real-secret\n  debug: {}\nservice:\n  pipelines:\n    metrics:\n      receivers: [host_metrics]\n      exporters: [otlp_http/sluicio]\n    logs:\n      receivers: [otlp]\n      exporters: [otlp_http/sluicio]\n    traces:\n      receivers: [otlp]\n      exporters: [otlp_http/sluicio]\n"
 	if _, err := store.RecordConfig(ctx, gw, []collectors.ConfigFile{{Body: "effective: {}"}, {Name: collectors.RawConfigFile, Body: written}}); err != nil {
 		t.Fatal(err)
 	}
@@ -412,13 +412,28 @@ func TestAdvisorSuggestionToCollector(t *testing.T) {
 	if err := adv.Upsert(ctx, org.ID, advisor.Suggestion{Fingerprint: "T2|log|orders-api|DEBUG", Class: "T2", Advisor: "telemetry", ScopeKind: "service", ScopeID: "orders-api", Title: "Nobody has opened orders-api's DEBUG logs", Evidence: map[string]any{"severity_band": "DEBUG"}, Weight: 1}); err != nil {
 		t.Fatal(err)
 	}
-	if err := adv.Upsert(ctx, org.ID, advisor.Suggestion{Fingerprint: "T3|attr|svc|k", Class: "T3", Advisor: "telemetry", ScopeKind: "attribute", ScopeID: "k", Title: "attr", Evidence: map[string]any{}, Weight: 1}); err != nil {
-		t.Fatal(err)
+	for _, sg := range []advisor.Suggestion{
+		{Fingerprint: "T3|attr|orders-api|debug.blob", Class: "T3", ScopeKind: "attribute", ScopeID: "orders-api.debug.blob", Title: "dead weight"},
+		{Fingerprint: "T4|attr|orders-api|order.id", Class: "T4", ScopeKind: "attribute", ScopeID: "orders-api.order.id", Title: "high cardinality"},
+		{Fingerprint: "T6|pii|orders-api|customer.email", Class: "T6", ScopeKind: "attribute", ScopeID: "orders-api.customer.email", Title: "pii", Evidence: map[string]any{"referenced_by_config": false}},
+		{Fingerprint: "T6|pii|orders-api|customer.id", Class: "T6", ScopeKind: "attribute", ScopeID: "orders-api.customer.id", Title: "pii referenced", Evidence: map[string]any{"referenced_by_config": true}},
+	} {
+		sg.Advisor, sg.Weight = "telemetry", 1
+		if sg.Evidence == nil {
+			sg.Evidence = map[string]any{}
+		}
+		if err := adv.Upsert(ctx, org.ID, sg); err != nil {
+			t.Fatal(err)
+		}
 	}
 	open, _ := adv.List(ctx, org.ID, "telemetry", "open", 10)
 	ids := map[string]string{}
 	for _, s := range open {
-		ids[s.Class] = s.ID.String()
+		if s.Title == "pii referenced" {
+			ids["T6ref"] = s.ID.String()
+		} else {
+			ids[s.Class] = s.ID.String()
+		}
 	}
 
 	session := func(email string, role identity.Role, teamRole identity.Role) string {
@@ -449,8 +464,24 @@ func TestAdvisorSuggestionToCollector(t *testing.T) {
 	}
 	base := "/api/v1/advisor/suggestions/" + ids["T1"] + "/collectors"
 
-	if code, _ := do(admin, "GET", "/api/v1/advisor/suggestions/"+ids["T3"]+"/collectors", nil); code != http.StatusConflict {
-		t.Errorf("an attribute suggestion: %d, want 409 (metrics and logs only)", code)
+	// High cardinality is for review, and a key Sluicio's own
+	// configuration reads is never hashed from here.
+	for _, c := range []string{"T4", "T6ref"} {
+		if code, out := do(admin, "GET", "/api/v1/advisor/suggestions/"+ids[c]+"/collectors", nil); code != http.StatusConflict {
+			t.Errorf("%s: %d %v, want 409", c, code, out)
+		}
+	}
+	// Attributes: a statement on the service's spans in the traces
+	// pipeline; the spans themselves are never dropped.
+	for c, want := range map[string]string{
+		"T3": `delete_key(attributes, "debug.blob") where resource.attributes["service.name"] == "orders-api"`,
+		"T6": `set(attributes["customer.email"], SHA256(attributes["customer.email"]))`,
+	} {
+		code, out := do(admin, "GET", "/api/v1/advisor/suggestions/"+ids[c]+"/collectors/"+gw.String(), nil)
+		cfg, _ := out["config"].(string)
+		if code != 200 || !strings.Contains(cfg, want) || !strings.Contains(cfg, "transform/sluicio-advisor") {
+			t.Fatalf("%s preview: %d %v", c, code, out)
+		}
 	}
 	// Unread logs: the floor goes into the logs pipeline, records without
 	// a severity kept.

@@ -73,6 +73,25 @@ func MeasureLogs(ctx context.Context, conn driver.Conn, orgID uuid.UUID, service
 		  AND Timestamp >= ? AND Timestamp < ?`, orgID.String(), service, below)
 }
 
+// MeasureSpans measures one service's spans that still carry what a
+// change removes: the attribute key, every key starting with it when
+// prefix is set, or with hash set the key holding a value that is not a
+// SHA-256 hash yet.
+func MeasureSpans(ctx context.Context, conn driver.Conn, orgID uuid.UUID, service, key string, prefix, hash bool, appliedAt, now time.Time) (Effect, error) {
+	cond, args := `mapContains(SpanAttributes, ?)`, []any{key}
+	switch {
+	case prefix:
+		cond = `arrayExists(k -> startsWith(k, ?), mapKeys(SpanAttributes))`
+	case hash:
+		cond, args = `mapContains(SpanAttributes, ?) AND NOT match(SpanAttributes[?], '^[0-9a-f]{64}$')`, []any{key, key}
+	}
+	return measure(ctx, conn, appliedAt, now, `
+		SELECT countIf(Timestamp < ?), countIf(Timestamp >= ?)
+		FROM traces
+		WHERE OrganizationId = ? AND ServiceName = ? AND `+cond+`
+		  AND Timestamp >= ? AND Timestamp < ?`, append([]any{orgID.String(), service}, args...)...)
+}
+
 // measure runs query, which counts rows before and after its first two
 // arguments (appliedAt) within its last two (the windows' outer bounds),
 // with args between.

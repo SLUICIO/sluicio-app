@@ -187,3 +187,59 @@ service:
 		t.Fatalf("one processor for both:\n%s", both.Config)
 	}
 }
+
+func TestSpanAttributeChanges(t *testing.T) {
+	cfg := `receivers:
+  otlp:
+    protocols:
+      http: {}
+exporters:
+  otlp_http/sluicio:
+    endpoint: https://ingest.example.test
+  otlp/apm:
+    endpoint: apm.internal:4317
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [otlp_http/sluicio]
+    traces/apm:
+      receivers: [otlp]
+      exporters: [otlp/apm]
+`
+	sl := SluicioExporter{}
+	a, err := DeleteSpanAttribute(cfg, "transform", "attr-effect-test", "debug.blob", sl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(a.Changed, ",") != "traces" || len(a.Skipped) != 1 || a.Skipped[0].Pipeline != "traces/apm" {
+		t.Fatalf("changed %v skipped %v", a.Changed, a.Skipped)
+	}
+	b, err := DeleteSpanAttributePrefix(a.Config, "transform", "attr-effect-test", "http.request.header.", sl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := HashSpanAttribute(b.Config, "transform", "attr-effect-test", "customer.email", sl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The statements exactly as a collector 0.166.0 ran them: debug.blob
+	// and both header keys gone, the email hashed, order.id kept.
+	svc := `resource.attributes["service.name"] == "attr-effect-test"`
+	for _, want := range []string{
+		`- 'delete_key(attributes, "debug.blob") where ` + svc + `'`,
+		`- 'delete_matching_keys(attributes, "^http\\.request\\.header\\.") where ` + svc + `'`,
+		`- 'set(attributes["customer.email"], SHA256(attributes["customer.email"])) where ` + svc + ` and attributes["customer.email"] != nil'`,
+	} {
+		if !strings.Contains(c.Config, want) {
+			t.Errorf("missing %s in:\n%s", want, c.Config)
+		}
+	}
+	if strings.Count(c.Config, "context: span") != 1 || strings.Count(c.Config, "transform/sluicio-advisor:") != 1 {
+		t.Fatalf("one processor, one span group:\n%s", c.Config)
+	}
+	again, _ := HashSpanAttribute(c.Config, "transform", "attr-effect-test", "customer.email", sl)
+	if !again.AlreadyDropped {
+		t.Fatal("the same change twice was not recognised")
+	}
+}

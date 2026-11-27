@@ -15,10 +15,9 @@
 // Accepting records a decision and leaves a paper trail; the operator
 // still has to paste the snippet, so the card says "accepted", and only a
 // later evaluation that stops finding the problem promotes it to
-// "verified". With collector management on, an unused metric or unread
-// logs can instead be applied to a supervisor-run collector: that becomes
-// a change the collector's team approves, never a change made from here
-// directly.
+// "verified". With collector management on, most findings can instead be
+// applied to a supervisor-run collector: that becomes a change the
+// collector's team approves, never a change made from here directly.
 
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api/client";
@@ -44,6 +43,8 @@ const CLASS_LABEL: Record<string, string> = {
   F4: "Reaches nobody",
   F5: "Duplicate rules",
 };
+
+const APPLICABLE_CLASSES = new Set(["T1", "T2", "T3", "T5", "T6"]);
 
 export default function AdvisorPanel() {
   const [tab, setTab] = useState<Tab>("telemetry");
@@ -221,10 +222,15 @@ function SuggestionCard({
   const [copied, setCopied] = useState(false);
   const [applying, setApplying] = useState(false);
   const { collectorsEnabled } = useCurrentUser();
-  // Unused metrics and unread logs can be applied to a collector; the
-  // other classes not yet.
+  // What can be applied to a collector. Not T4: a high-cardinality key
+  // is flagged for review, often the one you search by, and a button
+  // that removes it would say the opposite. Not a T6 whose key Sluicio's
+  // own configuration reads: hashing it would break that.
   const applicable =
-    collectorsEnabled && (s.class === "T1" || s.class === "T2") && s.state !== "dismissed";
+    collectorsEnabled &&
+    APPLICABLE_CLASSES.has(s.class) &&
+    !(s.class === "T6" && s.evidence?.referenced_by_config !== false) &&
+    s.state !== "dismissed";
   const decided = s.state !== "open";
   const compliance = s.evidence?.compliance === true;
 
@@ -350,7 +356,7 @@ function Evidence({ evidence }: { evidence: Record<string, unknown> }) {
             {k.replace(/_/g, " ")}:{" "}
           </dt>
           <dd style={{ display: "inline", margin: 0 }}>
-            {Array.isArray(v) ? v.join(", ") : String(v)}
+            {Array.isArray(v) ? v.join(", ") : typeof v === "boolean" ? (v ? "yes" : "no") : String(v)}
           </dd>
         </div>
       ))}
