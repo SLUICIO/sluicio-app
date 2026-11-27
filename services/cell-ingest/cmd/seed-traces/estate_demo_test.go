@@ -9,6 +9,7 @@ package main
 
 import (
 	mrand "math/rand"
+	"strings"
 	"testing"
 
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
@@ -82,6 +83,21 @@ func TestDemoEstateShape(t *testing.T) {
 			}
 			if len(hops) != 3 {
 				t.Fatalf("hops: %v", hops)
+			}
+			// One payload link where the file came in and one per branch:
+			// a message carries several, the case the list's "+N" is for.
+			links := map[string]bool{}
+			for _, ss := range inv {
+				for _, sp := range ss.spans {
+					if v := attr(sp.Attributes, "io.payload.url"); v != "" {
+						links[ss.serviceName] = strings.HasPrefix(v, "https://")
+					}
+				}
+			}
+			for _, svc := range []string{"invoice-intake", "erp-invoice-adapter", "invoice-archiver"} {
+				if !links[svc] {
+					t.Fatalf("no payload link from %s: %v", svc, links)
+				}
 			}
 			if failed(inv) {
 				erpRejected++

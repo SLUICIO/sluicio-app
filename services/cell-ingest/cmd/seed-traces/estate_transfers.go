@@ -18,6 +18,10 @@
 // One trace per file: the transfer, the pickup at the source, the
 // delivery at the target and, on success, the checksum check. The pickup
 // and delivery carry io.* attributes, so the flow reads source to target.
+// Both record where the file is kept in the MFT archive, so each message
+// has two payload links, one received and one sent: as a full address in
+// io.payload.url, or for mft-supplier-to-ap as a path within the archive
+// in archive.path, which becomes a link once a base URL is configured.
 // Failures are seeded where a file move really fails, each with an
 // exception event: the source file is locked, the target refuses the
 // connection or the upload, or the checksum after delivery does not match.
@@ -48,7 +52,13 @@ type fileTransfer struct {
 	// file is the file name for one transfer; %s is a running reference.
 	file   string
 	sizeKB [2]int // smallest, and the spread above it
+	// archivePath records the archive location as a path in archive.path
+	// rather than as a full address in io.payload.url.
+	archivePath bool
 }
+
+// transferArchive is the MFT tool's archive of every file it moved.
+const transferArchive = "https://mft-archive.example.com/files"
 
 var defaultTransfers = []fileTransfer{
 	{
@@ -74,6 +84,7 @@ var defaultTransfers = []fileTransfer{
 		from:    transferEnd{"Supplier", "sftp", "sftp.supplier.example.com/outbound/invoices"},
 		to:      transferEnd{"Accounts payable", "azure-blob", "apinvoices/incoming"},
 		file:    "INV_%s.pdf", sizeKB: [2]int{40, 400},
+		archivePath: true,
 	},
 	{
 		service: "mft-hr-to-payroll",
@@ -157,6 +168,14 @@ func (ft fileTransfer) scenario(rng *mrand.Rand) []serviceSpans {
 	attrs := func(extra ...*commonpb.KeyValue) []*commonpb.KeyValue {
 		return append(append([]*commonpb.KeyValue{}, common...), extra...)
 	}
+	// The archived copy of the file on each side of the move.
+	payload := func(side string) *commonpb.KeyValue {
+		path := ft.service + "/" + ref[:8] + "/" + side + "/" + file
+		if ft.archivePath {
+			return stringAttr("archive.path", path)
+		}
+		return stringAttr("io.payload.url", transferArchive+"/"+path)
+	}
 
 	rootID, pickupID, deliverID := randomID(8), randomID(8), randomID(8)
 	end := time.Now().UTC()
@@ -170,7 +189,7 @@ func (ft fileTransfer) scenario(rng *mrand.Rand) []serviceSpans {
 
 	root := spanAt(traceID, rootID, nil, "transfer "+ft.from.system+" to "+ft.to.system, tracepb.Span_SPAN_KIND_INTERNAL, start, end, attrs())
 	pickup := spanAt(traceID, pickupID, rootID, "pickup "+file, tracepb.Span_SPAN_KIND_CLIENT, pickupStart, pickupEnd,
-		attrs(ioAttrs("input", "file", ft.from.protocol, ft.from.location+"/"+file)...))
+		attrs(append(ioAttrs("input", "file", ft.from.protocol, ft.from.location+"/"+file), payload("received"))...))
 	out := serviceSpans{serviceName: ft.service, serviceNamespace: "production", environment: "production", spans: []*tracepb.Span{root, pickup}}
 	failRoot := func(msg string) { root.Status = &tracepb.Status{Code: tracepb.Status_STATUS_CODE_ERROR, Message: msg} }
 
@@ -185,7 +204,7 @@ func (ft fileTransfer) scenario(rng *mrand.Rand) []serviceSpans {
 	}
 
 	deliver := spanAt(traceID, deliverID, rootID, "deliver "+file, tracepb.Span_SPAN_KIND_CLIENT, deliverStart, deliverEnd,
-		attrs(ioAttrs("output", "file", ft.to.protocol, ft.to.location+"/"+file)...))
+		attrs(append(ioAttrs("output", "file", ft.to.protocol, ft.to.location+"/"+file), payload("sent"))...))
 	out.spans = append(out.spans, deliver)
 	if roll < transferSourceLocked+transferTargetDown {
 		msg := fmt.Sprintf("Could not deliver %s to %s: connection to %s timed out after 30 s", file, ft.to.system, hostOf(ft.to.location))

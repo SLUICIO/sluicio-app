@@ -179,6 +179,8 @@ func invoiceDistributionScenario(rng *mrand.Rand) []serviceSpans {
 			stringAttr("file.name", fileName),
 			intAttr("file.size", int64(4096+rng.Intn(60000))),
 			stringAttr("invoice.id", invoiceID),
+			// Where the received file is kept: a payload link (io.payload.url).
+			stringAttr("io.payload.url", "https://files.example.com/supplier/received/"+fileName),
 		}, ioAttrs("input", "file", "sftp", "sftp.supplier.example.com/outbound/"+fileName)...))
 	publishA := spanAt(traceID, publishID, pickupID, "invoices.received publish", tracepb.Span_SPAN_KIND_PRODUCER, publishStart, publishEnd,
 		append([]*commonpb.KeyValue{
@@ -245,6 +247,9 @@ func invoiceDistributionScenario(rng *mrand.Rand) []serviceSpans {
 			stringAttr("url.full", "https://erp.example.com/api/supplierinvoices"),
 			stringAttr("server.address", "erp.example.com"),
 			stringAttr("invoice.id", invoiceID),
+			// Each branch records its own payload, so a message carries
+			// three links: received, posted to the ERP, archived.
+			stringAttr("io.payload.url", "https://erp.example.com/supplierinvoices/"+invoiceID),
 		}, ioAttrs("output", "http", "https", "erp.example.com/api/supplierinvoices")...))
 	status := int64(201)
 	if rng.Float64() < 0.05 {
@@ -271,6 +276,7 @@ func invoiceDistributionScenario(rng *mrand.Rand) []serviceSpans {
 		append([]*commonpb.KeyValue{
 			stringAttr("file.name", fileName),
 			stringAttr("invoice.id", invoiceID),
+			stringAttr("io.payload.url", "https://blob.example.com/archive/invoices/"+fileName),
 		}, ioAttrs("output", "file", "azure-blob", "archive/invoices/"+fileName)...))
 
 	return []serviceSpans{

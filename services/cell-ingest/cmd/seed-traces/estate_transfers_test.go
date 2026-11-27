@@ -75,6 +75,21 @@ func TestTransfersEstateShape(t *testing.T) {
 			if attr(root.Attributes, "transfer.source") != ft.from.system || attr(root.Attributes, "transfer.target") != ft.to.system {
 				t.Fatalf("%s: root names %q to %q", ft.service, attr(root.Attributes, "transfer.source"), attr(root.Attributes, "transfer.target"))
 			}
+			// Every side of a move records its archived copy: a full
+			// address, or a path for the transfer that uses archive.path.
+			link := func(sp *tracepb.Span, side string) {
+				key, want := "io.payload.url", transferArchive+"/"+ft.service+"/"
+				if ft.archivePath {
+					key, want = "archive.path", ft.service+"/"
+				}
+				if v := attr(sp.Attributes, key); !strings.HasPrefix(v, want) || !strings.HasSuffix(v, "/"+side+"/"+attr(root.Attributes, "file.name")) {
+					t.Fatalf("%s: %s payload %s = %q", ft.service, side, key, v)
+				}
+			}
+			link(pickup, "received")
+			if deliver != nil {
+				link(deliver, "sent")
+			}
 			if failed == "SourceFileLockedException" {
 				if deliver != nil {
 					t.Fatalf("%s: a file that could not be read was delivered", ft.service)
@@ -89,6 +104,15 @@ func TestTransfersEstateShape(t *testing.T) {
 				failures[ft.service+"/"+failed]++
 			}
 		}
+	}
+	paths := 0
+	for _, ft := range defaultTransfers {
+		if ft.archivePath {
+			paths++
+		}
+	}
+	if paths != 1 {
+		t.Errorf("%d transfers record archive.path; one shows a base-URL link", paths)
 	}
 	for _, ft := range defaultTransfers {
 		for _, kind := range []string{"SourceFileLockedException", "TargetUnavailableException", "ChecksumMismatchException"} {
