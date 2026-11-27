@@ -156,6 +156,12 @@ type Handlers struct {
 	// OpAMP holds the live agent connections, so revoking a token closes
 	// them. Nil exactly when Collectors is.
 	OpAMP *opamp.Server
+	// OtelflowURL is where the cell serves the OTelFlow designer that a
+	// collector's configuration is drawn with (SLUICIO_OTELFLOW_URL,
+	// normally "/otelflow/"). Empty: the configuration is shown as YAML
+	// only. Never defaulted to a public instance: the configuration it is
+	// handed must not leave the cell.
+	OtelflowURL string
 	// ErrorAcks holds per-service "clear errors" watermarks. When set,
 	// service health/error-count ignores error traces at or before a
 	// service's watermark. Nil-safe — handlers treat nil as "no acks".

@@ -207,6 +207,7 @@ function fromMe(me: MeResponse): CurrentUserResponse {
     email_disabled: me.email_disabled === true,
     org_management_disabled: me.org_management_disabled === true,
     collectors_enabled: me.collectors_enabled === true,
+    otelflow_url: me.otelflow_url ?? "",
   };
 }
 

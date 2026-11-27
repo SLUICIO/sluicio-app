@@ -1,0 +1,58 @@
+{{/* SPDX-License-Identifier: Apache-2.0 */}}
+{{- if and .Values.collectors.enabled .Values.collectors.otelflow.enabled }}
+{{- $ctx := dict "root" . "component" "otelflow" -}}
+{{/*
+OTelFlow, the collector-configuration designer collector management
+embeds (Beta). Stateless: a configuration reaches it only inside the
+browser, in the URL fragment of the embed. It runs under /otelflow on the
+UI host (OTELFLOW_PREFIX), so the Ingress or Route passes the path on
+unchanged and the embed shares the app's origin. The image is distroless
+and writes nothing, so it runs as any non-root UID.
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "cell.componentName" $ctx }}
+  labels: {{- include "cell.labels" $ctx | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {{- include "cell.selectorLabels" $ctx | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "cell.selectorLabels" $ctx | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "cell.serviceAccountName" . }}
+      {{- include "cell.imagePullSecrets" . | nindent 6 }}
+      securityContext: {{- toYaml .Values.frontendPodSecurityContext | nindent 8 }}
+      containers:
+        - name: otelflow
+          image: {{ printf "%s:%s" .Values.collectors.otelflow.image.repository .Values.collectors.otelflow.image.tag | quote }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 7317
+          env:
+            - name: OTELFLOW_PREFIX
+              value: /otelflow
+          readinessProbe:
+            httpGet:
+              path: /otelflow/
+              port: http
+            periodSeconds: 10
+          resources: {{- toYaml .Values.collectors.otelflow.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "cell.componentName" $ctx }}
+  labels: {{- include "cell.labels" $ctx | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 7317
+      targetPort: http
+  selector: {{- include "cell.selectorLabels" $ctx | nindent 4 }}
+{{- end }}

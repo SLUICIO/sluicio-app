@@ -148,6 +148,9 @@ services:
       # under a key cannot be read without that key.
       SLUICIO_COLLECTORS_ENABLED: ${SLUICIO_COLLECTORS_ENABLED:-false}
       SLUICIO_COLLECTOR_CONFIG_KEY: ${SLUICIO_COLLECTOR_CONFIG_KEY:-}
+      # Where the Configuration tab embeds OTelFlow from: the otelflow
+      # service below, through the Vite proxy. Empty = YAML only.
+      SLUICIO_OTELFLOW_URL: ${SLUICIO_OTELFLOW_URL:-}
     volumes:
       # Read-only, and a directory rather than a single file: a bind mount
       # of a file that does not exist yet is silently created as a
@@ -155,6 +158,19 @@ services:
       - ${LICENSE_DIR:-./deploy/server/license}:/etc/sluicio/license:ro
     ports:
       - "8081:8081"
+
+  # The OTelFlow designer collector management draws configurations with
+  # (Beta). Stateless; the configuration reaches it only in the URL
+  # fragment of the embed, inside the browser. Served under /otelflow/ so
+  # it shares the app's origin; needs OTelFlow 0.9.0 or later
+  # (OTELFLOW_PREFIX). OTELFLOW_IMAGE points at a local build until then.
+  otelflow:
+    image: ${OTELFLOW_IMAGE:-ghcr.io/sluicio/otelflow:0.9.0}
+    restart: always
+    environment:
+      OTELFLOW_PREFIX: /otelflow
+    ports:
+      - "127.0.0.1:7317:7317"
 
   cell-ingest:
     build:

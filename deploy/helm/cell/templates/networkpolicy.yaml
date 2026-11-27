@@ -31,11 +31,12 @@ spec:
     matchExpressions:
       - key: app.kubernetes.io/component
         operator: In
-        values: ["cell-api", "cell-ingest", "frontend"]
+        values: ["cell-api", "cell-ingest", "frontend", "otelflow"]
   policyTypes: ["Ingress"]
   ingress:
     - ports:
         - port: 8080
         - port: 8081
         - port: 4318
+        - port: 7317
 {{- end }}

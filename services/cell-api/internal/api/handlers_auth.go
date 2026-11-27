@@ -239,6 +239,8 @@ func (h *Handlers) me(w http.ResponseWriter, r *http.Request) {
 		// Collector management (Beta) is on for this cell: the UI shows
 		// the Collectors page. A hint; without it the routes do not exist.
 		"collectors_enabled": h.Collectors != nil,
+		// Where to embed OTelFlow from, when the cell serves it.
+		"otelflow_url": h.otelflowURL(),
 	})
 }
 

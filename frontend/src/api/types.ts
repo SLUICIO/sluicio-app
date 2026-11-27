@@ -1634,6 +1634,8 @@ export interface CurrentUserResponse {
   org_management_disabled?: boolean;
   // True when collector management (Beta) is on for this cell. A hint.
   collectors_enabled?: boolean;
+  // Where the cell serves OTelFlow; empty when it does not.
+  otelflow_url?: string;
   // Operators only: the orgs on the cell they are not a member of, which
   // the org switcher offers them to open as a viewer.
   other_orgs?: Organization[];
@@ -2904,6 +2906,8 @@ export interface MeResponse {
   org_management_disabled?: boolean;
   // True when collector management (Beta) is on for this cell.
   collectors_enabled?: boolean;
+  // Where the cell serves OTelFlow ("/otelflow/"); empty when it does not.
+  otelflow_url?: string;
   // Operators only: every org on the cell they are not a member of.
   other_orgs?: { id: string; slug: string; name: string }[];
 }

@@ -57,6 +57,10 @@ spec:
             - name: SLUICIO_COLLECTORS_ENABLED
               value: "true"
             {{- include "cell.secretEnv" (dict "root" . "name" "SLUICIO_COLLECTOR_CONFIG_KEY" "cfg" .Values.collectors "appKey" "collector-config-key") | nindent 12 }}
+            {{- if .Values.collectors.otelflow.enabled }}
+            - name: SLUICIO_OTELFLOW_URL
+              value: "/otelflow/"
+            {{- end }}
             {{- end }}
             {{- if .Values.smtp.host }}
             - name: SLUICIO_SMTP_HOST

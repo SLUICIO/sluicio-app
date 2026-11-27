@@ -20,6 +20,8 @@ import StatusPip from "../components/primitives/StatusPip";
 import SyntaxView from "../components/SyntaxView";
 import BetaBadge from "../components/BetaBadge";
 import TabStrip from "../components/primitives/TabStrip";
+import { useCurrentUser } from "../lib/useCurrentUser";
+import { otelflowEmbedUrl, otelflowPayload } from "../lib/otelflowEmbed";
 import { KindBadge, collectorName, collectorStatus } from "./Collectors";
 
 function Section({
@@ -79,6 +81,73 @@ function healthRows(
   return rows;
 }
 
+// PipelineEmbed draws the configuration with the cell's own OTelFlow, read
+// only. The configuration travels in the URL fragment of the iframe, so it
+// reaches neither OTelFlow's server nor anything outside the cell.
+function PipelineEmbed({
+  base,
+  yaml,
+  version,
+  supervisor,
+}: {
+  base: string;
+  yaml: string;
+  version: string;
+  supervisor: boolean;
+}) {
+  const [payload, setPayload] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    otelflowPayload(yaml, version).then((p) => !cancelled && setPayload(p));
+    return () => {
+      cancelled = true;
+    };
+  }, [yaml, version]);
+  if (!payload) return null;
+  const root = base.endsWith("/") ? base : base + "/";
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <div
+        className="muted"
+        style={{
+          fontSize: 12.5,
+          display: "flex",
+          gap: 12,
+          alignItems: "baseline",
+        }}
+      >
+        <span>
+          Pipeline drawn by OTelFlow from the configuration the collector
+          reports. The collector leaves some settings out of that report (a
+          receiver's scrapers, for example), so OTelFlow can flag them as
+          missing.
+          {supervisor && " Editing and sending a configuration comes later."}
+        </span>
+        <a
+          href={`${root}#share=${payload}`}
+          target="_blank"
+          rel="noopener"
+          style={{ marginLeft: "auto", whiteSpace: "nowrap" }}
+        >
+          Open in OTelFlow
+        </a>
+      </div>
+      <iframe
+        title="Collector pipeline (OTelFlow)"
+        src={otelflowEmbedUrl(base, payload, "canvas")}
+        style={{
+          width: "100%",
+          height: 480,
+          border: "1px solid var(--border)",
+          borderRadius: 8,
+          background: "var(--surface)",
+        }}
+        loading="lazy"
+      />
+    </div>
+  );
+}
+
 // The tabs, in order. ?tab= keeps the choice in the URL, so a link or a
 // reload lands on the same tab.
 const TABS = [
@@ -90,6 +159,7 @@ type TabKey = (typeof TABS)[number]["key"];
 
 export default function CollectorDetail() {
   const { id = "" } = useParams();
+  const { otelflowUrl } = useCurrentUser();
   const [searchParams, setSearchParams] = useSearchParams();
   const tab: TabKey =
     TABS.find((t) => t.key === searchParams.get("tab"))?.key ?? "agent";
@@ -301,6 +371,20 @@ export default function CollectorDetail() {
                 {configError && (
                   <div className="alert alert--error">{configError}</div>
                 )}
+                {(() => {
+                  // The collector reports one unnamed file; draw that one.
+                  const main =
+                    config?.files.find((f) => f.name === "") ??
+                    config?.files[0];
+                  return otelflowUrl && main && !main.hidden ? (
+                    <PipelineEmbed
+                      base={otelflowUrl}
+                      yaml={main.body}
+                      version={c.description["service.version"] ?? ""}
+                      supervisor={c.kind === "supervisor"}
+                    />
+                  ) : null;
+                })()}
                 {config?.files.map((f) => (
                   <div key={f.name}>
                     {config.files.length > 1 && (

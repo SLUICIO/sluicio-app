@@ -120,6 +120,11 @@ export interface CurrentUserContext {
    * routes do not exist otherwise.
    */
   collectorsEnabled: boolean;
+  /**
+   * Where the cell serves the OTelFlow designer ("/otelflow/"), or "" when
+   * it does not and configurations are shown as YAML only.
+   */
+  otelflowUrl: string;
   /** Sign the user out — POST /api/v1/auth/logout and drop session state. */
   signOut: () => void;
 }
@@ -188,6 +193,7 @@ export function useCurrentUser(): CurrentUserContext {
     emailDisabled: data.email_disabled === true,
     orgManagementDisabled: data.org_management_disabled === true,
     collectorsEnabled: data.collectors_enabled === true,
+    otelflowUrl: data.otelflow_url ?? "",
     signOut,
   };
 }

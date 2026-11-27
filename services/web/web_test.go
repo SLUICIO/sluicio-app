@@ -97,3 +97,28 @@ func TestTheAPIIsPassedThroughWithItsPathAndHost(t *testing.T) {
 		t.Errorf("forwarding headers missing: %v", seen.Header)
 	}
 }
+
+func TestOtelflowIsPassedThroughOnlyWhenConfigured(t *testing.T) {
+	var gotPath string
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		_, _ = io.WriteString(w, "otelflow")
+	}))
+	defer up.Close()
+	upURL, _ := url.Parse(up.URL)
+	api, _ := url.Parse("http://127.0.0.1:1")
+
+	h := New(Config{Root: bundle(t), APIUpstream: api, OtelflowUpstream: upURL})
+	for _, p := range []string{"/otelflow/", "/otelflow/validate.wasm", "/otelflow"} {
+		rec := get(h, p)
+		if rec.Body.String() != "otelflow" || gotPath != p {
+			t.Errorf("%s: got %q at upstream path %q", p, rec.Body.String(), gotPath)
+		}
+	}
+
+	// Not configured: the path is the app's, as any unknown route.
+	h = New(Config{Root: bundle(t), APIUpstream: api})
+	if rec := get(h, "/otelflow/"); !strings.Contains(rec.Body.String(), "app") {
+		t.Errorf("unconfigured /otelflow/ = %q, want the app", rec.Body.String())
+	}
+}

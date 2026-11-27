@@ -3,6 +3,7 @@
 UI + API share ONE hostname (the cell-api session cookie is host-scoped):
   https://<host>/      → frontend
   https://<host>/api/* → cell-api
+  https://<host>/otelflow/* → OTelFlow, when collector management is on
 Telemetry producers use a separate hostname → cell-ingest.
 */}}
 {{- if .Values.ingress.enabled }}
@@ -32,6 +33,15 @@ spec:
                 name: {{ include "cell.componentName" (dict "root" . "component" "cell-api") }}
                 port:
                   name: http
+          {{- if and .Values.collectors.enabled .Values.collectors.otelflow.enabled }}
+          - path: /otelflow
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "cell.componentName" (dict "root" . "component" "otelflow") }}
+                port:
+                  name: http
+          {{- end }}
           - path: /
             pathType: Prefix
             backend:

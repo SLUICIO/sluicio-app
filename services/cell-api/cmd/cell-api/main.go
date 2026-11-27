@@ -949,6 +949,16 @@ func main() {
 			os.Exit(1)
 		}
 		handlers.Collectors, handlers.OpAMP = store, opampServer
+		// The OTelFlow designer the Configuration tab draws with, served
+		// by this cell (a path like /otelflow/, or a URL of the operator's
+		// own instance). Unset: YAML only.
+		if u := env.String("SLUICIO_OTELFLOW_URL", ""); u != "" {
+			if !strings.HasPrefix(u, "/") && !strings.HasPrefix(u, "https://") && !strings.HasPrefix(u, "http://") {
+				logger.Error("SLUICIO_OTELFLOW_URL must be a path like /otelflow/ or an http(s) URL", "value", u)
+				os.Exit(1)
+			}
+			handlers.OtelflowURL = strings.TrimSuffix(u, "/") + "/"
+		}
 		logger.Info("collector management enabled (Beta)", "endpoint", opamp.Path, "config_storage", keys != nil)
 	}
 

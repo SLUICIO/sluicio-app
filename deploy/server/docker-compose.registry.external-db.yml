@@ -63,6 +63,9 @@ services:
       # are not stored. Losing it makes stored configurations unreadable.
       SLUICIO_COLLECTORS_ENABLED: ${SLUICIO_COLLECTORS_ENABLED:-false}
       SLUICIO_COLLECTOR_CONFIG_KEY: ${SLUICIO_COLLECTOR_CONFIG_KEY:-}
+      # The OTelFlow designer the Configuration tab embeds, served by the
+      # otelflow service below behind the same reverse proxy (/otelflow/).
+      SLUICIO_OTELFLOW_URL: ${SLUICIO_OTELFLOW_URL:-/otelflow/}
     volumes:
       - ${LICENSE_DIR:-./license}:/etc/sluicio/license:ro
     ports:
@@ -77,6 +80,17 @@ services:
       POSTGRES_DSN: ${POSTGRES_DSN:-}
     ports:
       - "${CELL_INGEST_PORT:-4318}:4318"
+
+  # OTelFlow, the collector-configuration designer collector management
+  # embeds (Beta). Stateless; the reverse proxy forwards <ui-host>/otelflow/*
+  # here with the path unchanged. Only used when SLUICIO_COLLECTORS_ENABLED.
+  otelflow:
+    image: ${OTELFLOW_IMAGE:-ghcr.io/sluicio/otelflow:0.9.0}
+    restart: unless-stopped
+    environment:
+      OTELFLOW_PREFIX: /otelflow
+    ports:
+      - "127.0.0.1:${OTELFLOW_PORT:-7317}:7317"
 
   frontend:
     image: ${REGISTRY:-ghcr.io}/${NAMESPACE:-sluicio}/frontend:${TAG:-latest}

@@ -29,12 +29,22 @@ type Config struct {
 	// APIUpstream is cell-api's base URL; /api/ is proxied to it with the
 	// path unchanged, since cell-api mounts its routes under /api/v1.
 	APIUpstream *url.URL
+	// OtelflowUpstream, when set, is the OTelFlow designer that collector
+	// management embeds. /otelflow/ is proxied to it with the path
+	// unchanged: OTelFlow runs with OTELFLOW_PREFIX=/otelflow, so the
+	// same route works behind every proxy. Nil leaves /otelflow/ to the app.
+	OtelflowUpstream *url.URL
 }
 
 // New returns the server's handler.
 func New(cfg Config) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/api/", apiProxy(cfg.APIUpstream))
+	if cfg.OtelflowUpstream != nil {
+		otelflow := apiProxy(cfg.OtelflowUpstream)
+		mux.Handle("/otelflow/", otelflow)
+		mux.Handle("/otelflow", otelflow)
+	}
 	mux.Handle("/", static(cfg.Root))
 	return mux
 }

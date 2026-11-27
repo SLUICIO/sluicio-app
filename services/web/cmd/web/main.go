@@ -5,6 +5,7 @@
 //	WEB_ADDR          listen address           (default ":80")
 //	WEB_ROOT          the built bundle         (default "/www")
 //	WEB_API_UPSTREAM  cell-api's base URL      (default "http://cell-api:8081")
+//	WEB_OTELFLOW_UPSTREAM  the OTelFlow designer's base URL (default none)
 //
 // Port 80 is the default because every deployment already maps to it.
 // Under Docker and Podman a non-root process may not bind it, so when
@@ -39,6 +40,16 @@ func main() {
 		logger.Error("WEB_API_UPSTREAM must be a URL like http://cell-api:8081", "value", os.Getenv("WEB_API_UPSTREAM"))
 		os.Exit(1)
 	}
+	// The OTelFlow designer collector management embeds (Beta). Optional:
+	// without it, /otelflow/ is not routed.
+	var otelflow *url.URL
+	if raw := env.String("WEB_OTELFLOW_UPSTREAM", ""); raw != "" {
+		otelflow, err = url.Parse(raw)
+		if err != nil || otelflow.Scheme == "" || otelflow.Host == "" {
+			logger.Error("WEB_OTELFLOW_UPSTREAM must be a URL like http://otelflow:7317", "value", raw)
+			os.Exit(1)
+		}
+	}
 	root := env.String("WEB_ROOT", "/www")
 	addr := env.String("WEB_ADDR", ":80")
 
@@ -53,7 +64,7 @@ func main() {
 	}
 
 	srv := &http.Server{
-		Handler:           web.New(web.Config{Root: root, APIUpstream: upstream}),
+		Handler:           web.New(web.Config{Root: root, APIUpstream: upstream, OtelflowUpstream: otelflow}),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}

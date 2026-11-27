@@ -41,6 +41,15 @@ import (
 // collectorHistoryLimit bounds the history in a detail response.
 const collectorHistoryLimit = 100
 
+// otelflowURL is the embed base when collector management is on and the
+// cell serves OTelFlow; empty otherwise.
+func (h *Handlers) otelflowURL() string {
+	if h.Collectors == nil {
+		return ""
+	}
+	return h.OtelflowURL
+}
+
 // collectorScope is what the caller may read.
 func (h *Handlers) collectorScope(r *http.Request) collectors.Scope {
 	p := middleware.Principal(r)
