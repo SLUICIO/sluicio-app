@@ -57,6 +57,12 @@ services:
       SLUICIO_LICENSE_FILE: ${SLUICIO_LICENSE_FILE:-}
       LICENSE_RELOAD_INTERVAL: ${LICENSE_RELOAD_INTERVAL:-1m}
       SLUICIO_MFA_KEY: ${SLUICIO_MFA_KEY:-}
+      # Collector management over OpAMP (Beta): off unless true. The key
+      # (base64 32 bytes, openssl rand -base64 32) encrypts stored collector
+      # configurations and must stay outside the database; without it they
+      # are not stored. Losing it makes stored configurations unreadable.
+      SLUICIO_COLLECTORS_ENABLED: ${SLUICIO_COLLECTORS_ENABLED:-false}
+      SLUICIO_COLLECTOR_CONFIG_KEY: ${SLUICIO_COLLECTOR_CONFIG_KEY:-}
     volumes:
       - ${LICENSE_DIR:-./license}:/etc/sluicio/license:ro
     ports:

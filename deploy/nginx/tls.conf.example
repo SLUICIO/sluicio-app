@@ -32,6 +32,20 @@ server {
     #     proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
     #     proxy_set_header X-Forwarded-Proto $scheme;
     # }
+
+    # Collector management (Beta): collectors hold a WebSocket open to
+    # the OpAMP endpoint, which nginx only passes on with the upgrade
+    # headers and a read timeout longer than the agents' heartbeat.
+    # location = /api/v1/opamp {
+    #     proxy_pass http://127.0.0.1:8081;
+    #     proxy_http_version 1.1;
+    #     proxy_set_header Upgrade           $http_upgrade;
+    #     proxy_set_header Connection        "upgrade";
+    #     proxy_set_header Host              $host;
+    #     proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    #     proxy_set_header X-Forwarded-Proto $scheme;
+    #     proxy_read_timeout 300s;
+    # }
 }
 
 # ── Docker registry vhost (docker.example.com) ───────────────────────

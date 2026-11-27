@@ -167,6 +167,12 @@ services:
       # AES-256 key (base64) encrypting MFA TOTP secrets at rest; required for
       # MFA enrollment. Empty = MFA enrollment unavailable.
       SLUICIO_MFA_KEY: ${SLUICIO_MFA_KEY:-}
+      # Collector management over OpAMP (Beta): off unless true. The key
+      # (base64 32 bytes, openssl rand -base64 32) encrypts stored collector
+      # configurations and must stay outside the database; without it they
+      # are not stored. Losing it makes stored configurations unreadable.
+      SLUICIO_COLLECTORS_ENABLED: ${SLUICIO_COLLECTORS_ENABLED:-false}
+      SLUICIO_COLLECTOR_CONFIG_KEY: ${SLUICIO_COLLECTOR_CONFIG_KEY:-}
     volumes:
       # Read-only, and a directory rather than a single file: a bind mount
       # of a file that does not exist yet is silently created as a

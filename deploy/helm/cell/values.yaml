@@ -67,6 +67,20 @@ mfa:
   existingSecret: ""
   secretKey: "mfa-key"
 
+# Collector management over OpAMP (Beta). Off by default: no OpAMP
+# endpoint, no Collectors page. Collectors connect to
+# wss://<ingress.host>/api/v1/opamp through the same Ingress or Route.
+# configKey (base64, 32 bytes) encrypts stored collector configurations;
+# without it collectors register but their configurations are not stored.
+# Keep it in a Secret outside the database and do not lose it: what was
+# stored under it cannot be read without it.
+#   openssl rand -base64 32
+collectors:
+  enabled: false
+  key: ""
+  existingSecret: ""
+  secretKey: "collector-config-key"
+
 # Outbound email (invitations, password resets, alert emails). Optional —
 # without SMTP those flows are disabled. Password via existingSecret
 # preferred.

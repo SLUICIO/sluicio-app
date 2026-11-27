@@ -53,6 +53,11 @@ spec:
             {{- include "cell.secretEnv" (dict "root" . "name" "SLUICIO_LICENSE_KEY" "cfg" .Values.license "appKey" "license") | nindent 12 }}
             {{- end }}
             {{- include "cell.secretEnv" (dict "root" . "name" "SLUICIO_MFA_KEY" "cfg" .Values.mfa "appKey" "mfa-key") | nindent 12 }}
+            {{- if .Values.collectors.enabled }}
+            - name: SLUICIO_COLLECTORS_ENABLED
+              value: "true"
+            {{- include "cell.secretEnv" (dict "root" . "name" "SLUICIO_COLLECTOR_CONFIG_KEY" "cfg" .Values.collectors "appKey" "collector-config-key") | nindent 12 }}
+            {{- end }}
             {{- if .Values.smtp.host }}
             - name: SLUICIO_SMTP_HOST
               value: {{ .Values.smtp.host | quote }}
