@@ -204,3 +204,67 @@ func TestMaskText(t *testing.T) {
 		t.Fatalf("MaskText = %q", got)
 	}
 }
+
+// The test plan's masking matrix: every form a secret takes in a collector
+// configuration, and the references that must stay readable.
+func TestMaskMatrix(t *testing.T) {
+	in := `extensions:
+  basicauth/client:
+    client_auth:
+      username: ingest
+      password: m-basic-pass
+  oauth2client:
+    client_id: app
+    client_secret: m-client-secret
+  bearertokenauth:
+    token: m-bearer-token
+exporters:
+  otlp_http/headers:
+    endpoint: https://gw.example.test:4318
+    headers:
+      x-api-key: m-header-key
+  otlp_http/list:
+    headers:
+      - name: Authorization
+        value: Bearer m-list-bearer
+      - name: x-tenant
+        value: acme
+  otlp_http/query:
+    endpoint: https://gw.example.test/v1?api_key=m-query-key&region=eu
+  otlp_http/userinfo:
+    endpoint: https://svc:m-url-pass@gw.example.test
+  otlp_http/env:
+    headers:
+      authorization: ${env:SLUICIO_TOKEN}
+    tls:
+      key_pem: |
+        -----BEGIN PRIVATE KEY-----
+        m-pem-body
+        -----END PRIVATE KEY-----
+      cert_file: /certs/client.pem
+receivers:
+  sqlquery:
+    datasource: postgres://reader:m-dsn-pass@db.internal:5432/app
+  something:
+    blob: |
+      -----BEGIN RSA PRIVATE KEY-----
+      m-unnamed-pem
+      -----END RSA PRIVATE KEY-----
+`
+	out, ok := MaskConfig(in)
+	if !ok {
+		t.Fatal("valid YAML reported as unparseable")
+	}
+	for _, secret := range []string{"m-basic-pass", "m-client-secret", "m-bearer-token", "m-header-key", "m-list-bearer",
+		"m-query-key", "m-url-pass", "m-pem-body", "m-dsn-pass", "m-unnamed-pem"} {
+		if strings.Contains(out, secret) {
+			t.Errorf("not masked: %s", secret)
+		}
+	}
+	for _, kept := range []string{"username: ingest", "client_id: app", "${env:SLUICIO_TOKEN}", "region=eu", "x-tenant", "acme",
+		"/certs/client.pem", "gw.example.test", "db.internal:5432"} {
+		if !strings.Contains(out, kept) {
+			t.Errorf("lost: %s", kept)
+		}
+	}
+}

@@ -29,7 +29,7 @@ var sensitiveKeyParts = []string{
 
 // sensitiveKeysExact are too short to match as parts without masking
 // harmless keys (keyfile, dsnresolver).
-var sensitiveKeysExact = map[string]bool{"pwd": true, "dsn": true, "key": true, "pass": true, "auth": true}
+var sensitiveKeysExact = map[string]bool{"pwd": true, "dsn": true, "key": true, "pass": true, "auth": true, "keypem": true}
 
 // envRef is a value that only points at an environment variable. It
 // carries no secret and is exactly what the documentation recommends, so
@@ -107,9 +107,29 @@ func maskScalar(n *yaml.Node, secret bool) {
 	if v == "" || envRef.MatchString(strings.TrimSpace(v)) {
 		return
 	}
-	if secret {
+	// A private key is a secret under whatever name it is given.
+	if secret || (strings.Contains(v, "-----BEGIN") && strings.Contains(v, "PRIVATE KEY")) {
 		n.Value, n.Tag, n.Style = Masked, "!!str", 0
 		return
+	}
+	// Credentials in a URL's query (?api_key=..., ?sig=...) are secrets
+	// too, by the parameter's name.
+	if strings.Contains(v, "://") && strings.Contains(v, "?") {
+		if u, err := url.Parse(v); err == nil && u.RawQuery != "" {
+			q := u.Query()
+			changed := false
+			for k := range q {
+				if sensitiveKey(k) || k == "sig" || k == "code" {
+					q.Set(k, Masked)
+					changed = true
+				}
+			}
+			if changed {
+				u.RawQuery = strings.ReplaceAll(q.Encode(), url.QueryEscape(Masked), Masked)
+				v = u.String()
+				n.Value = v
+			}
+		}
 	}
 	// Credentials embedded in a URL (https://user:pass@host) are secrets
 	// whatever key they sit under.
