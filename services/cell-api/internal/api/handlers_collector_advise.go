@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -180,4 +181,56 @@ func (h *Handlers) previewAdvisorCollectorChange(w http.ResponseWriter, r *http.
 		return
 	}
 	httpserver.WriteJSON(w, http.StatusOK, h.adviseCollector(r, s, c))
+}
+
+// collectorDeploymentEffect: GET /api/v1/collectors/{id}/deployments/{dep}/effect
+//
+// What an applied Advisor change did: the metric's volume in the window
+// before the collector applied it and the window after. Enterprise. The
+// numbers are the org's ingest of the metric, not this collector's
+// share (Sluicio cannot tell that apart yet), so a metric that also
+// arrives through another collector does not drop to zero. Visible to
+// org admins and to whoever may change this collector: the team that
+// approved the change.
+func (h *Handlers) collectorDeploymentEffect(w http.ResponseWriter, r *http.Request) {
+	c, ok := h.collectorFromPath(w, r)
+	if !ok {
+		return
+	}
+	if !h.canPushCollector(r, c.GroupID) {
+		httpserver.WriteError(w, http.StatusForbidden, "only the owner team's editors and admins, and org admins, can see the effect of a change")
+		return
+	}
+	depID, ok := deploymentFromPath(w, r)
+	if !ok {
+		return
+	}
+	d, err := h.Collectors.GetDeployment(r.Context(), c.ID, depID)
+	if errors.Is(err, collectors.ErrNotFound) {
+		httpserver.WriteError(w, http.StatusNotFound, "deployment not found")
+		return
+	}
+	if err != nil {
+		httpserver.WriteError(w, http.StatusInternalServerError, "query failed")
+		return
+	}
+	if d.AdvisorMetric == "" {
+		httpserver.WriteError(w, http.StatusConflict, "only a change made from an Advisor suggestion has a measured effect")
+		return
+	}
+	if d.Status != collectors.DeploymentApplied || d.FinishedAt == nil {
+		httpserver.WriteJSON(w, http.StatusOK, map[string]any{"metric": d.AdvisorMetric, "applied": false})
+		return
+	}
+	if h.ClickHouseConn == nil {
+		httpserver.WriteError(w, http.StatusServiceUnavailable, "telemetry storage is not available")
+		return
+	}
+	e, err := advisor.MeasureMetric(r.Context(), h.ClickHouseConn, middleware.OrgID(r), d.AdvisorMetric, *d.FinishedAt, time.Now())
+	if err != nil {
+		h.Logger.Error("measure collector change failed", "err", err)
+		httpserver.WriteError(w, http.StatusInternalServerError, "measuring failed")
+		return
+	}
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"metric": d.AdvisorMetric, "applied": true, "effect": e})
 }

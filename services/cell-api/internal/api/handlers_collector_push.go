@@ -229,10 +229,14 @@ func (h *Handlers) createCollectorDeployment(w http.ResponseWriter, r *http.Requ
 	} else if h.featureEntitled(license.FeatureAdvisor) {
 		approval, _ = h.Collectors.RequireApproval(r.Context(), c.GroupID)
 	}
-	d, err := h.Collectors.CreateDeployment(r.Context(), collectors.NewDeployment{
+	nd := collectors.NewDeployment{
 		CollectorID: c.ID, Body: payload, Message: message,
 		CreatedBy: p.UserID, CreatedByName: h.actorLabel(r), Via: via, Proposed: approval,
-	})
+	}
+	if suggestion != nil {
+		nd.AdvisorSuggestionID, nd.AdvisorMetric = &suggestion.ID, suggestion.ScopeID
+	}
+	d, err := h.Collectors.CreateDeployment(r.Context(), nd)
 	if err != nil {
 		h.Logger.Error("create deployment failed", "err", err)
 		httpserver.WriteError(w, http.StatusInternalServerError, "could not store the configuration")
@@ -482,6 +486,24 @@ func init() {
 			}
 			if h.OpAMP != nil {
 				h.OpAMP.Deliver(r.Context(), c.ID)
+			}
+			// An approved Advisor change is the decision the suggestion
+			// waited for: accepted, so the Advisor's own verification can
+			// confirm it once the metric stops arriving.
+			if d.AdvisorSuggestionID != nil && h.Advisor != nil {
+				if s, err := h.Advisor.Get(r.Context(), middleware.OrgID(r), *d.AdvisorSuggestionID); err == nil && s.State == "open" {
+					var by uuid.UUID
+					if p := middleware.Principal(r); p.UserID != nil {
+						by = *p.UserID
+					}
+					name := c.Description["host.name"]
+					if name == "" {
+						name = c.InstanceUID
+					}
+					if _, err := h.Advisor.Decide(r.Context(), middleware.OrgID(r), s.ID, by, "accepted", "Applied to collector "+name+" ("+c.GroupName+") by approval"); err != nil {
+						h.Logger.Warn("advisor: accept after approval failed", "err", err)
+					}
+				}
 			}
 			h.recordAudit(r, "collector.config_approved", "collector", c.ID.String(), map[string]any{"deployment_id": d.ID.String()})
 			return nil

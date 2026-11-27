@@ -499,4 +499,29 @@ func TestAdvisorSuggestionToCollector(t *testing.T) {
 	if next == nil || !strings.Contains(body, "Bearer real-secret") || !strings.Contains(body, `name == "system.cpu.load_average.15m"`) {
 		t.Fatalf("delivered body:\n%s", body)
 	}
+	if next.AdvisorMetric != "system.cpu.load_average.15m" || next.AdvisorSuggestionID == nil || next.AdvisorSuggestionID.String() != ids["T1"] {
+		t.Fatalf("the deployment does not record the suggestion: %+v", next)
+	}
+	// The team's approval is the decision the suggestion waited for.
+	if s, _ := adv.Get(ctx, org.ID, uuid.MustParse(ids["T1"])); s.State != "accepted" {
+		t.Fatalf("suggestion after approval: %s, want accepted", s.State)
+	}
+
+	// The effect: nothing to measure until the collector applied it.
+	effect := "/api/v1/collectors/" + gw.String() + "/deployments/" + next.ID.String() + "/effect"
+	if code, out := do(editor, "GET", effect, nil); code != 200 || out["applied"] != false || out["metric"] != "system.cpu.load_average.15m" {
+		t.Fatalf("effect before applying: %d %v", code, out)
+	}
+	if err := store.ReportStatus(ctx, gw, next.Hash, collectors.DeploymentApplied, ""); err != nil {
+		t.Fatal(err)
+	}
+	// Applied; this test has no ClickHouse, so the measurement itself is
+	// the live probe's (advisor.TestMeasureMetricProbe).
+	if code, _ := do(editor, "GET", effect, nil); code != http.StatusServiceUnavailable {
+		t.Errorf("effect without telemetry storage: %d, want 503", code)
+	}
+	viewer := session("viewer@acme", identity.RoleViewer, identity.RoleViewer)
+	if code, _ := do(viewer, "GET", effect, nil); code != http.StatusForbidden {
+		t.Errorf("a team viewer read the effect: %d", code)
+	}
 }

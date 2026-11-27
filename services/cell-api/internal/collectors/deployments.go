@@ -54,9 +54,13 @@ type Deployment struct {
 	// change nobody approved would read as still waiting.
 	ProposalState  string     `json:"proposal_state,omitempty"`
 	RolledBackFrom *uuid.UUID `json:"rolled_back_from,omitempty"`
-	CreatedAt      time.Time  `json:"created_at"`
-	SentAt         *time.Time `json:"sent_at,omitempty"`
-	FinishedAt     *time.Time `json:"finished_at,omitempty"`
+	// AdvisorSuggestionID and AdvisorMetric: the change came from an
+	// Advisor suggestion and drops this metric (stage 3).
+	AdvisorSuggestionID *uuid.UUID `json:"advisor_suggestion_id,omitempty"`
+	AdvisorMetric       string     `json:"advisor_metric,omitempty"`
+	CreatedAt           time.Time  `json:"created_at"`
+	SentAt              *time.Time `json:"sent_at,omitempty"`
+	FinishedAt          *time.Time `json:"finished_at,omitempty"`
 }
 
 // NewDeployment is what a push stores. Body is the configuration as it
@@ -70,17 +74,26 @@ type NewDeployment struct {
 	Via            string
 	ProposalID     *uuid.UUID
 	RolledBackFrom *uuid.UUID
+	// AdvisorSuggestionID and AdvisorMetric record an Advisor change.
+	AdvisorSuggestionID *uuid.UUID
+	AdvisorMetric       string
 	// Proposed stores it for approval instead of for delivery.
 	Proposed bool
 }
 
 const deploymentCols = `id, collector_id, config_hash, status, error_message, message, created_by, created_by_name, via,
-	proposal_id, rolled_back_from, created_at, sent_at, finished_at`
+	proposal_id, rolled_back_from, advisor_suggestion_id, advisor_metric, created_at, sent_at, finished_at`
+
+// dest is where a row of deploymentCols scans into, in that order, with
+// any extra columns after.
+func (d *Deployment) dest(extra ...any) []any {
+	return append([]any{&d.ID, &d.CollectorID, &d.Hash, &d.Status, &d.ErrorMessage, &d.Message, &d.CreatedBy, &d.CreatedByName, &d.Via,
+		&d.ProposalID, &d.RolledBackFrom, &d.AdvisorSuggestionID, &d.AdvisorMetric, &d.CreatedAt, &d.SentAt, &d.FinishedAt}, extra...)
+}
 
 func scanDeployment(row pgx.Row) (Deployment, error) {
 	var d Deployment
-	err := row.Scan(&d.ID, &d.CollectorID, &d.Hash, &d.Status, &d.ErrorMessage, &d.Message, &d.CreatedBy, &d.CreatedByName, &d.Via,
-		&d.ProposalID, &d.RolledBackFrom, &d.CreatedAt, &d.SentAt, &d.FinishedAt)
+	err := row.Scan(d.dest()...)
 	return d, err
 }
 
@@ -116,10 +129,12 @@ func (s *Store) CreateDeployment(ctx context.Context, nd NewDeployment) (Deploym
 		via = "ui"
 	}
 	d, err := scanDeployment(tx.QueryRow(ctx, `
-		INSERT INTO collector_deployments (collector_id, config_hash, config_enc, message, created_by, created_by_name, via, proposal_id, rolled_back_from, status)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		INSERT INTO collector_deployments (collector_id, config_hash, config_enc, message, created_by, created_by_name, via, proposal_id, rolled_back_from, status,
+		                                   advisor_suggestion_id, advisor_metric)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		RETURNING `+deploymentCols,
-		nd.CollectorID, hash, sealed, nd.Message, nd.CreatedBy, nd.CreatedByName, via, nd.ProposalID, nd.RolledBackFrom, string(status)))
+		nd.CollectorID, hash, sealed, nd.Message, nd.CreatedBy, nd.CreatedByName, via, nd.ProposalID, nd.RolledBackFrom, string(status),
+		nd.AdvisorSuggestionID, nd.AdvisorMetric))
 	if err != nil {
 		return Deployment{}, fmt.Errorf("collectors: create deployment: %w", err)
 	}
@@ -175,8 +190,7 @@ func (s *Store) NextToDeliver(ctx context.Context, collectorID uuid.UUID) (*Depl
 		WHERE collector_id = $1 AND status IN ('pending', 'sent')
 		ORDER BY created_at DESC LIMIT 1`, collectorID)
 	var d Deployment
-	err := row.Scan(&d.ID, &d.CollectorID, &d.Hash, &d.Status, &d.ErrorMessage, &d.Message, &d.CreatedBy, &d.CreatedByName, &d.Via,
-		&d.ProposalID, &d.RolledBackFrom, &d.CreatedAt, &d.SentAt, &d.FinishedAt, &sealed)
+	err := row.Scan(d.dest(&sealed)...)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, "", nil
 	}
@@ -227,13 +241,22 @@ func (s *Store) Deployments(ctx context.Context, collectorID uuid.UUID, limit in
 	out := []Deployment{}
 	for rows.Next() {
 		var d Deployment
-		if err := rows.Scan(&d.ID, &d.CollectorID, &d.Hash, &d.Status, &d.ErrorMessage, &d.Message, &d.CreatedBy, &d.CreatedByName, &d.Via,
-			&d.ProposalID, &d.RolledBackFrom, &d.CreatedAt, &d.SentAt, &d.FinishedAt, &d.ProposalState); err != nil {
+		if err := rows.Scan(d.dest(&d.ProposalState)...); err != nil {
 			return nil, err
 		}
 		out = append(out, d)
 	}
 	return out, rows.Err()
+}
+
+// GetDeployment is one deployment of a collector, without its body.
+func (s *Store) GetDeployment(ctx context.Context, collectorID, id uuid.UUID) (Deployment, error) {
+	d, err := scanDeployment(s.pool.QueryRow(ctx, `SELECT `+deploymentCols+` FROM collector_deployments
+		WHERE collector_id = $1 AND id = $2`, collectorID, id))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Deployment{}, ErrNotFound
+	}
+	return d, err
 }
 
 // DeploymentBody opens one deployment's configuration, unmasked, for a
@@ -246,8 +269,7 @@ func (s *Store) DeploymentBody(ctx context.Context, collectorID, id uuid.UUID) (
 	var d Deployment
 	err := s.pool.QueryRow(ctx, `SELECT `+deploymentCols+`, config_enc FROM collector_deployments
 		WHERE collector_id = $1 AND id = $2`, collectorID, id).
-		Scan(&d.ID, &d.CollectorID, &d.Hash, &d.Status, &d.ErrorMessage, &d.Message, &d.CreatedBy, &d.CreatedByName, &d.Via,
-			&d.ProposalID, &d.RolledBackFrom, &d.CreatedAt, &d.SentAt, &d.FinishedAt, &sealed)
+		Scan(d.dest(&sealed)...)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Deployment{}, "", ErrNotFound
 	}
