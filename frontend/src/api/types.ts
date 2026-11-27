@@ -3580,6 +3580,8 @@ export interface CollectorDeployment {
   created_by_name?: string;
   via: string;
   proposal_id?: string;
+  // State of the proposal a proposed deployment waits on.
+  proposal_state?: string;
   rolled_back_from?: string;
   created_at: string;
   sent_at?: string;

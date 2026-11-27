@@ -10,23 +10,13 @@ import { api } from "../../api/client";
 import type {
   CollectorDeployment,
   CollectorDeploymentDiff,
-  DeploymentStatus,
 } from "../../api/types";
 import { formatDateTime, formatRelative } from "../../lib/format";
 import { useFeature } from "../../lib/useLicense";
 import StatusPip from "../primitives/StatusPip";
-import type { PipKind } from "../primitives/StatusPip";
+import { deploymentStatus } from "../../lib/deploymentStatus";
 import ConfigDiff from "./ConfigDiff";
 
-const STATUS: Record<DeploymentStatus, { kind: PipKind; label: string }> = {
-  proposed: { kind: "warn", label: "Waiting for approval" },
-  pending: { kind: "muted", label: "Waiting for the collector" },
-  sent: { kind: "muted", label: "Sent" },
-  applying: { kind: "warn", label: "Applying" },
-  applied: { kind: "ok", label: "Applied" },
-  failed: { kind: "err", label: "Failed" },
-  superseded: { kind: "muted", label: "Replaced before it applied" },
-};
 
 export default function DeploymentsPanel({
   collectorId,
@@ -108,7 +98,7 @@ export default function DeploymentsPanel({
       </div>
       <div className="mtbl-body">
         {list.map((d) => {
-          const st = STATUS[d.status];
+          const st = deploymentStatus(d);
           return (
             <div key={d.id}>
               <div
@@ -150,7 +140,7 @@ export default function DeploymentsPanel({
                       : d.via === "rollback"
                         ? "restore"
                         : "UI"}
-                    {d.status === "proposed" && (
+                    {st.waiting && (
                       <>
                         {" "}
                         · <Link to="/proposals">review in Proposals</Link>

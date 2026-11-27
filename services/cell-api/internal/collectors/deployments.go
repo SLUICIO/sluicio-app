@@ -38,20 +38,25 @@ const (
 
 // Deployment is one configuration sent, or to be sent, to a collector.
 type Deployment struct {
-	ID             uuid.UUID        `json:"id"`
-	CollectorID    uuid.UUID        `json:"collector_id"`
-	Hash           string           `json:"hash"`
-	Status         DeploymentStatus `json:"status"`
-	ErrorMessage   string           `json:"error_message,omitempty"`
-	Message        string           `json:"message,omitempty"`
-	CreatedBy      *uuid.UUID       `json:"-"`
-	CreatedByName  string           `json:"created_by_name,omitempty"`
-	Via            string           `json:"via"`
-	ProposalID     *uuid.UUID       `json:"proposal_id,omitempty"`
-	RolledBackFrom *uuid.UUID       `json:"rolled_back_from,omitempty"`
-	CreatedAt      time.Time        `json:"created_at"`
-	SentAt         *time.Time       `json:"sent_at,omitempty"`
-	FinishedAt     *time.Time       `json:"finished_at,omitempty"`
+	ID            uuid.UUID        `json:"id"`
+	CollectorID   uuid.UUID        `json:"collector_id"`
+	Hash          string           `json:"hash"`
+	Status        DeploymentStatus `json:"status"`
+	ErrorMessage  string           `json:"error_message,omitempty"`
+	Message       string           `json:"message,omitempty"`
+	CreatedBy     *uuid.UUID       `json:"-"`
+	CreatedByName string           `json:"created_by_name,omitempty"`
+	Via           string           `json:"via"`
+	ProposalID    *uuid.UUID       `json:"proposal_id,omitempty"`
+	// ProposalState is the state of the proposal a proposed deployment
+	// waits on (pending, rejected, expired, superseded). A rejected or
+	// expired proposal never touches the deployment, so without this a
+	// change nobody approved would read as still waiting.
+	ProposalState  string     `json:"proposal_state,omitempty"`
+	RolledBackFrom *uuid.UUID `json:"rolled_back_from,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
+	SentAt         *time.Time `json:"sent_at,omitempty"`
+	FinishedAt     *time.Time `json:"finished_at,omitempty"`
 }
 
 // NewDeployment is what a push stores. Body is the configuration as it
@@ -211,7 +216,9 @@ func (s *Store) ReportStatus(ctx context.Context, collectorID uuid.UUID, hash st
 
 // Deployments lists a collector's deployments, newest first.
 func (s *Store) Deployments(ctx context.Context, collectorID uuid.UUID, limit int) ([]Deployment, error) {
-	rows, err := s.pool.Query(ctx, `SELECT `+deploymentCols+` FROM collector_deployments
+	rows, err := s.pool.Query(ctx, `SELECT `+deploymentCols+`,
+		       COALESCE((SELECT p.state FROM proposals p WHERE p.id = collector_deployments.proposal_id), '')
+		FROM collector_deployments
 		WHERE collector_id = $1 ORDER BY created_at DESC LIMIT $2`, collectorID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("collectors: deployments: %w", err)
@@ -219,8 +226,9 @@ func (s *Store) Deployments(ctx context.Context, collectorID uuid.UUID, limit in
 	defer rows.Close()
 	out := []Deployment{}
 	for rows.Next() {
-		d, err := scanDeployment(rows)
-		if err != nil {
+		var d Deployment
+		if err := rows.Scan(&d.ID, &d.CollectorID, &d.Hash, &d.Status, &d.ErrorMessage, &d.Message, &d.CreatedBy, &d.CreatedByName, &d.Via,
+			&d.ProposalID, &d.RolledBackFrom, &d.CreatedAt, &d.SentAt, &d.FinishedAt, &d.ProposalState); err != nil {
 			return nil, err
 		}
 		out = append(out, d)
