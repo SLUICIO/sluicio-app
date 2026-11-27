@@ -58,6 +58,7 @@ import type {
   CollectorValidation,
   CollectorSendResult,
   CollectorDeploymentDiff,
+  CollectorDeploymentEffect,
   Integration,
   IntegrationDetail,
   LogAttrFilter,
@@ -1164,6 +1165,10 @@ export const api = {
     post<CollectorSendResult>(`/collectors/${encodeURIComponent(id)}/deployments`, body),
   collectorDeploymentDiff: (id: string, dep: string) =>
     get<CollectorDeploymentDiff>(`/collectors/${encodeURIComponent(id)}/deployments/${encodeURIComponent(dep)}/diff`),
+  collectorDeploymentEffect: (id: string, dep: string) =>
+    get<CollectorDeploymentEffect>(
+      `/collectors/${encodeURIComponent(id)}/deployments/${encodeURIComponent(dep)}/effect`,
+    ),
   restoreCollectorDeployment: (id: string, dep: string) =>
     post<CollectorSendResult>(`/collectors/${encodeURIComponent(id)}/deployments/${encodeURIComponent(dep)}/rollback`, {}),
   getCollectorTeamSettings: (teamId: string) =>

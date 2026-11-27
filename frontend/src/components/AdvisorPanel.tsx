@@ -311,8 +311,9 @@ function SuggestionCard({
       {applying && <AdvisorCollectorDrawer suggestion={s} onClose={() => setApplying(false)} />}
       {s.state === "accepted" && (
         <p className="muted" style={{ fontSize: 12, margin: 0 }}>
-          Accepted — paste the config into your collector. This will show as verified once the
-          telemetry actually stops arriving.
+          {s.decision_note?.startsWith("Applied to collector")
+            ? `${s.decision_note}. This will show as verified once the telemetry actually stops arriving.`
+            : "Accepted — paste the config into your collector. This will show as verified once the telemetry actually stops arriving."}
         </p>
       )}
       {s.state === "verified" && (

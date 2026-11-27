@@ -15,6 +15,7 @@ import { formatDateTime, formatRelative } from "../../lib/format";
 import { useFeature } from "../../lib/useLicense";
 import StatusPip from "../primitives/StatusPip";
 import { deploymentStatus } from "../../lib/deploymentStatus";
+import { effectSummary } from "../../lib/deploymentEffect";
 import ConfigDiff from "./ConfigDiff";
 
 export default function DeploymentsPanel({
@@ -148,6 +149,15 @@ export default function DeploymentsPanel({
                       </>
                     )}
                   </div>
+                  {restoreEntitled &&
+                    canPush &&
+                    d.advisor_metric &&
+                    d.status === "applied" && (
+                      <EffectLine
+                        collectorId={collectorId}
+                        deploymentId={d.id}
+                      />
+                    )}
                 </div>
                 <div title={formatDateTime(d.created_at)}>
                   {formatRelative(d.created_at)}
@@ -190,6 +200,34 @@ export default function DeploymentsPanel({
           );
         })}
       </div>
+    </div>
+  );
+}
+
+// The measured effect of an applied Advisor change, fetched per row: there
+// are few of them, and each is one query over a day of one metric.
+function EffectLine({
+  collectorId,
+  deploymentId,
+}: {
+  collectorId: string;
+  deploymentId: string;
+}) {
+  const [text, setText] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .collectorDeploymentEffect(collectorId, deploymentId)
+      .then((e) => !cancelled && setText(effectSummary(e)))
+      .catch(() => !cancelled && setText(""));
+    return () => {
+      cancelled = true;
+    };
+  }, [collectorId, deploymentId]);
+  if (!text) return null;
+  return (
+    <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
+      Effect: {text}
     </div>
   );
 }
