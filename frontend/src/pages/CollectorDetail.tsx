@@ -27,6 +27,7 @@ import BetaBadge from "../components/BetaBadge";
 import TabStrip from "../components/primitives/TabStrip";
 import SendConfigDrawer from "../components/collectors/SendConfigDrawer";
 import DeploymentsPanel from "../components/collectors/DeploymentsPanel";
+import { driftSummary, isDrifted } from "../lib/collectorDrift";
 import { useCurrentUser } from "../lib/useCurrentUser";
 import {
   otelflowConfigHeight,
@@ -337,6 +338,21 @@ export default function CollectorDetail() {
         )}
       </div>
       {removeError && <div className="alert alert--error">{removeError}</div>}
+      {isDrifted(c.drift) && (
+        <div className="alert alert--warn">
+          {driftSummary(c.drift)} Its local configuration files were probably
+          edited on the host, or something else changed its configuration.
+          Change it in Sluicio to match, or undo the change on the host.{" "}
+          {tab !== "deployments" && (
+            <button
+              className="btn btn--link"
+              onClick={() => selectTab("deployments")}
+            >
+              Show deployments
+            </button>
+          )}
+        </div>
+      )}
 
       <TabStrip
         ariaLabel="Collector sections"

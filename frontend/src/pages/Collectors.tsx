@@ -17,6 +17,7 @@ import { useFeature } from "../lib/useLicense";
 import { EnterpriseBadge } from "../components/EnterpriseUpsell";
 import { copyText } from "../lib/clipboard";
 import StatusPip from "../components/primitives/StatusPip";
+import { isDrifted } from "../lib/collectorDrift";
 import type { PipKind } from "../components/primitives/StatusPip";
 import { EditDrawer } from "../components/primitives";
 import BetaBadge from "../components/BetaBadge";
@@ -234,6 +235,15 @@ export default function Collectors() {
                               </div>
                               <div>
                                 <StatusPip kind={st.kind} label={st.label} />
+                                {isDrifted(c.drift) && (
+                                  <span
+                                    className="badge sev-warn"
+                                    style={{ marginLeft: 6 }}
+                                    title="It no longer runs everything last sent to it"
+                                  >
+                                    Drifted
+                                  </span>
+                                )}
                               </div>
                               <div className="mono" style={{ fontSize: 12.5 }}>
                                 {c.description["service.version"] || "-"}

@@ -62,6 +62,9 @@ type Collector struct {
 	// empty when none is stored (not reported, or no key).
 	ConfigHash       string     `json:"config_hash,omitempty"`
 	ConfigReceivedAt *time.Time `json:"config_received_at,omitempty"`
+	// Drift: whether it still runs what was last rolled out to it; nil
+	// when not checked or not applicable (see CheckDrift).
+	Drift *Drift `json:"drift,omitempty"`
 }
 
 // Observe records a message and returns the collector's id. created says
@@ -171,7 +174,13 @@ func (s *Store) RecordConfig(ctx context.Context, collectorID uuid.UUID, files [
 	if err != nil {
 		return false, fmt.Errorf("collectors: record config: %w", err)
 	}
-	return tag.RowsAffected() == 1, nil
+	stored := tag.RowsAffected() == 1
+	if stored {
+		// A drift check that fails leaves the last result; the
+		// configuration itself is stored either way.
+		_ = s.CheckDrift(ctx, collectorID)
+	}
+	return stored, nil
 }
 
 // latestFiles opens the newest stored version, unmasked, for comparison
@@ -198,7 +207,7 @@ type Scope struct {
 
 const collectorCols = `
 	c.id, c.group_id, g.name, c.instance_uid, c.kind, c.capabilities, c.description, c.healthy, c.health,
-	c.connected, c.transport, c.remote_addr, c.first_seen_at, c.last_seen_at, cfg.config_hash, cfg.received_at`
+	c.connected, c.transport, c.remote_addr, c.first_seen_at, c.last_seen_at, cfg.config_hash, cfg.received_at, c.drift`
 
 const collectorFrom = `
 	FROM collectors c
@@ -215,7 +224,7 @@ func scanCollector(row pgx.Row, now time.Time) (Collector, error) {
 	var connected bool
 	var hash *string
 	if err := row.Scan(&c.ID, &c.GroupID, &c.GroupName, &c.InstanceUID, &c.Kind, &caps, &desc, &c.Healthy,
-		&health, &connected, &c.Transport, &c.RemoteAddr, &c.FirstSeenAt, &c.LastSeenAt, &hash, &c.ConfigReceivedAt); err != nil {
+		&health, &connected, &c.Transport, &c.RemoteAddr, &c.FirstSeenAt, &c.LastSeenAt, &hash, &c.ConfigReceivedAt, &c.Drift); err != nil {
 		return Collector{}, err
 	}
 	c.Capabilities = CapabilityNames(uint64(caps))

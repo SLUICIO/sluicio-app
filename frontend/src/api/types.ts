@@ -3523,6 +3523,12 @@ export interface CollectorHealth {
   components?: Record<string, CollectorHealth>;
 }
 
+export interface CollectorDrift {
+  deployment_id: string;
+  paths: { path: string; kind: "missing" | "changed" | "added" | "removed" }[];
+  checked_at: string;
+}
+
 export interface Collector {
   id: string;
   group_id: string;
@@ -3541,6 +3547,9 @@ export interface Collector {
   last_seen_at: string;
   config_hash?: string;
   config_received_at?: string;
+  // Whether it still runs what was last rolled out to it, and nothing
+  // changed since; absent when not applicable. Paths only, never values.
+  drift?: CollectorDrift;
 }
 
 export interface CollectorsResponse {

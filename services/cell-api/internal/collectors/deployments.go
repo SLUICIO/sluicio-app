@@ -319,6 +319,9 @@ func (s *Store) ReportStatus(ctx context.Context, collectorID uuid.UUID, hash st
 		            WHERE collector_id = $1 AND config_hash = $2 AND status IN ('pending', 'sent', 'applying')
 		            ORDER BY created_at DESC LIMIT 1)`,
 		collectorID, hash, string(status), MaskText(errMsg), finished)
+	if err == nil && status == DeploymentApplied {
+		_ = s.CheckDrift(ctx, collectorID)
+	}
 	return err
 }
 

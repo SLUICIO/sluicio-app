@@ -27,6 +27,7 @@ var collectorItem = map[string]any{
 	"last_seen_at":       strOut("Last message from the agent (RFC3339)."),
 	"config_hash":        strOut("Fingerprint of the newest stored configuration; changes when the configuration does. Absent when none is stored."),
 	"config_received_at": strOut("When the newest stored configuration arrived (RFC3339)."),
+	"drift": objOf("Whether the collector still runs what was last rolled out to it from Sluicio: deployment_id (the last deployment it applied), paths[] with path and kind (missing: sent but not in its configuration; changed: a different value there; paths only, never values), checked_at. Empty paths means in sync. Absent when not applicable: a read-only collector, none rolled out yet, or no configuration as written reported.", nil),
 }
 
 var (
