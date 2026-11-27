@@ -171,9 +171,20 @@ func (h *Handlers) createCollectorDeployment(w http.ResponseWriter, r *http.Requ
 		suggestion = &s
 	}
 	// Secrets: the edited text is the masked one; put the stored values
-	// back. A collector with no stored configuration has none to restore.
-	original, err := h.Collectors.LatestRaw(r.Context(), c.ID)
-	if err != nil && !errors.Is(err, collectors.ErrNotFound) {
+	// back, from the configuration as written only. The effective one
+	// leaves fields out and is never a base for a change, so a collector
+	// that reports only that (or nothing) has no secrets to restore, and
+	// a masked value in what is sent is refused. A complete file sent from
+	// CI carries no masked values and needs none.
+	original, err := h.Collectors.LatestRawOnly(r.Context(), c.ID)
+	if errors.Is(err, collectors.ErrNotFound) {
+		if strings.Contains(body.Config, collectors.Masked) {
+			httpserver.WriteError(w, http.StatusUnprocessableEntity, "this collector does not report its configuration as written (reports_raw_config), so a masked value cannot be restored; type the real values")
+			return
+		}
+		original, err = "", nil
+	}
+	if err != nil {
 		h.Logger.Error("read stored configuration failed", "err", err)
 		httpserver.WriteError(w, http.StatusInternalServerError, "could not read the stored configuration")
 		return

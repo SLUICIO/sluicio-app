@@ -166,6 +166,21 @@ func TestCollectorPush(t *testing.T) {
 		t.Fatalf("after the collector's answer: %v", got)
 	}
 
+	// A collector that reports only its effective configuration: nothing
+	// to restore secrets from, so a masked value is refused, while a
+	// complete file (what a CI pipeline sends) goes through.
+	effOnly, _, _ := store.Observe(ctx, collectors.Observation{OrgID: org.ID, GroupID: team.ID, TokenID: tok.ID, InstanceUID: "eff", Transport: "websocket", Capabilities: &supervisorCaps})
+	if _, err := store.RecordConfig(ctx, effOnly, []collectors.ConfigFile{{Body: stored}}); err != nil {
+		t.Fatal(err)
+	}
+	effBase := "/api/v1/collectors/" + effOnly.String() + "/deployments"
+	if code, out := do(editor, "POST", effBase, map[string]any{"config": masked}); code != http.StatusUnprocessableEntity {
+		t.Errorf("a masked value against an effective-only configuration: %d %v, want 422", code, out)
+	}
+	if code, out := do(editor, "POST", effBase, map[string]any{"config": stored}); code != http.StatusCreated {
+		t.Errorf("a complete configuration to an effective-only collector: %d %v, want 201", code, out)
+	}
+
 	// Restoring an applied configuration is Enterprise: 402 without a licence.
 	if code, _ := do(admin, "POST", base+"/deployments/"+depID.String()+"/rollback", nil); code != http.StatusPaymentRequired {
 		t.Errorf("rollback without a licence: %d, want 402", code)

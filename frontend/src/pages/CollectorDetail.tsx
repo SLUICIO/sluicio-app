@@ -497,7 +497,7 @@ export default function CollectorDetail() {
                       flexWrap: "wrap",
                     }}
                   >
-                    {detail.can_push && version === "latest" && (rawFile || effectiveFile) && (
+                    {detail.can_push && version === "latest" && rawFile && (
                       <button
                         className="btn primary"
                         onClick={() => setSending(true)}
@@ -567,6 +567,8 @@ export default function CollectorDetail() {
                     To see the configuration as written, set{" "}
                     <code>reports_raw_config: true</code> on the
                     collector&apos;s OpAMP extension.
+                    {detail.can_push &&
+                      " Changing it from Sluicio needs that too: the effective configuration leaves fields out, and sending it back would drop them."}
                   </div>
                 )}
                 {canFlow && mainFile && (
@@ -625,11 +627,11 @@ export default function CollectorDetail() {
             />
           </Section>
         )}
-        {sending && (rawFile || effectiveFile) && (
+        {sending && rawFile && (
           <SendConfigDrawer
             collectorId={c.id}
             collectorName={collectorName(c)}
-            current={(rawFile ?? effectiveFile)!.body}
+            current={rawFile.body}
             requireApproval={detail.require_approval}
             onClose={() => setSending(false)}
             onSent={() => setSentKey((k) => k + 1)}
