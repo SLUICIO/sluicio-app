@@ -163,9 +163,12 @@ services:
   # (Beta). Stateless; the configuration reaches it only in the URL
   # fragment of the embed, inside the browser. Served under /otelflow/ so
   # it shares the app's origin; needs OTelFlow 0.9.0 or later
-  # (OTELFLOW_PREFIX). OTELFLOW_IMAGE points at a local build until then.
+  # (OTELFLOW_PREFIX). Only started with the collectors profile
+  # (COMPOSE_PROFILES=collectors), so a cell without collector management
+  # runs no OTelFlow.
   otelflow:
     image: ${OTELFLOW_IMAGE:-ghcr.io/sluicio/otelflow:0.9.0}
+    profiles: [collectors]
     restart: always
     environment:
       OTELFLOW_PREFIX: /otelflow
