@@ -86,7 +86,19 @@ type connState struct {
 	// instanceUID is the agent seen on this connection, so a WebSocket
 	// close can mark it offline.
 	instanceUID string
+	// lastMsg and heartbeat feed the reaper. Written by the connection's
+	// own message callback, read by the reaper: guarded by Server.mu.
+	lastMsg   time.Time
+	heartbeat bool
 }
+
+// staleAfter is how long a WebSocket agent that reports heartbeats may be
+// silent before its connection is closed. Agents send one every 30s by
+// default; three missed means the agent is gone, even when no TCP close
+// ever arrives (a network that drops silently, a proxy that keeps its own
+// half of the connection open). Without this such a collector would read
+// online for as long as cell-api runs.
+const staleAfter = 90 * time.Second
 
 // New attaches an OpAMP server.
 func New(reg Registry, logger *slog.Logger) (*Server, error) {
@@ -147,6 +159,7 @@ func (s *Server) onConnecting(r *http.Request) types.ConnectionResponse {
 			OnConnected: func(_ context.Context, conn types.Connection) {
 				if st.transport == "websocket" {
 					s.mu.Lock()
+					st.lastMsg = time.Now()
 					s.live[conn] = st
 					s.mu.Unlock()
 				}
@@ -160,11 +173,12 @@ func (s *Server) onConnecting(r *http.Request) types.ConnectionResponse {
 				}
 				s.mu.Lock()
 				delete(s.live, conn)
+				uid := st.instanceUID
 				s.mu.Unlock()
-				if st.instanceUID != "" {
+				if uid != "" {
 					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 					defer cancel()
-					if err := s.reg.Disconnected(ctx, st.ref.GroupID, st.instanceUID); err != nil {
+					if err := s.reg.Disconnected(ctx, st.ref.GroupID, uid); err != nil {
 						s.logger.Warn("opamp: mark disconnected failed", "err", err)
 					}
 				}
@@ -208,6 +222,41 @@ func (s *Server) DisconnectToken(tokenID uuid.UUID) int {
 	return len(conns)
 }
 
+// Run closes stale WebSocket connections until ctx ends. See staleAfter.
+func (s *Server) Run(ctx context.Context) {
+	t := time.NewTicker(staleAfter / 3)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-t.C:
+			if n := s.reap(now); n > 0 {
+				s.logger.Info("opamp: closed silent agent connections", "count", n)
+			}
+		}
+	}
+}
+
+// reap disconnects every heartbeat-reporting WebSocket agent silent for
+// longer than staleAfter. Closing the connection runs OnConnectionClose,
+// which marks the collector offline. Agents that do not report heartbeats
+// are left alone: their silence says nothing.
+func (s *Server) reap(now time.Time) int {
+	s.mu.Lock()
+	var stale []types.Connection
+	for c, st := range s.live {
+		if st.heartbeat && now.Sub(st.lastMsg) > staleAfter {
+			stale = append(stale, c)
+		}
+	}
+	s.mu.Unlock()
+	for _, c := range stale {
+		_ = c.Disconnect()
+	}
+	return len(stale)
+}
+
 // FormatInstanceUID renders the agent's 16-byte instance UID the way the
 // collector and supervisor print it (a UUID); anything else as hex.
 func FormatInstanceUID(b []byte) string {
@@ -227,7 +276,13 @@ func (s *Server) onMessage(ctx context.Context, st *connState, msg *protobufs.Ag
 		return resp
 	}
 	uid := FormatInstanceUID(msg.InstanceUid)
+	s.mu.Lock()
 	st.instanceUID = uid
+	st.lastMsg = time.Now()
+	if msg.Capabilities != 0 {
+		st.heartbeat = msg.Capabilities&uint64(protobufs.AgentCapabilities_AgentCapabilities_ReportsHeartbeat) != 0
+	}
+	s.mu.Unlock()
 
 	obs := collectors.Observation{
 		OrgID:       st.ref.OrgID,

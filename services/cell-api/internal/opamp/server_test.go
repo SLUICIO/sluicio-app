@@ -120,7 +120,17 @@ const agentCaps = protobufs.AgentCapabilities_AgentCapabilities_ReportsStatus |
 	protobufs.AgentCapabilities_AgentCapabilities_ReportsEffectiveConfig |
 	protobufs.AgentCapabilities_AgentCapabilities_ReportsHealth
 
+func startAgentCaps(t *testing.T, url, token string, caps protobufs.AgentCapabilities) *agent {
+	t.Helper()
+	return startAgentWith(t, url, token, clienttypes.InstanceUid(uuid.New()), true, "a: 1", caps)
+}
+
 func startAgent(t *testing.T, url, token string, uid clienttypes.InstanceUid, ws bool, config string) *agent {
+	t.Helper()
+	return startAgentWith(t, url, token, uid, ws, config, agentCaps)
+}
+
+func startAgentWith(t *testing.T, url, token string, uid clienttypes.InstanceUid, ws bool, config string, caps protobufs.AgentCapabilities) *agent {
 	t.Helper()
 	a := &agent{connected: make(chan struct{}, 8), failed: make(chan error, 64)}
 	if ws {
@@ -145,7 +155,7 @@ func startAgent(t *testing.T, url, token string, uid clienttypes.InstanceUid, ws
 		Header:         http.Header{"Authorization": []string{"Bearer " + token}},
 		TLSConfig:      &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // httptest's self-signed certificate
 		InstanceUid:    uid,
-		Capabilities:   agentCaps,
+		Capabilities:   caps,
 		Callbacks: clienttypes.Callbacks{
 			OnConnect:       func(context.Context) { a.connected <- struct{}{} },
 			OnConnectFailed: func(_ context.Context, err error) { a.failed <- err },
@@ -286,4 +296,27 @@ func TestRevokeDisconnectsAndKeepsOut(t *testing.T) {
 	case <-time.After(20 * time.Second):
 		t.Fatal("reconnect with a revoked token was not refused")
 	}
+}
+
+// A collector whose network drops silently never sends a TCP close. The
+// reaper closes its connection once it misses its heartbeats, which marks
+// it offline; an agent that never promised heartbeats is left alone.
+func TestReapClosesSilentHeartbeatAgents(t *testing.T) {
+	reg := newFakeRegistry()
+	reg.tokens["sct_a"] = collectors.TokenRef{TokenID: uuid.New(), OrgID: uuid.New(), GroupID: uuid.New()}
+	s, url := startServer(t, reg)
+
+	beats := startAgentCaps(t, url, "sct_a", agentCaps|protobufs.AgentCapabilities_AgentCapabilities_ReportsHeartbeat)
+	quiet := startAgentCaps(t, url, "sct_a", agentCaps)
+	<-beats.connected
+	<-quiet.connected
+	waitFor(t, "both registered", func() bool { o, _, _, _ := reg.snapshot(); return len(o) >= 2 })
+
+	if n := s.reap(time.Now()); n != 0 {
+		t.Fatalf("reaped %d live agents", n)
+	}
+	if n := s.reap(time.Now().Add(staleAfter + time.Second)); n != 1 {
+		t.Fatalf("reaped %d, want only the heartbeat agent", n)
+	}
+	waitFor(t, "the silent agent marked offline", func() bool { _, _, _, d := reg.snapshot(); return len(d) == 1 })
 }

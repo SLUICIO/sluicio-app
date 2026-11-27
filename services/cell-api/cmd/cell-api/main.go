@@ -949,6 +949,7 @@ func main() {
 			os.Exit(1)
 		}
 		handlers.Collectors, handlers.OpAMP = store, opampServer
+		go opampServer.Run(bgCtx)
 		// The OTelFlow designer the Configuration tab draws with, served
 		// by this cell (a path like /otelflow/, or a URL of the operator's
 		// own instance). Unset: YAML only.
