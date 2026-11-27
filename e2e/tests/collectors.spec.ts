@@ -132,7 +132,7 @@ test.describe("Collector management (Beta)", () => {
     await expect(teamAdmin.getByRole("heading", { name: /Collectors/ })).toBeVisible();
     await expect(teamAdmin.getByText("Beta").first()).toBeVisible();
     const section = teamAdmin.locator("section", { has: teamAdmin.getByRole("heading", { name: `e2e-col-a-${stamp}` }) });
-    await section.getByRole("button", { name: "Tokens" }).click();
+    await section.getByRole("button", { name: "Team settings" }).click();
     await teamAdmin.getByPlaceholder(/Token name/).fill("prod hosts");
     await teamAdmin.getByRole("button", { name: "Create token" }).click();
     const shown = teamAdmin.locator(".mono", { hasText: /^sct_[A-Za-z0-9_-]{30,}$/ });
@@ -148,7 +148,7 @@ test.describe("Collector management (Beta)", () => {
     await viewer.goto("/collectors");
     const vSection = viewer.locator("section", { has: viewer.getByRole("heading", { name: `e2e-col-a-${stamp}` }) });
     await expect(vSection).toBeVisible();
-    await expect(vSection.getByRole("button", { name: "Tokens" })).toHaveCount(0);
+    await expect(vSection.getByRole("button", { name: "Team settings" })).toHaveCount(0);
     expect((await viewer.request.post(`/api/v1/settings/groups/${team}/collector-tokens`, { data: { name: "x" } })).status()).toBe(404);
   });
 

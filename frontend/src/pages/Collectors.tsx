@@ -13,6 +13,8 @@ import type { Collector, CollectorTeam, CollectorToken } from "../api/types";
 import { formatDateTime, formatRelative } from "../lib/format";
 import { usePageTitle } from "../lib/usePageTitle";
 import { useCurrentUser } from "../lib/useCurrentUser";
+import { useFeature } from "../lib/useLicense";
+import { EnterpriseBadge } from "../components/EnterpriseUpsell";
 import { copyText } from "../lib/clipboard";
 import StatusPip from "../components/primitives/StatusPip";
 import type { PipKind } from "../components/primitives/StatusPip";
@@ -171,7 +173,7 @@ export default function Collectors() {
                           className="btn"
                           onClick={() => setTokensFor(team)}
                         >
-                          Tokens
+                          Team settings
                         </button>
                       </div>
                     )}
@@ -262,6 +264,62 @@ export default function Collectors() {
 function opampEndpoint(): string {
   const wsScheme = window.location.protocol === "https:" ? "wss:" : "ws:";
   return `${wsScheme}//${window.location.host}/api/v1/opamp`;
+}
+
+// Whether a change to the team's collectors waits for approval by someone
+// other than its author before it is sent (Enterprise).
+function ApprovalSetting({ teamId }: { teamId: string }) {
+  const entitled = useFeature("advisor");
+  const [value, setValue] = useState<boolean | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    api
+      .getCollectorTeamSettings(teamId)
+      .then((r) => setValue(r.require_approval))
+      .catch((e) => setError(String((e as Error).message ?? e)));
+  }, [teamId]);
+  const toggle = async (v: boolean) => {
+    setError(null);
+    try {
+      await api.putCollectorTeamSettings(teamId, v);
+      setValue(v);
+    } catch (e) {
+      setError(String((e as Error).message ?? e));
+    }
+  };
+  return (
+    <div>
+      <h3 style={{ margin: "0 0 6px", fontSize: 14 }}>
+        Changes {!entitled && <EnterpriseBadge />}
+      </h3>
+      <label
+        style={{
+          display: "flex",
+          gap: 8,
+          alignItems: "flex-start",
+          fontSize: 13,
+        }}
+      >
+        <input
+          type="checkbox"
+          checked={!!value}
+          disabled={!entitled || value === null}
+          onChange={(e) => toggle(e.target.checked)}
+          style={{ marginTop: 2 }}
+        />
+        <span>
+          Require approval before a configuration is sent to this team&apos;s
+          collectors. A change is then proposed, and someone other than its
+          author approves it in Proposals.
+        </span>
+      </label>
+      {error && (
+        <div className="alert alert--error" style={{ marginTop: 6 }}>
+          {error}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function TokensDrawer({
@@ -357,11 +415,13 @@ function TokensDrawer({
 
   return (
     <EditDrawer
-      title={`Collector tokens: ${team.name}`}
+      title={`Collector settings: ${team.name}`}
       width="medium"
       onClose={onClose}
     >
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <ApprovalSetting teamId={team.id} />
+        <h3 style={{ margin: "4px 0 0", fontSize: 14 }}>Tokens</h3>
         <p className="muted" style={{ margin: 0, fontSize: 13 }}>
           A collector sends its token as{" "}
           <code>Authorization: Bearer &lt;token&gt;</code> to the OpAMP

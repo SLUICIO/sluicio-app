@@ -16,12 +16,44 @@
 //     click than the ordinary case.
 
 import { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../api/client";
+import ConfigDiff from "../components/collectors/ConfigDiff";
 import type { NotificationChannel, Proposal, ProposalChange, ProposalDetail, ProposalState } from "../api/types";
 import { diffValue, groupProposals, isCreateProposal, proposalKindLabel, proposedRuleLines } from "../lib/proposalView";
 
 /** One side of a diff: inline when short, a block when it is a list or object.
  *  Channel ids read as the channels' names, and none as the profile. */
+// A collector configuration proposal carries only the id of the change it
+// waits on (the configuration stays encrypted in the collector's
+// deployments); the reviewer reads the change itself, masked.
+function CollectorProposal({ collectorId, change }: { collectorId: string; change: { after: unknown } }) {
+  const depId = (change.after as { deployment_id?: string } | null)?.deployment_id ?? "";
+  const [diff, setDiff] = useState<{ before: string; after: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!depId) return;
+    api
+      .collectorDeploymentDiff(collectorId, depId)
+      .then((d) => setDiff({ before: d.before, after: d.after }))
+      .catch((e) => setError(String((e as Error).message ?? e)));
+  }, [collectorId, depId]);
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      {error && <div className="alert alert--error">{error}</div>}
+      {diff ? (
+        <ConfigDiff before={diff.before} after={diff.after} maxHeight={360} />
+      ) : (
+        !error && <div className="placeholder">Loading…</div>
+      )}
+      <div className="muted" style={{ fontSize: 12 }}>
+        Compared with the configuration the collector reports now. Secrets are masked on both sides.{" "}
+        <Link to={`/collectors/${collectorId}?tab=deployments`}>Open the collector</Link>
+      </div>
+    </div>
+  );
+}
+
 function DiffValue({ v, field, channelName, className }: { v: unknown; field: string; channelName: (id: string) => string; className: string }) {
   let shown = v;
   if (field === "channel_ids" && Array.isArray(v)) {
@@ -157,7 +189,9 @@ function ProposalCard({
         </div>
       </div>
 
-      {isCreateProposal(p.target_kind) && p.changes[0] ? (
+      {p.target_kind === "collector_config" && p.target_id && p.changes[0] ? (
+        <CollectorProposal collectorId={p.target_id} change={p.changes[0]} />
+      ) : isCreateProposal(p.target_kind) && p.changes[0] ? (
         <ProposedRule kind={p.target_kind} change={p.changes[0]} />
       ) : (
         <div className="prop-diff">

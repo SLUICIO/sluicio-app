@@ -21,6 +21,8 @@ export function proposalKindLabel(kind: string): string {
       return "Integration settings";
     case "completion_rule":
       return "Change a completion rule";
+    case "collector_config":
+      return "Collector configuration";
     default:
       return kind.replace(/_/g, " ");
   }

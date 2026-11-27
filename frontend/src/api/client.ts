@@ -52,6 +52,10 @@ import type {
   CollectorTeam,
   CollectorToken,
   CollectorTokenCreated,
+  CollectorDeployment,
+  CollectorValidation,
+  CollectorSendResult,
+  CollectorDeploymentDiff,
   Integration,
   IntegrationDetail,
   LogAttrFilter,
@@ -1141,6 +1145,20 @@ export const api = {
   getCollectorConfig: (id: string, version = "latest") =>
     get<CollectorConfigResponse>(`/collectors/${encodeURIComponent(id)}/configs/${encodeURIComponent(version)}`),
   deleteCollector: (id: string) => del(`/collectors/${encodeURIComponent(id)}`),
+  validateCollectorConfig: (id: string, config: string) =>
+    post<{ checked: boolean; validation?: CollectorValidation }>(`/collectors/${encodeURIComponent(id)}/validate`, { config }),
+  listCollectorDeployments: (id: string) =>
+    get<{ deployments: CollectorDeployment[] }>(`/collectors/${encodeURIComponent(id)}/deployments`),
+  sendCollectorConfig: (id: string, body: { config: string; message: string; force?: boolean }) =>
+    post<CollectorSendResult>(`/collectors/${encodeURIComponent(id)}/deployments`, body),
+  collectorDeploymentDiff: (id: string, dep: string) =>
+    get<CollectorDeploymentDiff>(`/collectors/${encodeURIComponent(id)}/deployments/${encodeURIComponent(dep)}/diff`),
+  restoreCollectorDeployment: (id: string, dep: string) =>
+    post<CollectorSendResult>(`/collectors/${encodeURIComponent(id)}/deployments/${encodeURIComponent(dep)}/rollback`, {}),
+  getCollectorTeamSettings: (teamId: string) =>
+    get<{ require_approval: boolean; entitled: boolean }>(`/settings/groups/${encodeURIComponent(teamId)}/collector-settings`),
+  putCollectorTeamSettings: (teamId: string, requireApproval: boolean) =>
+    put<{ require_approval: boolean }>(`/settings/groups/${encodeURIComponent(teamId)}/collector-settings`, { require_approval: requireApproval }),
   listCollectorTeams: () => get<{ teams: CollectorTeam[] }>(`/collector-teams`),
   listCollectorTokens: (teamId: string) =>
     get<{ tokens: CollectorToken[] }>(`/settings/groups/${encodeURIComponent(teamId)}/collector-tokens`),

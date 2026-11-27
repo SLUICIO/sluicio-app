@@ -3562,6 +3562,47 @@ export interface CollectorDetailResponse {
   config_storage: boolean;
   // The caller may remove this collector (team admins, org admins).
   can_manage: boolean;
+  // The caller may send it a configuration, and it takes one.
+  can_push: boolean;
+  // A change waits for approval before it is sent (Enterprise).
+  require_approval: boolean;
+}
+
+export type DeploymentStatus = "proposed" | "pending" | "sent" | "applying" | "applied" | "failed" | "superseded";
+
+export interface CollectorDeployment {
+  id: string;
+  collector_id: string;
+  hash: string;
+  status: DeploymentStatus;
+  error_message?: string;
+  message?: string;
+  created_by_name?: string;
+  via: string;
+  proposal_id?: string;
+  rolled_back_from?: string;
+  created_at: string;
+  sent_at?: string;
+  finished_at?: string;
+}
+
+export interface CollectorValidation {
+  valid: boolean;
+  diagnostics: { severity: string; message: string; path?: string; line?: number; hint?: string }[] | null;
+  checked_version?: string;
+}
+
+export interface CollectorSendResult {
+  deployment: CollectorDeployment;
+  delivered?: boolean;
+  proposal?: { id: string };
+  validation?: CollectorValidation | null;
+}
+
+export interface CollectorDeploymentDiff {
+  deployment: CollectorDeployment;
+  before: string;
+  after: string;
 }
 
 export interface CollectorConfigFile {

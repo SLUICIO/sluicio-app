@@ -25,6 +25,8 @@ import StatusPip from "../components/primitives/StatusPip";
 import SyntaxView from "../components/SyntaxView";
 import BetaBadge from "../components/BetaBadge";
 import TabStrip from "../components/primitives/TabStrip";
+import SendConfigDrawer from "../components/collectors/SendConfigDrawer";
+import DeploymentsPanel from "../components/collectors/DeploymentsPanel";
 import { useCurrentUser } from "../lib/useCurrentUser";
 import {
   otelflowConfigHeight,
@@ -103,14 +105,12 @@ function OtelflowEmbed({
   yaml,
   version,
   view,
-  supervisor,
   written,
 }: {
   base: string;
   yaml: string;
   version: string;
   view: "canvas" | "config";
-  supervisor: boolean;
   written: boolean;
 }) {
   const [payload, setPayload] = useState<string | null>(null);
@@ -148,7 +148,6 @@ function OtelflowEmbed({
           {written
             ? "The configuration as written, checked by OTelFlow. Secrets are masked."
             : "The effective configuration, checked by OTelFlow. The collector reports it with defaults filled in, some fields in another shape and some left out (a receiver's scrapers, for example), so OTelFlow can flag errors the running collector does not have."}
-          {supervisor && " Editing and sending a configuration comes later."}
         </span>
         <a
           href={`${root}#share=${payload}`}
@@ -195,6 +194,7 @@ const TABS = [
   { key: "agent", label: "Agent" },
   { key: "health", label: "Health" },
   { key: "configuration", label: "Configuration" },
+  { key: "deployments", label: "Deployments" },
 ] as const;
 type TabKey = (typeof TABS)[number]["key"];
 
@@ -203,6 +203,9 @@ export default function CollectorDetail() {
   const { otelflowUrl } = useCurrentUser();
   const navigate = useNavigate();
   const [removeError, setRemoveError] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+  // Bumped after a send, so the Deployments tab reloads.
+  const [sentKey, setSentKey] = useState(0);
   const [searchParams, setSearchParams] = useSearchParams();
   const tab: TabKey =
     TABS.find((t) => t.key === searchParams.get("tab"))?.key ?? "agent";
@@ -337,7 +340,10 @@ export default function CollectorDetail() {
 
       <TabStrip
         ariaLabel="Collector sections"
-        items={TABS.map((t) => ({
+        items={TABS.filter(
+          // Only the supervisor type is sent configurations.
+          (t) => t.key !== "deployments" || c.kind === "supervisor",
+        ).map((t) => ({
           key: t.key,
           label: t.label,
           active: tab === t.key,
@@ -491,6 +497,16 @@ export default function CollectorDetail() {
                       flexWrap: "wrap",
                     }}
                   >
+                    {detail.can_push && version === "latest" && (rawFile || effectiveFile) && (
+                      <button
+                        className="btn primary"
+                        onClick={() => setSending(true)}
+                      >
+                        {detail.require_approval
+                          ? "Propose a change"
+                          : "Change configuration"}
+                      </button>
+                    )}
                     {hasBoth && (
                       <div
                         className="m-seg"
@@ -561,7 +577,6 @@ export default function CollectorDetail() {
                     yaml={mainFile.body}
                     version={c.description["service.version"] ?? ""}
                     view={configView === "flow" ? "canvas" : "config"}
-                    supervisor={c.kind === "supervisor"}
                   />
                 )}
                 {config?.files
@@ -596,6 +611,29 @@ export default function CollectorDetail() {
               </div>
             )}
           </Section>
+        )}
+
+        {tab === "deployments" && (
+          <Section
+            title="Deployments"
+            subtitle="Configurations sent to this collector from Sluicio, and what it said about each."
+          >
+            <DeploymentsPanel
+              collectorId={c.id}
+              canPush={detail.can_push}
+              refreshKey={sentKey}
+            />
+          </Section>
+        )}
+        {sending && (rawFile || effectiveFile) && (
+          <SendConfigDrawer
+            collectorId={c.id}
+            collectorName={collectorName(c)}
+            current={(rawFile ?? effectiveFile)!.body}
+            requireApproval={detail.require_approval}
+            onClose={() => setSending(false)}
+            onSent={() => setSentKey((k) => k + 1)}
+          />
         )}
       </div>
     </div>

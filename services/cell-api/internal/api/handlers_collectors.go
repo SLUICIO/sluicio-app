@@ -34,6 +34,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/sluicio/sluicio-app/pkg/httpserver"
+	"github.com/sluicio/sluicio-app/pkg/license"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/api/middleware"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/collectors"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/identity"
@@ -113,6 +114,9 @@ type collectorDetailResponse struct {
 	// CanPush: the caller may send this collector a configuration (owner
 	// team editors and admins, org admins) and the collector takes one.
 	CanPush bool `json:"can_push"`
+	// RequireApproval: a change to this collector waits for approval
+	// before it is sent (Enterprise, the team's setting).
+	RequireApproval bool `json:"require_approval"`
 }
 
 func (h *Handlers) collectorFromPath(w http.ResponseWriter, r *http.Request) (collectors.Collector, bool) {
@@ -150,6 +154,13 @@ func (h *Handlers) getCollector(w http.ResponseWriter, r *http.Request) {
 		Collector: c, History: hist, ConfigStorage: h.Collectors.ConfigStorage(),
 		CanManage: h.canManageCollectorTokens(r, c.GroupID, nil),
 		CanPush:   c.Kind == collectors.KindSupervisor && h.canPushCollector(r, c.GroupID),
+		RequireApproval: func() bool {
+			if !h.featureEntitled(license.FeatureAdvisor) {
+				return false
+			}
+			v, _ := h.Collectors.RequireApproval(r.Context(), c.GroupID)
+			return v
+		}(),
 	})
 }
 
