@@ -64,12 +64,14 @@ func (h *Handlers) collectorScope(r *http.Request) collectors.Scope {
 	return scope
 }
 
-// canManageCollectorTokens: the team's admins and org admins. Both need a
-// write-capable principal, so a token scoped down to read cannot mint.
+// canManageCollectorTokens: the team's admins and org admins. A token
+// scoped to read cannot mint, whatever its owner's team role: a minted
+// collector token is a write into the team.
+//
 // roles is the caller's team roles when the caller already has them.
 func (h *Handlers) canManageCollectorTokens(r *http.Request, groupID uuid.UUID, roles map[uuid.UUID]identity.Role) bool {
 	p := middleware.Principal(r)
-	if !p.Role.CanWrite() {
+	if p.TokenScope.IsValid() && !p.TokenScope.CanWrite() {
 		return false
 	}
 	if p.Role.CanAdmin() {

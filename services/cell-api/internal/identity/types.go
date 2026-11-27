@@ -301,6 +301,12 @@ type Principal struct {
 	// narrow what the underlying identity is allowed to READ. Empty ⇒ equals
 	// Role (no scope-cap in play).
 	BaseRole Role `json:"-"`
+	// TokenScope is the scope role of the API token the request carries
+	// (api_tokens.scope_role); empty for a session or an unscoped token.
+	// Capping Role cannot show a viewer-scoped token of an identity that
+	// is already an org viewer, so a decision that grants write through a
+	// team role (collector tokens) asks this directly.
+	TokenScope Role `json:"-"`
 	// Email + Name are denormalised onto the principal so handlers
 	// that want to log "who did this" don't need a second lookup.
 	// Empty for service accounts (their Name is on the SA row).

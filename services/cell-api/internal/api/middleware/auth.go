@@ -279,6 +279,7 @@ func (r *Resolver) principalFromToken(req *http.Request, lookup identity.TokenLo
 			// Cap the token below the user's role when scoped (least-privilege).
 			Role:          role.Cap(identity.Role(lookup.ScopeRole)),
 			BaseRole:      role, // uncapped — for READ visibility (see Principal.ReadRole)
+			TokenScope:    identity.Role(lookup.ScopeRole),
 			Email:         user.Email,
 			Name:          user.Name,
 			IsOperator:    user.IsOperator,
@@ -298,9 +299,10 @@ func (r *Resolver) principalFromToken(req *http.Request, lookup identity.TokenLo
 			SAScope:          sa.Scope, // scoped → group-resolved visibility; org_wide → org reads
 			OrgID:            sa.OrgID,
 			// Cap the token below the service account's role when scoped.
-			Role:     sa.Role.Cap(identity.Role(lookup.ScopeRole)),
-			BaseRole: sa.Role, // uncapped — for READ visibility
-			Name:     sa.Name,
+			Role:       sa.Role.Cap(identity.Role(lookup.ScopeRole)),
+			BaseRole:   sa.Role, // uncapped — for READ visibility
+			TokenScope: identity.Role(lookup.ScopeRole),
+			Name:       sa.Name,
 		}, true, nil
 
 	default:
