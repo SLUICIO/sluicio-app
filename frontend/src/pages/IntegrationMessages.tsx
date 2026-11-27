@@ -33,6 +33,8 @@ import { StatusPip } from "../components/primitives";
 import VirtualInfiniteList from "../components/VirtualInfiniteList";
 import MessageColumnsEditor from "../components/integrations/MessageColumnsEditor";
 import TraceDrawer from "../components/TraceDrawer";
+import PayloadLinkCell from "../components/PayloadLinkCell";
+import { payloadLinkLabel, usePayloadLinkFill } from "../lib/payloadLinks";
 import type {
   Integration,
   IntegrationDetail,
@@ -280,6 +282,10 @@ export default function IntegrationMessagesPage() {
         });
       });
   }, [results, showCompletion, id]);
+  // Payload links: one column per link attribute a message on the page
+  // carries, filled after the list like the completion column.
+  const payload = usePayloadLinkFill(results, id);
+  const resetPayloadLinks = payload.reset;
   const [hasResults, setHasResults] = useState(false);
   const [nextCursor, setNextCursor] = useState<MessageCursor | undefined>(undefined);
   const [hasMore, setHasMore] = useState(false);
@@ -507,6 +513,7 @@ export default function IntegrationMessagesPage() {
         // minute ago may be complete now.
         completionAsked.current = new Set();
         setCompletion({});
+        resetPayloadLinks();
         setResults(r.results ?? []);
         setNextCursor(r.next_cursor);
         setHasMore(!!r.next_cursor);
@@ -522,7 +529,7 @@ export default function IntegrationMessagesPage() {
     // views can carry identical filters and different column sets, and
     // without this switching between them would leave the table showing
     // the previous view's headings.
-  }, [composedFilters, lockedFilter, windowVal, activeView?.id]);
+  }, [composedFilters, lockedFilter, windowVal, activeView?.id, resetPayloadLinks]);
 
   useEffect(() => {
     const t = window.setTimeout(run, 350);
@@ -569,7 +576,7 @@ export default function IntegrationMessagesPage() {
         setError("Nothing to export for the current filters.");
         return;
       }
-      downloadCsv(csvFilename(integrationName), messageRowsToCsv(rows));
+      downloadCsv(csvFilename(integrationName), messageRowsToCsv(rows, payload.attributes));
       if (capped) {
         setError(
           `Export capped at ${CSV_EXPORT_CAP.toLocaleString()} rows — narrow the filters or time window for the rest.`,
@@ -580,7 +587,7 @@ export default function IntegrationMessagesPage() {
     } finally {
       setExporting(false);
     }
-  }, [exporting, windowVal, composedFilters, integrationName]);
+  }, [exporting, windowVal, composedFilters, integrationName, payload.attributes]);
 
   // Filter changes are dispatched from FilterEditor as a full list; we
   // strip the locked row (which the editor keeps but doesn't let the
@@ -681,6 +688,14 @@ export default function IntegrationMessagesPage() {
         ? results.filter((r) => delayedSeverity.has(r.trace_id))
         : results,
     [delayedOnly, results, delayedSeverity],
+  );
+  // The status cell (what failed, delayed) is the last column. Each row
+  // is its own grid, so an auto-sized cell that is wide in one row and
+  // empty in the next would shift every column before it; when any row
+  // on the page has one, all rows give it the same width.
+  const hasStatusCell = useMemo(
+    () => visibleResults.some((r) => r.exception_type || delayedSeverity.has(r.trace_id) || deliveredWithDelay.has(r.trace_id)),
+    [visibleResults, delayedSeverity, deliveredWithDelay],
   );
 
   // In delayed-only mode the filtered list can be too short to scroll,
@@ -962,7 +977,7 @@ export default function IntegrationMessagesPage() {
             // Each column carries its own width: an id needs room a
             // duration does not, and an attribute's minimum fits a date,
             // which is the widest short value they usually hold.
-            gridTemplate={`24px 110px ${columns.map(columnWidth).join(" ")} minmax(0,auto) 56px`}
+            gridTemplate={`24px 110px ${columns.map(columnWidth).join(" ")}${payload.columns.map(() => " minmax(120px,0.7fr)").join("")} ${hasStatusCell ? "minmax(0,260px)" : "minmax(0,auto)"} 56px`}
             rowHeight={40}
             fill
             itemKey={(r) => r.trace_id}
@@ -995,6 +1010,11 @@ export default function IntegrationMessagesPage() {
                     className={c.key === "duration" && c.kind === "builtin" ? "truncate text-right" : "truncate"}
                   >
                     {c.label}
+                  </span>
+                ))}
+                {payload.columns.map((a) => (
+                  <span key={`payload:${a.attribute}`} className="truncate" title={`${payloadLinkLabel(a)} — ${a.attribute}`}>
+                    {payloadLinkLabel(a)}
                   </span>
                 ))}
                 <span></span>
@@ -1095,6 +1115,13 @@ export default function IntegrationMessagesPage() {
                     </span>
                   );
                 })}
+                {payload.columns.map((a) => (
+                  <PayloadLinkCell
+                    key={`payload:${a.attribute}`}
+                    links={payload.links[r.trace_id]?.[a.attribute]}
+                    loading={!(r.trace_id in payload.links)}
+                  />
+                ))}
                 {/* The delayed badge rides in its own cell rather than
                     inside the service column, which the user can now
                     remove — a badge that disappears with an unrelated

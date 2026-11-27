@@ -17,6 +17,7 @@ import { pickInitialSpan } from "../lib/spanSelection";
 import { api } from "../api/client";
 import TraceWaterfall from "./TraceWaterfall";
 import SpanEvents from "./SpanEvents";
+import { SpanPayloadLinks } from "./PayloadLinkCell";
 import { KVTable, StatusPip, attributeRows } from "./primitives";
 import PromoteAttributeButton from "./integrations/PromoteAttributeButton";
 import type {
@@ -399,6 +400,7 @@ export default function TraceDrawer({
                     )}
                   </div>
                   <div className="p-4" style={{ overflowY: "auto" }}>
+                    <SpanPayloadLinks links={selected.payload_links} />
                     <SpanEvents span={selected} />
                     <AttrTable
                       label="Span attributes"

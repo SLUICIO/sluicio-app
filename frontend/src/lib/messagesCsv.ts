@@ -8,9 +8,11 @@
 // a safety cap.
 
 import { api } from "../api/client";
+import { payloadLinkLabel } from "./payloadLinks";
 import type {
   MessageCursor,
   MessageFilter,
+  PayloadLinkAttribute,
   TraceSearchResult,
 } from "../api/types";
 
@@ -56,10 +58,20 @@ function escapeCell(value: unknown): string {
   return s;
 }
 
-export function messageRowsToCsv(rows: TraceSearchResult[]): string {
-  const header = COLUMNS.map((c) => c.header).join(",");
+// Payload links follow the fixed columns, one column per link attribute
+// any exported message carries, headed by its label. A cell lists every
+// distinct address of the message, space-separated (a value that is not an
+// address, as recorded).
+export function messageRowsToCsv(rows: TraceSearchResult[], payloadAttrs: PayloadLinkAttribute[] = []): string {
+  const present = payloadAttrs.filter((a) => rows.some((r) => (r.payload_links?.[a.attribute]?.links.length ?? 0) > 0));
+  const header = [...COLUMNS.map((c) => c.header), ...present.map(payloadLinkLabel)].map(escapeCell).join(",");
   const lines = rows.map((r) =>
-    COLUMNS.map((c) => escapeCell(c.get(r))).join(","),
+    [
+      ...COLUMNS.map((c) => c.get(r)),
+      ...present.map((a) => (r.payload_links?.[a.attribute]?.links ?? []).map((l) => l.url ?? l.value).join(" ")),
+    ]
+      .map(escapeCell)
+      .join(","),
   );
   return [header, ...lines].join("\r\n");
 }
@@ -96,6 +108,7 @@ export async function fetchAllMessages(req: {
       filters: req.filters,
       limit: EXPORT_PAGE,
       cursor,
+      payload_links: true,
     });
     rows.push(...(res.results ?? []));
     if (rows.length >= CSV_EXPORT_CAP) {

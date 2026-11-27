@@ -19,6 +19,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/client";
+import PayloadLinkCell from "../components/PayloadLinkCell";
+import { payloadLinkLabel, usePayloadLinkFill } from "../lib/payloadLinks";
 import TraceDrawer from "../components/TraceDrawer";
 import FilterEditor, { type Filter } from "../components/search/FilterEditor";
 import SaveAsViewDialog, { type SaveAsViewValues } from "../components/search/SaveAsViewDialog";
@@ -168,6 +170,12 @@ export default function Search() {
   }, []);
 
   const [results, setResults] = useState<TraceSearchResult[]>([]);
+
+  // Payload-link columns, filled after the list (see lib/payloadLinks).
+
+  const payload = usePayloadLinkFill(results);
+
+  const resetPayloadLinks = payload.reset;
   // The clicked message opens in a right-side trace blade (like the
   // service- and integration-scoped message views), not a full-page nav.
   const [openTraceId, setOpenTraceId] = useState<string | null>(null);
@@ -291,6 +299,7 @@ export default function Search() {
         limit: PAGE,
       })
       .then((r) => {
+        resetPayloadLinks();
         setResults(r.results ?? []);
         setNextCursor(r.next_cursor);
         setHasMore(!!r.next_cursor);
@@ -298,7 +307,7 @@ export default function Search() {
       })
       .catch((e) => setError(String(e.message ?? e)))
       .finally(() => setLoading(false));
-  }, [draftFilters, windowVal]);
+  }, [draftFilters, windowVal, resetPayloadLinks]);
 
   // Auto-run when the filter set changes; debounced so a flurry of
   // pill edits doesn't hammer the API.
@@ -347,7 +356,7 @@ export default function Search() {
         setError("Nothing to export for the current filters.");
         return;
       }
-      downloadCsv(csvFilename("search"), messageRowsToCsv(rows));
+      downloadCsv(csvFilename("search"), messageRowsToCsv(rows, payload.attributes));
       if (capped) {
         setError(
           `Export capped at ${CSV_EXPORT_CAP.toLocaleString()} rows — narrow the filters or time window for the rest.`,
@@ -358,7 +367,7 @@ export default function Search() {
     } finally {
       setExporting(false);
     }
-  }, [exporting, windowVal, draftFilters]);
+  }, [exporting, windowVal, draftFilters, payload.attributes]);
 
   const selectView = (id: string) => {
     const v = views.find((v) => v.id === id);
@@ -615,7 +624,7 @@ export default function Search() {
               hasMore={hasMore}
               loadingMore={loadingMore}
               loadMore={loadMore}
-              gridTemplate="24px 110px 160px 1fr 1fr 80px 56px"
+              gridTemplate={`24px 110px 160px 1fr 1fr${payload.columns.map(() => " minmax(120px,0.7fr)").join("")} 80px 56px`}
               rowHeight={40}
               itemKey={(r) => r.trace_id}
               onRowClick={(r) => {
@@ -638,6 +647,11 @@ export default function Search() {
                   <span>msg id</span>
                   <span>integration · service</span>
                   <span>matched fields</span>
+                  {payload.columns.map((a) => (
+                    <span key={`payload:${a.attribute}`} className="truncate" title={`${payloadLinkLabel(a)} — ${a.attribute}`}>
+                      {payloadLinkLabel(a)}
+                    </span>
+                  ))}
                   <span className="text-right">duration</span>
                   <span></span>
                 </>
@@ -681,6 +695,13 @@ export default function Search() {
                         .map(([k, v]) => `${k}=${v}`)
                         .join(" · ")}
                   </span>
+                  {payload.columns.map((a) => (
+                    <PayloadLinkCell
+                      key={`payload:${a.attribute}`}
+                      links={payload.links[r.trace_id]?.[a.attribute]}
+                      loading={!(r.trace_id in payload.links)}
+                    />
+                  ))}
                   <span className="text-right font-mono text-xs text-muted">
                     {formatDurationMs(r.duration_ms)}
                   </span>

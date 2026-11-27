@@ -243,6 +243,50 @@ export interface SpanSummary {
   /** How many events the span carried before truncation at ingest.
    *  Greater than events.length means the rest were dropped. */
   events_total?: number;
+  /** The span's own links to a payload, one per configured link
+   *  attribute it carries. */
+  payload_links?: SpanPayloadLink[];
+}
+
+/** One link attribute: a span attribute shown as a link to a message's
+ *  payload. Without base_url the value must itself be an address. */
+export interface PayloadLinkAttribute {
+  attribute: string;
+  label?: string;
+  base_url?: string;
+}
+
+/** A span that carried a payload link. */
+export interface PayloadLinkCarrier {
+  span_id: string;
+  service: string;
+  span_name: string;
+  /** io.role: input (received) or output (sent). */
+  role?: string;
+  time: string;
+}
+
+/** One distinct address of an attribute in a message. Without url the
+ *  value is not an address and is shown as text. */
+export interface PayloadLink {
+  url?: string;
+  value: string;
+  spans: PayloadLinkCarrier[];
+}
+
+/** One attribute's links in one message, earliest first. */
+export interface PayloadLinks {
+  links: PayloadLink[];
+  /** Distinct links left out beyond the cap. */
+  more?: number;
+}
+
+/** One link on one span, as trace detail shows it. */
+export interface SpanPayloadLink {
+  attribute: string;
+  label: string;
+  url?: string;
+  value: string;
 }
 
 /** One event recorded on a span (OpenTelemetry span event). Long
@@ -1216,6 +1260,9 @@ export interface TraceCompletionStatus {
 export interface TraceSearchResult {
   // Present when the completion column is shown, inside an integration.
   completion?: TraceCompletionStatus[];
+  /** Present when the search asked for payload links inline (the CSV
+   *  export); the lists fetch them after rendering. Keyed by attribute. */
+  payload_links?: Record<string, PayloadLinks>;
   trace_id: string;
   trace_start: string;
   duration_ms: number;
@@ -1476,6 +1523,8 @@ export interface MessageSearchRequest {
    *  the server resolves the set from stored state; a client echoing
    *  columns could label a heading the rows were not queried under. */
   viewId?: string;
+  /** Fill each result's payload_links inline (the CSV export). */
+  payload_links?: boolean;
 }
 
 // Identity, organizations, roles --------------------------------------

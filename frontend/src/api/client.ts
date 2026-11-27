@@ -8,6 +8,8 @@ import type {
   RuleDelivery,
   RuleState,
   TraceCompletionStatus,
+  PayloadLinkAttribute,
+  PayloadLinks,
   IntegrationSource,
   IntegrationSourceView,
   EnvironmentRole,
@@ -1419,6 +1421,18 @@ export const api = {
   // editor. service narrows the names to what that one member emits.
   // Where each listed message stands against the integration's
   // trace-completion rules: the completion column, fetched after the list.
+  // Payload links: the organization's link attributes, and the links of
+  // a page of messages, fetched after the list has rendered. With an
+  // integration, only its members' spans count.
+  getPayloadLinkAttributes: () => get<{ attributes: PayloadLinkAttribute[] }>(`/settings/payload-links`),
+  putPayloadLinkAttributes: (attributes: PayloadLinkAttribute[]) =>
+    put<{ attributes: PayloadLinkAttribute[] }>(`/settings/payload-links`, { attributes }),
+  payloadLinks: (traceIDs: string[], from: string, integrationID?: string) =>
+    post<{ links: Record<string, Record<string, PayloadLinks>> }>(`/payload-links`, {
+      trace_ids: traceIDs,
+      from,
+      ...(integrationID ? { integration: integrationID } : {}),
+    }),
   completionStatus: (integrationID: string, traceIDs: string[], from: string) =>
     post<{ statuses: Record<string, TraceCompletionStatus[]> }>(
       `/integrations/${encodeURIComponent(integrationID)}/completion-status`,

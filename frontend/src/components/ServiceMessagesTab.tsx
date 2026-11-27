@@ -20,6 +20,8 @@ import { visibilityLabel } from "./search/viewVisibility";
 import SharePermalinkButton from "./search/SharePermalinkButton";
 import { StatusPip } from "./primitives";
 import VirtualInfiniteList from "./VirtualInfiniteList";
+import PayloadLinkCell from "./PayloadLinkCell";
+import { payloadLinkLabel, usePayloadLinkFill } from "../lib/payloadLinks";
 import TraceDrawer from "./TraceDrawer";
 import type {
   Integration,
@@ -119,6 +121,12 @@ export default function ServiceMessagesTab({ serviceName }: Props) {
   const [showSaveDialog, setShowSaveDialog] = useState(false);
 
   const [results, setResults] = useState<TraceSearchResult[]>([]);
+
+  // Payload-link columns, filled after the list (see lib/payloadLinks).
+
+  const payload = usePayloadLinkFill(results);
+
+  const resetPayloadLinks = payload.reset;
   const [hasResults, setHasResults] = useState(false);
   const [nextCursor, setNextCursor] = useState<MessageCursor | undefined>(
     undefined,
@@ -193,6 +201,7 @@ export default function ServiceMessagesTab({ serviceName }: Props) {
         limit: PAGE,
       })
       .then((r) => {
+        resetPayloadLinks();
         setResults(r.results ?? []);
         setNextCursor(r.next_cursor);
         setHasMore(!!r.next_cursor);
@@ -200,7 +209,7 @@ export default function ServiceMessagesTab({ serviceName }: Props) {
       })
       .catch((e) => setError(String(e.message ?? e)))
       .finally(() => setLoading(false));
-  }, [composedFilters, windowVal]);
+  }, [composedFilters, windowVal, resetPayloadLinks]);
 
   useEffect(() => {
     const t = window.setTimeout(run, 350);
@@ -410,7 +419,7 @@ export default function ServiceMessagesTab({ serviceName }: Props) {
             hasMore={hasMore}
             loadingMore={loadingMore}
             loadMore={loadMore}
-            gridTemplate="24px 110px 160px 1fr 1fr 80px 56px"
+            gridTemplate={`24px 110px 160px 1fr 1fr${payload.columns.map(() => " minmax(120px,0.7fr)").join("")} 80px 56px`}
             rowHeight={40}
             fill
             itemKey={(r) => r.trace_id}
@@ -434,6 +443,11 @@ export default function ServiceMessagesTab({ serviceName }: Props) {
                 <span>msg id</span>
                 <span>service · matched</span>
                 <span>matched fields</span>
+                {payload.columns.map((a) => (
+                  <span key={`payload:${a.attribute}`} className="truncate" title={`${payloadLinkLabel(a)} — ${a.attribute}`}>
+                    {payloadLinkLabel(a)}
+                  </span>
+                ))}
                 <span className="text-right">duration</span>
                 <span></span>
               </>
@@ -477,6 +491,13 @@ export default function ServiceMessagesTab({ serviceName }: Props) {
                       .map(([k, v]) => `${k}=${v}`)
                       .join(" · ")}
                 </span>
+                {payload.columns.map((a) => (
+                  <PayloadLinkCell
+                    key={`payload:${a.attribute}`}
+                    links={payload.links[r.trace_id]?.[a.attribute]}
+                    loading={!(r.trace_id in payload.links)}
+                  />
+                ))}
                 <span className="text-right font-mono text-xs text-muted">
                   {formatDurationMs(r.duration_ms)}
                 </span>

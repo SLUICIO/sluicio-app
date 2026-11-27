@@ -15,6 +15,7 @@ import SpanGraph from "../components/SpanGraph";
 import MessageChain from "../components/MessageChain";
 import TraceErrorPanel from "../components/TraceErrorPanel";
 import SpanEvents, { exceptionOf } from "../components/SpanEvents";
+import { SpanPayloadLinks } from "../components/PayloadLinkCell";
 import TraceWaterfall from "../components/TraceWaterfall";
 import TraceTrimPanel from "../components/traces/TraceTrimPanel";
 import { KVTable, StatusPip, attributeRows } from "../components/primitives";
@@ -822,6 +823,7 @@ function SpanDetailsPanel({
       </div>
       <div className="p-4" style={{ overflowY: "auto" }}>
         <KeyAttributes span={span} keyAttrs={keyAttrs} />
+        <SpanPayloadLinks links={span.payload_links} />
         <SpanEvents span={span} />
         <Attrs label="Resource attributes" attrs={span.resource_attributes} />
         <Attrs label="Span attributes" attrs={span.span_attributes} />

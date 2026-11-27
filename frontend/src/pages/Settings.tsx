@@ -16,6 +16,7 @@
 // invalidate the other tabs' state.
 
 import TelemetryEnvironmentSettings from "../components/TelemetryEnvironmentSettings";
+import PayloadLinkSettings from "../components/PayloadLinkSettings";
 import BrandingCard from "../components/BrandingCard";
 import { FormEvent, Fragment, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
@@ -134,10 +135,11 @@ function TabIcon({ k }: { k: TabKey }) {
 // (general knobs + SMTP + MFA + templates + announcements), so each area
 // gets its own panel. `?sub=` addresses them like `?tab=` does the page,
 // so other pages can deep-link (e.g. the email-channel hint on Alerts).
-type SystemSubKey = "general" | "environments" | "email" | "security" | "templates" | "branding" | "announcements";
+type SystemSubKey = "general" | "environments" | "payload-links" | "email" | "security" | "templates" | "branding" | "announcements";
 const SYSTEM_SUBTABS: { key: SystemSubKey; label: string }[] = [
   { key: "general", label: "General" },
   { key: "environments", label: "Environments" },
+  { key: "payload-links", label: "Payload links" },
   { key: "email", label: "Email" },
   { key: "security", label: "Security" },
   { key: "templates", label: "Notification templates" },
@@ -3338,6 +3340,8 @@ function SystemSettingsSection() {
       {/* Where a row's environment comes from, and which are production
           (issue #40). */}
       {sub === "environments" && <TelemetryEnvironmentSettings />}
+      {/* Span attributes shown as links to a message's payload. */}
+      {sub === "payload-links" && <PayloadLinkSettings isAdmin={isAdmin} />}
       {sub === "email" && <SmtpSettings isAdmin={isAdmin} />}
       {sub === "security" && <SecurityPolicy isAdmin={isAdmin} />}
       {sub === "templates" && <NotificationTemplateEditor scope="org" />}
