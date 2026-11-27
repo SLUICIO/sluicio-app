@@ -210,6 +210,23 @@ export default function CollectorDetail() {
   if (!detail) return <div className="placeholder">Loading…</div>;
   const c = detail.collector;
   const st = collectorStatus(c);
+  // The collector reports one unnamed file; the flow view draws that one.
+  const mainFile = config?.files.find((f) => f.name === "") ?? config?.files[0];
+  const canFlow = !!otelflowUrl && !!mainFile && !mainFile.hidden;
+  // Flow by default where it can be drawn; ?view=yaml remembers the code
+  // view in the URL like the tab.
+  const configView: "flow" | "yaml" =
+    canFlow && searchParams.get("view") !== "yaml" ? "flow" : "yaml";
+  const selectConfigView = (v: "flow" | "yaml") =>
+    setSearchParams(
+      (prev) => {
+        const p = new URLSearchParams(prev);
+        if (v === "flow") p.delete("view");
+        else p.set("view", v);
+        return p;
+      },
+      { replace: true },
+    );
 
   return (
     <div>
@@ -341,74 +358,107 @@ export default function CollectorDetail() {
               <div
                 style={{ display: "flex", flexDirection: "column", gap: 10 }}
               >
-                <label
+                <div
                   style={{
                     display: "flex",
                     alignItems: "center",
-                    gap: 8,
-                    fontSize: 13,
+                    gap: 12,
+                    flexWrap: "wrap",
                   }}
                 >
-                  Version
-                  <select
-                    className="search__input"
-                    value={version}
-                    onChange={(e) => setVersion(e.target.value)}
-                    style={{ maxWidth: 360 }}
+                  <label
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      fontSize: 13,
+                    }}
                   >
-                    {detail.history.map((v, i) => (
-                      <option key={v.id} value={i === 0 ? "latest" : v.id}>
-                        {formatDateTime(v.received_at)}
-                        {i === 0 ? " (current)" : ""} · {v.hash.slice(0, 8)}
-                      </option>
-                    ))}
-                  </select>
-                  <span className="muted">
-                    {detail.history.length} version
-                    {detail.history.length === 1 ? "" : "s"}
-                  </span>
-                </label>
+                    Version
+                    <select
+                      className="search__input"
+                      value={version}
+                      onChange={(e) => setVersion(e.target.value)}
+                      style={{ maxWidth: 360 }}
+                    >
+                      {detail.history.map((v, i) => (
+                        <option key={v.id} value={i === 0 ? "latest" : v.id}>
+                          {formatDateTime(v.received_at)}
+                          {i === 0 ? " (current)" : ""} · {v.hash.slice(0, 8)}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="muted">
+                      {detail.history.length} version
+                      {detail.history.length === 1 ? "" : "s"}
+                    </span>
+                  </label>
+                  {canFlow && (
+                    <div
+                      className="m-seg"
+                      role="radiogroup"
+                      aria-label="Configuration view"
+                      style={{ marginLeft: "auto" }}
+                    >
+                      {(
+                        [
+                          ["flow", "Flow"],
+                          ["yaml", "YAML"],
+                        ] as const
+                      ).map(([v, label]) => (
+                        <button
+                          key={v}
+                          type="button"
+                          role="radio"
+                          aria-checked={configView === v}
+                          className={`m-seg-b ${configView === v ? "on" : ""}`}
+                          onClick={() => selectConfigView(v)}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 {configError && (
                   <div className="alert alert--error">{configError}</div>
                 )}
-                {(() => {
-                  // The collector reports one unnamed file; draw that one.
-                  const main =
-                    config?.files.find((f) => f.name === "") ??
-                    config?.files[0];
-                  return otelflowUrl && main && !main.hidden ? (
-                    <PipelineEmbed
-                      base={otelflowUrl}
-                      yaml={main.body}
-                      version={c.description["service.version"] ?? ""}
-                      supervisor={c.kind === "supervisor"}
-                    />
-                  ) : null;
-                })()}
-                {config?.files.map((f) => (
-                  <div key={f.name}>
-                    {config.files.length > 1 && (
-                      <div
-                        className="mono muted"
-                        style={{ fontSize: 12, marginBottom: 4 }}
-                      >
-                        {f.name || "(main)"}
-                      </div>
-                    )}
-                    {f.hidden ? (
-                      <div className="alert alert--warn" style={{ margin: 0 }}>
-                        This file could not be read to mask its secrets, so it
-                        is not shown.
-                      </div>
-                    ) : (
-                      <SyntaxView
-                        content={f.body}
-                        format="yaml"
-                        maxHeight={600}
-                      />
-                    )}
-                  </div>
-                ))}
+                {canFlow && configView === "flow" && mainFile && (
+                  <PipelineEmbed
+                    base={otelflowUrl}
+                    yaml={mainFile.body}
+                    version={c.description["service.version"] ?? ""}
+                    supervisor={c.kind === "supervisor"}
+                  />
+                )}
+                {!(canFlow && configView === "flow") &&
+                  config?.files.map((f) => (
+                    <div key={f.name}>
+                      {config.files.length > 1 && (
+                        <div
+                          className="mono muted"
+                          style={{ fontSize: 12, marginBottom: 4 }}
+                        >
+                          {f.name || "(main)"}
+                        </div>
+                      )}
+                      {f.hidden ? (
+                        <div
+                          className="alert alert--warn"
+                          style={{ margin: 0 }}
+                        >
+                          This file could not be read to mask its secrets, so it
+                          is not shown.
+                        </div>
+                      ) : (
+                        <SyntaxView
+                          content={f.body}
+                          format="yaml"
+                          maxHeight={600}
+                        />
+                      )}
+                    </div>
+                  ))}
               </div>
             )}
           </Section>
