@@ -29,6 +29,43 @@ type fakeRegistry struct {
 	configs      map[uuid.UUID][]collectors.ConfigFile
 	ids          map[string]uuid.UUID
 	disconnected []string
+	// One waiting deployment for any collector, and the statuses reported.
+	pending  *collectors.Deployment
+	body     string
+	statuses []collectors.DeploymentStatus
+	sent     int
+}
+
+func (f *fakeRegistry) NextToDeliver(context.Context, uuid.UUID) (*collectors.Deployment, string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.pending == nil {
+		return nil, "", nil
+	}
+	d := *f.pending
+	return &d, f.body, nil
+}
+
+func (f *fakeRegistry) MarkSent(context.Context, uuid.UUID) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.sent++
+	if f.pending != nil {
+		f.pending.Status = collectors.DeploymentSent
+	}
+	return nil
+}
+
+func (f *fakeRegistry) ReportStatus(_ context.Context, _ uuid.UUID, hash string, status collectors.DeploymentStatus, _ string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.pending != nil && hash == f.pending.Hash {
+		f.statuses = append(f.statuses, status)
+		if status == collectors.DeploymentApplied || status == collectors.DeploymentFailed {
+			f.pending = nil
+		}
+	}
+	return nil
 }
 
 func newFakeRegistry() *fakeRegistry {
@@ -319,4 +356,74 @@ func TestReapClosesSilentHeartbeatAgents(t *testing.T) {
 		t.Fatalf("reaped %d, want only the heartbeat agent", n)
 	}
 	waitFor(t, "the silent agent marked offline", func() bool { _, _, _, d := reg.snapshot(); return len(d) == 1 })
+}
+
+// A configuration waiting for a supervisor-type agent is delivered once,
+// with its hash, and the agent's answer is recorded. An agent that does
+// not accept remote configuration is never sent one.
+func TestDeliversWaitingConfiguration(t *testing.T) {
+	reg := newFakeRegistry()
+	reg.tokens["sct_a"] = collectors.TokenRef{TokenID: uuid.New(), OrgID: uuid.New(), GroupID: uuid.New()}
+	reg.pending = &collectors.Deployment{ID: uuid.New(), Hash: "h-1", Status: collectors.DeploymentPending}
+	reg.body = "receivers: {otlp: {}}"
+	s, url := startServer(t, reg)
+
+	var mu sync.Mutex
+	var got []string
+	c := client.NewWebSocket(nil)
+	caps := agentCaps | protobufs.AgentCapabilities_AgentCapabilities_AcceptsRemoteConfig | protobufs.AgentCapabilities_AgentCapabilities_ReportsRemoteConfig
+	_ = c.SetAgentDescription(&protobufs.AgentDescription{IdentifyingAttributes: []*protobufs.KeyValue{
+		{Key: "service.name", Value: &protobufs.AnyValue{Value: &protobufs.AnyValue_StringValue{StringValue: "otelcol"}}}}})
+	_ = c.SetHealth(&protobufs.ComponentHealth{Healthy: true})
+	err := c.Start(context.Background(), clienttypes.StartSettings{
+		OpAMPServerURL: strings.Replace(url, "https://", "wss://", 1) + Path,
+		Header:         http.Header{"Authorization": []string{"Bearer sct_a"}},
+		TLSConfig:      &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // httptest's certificate
+		InstanceUid:    clienttypes.InstanceUid(uuid.New()),
+		Capabilities:   caps,
+		Callbacks: clienttypes.Callbacks{
+			OnMessage: func(_ context.Context, m *clienttypes.MessageData) {
+				if m.RemoteConfig == nil {
+					return
+				}
+				mu.Lock()
+				got = append(got, string(m.RemoteConfig.Config.ConfigMap[""].Body)+"|"+string(m.RemoteConfig.ConfigHash))
+				mu.Unlock()
+				_ = c.SetRemoteConfigStatus(&protobufs.RemoteConfigStatus{
+					LastRemoteConfigHash: m.RemoteConfig.ConfigHash,
+					Status:               protobufs.RemoteConfigStatuses_RemoteConfigStatuses_APPLIED,
+				})
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = c.Stop(context.Background()) })
+	waitFor(t, "applied", func() bool {
+		reg.mu.Lock()
+		defer reg.mu.Unlock()
+		return len(reg.statuses) > 0 && reg.statuses[len(reg.statuses)-1] == collectors.DeploymentApplied
+	})
+	mu.Lock()
+	if len(got) != 1 || got[0] != "receivers: {otlp: {}}|h-1" {
+		t.Fatalf("delivered %v, want the body once with its hash", got)
+	}
+	mu.Unlock()
+
+	// Nothing waiting: Deliver sends nothing.
+	if s.Deliver(context.Background(), uuid.New()) {
+		t.Fatal("delivered to a collector with nothing waiting")
+	}
+
+	// A read-only agent is never offered a configuration.
+	reg.pending = &collectors.Deployment{ID: uuid.New(), Hash: "h-2", Status: collectors.DeploymentPending}
+	ro := startAgent(t, url, "sct_a", clienttypes.InstanceUid(uuid.New()), true, "a: 1")
+	<-ro.connected
+	time.Sleep(300 * time.Millisecond)
+	reg.mu.Lock()
+	defer reg.mu.Unlock()
+	if reg.pending == nil || reg.pending.Status != collectors.DeploymentPending {
+		t.Fatal("a configuration was sent to an agent that does not accept one")
+	}
 }
