@@ -175,6 +175,23 @@ service:
 	}
 }
 
+// The collector reports headers as a list of name/value pairs; the
+// secret is the value next to a sensitive name.
+func TestMaskConfigNamedPairs(t *testing.T) {
+	in := `exporters:
+  otlp_http:
+    headers:
+      - name: authorization
+        value: Bearer pair-secret
+      - name: x-tenant
+        value: acme
+`
+	out, ok := MaskConfig(in)
+	if !ok || strings.Contains(out, "pair-secret") || !strings.Contains(out, "acme") || !strings.Contains(out, "authorization") {
+		t.Fatalf("named pairs masked wrongly:\n%s", out)
+	}
+}
+
 func TestMaskConfigFailsClosed(t *testing.T) {
 	if out, ok := MaskConfig("key: [unterminated\n  password: x"); ok || out != "" {
 		t.Fatalf("unparseable body must be hidden, got ok=%v %q", ok, out)

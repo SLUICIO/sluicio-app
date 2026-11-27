@@ -82,8 +82,18 @@ func maskNode(n *yaml.Node, underSecret bool) {
 			maskNode(c, underSecret)
 		}
 	case yaml.MappingNode:
+		// A pair spelled as {name: authorization, value: ...}, which is how
+		// the collector reports headers in its effective config: the
+		// secret is the value whose sibling names a sensitive key.
+		namedSecret := false
 		for i := 0; i+1 < len(n.Content); i += 2 {
-			maskNode(n.Content[i+1], underSecret || sensitiveKey(n.Content[i].Value))
+			if k := n.Content[i].Value; (k == "name" || k == "key") && n.Content[i+1].Kind == yaml.ScalarNode && sensitiveKey(n.Content[i+1].Value) {
+				namedSecret = true
+			}
+		}
+		for i := 0; i+1 < len(n.Content); i += 2 {
+			k := n.Content[i].Value
+			maskNode(n.Content[i+1], underSecret || sensitiveKey(k) || (namedSecret && k == "value"))
 		}
 	case yaml.ScalarNode:
 		maskScalar(n, underSecret)
