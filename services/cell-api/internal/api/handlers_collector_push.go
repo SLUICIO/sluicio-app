@@ -36,6 +36,7 @@ import (
 
 	"github.com/sluicio/sluicio-app/pkg/httpserver"
 	"github.com/sluicio/sluicio-app/pkg/license"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/advisor"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/api/middleware"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/collectors"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/identity"
@@ -83,6 +84,10 @@ type collectorConfigBody struct {
 	// lag a collector release, so its errors are not the last word; the
 	// collector's own check when it applies the configuration is.
 	Force bool `json:"force"`
+	// SuggestionID marks the change as an Advisor suggestion applied to
+	// this collector (Enterprise, org admins). It always waits for the
+	// owner team's approval.
+	SuggestionID string `json:"suggestion_id"`
 }
 
 func (h *Handlers) validateWithOtelflow(ctx context.Context, c collectors.Collector, config string) (*collectors.Validation, error) {
@@ -149,6 +154,22 @@ func (h *Handlers) createCollectorDeployment(w http.ResponseWriter, r *http.Requ
 		httpserver.WriteError(w, http.StatusBadRequest, "config is required")
 		return
 	}
+	var suggestion *advisor.Suggestion
+	if body.SuggestionID != "" {
+		if !h.featureEntitled(license.FeatureAdvisor) {
+			httpserver.WriteError(w, http.StatusPaymentRequired, "Advisor suggestions are a Sluicio Enterprise feature")
+			return
+		}
+		if !middleware.Principal(r).Role.CanAdmin() {
+			httpserver.WriteError(w, http.StatusForbidden, "only org admins apply Advisor suggestions")
+			return
+		}
+		s, ok := h.collectorSuggestion(w, r, body.SuggestionID)
+		if !ok {
+			return
+		}
+		suggestion = &s
+	}
 	// Secrets: the edited text is the masked one; put the stored values
 	// back. A collector with no stored configuration has none to restore.
 	original, err := h.Collectors.LatestRaw(r.Context(), c.ID)
@@ -185,12 +206,20 @@ func (h *Handlers) createCollectorDeployment(w http.ResponseWriter, r *http.Requ
 	if strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
 		via = "api"
 	}
+	message := strings.TrimSpace(body.Message)
 	approval := false
-	if h.featureEntitled(license.FeatureAdvisor) {
+	if suggestion != nil {
+		// The team that owns the collector answers for it, so a change the
+		// Advisor proposes is theirs to approve, whatever their setting.
+		approval, via = true, "advisor"
+		if message == "" {
+			message = "Advisor: " + suggestion.Title
+		}
+	} else if h.featureEntitled(license.FeatureAdvisor) {
 		approval, _ = h.Collectors.RequireApproval(r.Context(), c.GroupID)
 	}
 	d, err := h.Collectors.CreateDeployment(r.Context(), collectors.NewDeployment{
-		CollectorID: c.ID, Body: payload, Message: strings.TrimSpace(body.Message),
+		CollectorID: c.ID, Body: payload, Message: message,
 		CreatedBy: p.UserID, CreatedByName: h.actorLabel(r), Via: via, Proposed: approval,
 	})
 	if err != nil {
@@ -200,12 +229,16 @@ func (h *Handlers) createCollectorDeployment(w http.ResponseWriter, r *http.Requ
 	}
 
 	if approval {
-		prop, status, err := h.proposeCollectorConfig(r, c, d, body.Message)
+		prop, status, err := h.proposeCollectorConfig(r, c, d, message)
 		if err != nil {
 			httpserver.WriteError(w, status, err.Error())
 			return
 		}
-		h.recordAudit(r, "collector.config_proposed", "collector", c.ID.String(), map[string]any{"deployment_id": d.ID.String(), "proposal_id": prop.ID.String()})
+		meta := map[string]any{"deployment_id": d.ID.String(), "proposal_id": prop.ID.String()}
+		if suggestion != nil {
+			meta["suggestion_id"] = suggestion.ID.String()
+		}
+		h.recordAudit(r, "collector.config_proposed", "collector", c.ID.String(), meta)
 		httpserver.WriteJSON(w, http.StatusAccepted, map[string]any{"deployment": d, "proposal": prop, "validation": v})
 		return
 	}

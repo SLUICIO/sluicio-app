@@ -302,6 +302,30 @@ func (s *Store) LatestRaw(ctx context.Context, collectorID uuid.UUID) (string, e
 	return effective, nil
 }
 
+// LatestRawOnly is the newest configuration as written, unmasked, and
+// ErrNotFound when the collector reports only the effective one. A change
+// Sluicio writes into a configuration starts from what was written: the
+// effective configuration leaves fields out (a receiver's scrapers), and
+// sending it back would drop them.
+func (s *Store) LatestRawOnly(ctx context.Context, collectorID uuid.UUID) (string, error) {
+	if s.keys == nil {
+		return "", ErrNoKey
+	}
+	files, err := s.latestFiles(ctx, collectorID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", err
+	}
+	for _, f := range files {
+		if f.Name == RawConfigFile {
+			return f.Body, nil
+		}
+	}
+	return "", ErrNotFound
+}
+
 // RequireApproval says whether the team's configuration changes must be
 // approved before they are sent.
 func (s *Store) RequireApproval(ctx context.Context, groupID uuid.UUID) (bool, error) {

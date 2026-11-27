@@ -26,6 +26,8 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 - POST /api/v1/advisor/suggestions/{id}/accept — Create advisor
 - POST /api/v1/advisor/suggestions/{id}/dismiss — Create advisor
 - POST /api/v1/advisor/run — Create advisor
+- GET /api/v1/advisor/suggestions/{id}/collectors — List advisor
+- GET /api/v1/advisor/suggestions/{id}/collectors/{cid} — Get advisor
 
 ## alert-deliveries
 - GET /api/v1/alert-deliveries — List alert-deliveries

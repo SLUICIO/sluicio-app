@@ -23,6 +23,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/sluicio/sluicio-app/pkg/license"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/advisor"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/api/middleware"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/collectors"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/identity"
@@ -335,5 +336,152 @@ func TestCollectorPushEnterprise(t *testing.T) {
 	}
 	if code, _ := do(author, "POST", base+"/deployments/"+rejDep+"/rollback", nil); code != http.StatusConflict {
 		t.Errorf("restoring a configuration that never applied: %d, want 409", code)
+	}
+}
+
+// An Advisor suggestion becomes a change to a chosen collector: the list
+// says where it applies, the preview is the diff on the masked
+// configuration, and sending it files a proposal for the owner team even
+// though the team does not require approval.
+func TestAdvisorSuggestionToCollector(t *testing.T) {
+	pool, ctx := newIsolationDB(t)
+	idStore := identity.NewStore(pool)
+	raw := make([]byte, 32)
+	_, _ = rand.Read(raw)
+	keys, err := collectors.ParseKeys(base64.StdEncoding.EncodeToString(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := collectors.New(pool, keys)
+	adv := advisor.NewStore(pool)
+	h := &Handlers{
+		Identity:   idStore,
+		Collectors: store,
+		Advisor:    adv,
+		Proposals:  proposals.NewStore(pool),
+		License:    license.NewEntitledForTest(license.FeatureAdvisor),
+		AuthMW:     &middleware.Resolver{Identity: idStore},
+		Logger:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+	mux := http.NewServeMux()
+	h.Mount(mux)
+	root := h.AuthMW.Wrap(nil, mux)
+
+	org, _ := idStore.CreateOrg(ctx, "Acme", "acme")
+	team, _ := idStore.CreateGroup(ctx, org.ID, identity.GroupInput{Name: "platform", Slug: "platform"})
+	_, tok, _ := store.CreateToken(ctx, org.ID, team.ID, "t", nil)
+	sup := uint64(1 | 2 | 4 | 2048)
+	ext := uint64(1 | 4 | 2048)
+	observe := func(uid string, caps uint64) uuid.UUID {
+		id, _, err := store.Observe(ctx, collectors.Observation{OrgID: org.ID, GroupID: team.ID, TokenID: tok.ID, InstanceUID: uid, Transport: "websocket", Capabilities: &caps, Description: map[string]string{"host.name": uid, "service.version": "0.166.0"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	gw := observe("gw", sup)
+	other := observe("other", sup)
+	readOnly := observe("ro", ext)
+	written := "receivers:\n  host_metrics:\n    scrapers:\n      load: {}\nexporters:\n  otlp_http/sluicio:\n    endpoint: https://ingest.example.test\n    headers:\n      authorization: Bearer real-secret\n  debug: {}\nservice:\n  pipelines:\n    metrics:\n      receivers: [host_metrics]\n      exporters: [otlp_http/sluicio]\n"
+	if _, err := store.RecordConfig(ctx, gw, []collectors.ConfigFile{{Body: "effective: {}"}, {Name: collectors.RawConfigFile, Body: written}}); err != nil {
+		t.Fatal(err)
+	}
+	debugOnly := strings.Replace(written, "exporters: [otlp_http/sluicio]", "exporters: [debug]", 1)
+	if _, err := store.RecordConfig(ctx, other, []collectors.ConfigFile{{Name: collectors.RawConfigFile, Body: debugOnly}}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := adv.Upsert(ctx, org.ID, advisor.Suggestion{Fingerprint: "T1|metric|system.cpu.load_average.15m", Class: "T1", Advisor: "telemetry", ScopeKind: "metric", ScopeID: "system.cpu.load_average.15m", Title: `Nothing reads the "system.cpu.load_average.15m" metric`, Evidence: map[string]any{}, Weight: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := adv.Upsert(ctx, org.ID, advisor.Suggestion{Fingerprint: "T3|attr|svc|k", Class: "T3", Advisor: "telemetry", ScopeKind: "attribute", ScopeID: "k", Title: "attr", Evidence: map[string]any{}, Weight: 1}); err != nil {
+		t.Fatal(err)
+	}
+	open, _ := adv.List(ctx, org.ID, "telemetry", "open", 10)
+	ids := map[string]string{}
+	for _, s := range open {
+		ids[s.Class] = s.ID.String()
+	}
+
+	session := func(email string, role identity.Role, teamRole identity.Role) string {
+		u, _ := idStore.CreateUser(ctx, email, email)
+		_ = idStore.AddMember(ctx, u.ID, org.ID, role)
+		if teamRole != "" {
+			_ = idStore.AddGroupMember(ctx, u.ID, team.ID, teamRole)
+		}
+		s, _ := idStore.CreateSession(ctx, u.ID, time.Hour, "test")
+		return s.ID
+	}
+	admin := session("admin@acme", identity.RoleAdmin, "")
+	editor := session("editor@acme", identity.RoleViewer, identity.RoleEditor)
+	do := func(cookie, method, path string, body any) (int, map[string]any) {
+		var rd io.Reader
+		if body != nil {
+			b, _ := json.Marshal(body)
+			rd = strings.NewReader(string(b))
+		}
+		req := httptest.NewRequest(method, path, rd)
+		req.Header.Set("Content-Type", "application/json")
+		req.AddCookie(&http.Cookie{Name: middleware.SessionCookieName, Value: cookie})
+		rec := httptest.NewRecorder()
+		root.ServeHTTP(rec, req)
+		var out map[string]any
+		_ = json.Unmarshal(rec.Body.Bytes(), &out)
+		return rec.Code, out
+	}
+	base := "/api/v1/advisor/suggestions/" + ids["T1"] + "/collectors"
+
+	if code, _ := do(admin, "GET", "/api/v1/advisor/suggestions/"+ids["T3"]+"/collectors", nil); code != http.StatusConflict {
+		t.Errorf("an attribute suggestion: %d, want 409 (metrics only)", code)
+	}
+	if code, _ := do(editor, "GET", base, nil); code != http.StatusForbidden {
+		t.Errorf("a team editor read the advisor: %d", code)
+	}
+	code, out := do(admin, "GET", base, nil)
+	if code != 200 {
+		t.Fatalf("list: %d %v", code, out)
+	}
+	rows := map[string]map[string]any{}
+	for _, r := range out["collectors"].([]any) {
+		m := r.(map[string]any)
+		rows[m["collector"].(map[string]any)["id"].(string)] = m
+	}
+	if _, listed := rows[readOnly.String()]; listed {
+		t.Error("a read-only collector was offered")
+	}
+	if ch := rows[gw.String()]["changed"].([]any); len(ch) != 1 || ch[0] != "metrics" {
+		t.Errorf("gw: %v", rows[gw.String()])
+	}
+	if rows[other.String()]["unavailable"] == nil {
+		t.Errorf("a collector that does not send to Sluicio is offered as applicable: %v", rows[other.String()])
+	}
+
+	code, preview := do(admin, "GET", base+"/"+gw.String(), nil)
+	after, _ := preview["config"].(string)
+	if code != 200 || !strings.Contains(after, "filter/sluicio-advisor") || strings.Contains(after, "real-secret") || strings.Contains(preview["before"].(string), "real-secret") {
+		t.Fatalf("preview: %d %v", code, preview)
+	}
+
+	// Sent with the suggestion: a proposal, though the team never asked
+	// for approval, recorded as the Advisor's.
+	dep := "/api/v1/collectors/" + gw.String() + "/deployments"
+	if code, _ := do(editor, "POST", dep, map[string]any{"config": after, "suggestion_id": ids["T1"]}); code != http.StatusForbidden {
+		t.Errorf("a team editor applied an Advisor suggestion: %d", code)
+	}
+	code, out = do(admin, "POST", dep, map[string]any{"config": after, "suggestion_id": ids["T1"]})
+	if code != http.StatusAccepted || out["proposal"] == nil {
+		t.Fatalf("advisor send: %d %v", code, out)
+	}
+	d := out["deployment"].(map[string]any)
+	if d["via"] != "advisor" || !strings.HasPrefix(d["message"].(string), "Advisor: ") {
+		t.Fatalf("deployment: %v", d)
+	}
+	propID := out["proposal"].(map[string]any)["id"].(string)
+	if code, out := do(editor, "POST", "/api/v1/proposals/"+propID+"/approve", map[string]any{}); code != 200 {
+		t.Fatalf("the owner team approves: %d %v", code, out)
+	}
+	next, body, _ := store.NextToDeliver(ctx, gw)
+	if next == nil || !strings.Contains(body, "Bearer real-secret") || !strings.Contains(body, `name == "system.cpu.load_average.15m"`) {
+		t.Fatalf("delivered body:\n%s", body)
 	}
 }

@@ -2026,6 +2026,12 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 		mux.HandleFunc("POST /api/v1/advisor/suggestions/{id}/dismiss",
 			adminAdvisor(h.decideAdvisorSuggestion("dismissed")))
 		mux.HandleFunc("POST /api/v1/advisor/run", adminAdvisor(h.runAdvisor))
+		// A suggestion as a change to a collector's configuration
+		// (collector management, stage 3).
+		if h.Collectors != nil {
+			mux.HandleFunc("GET /api/v1/advisor/suggestions/{id}/collectors", adminAdvisor(h.listAdvisorSuggestionCollectors))
+			mux.HandleFunc("GET /api/v1/advisor/suggestions/{id}/collectors/{cid}", adminAdvisor(h.previewAdvisorCollectorChange))
+		}
 	}
 
 	// Deep-link engagement: recorded for ANY authenticated reader, not
