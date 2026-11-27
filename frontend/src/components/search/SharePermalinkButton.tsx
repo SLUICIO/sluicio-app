@@ -14,6 +14,7 @@
 import { useEffect, useState } from "react";
 import type { Filter } from "./FilterEditor";
 import { writeFiltersToParams } from "../../lib/messageFilterUrl";
+import { copyText } from "../../lib/clipboard";
 
 interface Props {
   // The route the link should open, e.g. "/search" or
@@ -32,33 +33,6 @@ interface Props {
   // the recipient lands on the right tab of an entity detail page).
   extraParams?: Record<string, string>;
   className?: string;
-}
-
-// copyText copies via the async clipboard API, falling back to a
-// hidden textarea + execCommand for non-secure contexts (http://, some
-// embedded webviews) where navigator.clipboard is unavailable.
-async function copyText(text: string): Promise<boolean> {
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text);
-      return true;
-    }
-  } catch {
-    /* fall through to the legacy path */
-  }
-  try {
-    const ta = document.createElement("textarea");
-    ta.value = text;
-    ta.style.position = "fixed";
-    ta.style.opacity = "0";
-    document.body.appendChild(ta);
-    ta.select();
-    const ok = document.execCommand("copy");
-    document.body.removeChild(ta);
-    return ok;
-  } catch {
-    return false;
-  }
 }
 
 export default function SharePermalinkButton({

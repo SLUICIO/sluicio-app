@@ -54,6 +54,11 @@ interface NavItem {
   requiresWrite?: boolean;
   // operatorOnly items are hidden for everyone but cell operators.
   operatorOnly?: boolean;
+  // feature names a cell-level switch the item needs (from /me); off, the
+  // entry is not offered because its routes do not exist.
+  feature?: "collectors";
+  // beta marks the entry with the Beta badge.
+  beta?: boolean;
   // hidden keeps an item out of the nav for now. The page and its route stay,
   // so existing links and bookmarks still work.
   hidden?: boolean;
@@ -101,6 +106,8 @@ const navGroups: NavGroup[] = [
       { to: "/service-facets", label: "Service facets", icon: <FacetsIcon />, requiresWrite: true },
       { to: "/tags", label: "Tags", icon: <TagsIcon />, requiresWrite: true },
       { to: "/metadata-fields", label: "Metadata fields", icon: <MetadataIcon />, requiresWrite: true },
+      // Not requiresWrite: a team's viewers read their own collectors.
+      { to: "/collectors", label: "Collectors", icon: <CollectorsIcon />, feature: "collectors", beta: true },
       { to: "/schemas", label: "Schemas", icon: <SchemaIcon />, requiresWrite: true, hidden: true },
       { to: "/maps", label: "Maps", icon: <MapsIcon />, requiresWrite: true, hidden: true },
     ],
@@ -571,6 +578,8 @@ function trailForPath(p: string, leaf: string | null, product: string): Crumb[] 
   if (p.startsWith("/topology")) return [{ label: "Topology" }];
   if (p.startsWith("/stuck")) return [{ label: "Errors" }];
   if (p.startsWith("/alerts")) return [{ label: "Alerts" }];
+  if (p.startsWith("/collectors/")) return [{ label: "Collectors", to: "/collectors" }, { label: leaf || "Collector" }];
+  if (p.startsWith("/collectors")) return [{ label: "Collectors" }];
   if (p.startsWith("/settings")) return [{ label: "Settings" }];
   if (p.startsWith("/account")) return [{ label: "Account" }];
   return [{ label: product }];
@@ -1000,7 +1009,7 @@ function MenuItem({
 
 // ── Side nav ───────────────────────────────────────────────────────
 function SideNav() {
-  const { can, isOperator } = useCurrentUser();
+  const { can, isOperator, collectorsEnabled } = useCurrentUser();
   const canWrite = can("integration.write");
   const canManage = can("org.manage");
   // Which monitor surfaces hold anything for this caller (issue #30).
@@ -1093,6 +1102,7 @@ function SideNav() {
           (!it.adminOnly || canManage) &&
           (!it.requiresWrite || canWrite) &&
           (!it.operatorOnly || isOperator) &&
+          (it.feature !== "collectors" || collectorsEnabled) &&
           (!it.reach || !reach || reach[it.reach]),
       ),
     }))
@@ -1146,6 +1156,21 @@ function SideNav() {
                         {item.icon}
                       </span>
                       <span>{item.label}</span>
+                      {item.beta && (
+                        <span
+                          className="ml-auto"
+                          style={{
+                            font: "600 10px 'Inter', sans-serif",
+                            padding: "0 6px",
+                            borderRadius: 999,
+                            background: "var(--primary-soft)",
+                            color: "var(--primary-ink)",
+                          }}
+                          title="Beta"
+                        >
+                          Beta
+                        </span>
+                      )}
                       {item.to === "/proposals" && pendingProposals > 0 && (
                         <span
                           className="ml-auto"
@@ -1285,6 +1310,15 @@ function SystemsIcon() {
       <ellipse cx="8" cy="3.5" rx="5" ry="1.8" />
       <path d="M3 3.5v9c0 1 2.2 1.8 5 1.8s5-.8 5-1.8v-9" />
       <path d="M3 8c0 1 2.2 1.8 5 1.8s5-.8 5-1.8" />
+    </svg>
+  );
+}
+
+function CollectorsIcon() {
+  // A funnel: collectors gather telemetry and pass it on.
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" aria-hidden>
+      <path d="M2 3h12l-4.5 5.5V13l-3 1.2V8.5z" />
     </svg>
   );
 }

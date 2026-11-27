@@ -46,6 +46,12 @@ import type {
   FlowResponse,
   IngestKey,
   IngestKeyCreated,
+  CollectorsResponse,
+  CollectorDetailResponse,
+  CollectorConfigResponse,
+  CollectorTeam,
+  CollectorToken,
+  CollectorTokenCreated,
   Integration,
   IntegrationDetail,
   LogAttrFilter,
@@ -1127,6 +1133,25 @@ export const api = {
   listIngestKeys: () => get<{ keys: IngestKey[] }>(`/ingest-keys`),
   createIngestKey: (name: string) => post<IngestKeyCreated>(`/ingest-keys`, { name }),
   revokeIngestKey: (id: string) => del(`/ingest-keys/${encodeURIComponent(id)}`),
+
+  // Collector management over OpAMP (Beta). Configurations come back
+  // masked; there is no unmasked read.
+  listCollectors: () => get<CollectorsResponse>(`/collectors`),
+  getCollector: (id: string) => get<CollectorDetailResponse>(`/collectors/${encodeURIComponent(id)}`),
+  getCollectorConfig: (id: string, version = "latest") =>
+    get<CollectorConfigResponse>(`/collectors/${encodeURIComponent(id)}/configs/${encodeURIComponent(version)}`),
+  listCollectorTeams: () => get<{ teams: CollectorTeam[] }>(`/collector-teams`),
+  listCollectorTokens: (teamId: string) =>
+    get<{ tokens: CollectorToken[] }>(`/settings/groups/${encodeURIComponent(teamId)}/collector-tokens`),
+  createCollectorToken: (teamId: string, name: string) =>
+    post<CollectorTokenCreated>(`/settings/groups/${encodeURIComponent(teamId)}/collector-tokens`, { name }),
+  regenerateCollectorToken: (teamId: string, tokenId: string) =>
+    post<CollectorTokenCreated>(
+      `/settings/groups/${encodeURIComponent(teamId)}/collector-tokens/${encodeURIComponent(tokenId)}/regenerate`,
+      {},
+    ),
+  revokeCollectorToken: (teamId: string, tokenId: string) =>
+    del(`/settings/groups/${encodeURIComponent(teamId)}/collector-tokens/${encodeURIComponent(tokenId)}`),
 
   listChannels: () => get<{ channels: NotificationChannel[] }>(`/notification-channels`),
 

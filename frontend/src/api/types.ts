@@ -1632,6 +1632,8 @@ export interface CurrentUserResponse {
   email_disabled?: boolean;
   // True when the org's name and slug are fixed for the instance. A hint.
   org_management_disabled?: boolean;
+  // True when collector management (Beta) is on for this cell. A hint.
+  collectors_enabled?: boolean;
   // Operators only: the orgs on the cell they are not a member of, which
   // the org switcher offers them to open as a viewer.
   other_orgs?: Organization[];
@@ -2900,6 +2902,8 @@ export interface MeResponse {
   // True when the org's name and slug can't be changed from inside the
   // instance.
   org_management_disabled?: boolean;
+  // True when collector management (Beta) is on for this cell.
+  collectors_enabled?: boolean;
   // Operators only: every org on the cell they are not a member of.
   other_orgs?: { id: string; slug: string; name: string }[];
 }
@@ -3500,4 +3504,90 @@ export interface LimitsStatus {
     resumes_below_bytes?: number;
   };
   monitored_entities?: { used: number; limit: number };
+}
+
+// ── Collectors (collector management over OpAMP, Beta) ───────────────
+
+// "extension" reports only; "supervisor" accepts remote configuration.
+export type CollectorKind = "extension" | "supervisor";
+
+export interface CollectorHealth {
+  healthy: boolean;
+  status?: string;
+  last_error?: string;
+  started_at?: string;
+  components?: Record<string, CollectorHealth>;
+}
+
+export interface Collector {
+  id: string;
+  group_id: string;
+  group_name: string;
+  instance_uid: string;
+  kind: CollectorKind;
+  capabilities: string[];
+  // What the agent says about itself: host.name, service.version, ...
+  description: Record<string, string>;
+  healthy: boolean | null;
+  health?: CollectorHealth;
+  online: boolean;
+  transport: string;
+  remote_addr: string;
+  first_seen_at: string;
+  last_seen_at: string;
+  config_hash?: string;
+  config_received_at?: string;
+}
+
+export interface CollectorsResponse {
+  collectors: Collector[];
+  // False when the cell has no configuration key: nothing is stored.
+  config_storage: boolean;
+}
+
+export interface CollectorConfigVersion {
+  id: string;
+  source: string;
+  hash: string;
+  received_at: string;
+}
+
+export interface CollectorDetailResponse {
+  collector: Collector;
+  history: CollectorConfigVersion[];
+  config_storage: boolean;
+}
+
+export interface CollectorConfigFile {
+  name: string;
+  content_type: string;
+  // Secrets masked. Empty and hidden=true when it could not be parsed.
+  body: string;
+  hidden?: boolean;
+}
+
+export interface CollectorConfigResponse {
+  version: CollectorConfigVersion;
+  files: CollectorConfigFile[];
+}
+
+export interface CollectorTeam {
+  id: string;
+  name: string;
+  can_manage: boolean;
+}
+
+export interface CollectorToken {
+  id: string;
+  group_id: string;
+  name: string;
+  prefix: string;
+  created_at: string;
+  last_used_at?: string;
+}
+
+export interface CollectorTokenCreated {
+  // The full token, shown once.
+  token: string;
+  meta: CollectorToken;
 }

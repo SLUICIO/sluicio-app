@@ -141,6 +141,13 @@ services:
       # shipping. Deploy-time only, on purpose — see docs/audit-log.md.
       SLUICIO_AUDIT_SINK_URL: ${SLUICIO_AUDIT_SINK_URL:-}
       SLUICIO_AUDIT_SINK_SECRET: ${SLUICIO_AUDIT_SINK_SECRET:-}
+      # Collector management over OpAMP (Beta). Off unless set. The key
+      # (base64 32 bytes, e.g. `openssl rand -base64 32`) encrypts stored
+      # collector configurations; without it they are not stored. Keep it
+      # outside the database and do not lose it: configurations stored
+      # under a key cannot be read without that key.
+      SLUICIO_COLLECTORS_ENABLED: ${SLUICIO_COLLECTORS_ENABLED:-false}
+      SLUICIO_COLLECTOR_CONFIG_KEY: ${SLUICIO_COLLECTOR_CONFIG_KEY:-}
     volumes:
       # Read-only, and a directory rather than a single file: a bind mount
       # of a file that does not exist yet is silently created as a
