@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -35,6 +36,11 @@ type Config struct {
 	// ShutdownTimeout caps how long graceful shutdown is allowed to
 	// run after the context is cancelled. Defaults to 15s.
 	ShutdownTimeout time.Duration
+
+	// ConnContext, when set, derives each connection's base context, as
+	// http.Server.ConnContext. The OpAMP server needs it to find the
+	// connection behind a plain-HTTP request.
+	ConnContext func(ctx context.Context, c net.Conn) context.Context
 }
 
 // Run blocks running an HTTP server with the given config until ctx is
@@ -64,6 +70,7 @@ func Run(ctx context.Context, cfg Config) error {
 		Addr:              cfg.Addr,
 		Handler:           cfg.Handler,
 		ReadHeaderTimeout: readHeaderTimeout,
+		ConnContext:       cfg.ConnContext,
 	}
 
 	listener, err := net.Listen("tcp", cfg.Addr)
@@ -92,6 +99,22 @@ func Run(ctx context.Context, cfg Config) error {
 		}
 		return err
 	}
+}
+
+// ClientIP is the best-guess client address: the first hop in
+// X-Forwarded-For when present (the services sit behind a reverse proxy
+// in production), else the connection's RemoteAddr without the port.
+func ClientIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		if i := strings.IndexByte(xff, ','); i >= 0 {
+			return strings.TrimSpace(xff[:i])
+		}
+		return strings.TrimSpace(xff)
+	}
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		return host
+	}
+	return r.RemoteAddr
 }
 
 // WriteJSON writes the given value as a JSON response with the given

@@ -116,3 +116,20 @@ func TestPrefixedButUndecodable(t *testing.T) {
 		t.Fatal("expected error for prefixed garbage, got nil")
 	}
 }
+
+func TestBoundRejectsOtherAAD(t *testing.T) {
+	key := newKey(t)
+	enc, err := EncryptBound(key, "exporters: {}", []byte("collector-a"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := DecryptBound(key, enc, []byte("collector-a")); err != nil || got != "exporters: {}" {
+		t.Fatalf("same aad: got %q, %v", got, err)
+	}
+	if _, err := DecryptBound(key, enc, []byte("collector-b")); err == nil {
+		t.Fatal("ciphertext moved to another row must not open")
+	}
+	if _, err := Decrypt(key, enc); err == nil {
+		t.Fatal("bound ciphertext must not open without its aad")
+	}
+}
