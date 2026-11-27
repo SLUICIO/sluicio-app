@@ -26,6 +26,7 @@ import (
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/alerting"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/api/middleware"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/catalog"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/collectors"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/dashboards"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/demand"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/deploymentlimits"
@@ -46,6 +47,7 @@ import (
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/notifyprofiles"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/notifytemplates"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/oauth"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/opamp"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/proposals"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/retention"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/schemas"
@@ -147,6 +149,13 @@ type Handlers struct {
 	// authenticates batches against these). Nil-safe — the endpoints
 	// return 503 when not wired.
 	IngestKeys *ingestkeys.Store
+	// Collectors is collector management over OpAMP (Beta). Nil when the
+	// cell has not turned it on (SLUICIO_COLLECTORS_ENABLED): no routes,
+	// no endpoint, no navigation entry.
+	Collectors *collectors.Store
+	// OpAMP holds the live agent connections, so revoking a token closes
+	// them. Nil exactly when Collectors is.
+	OpAMP *opamp.Server
 	// ErrorAcks holds per-service "clear errors" watermarks. When set,
 	// service health/error-count ignores error traces at or before a
 	// service's watermark. Nil-safe — handlers treat nil as "no acks".
@@ -1503,6 +1512,19 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/services/{name}/collector-target",
 		h.gateServiceRoute(h.getServiceCollectorTarget))
 	mux.HandleFunc("GET /api/v1/ingest-keys", h.listIngestKeys)
+	// Collector management over OpAMP (Beta), when the cell turns it on.
+	// Reads are scoped to the caller's teams; tokens are managed by the
+	// team's admins and org admins. See handlers_collectors.go.
+	if h.Collectors != nil {
+		mux.HandleFunc("GET /api/v1/collectors", h.listCollectors)
+		mux.HandleFunc("GET /api/v1/collectors/{id}", h.getCollector)
+		mux.HandleFunc("GET /api/v1/collectors/{id}/configs/{version}", h.getCollectorConfig)
+		mux.HandleFunc("GET /api/v1/collector-teams", h.listCollectorTeams)
+		mux.HandleFunc("GET /api/v1/settings/groups/{id}/collector-tokens", h.listCollectorTokens)
+		mux.HandleFunc("POST /api/v1/settings/groups/{id}/collector-tokens", h.blockDemo(h.createCollectorToken))
+		mux.HandleFunc("POST /api/v1/settings/groups/{id}/collector-tokens/{token}/regenerate", h.blockDemo(h.regenerateCollectorToken))
+		mux.HandleFunc("DELETE /api/v1/settings/groups/{id}/collector-tokens/{token}", h.blockDemo(h.revokeCollectorToken))
+	}
 	if h.AuthMW != nil {
 		mux.HandleFunc("PATCH /api/v1/collector-target",
 			h.AuthMW.RequireRole(identity.Role.CanAdmin, h.patchCollectorTarget))

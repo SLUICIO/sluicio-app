@@ -236,6 +236,9 @@ func (h *Handlers) me(w http.ResponseWriter, r *http.Request) {
 		// The org's name and slug are fixed for the instance: the UI shows
 		// them read-only. A hint; the server refuses the change.
 		"org_management_disabled": h.OrgManagementDisabled,
+		// Collector management (Beta) is on for this cell: the UI shows
+		// the Collectors page. A hint; without it the routes do not exist.
+		"collectors_enabled": h.Collectors != nil,
 	})
 }
 
