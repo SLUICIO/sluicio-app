@@ -88,12 +88,18 @@ test.describe("Collector management (Beta)", () => {
   const teams: string[] = [];
 
   test.afterAll(async ({ browser }) => {
+    // HTTP agents read online for 90s after their last poll, and only an
+    // offline collector can be removed: wait that out.
+    test.setTimeout(180_000);
     const page = await (await browser.newContext()).newPage();
     await logIn(page);
     const admin = page.request;
     if (await collectorsOn(admin)) {
       for (const c of (await (await admin.get("/api/v1/collectors")).json()).collectors ?? []) {
-        if (teams.includes(c.group_id)) await admin.delete(`/api/v1/collectors/${c.id}`);
+        if (!teams.includes(c.group_id)) continue;
+        await expect
+          .poll(async () => (await admin.delete(`/api/v1/collectors/${c.id}`)).status(), { timeout: 150_000, intervals: [5_000] })
+          .toBe(204);
       }
     }
     for (const id of teams) await admin.delete(`/api/v1/settings/groups/${id}`);
