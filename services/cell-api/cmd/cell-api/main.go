@@ -960,6 +960,12 @@ func main() {
 			}
 			handlers.OtelflowURL = strings.TrimSuffix(u, "/") + "/"
 		}
+		// The same OTelFlow as cell-api reaches it, to check a configuration
+		// before it is sent (http://otelflow:7317/otelflow). Unset: no check
+		// here; the collector checks it when it applies it.
+		if u := env.String("SLUICIO_OTELFLOW_INTERNAL_URL", ""); u != "" {
+			handlers.OtelflowValidator = &collectors.Validator{BaseURL: u}
+		}
 		logger.Info("collector management enabled (Beta)", "endpoint", opamp.Path, "config_storage", keys != nil)
 	}
 

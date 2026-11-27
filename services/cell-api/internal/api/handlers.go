@@ -162,6 +162,10 @@ type Handlers struct {
 	// only. Never defaulted to a public instance: the configuration it is
 	// handed must not leave the cell.
 	OtelflowURL string
+	// OtelflowValidator checks a configuration with the cell's OTelFlow
+	// before it is sent (SLUICIO_OTELFLOW_INTERNAL_URL). Nil: not checked
+	// here; the collector still checks it when it applies it.
+	OtelflowValidator *collectors.Validator
 	// ErrorAcks holds per-service "clear errors" watermarks. When set,
 	// service health/error-count ignores error traces at or before a
 	// service's watermark. Nil-safe — handlers treat nil as "no acks".
@@ -1526,6 +1530,18 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 		mux.HandleFunc("GET /api/v1/collectors/{id}", h.getCollector)
 		mux.HandleFunc("GET /api/v1/collectors/{id}/configs/{version}", h.getCollectorConfig)
 		mux.HandleFunc("DELETE /api/v1/collectors/{id}", h.blockDemo(h.deleteCollector))
+		// Stage 2: sending a configuration. Open core: the owner team's
+		// editors and admins, and org admins, send directly; a CI pipeline
+		// uses the same route with a service account token. Enterprise
+		// (advisor): a team can require approval (the send becomes a
+		// proposal), and an applied configuration can be restored.
+		mux.HandleFunc("POST /api/v1/collectors/{id}/validate", h.validateCollectorConfig)
+		mux.HandleFunc("GET /api/v1/collectors/{id}/deployments", h.listCollectorDeployments)
+		mux.HandleFunc("POST /api/v1/collectors/{id}/deployments", h.blockDemo(h.createCollectorDeployment))
+		mux.HandleFunc("GET /api/v1/collectors/{id}/deployments/{dep}/diff", h.collectorDeploymentDiff)
+		mux.HandleFunc("POST /api/v1/collectors/{id}/deployments/{dep}/rollback", h.requireFeature(license.FeatureAdvisor, h.blockDemo(h.rollbackCollectorDeployment)))
+		mux.HandleFunc("GET /api/v1/settings/groups/{id}/collector-settings", h.getCollectorTeamSettings)
+		mux.HandleFunc("PUT /api/v1/settings/groups/{id}/collector-settings", h.requireFeature(license.FeatureAdvisor, h.blockDemo(h.putCollectorTeamSettings)))
 		mux.HandleFunc("GET /api/v1/collector-teams", h.listCollectorTeams)
 		mux.HandleFunc("GET /api/v1/settings/groups/{id}/collector-tokens", h.listCollectorTokens)
 		mux.HandleFunc("POST /api/v1/settings/groups/{id}/collector-tokens", h.blockDemo(h.createCollectorToken))

@@ -16,6 +16,9 @@ import (
 type DeploymentStatus string
 
 const (
+	// DeploymentProposed waits for approval and is never delivered until
+	// it is approved (Release turns it pending).
+	DeploymentProposed DeploymentStatus = "proposed"
 	// DeploymentPending is stored and not yet delivered: the collector is
 	// offline, or polls over HTTP and has not asked since.
 	DeploymentPending DeploymentStatus = "pending"
@@ -41,6 +44,7 @@ type Deployment struct {
 	Status         DeploymentStatus `json:"status"`
 	ErrorMessage   string           `json:"error_message,omitempty"`
 	Message        string           `json:"message,omitempty"`
+	CreatedBy      *uuid.UUID       `json:"-"`
 	CreatedByName  string           `json:"created_by_name,omitempty"`
 	Via            string           `json:"via"`
 	ProposalID     *uuid.UUID       `json:"proposal_id,omitempty"`
@@ -61,14 +65,16 @@ type NewDeployment struct {
 	Via            string
 	ProposalID     *uuid.UUID
 	RolledBackFrom *uuid.UUID
+	// Proposed stores it for approval instead of for delivery.
+	Proposed bool
 }
 
-const deploymentCols = `id, collector_id, config_hash, status, error_message, message, created_by_name, via,
+const deploymentCols = `id, collector_id, config_hash, status, error_message, message, created_by, created_by_name, via,
 	proposal_id, rolled_back_from, created_at, sent_at, finished_at`
 
 func scanDeployment(row pgx.Row) (Deployment, error) {
 	var d Deployment
-	err := row.Scan(&d.ID, &d.CollectorID, &d.Hash, &d.Status, &d.ErrorMessage, &d.Message, &d.CreatedByName, &d.Via,
+	err := row.Scan(&d.ID, &d.CollectorID, &d.Hash, &d.Status, &d.ErrorMessage, &d.Message, &d.CreatedBy, &d.CreatedByName, &d.Via,
 		&d.ProposalID, &d.RolledBackFrom, &d.CreatedAt, &d.SentAt, &d.FinishedAt)
 	return d, err
 }
@@ -92,24 +98,64 @@ func (s *Store) CreateDeployment(ctx context.Context, nd NewDeployment) (Deploym
 		return Deployment{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if _, err := tx.Exec(ctx, `
-		UPDATE collector_deployments SET status = 'superseded', finished_at = now()
-		WHERE collector_id = $1 AND status IN ('pending', 'sent', 'applying')`, nd.CollectorID); err != nil {
-		return Deployment{}, fmt.Errorf("collectors: supersede: %w", err)
+	// A proposal waits beside whatever is being delivered; a deployment
+	// to deliver supersedes what has not applied yet.
+	status := DeploymentPending
+	if nd.Proposed {
+		status = DeploymentProposed
+	} else if err := supersede(ctx, tx, nd.CollectorID); err != nil {
+		return Deployment{}, err
 	}
 	via := nd.Via
 	if via == "" {
 		via = "ui"
 	}
 	d, err := scanDeployment(tx.QueryRow(ctx, `
-		INSERT INTO collector_deployments (collector_id, config_hash, config_enc, message, created_by, created_by_name, via, proposal_id, rolled_back_from)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		INSERT INTO collector_deployments (collector_id, config_hash, config_enc, message, created_by, created_by_name, via, proposal_id, rolled_back_from, status)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		RETURNING `+deploymentCols,
-		nd.CollectorID, hash, sealed, nd.Message, nd.CreatedBy, nd.CreatedByName, via, nd.ProposalID, nd.RolledBackFrom))
+		nd.CollectorID, hash, sealed, nd.Message, nd.CreatedBy, nd.CreatedByName, via, nd.ProposalID, nd.RolledBackFrom, string(status)))
 	if err != nil {
 		return Deployment{}, fmt.Errorf("collectors: create deployment: %w", err)
 	}
 	return d, tx.Commit(ctx)
+}
+
+func supersede(ctx context.Context, tx pgx.Tx, collectorID uuid.UUID) error {
+	if _, err := tx.Exec(ctx, `
+		UPDATE collector_deployments SET status = 'superseded', finished_at = now()
+		WHERE collector_id = $1 AND status IN ('pending', 'sent', 'applying')`, collectorID); err != nil {
+		return fmt.Errorf("collectors: supersede: %w", err)
+	}
+	return nil
+}
+
+// LinkProposal records the proposal a proposed deployment waits on.
+func (s *Store) LinkProposal(ctx context.Context, id, proposalID uuid.UUID) error {
+	_, err := s.pool.Exec(ctx, `UPDATE collector_deployments SET proposal_id = $2 WHERE id = $1`, id, proposalID)
+	return err
+}
+
+// Release turns an approved proposed deployment into one to deliver,
+// superseding whatever had not applied yet. ErrNotFound when it is not
+// (or no longer) waiting for approval.
+func (s *Store) Release(ctx context.Context, collectorID, id uuid.UUID) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := supersede(ctx, tx, collectorID); err != nil {
+		return err
+	}
+	tag, err := tx.Exec(ctx, `UPDATE collector_deployments SET status = 'pending' WHERE id = $1 AND collector_id = $2 AND status = 'proposed'`, id, collectorID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return tx.Commit(ctx)
 }
 
 // NextToDeliver is the newest deployment not yet answered for, with its
@@ -124,7 +170,7 @@ func (s *Store) NextToDeliver(ctx context.Context, collectorID uuid.UUID) (*Depl
 		WHERE collector_id = $1 AND status IN ('pending', 'sent')
 		ORDER BY created_at DESC LIMIT 1`, collectorID)
 	var d Deployment
-	err := row.Scan(&d.ID, &d.CollectorID, &d.Hash, &d.Status, &d.ErrorMessage, &d.Message, &d.CreatedByName, &d.Via,
+	err := row.Scan(&d.ID, &d.CollectorID, &d.Hash, &d.Status, &d.ErrorMessage, &d.Message, &d.CreatedBy, &d.CreatedByName, &d.Via,
 		&d.ProposalID, &d.RolledBackFrom, &d.CreatedAt, &d.SentAt, &d.FinishedAt, &sealed)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, "", nil
@@ -192,7 +238,7 @@ func (s *Store) DeploymentBody(ctx context.Context, collectorID, id uuid.UUID) (
 	var d Deployment
 	err := s.pool.QueryRow(ctx, `SELECT `+deploymentCols+`, config_enc FROM collector_deployments
 		WHERE collector_id = $1 AND id = $2`, collectorID, id).
-		Scan(&d.ID, &d.CollectorID, &d.Hash, &d.Status, &d.ErrorMessage, &d.Message, &d.CreatedByName, &d.Via,
+		Scan(&d.ID, &d.CollectorID, &d.Hash, &d.Status, &d.ErrorMessage, &d.Message, &d.CreatedBy, &d.CreatedByName, &d.Via,
 			&d.ProposalID, &d.RolledBackFrom, &d.CreatedAt, &d.SentAt, &d.FinishedAt, &sealed)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Deployment{}, "", ErrNotFound

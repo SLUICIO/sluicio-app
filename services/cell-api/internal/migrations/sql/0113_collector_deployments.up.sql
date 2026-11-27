@@ -12,18 +12,19 @@
 -- deployment it is about without a plain hash of the configuration ever
 -- being stored.
 --
--- status: pending (stored, not delivered yet), sent (delivered, no word
--- back), applying, applied, failed, superseded (a newer deployment
--- replaced it before it applied). proposal_id links a deployment created
--- by approving a proposal (stage 3); rolled_back_from names the deployment
--- a rollback restores.
+-- status: proposed (waiting for approval, stage 3: the proposal points
+-- here, so the configuration itself never sits in the proposals table in
+-- the clear), pending (approved or sent directly, not delivered yet),
+-- sent (delivered, no word back), applying, applied, failed, superseded
+-- (a newer deployment replaced it before it applied). rolled_back_from
+-- names the deployment a rollback restores.
 CREATE TABLE IF NOT EXISTS collector_deployments (
     id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     collector_id     UUID NOT NULL REFERENCES collectors(id) ON DELETE CASCADE,
     config_hash      TEXT NOT NULL,
     config_enc       TEXT NOT NULL,
     status           TEXT NOT NULL DEFAULT 'pending'
-                     CHECK (status IN ('pending', 'sent', 'applying', 'applied', 'failed', 'superseded')),
+                     CHECK (status IN ('proposed', 'pending', 'sent', 'applying', 'applied', 'failed', 'superseded')),
     error_message    TEXT NOT NULL DEFAULT '',
     message          TEXT NOT NULL DEFAULT '',
     created_by       UUID REFERENCES users(id) ON DELETE SET NULL,

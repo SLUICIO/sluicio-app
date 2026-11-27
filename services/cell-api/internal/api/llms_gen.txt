@@ -119,6 +119,11 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 - GET /api/v1/collectors/{id} — Get collector
 - GET /api/v1/collectors/{id}/configs/{version} — Get collector
 - DELETE /api/v1/collectors/{id} — Delete collector
+- POST /api/v1/collectors/{id}/validate — Create collector
+- GET /api/v1/collectors/{id}/deployments — List collectors
+- POST /api/v1/collectors/{id}/deployments — Create collector
+- GET /api/v1/collectors/{id}/deployments/{dep}/diff — List collectors
+- POST /api/v1/collectors/{id}/deployments/{dep}/rollback — Create collector
 
 ## dashboards
 - GET /api/v1/dashboards — List dashboards
@@ -471,6 +476,8 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 - DELETE /api/v1/services/{name}/tags/{tagId} — Delete service
 
 ## settings
+- GET /api/v1/settings/groups/{id}/collector-settings — List settings
+- PUT /api/v1/settings/groups/{id}/collector-settings — Update setting
 - GET /api/v1/settings/groups/{id}/collector-tokens — List settings
 - POST /api/v1/settings/groups/{id}/collector-tokens — Create setting
 - POST /api/v1/settings/groups/{id}/collector-tokens/{token}/regenerate — Create setting
