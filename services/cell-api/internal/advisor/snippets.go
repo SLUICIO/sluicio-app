@@ -47,6 +47,11 @@ func yamlEsc(s string) string {
 	return strings.ReplaceAll(strings.ReplaceAll(s, `\`, `\\`), `"`, `\"`)
 }
 
+// ottlEsc escapes backslashes for an OTTL string literal: the regex
+// escape \. must reach OTTL as \\., or the collector refuses the whole
+// configuration ("invalid quoted string") and does not start.
+func ottlEsc(s string) string { return strings.ReplaceAll(s, `\`, `\\`) }
+
 // reEsc escapes a literal for use inside an OTTL IsMatch regex.
 func reEsc(s string) string {
 	var b strings.Builder
@@ -168,7 +173,7 @@ service:
   pipelines:
     traces:
       processors: [%[3]s/sluicio-advisor]`,
-		prefix, service, transform, reEsc(prefix), yamlEsc(service)), nil
+		prefix, service, transform, ottlEsc(reEsc(prefix)), yamlEsc(service)), nil
 }
 
 // snippetRedactAttr masks values that look like personal data.
@@ -189,8 +194,10 @@ func snippetRedactAttr(service, key string, t collectorversion.Target) (string, 
 # period, so this is worth a look regardless of cost.
 #
 # This hashes the value instead of deleting the key: correlation still
-# works ("the same customer twice"), the personal data stops being
-# retained. Swap to delete_key() if the attribute is not needed at all.
+# works ("the same customer twice") and the readable value is no longer
+# stored. Hashing is pseudonymisation, not anonymisation: a value from a
+# guessable set (an ID number, an email) can be found again by hashing
+# candidates. Swap to delete_key() if the attribute is not needed at all.
 processors:
   %[3]s/sluicio-advisor:
     error_mode: ignore

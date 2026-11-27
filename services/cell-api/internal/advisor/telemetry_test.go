@@ -265,7 +265,7 @@ func TestPIIClassification(t *testing.T) {
 // second copy of the problem being reported, in a table with none of the
 // retention controls of the first.
 func TestPIIEvidenceCarriesNoSampledValue(t *testing.T) {
-	ev := piiEvidence("email address", 40, 50, 12_000)
+	ev := piiEvidence("email address", 40, 50, 12_000, true)
 	for k, v := range ev {
 		s, ok := v.(string)
 		if !ok {
@@ -280,5 +280,8 @@ func TestPIIEvidenceCarriesNoSampledValue(t *testing.T) {
 	}
 	if ev["compliance"] != true {
 		t.Error("a PII finding must be flagged as compliance so the UI ranks it above cost findings")
+	}
+	if ev["referenced_by_config"] != true {
+		t.Error("the evidence must say when Sluicio's own configuration reads the key")
 	}
 }

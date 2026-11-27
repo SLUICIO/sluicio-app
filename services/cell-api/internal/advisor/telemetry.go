@@ -477,13 +477,15 @@ func evalPIIAttributes(ctx context.Context, in TelemetryInput, attrs []SpanAttrS
 			ScopeKind:   "attribute",
 			ScopeID:     a.Service + "." + a.Key,
 			Title:       fmt.Sprintf("%q on %s carries values that look like %s", a.Key, a.Service, pluralPattern(kind)),
-			Loss: "Hashing keeps correlation working (the same value still matches itself) while the " +
-				"original stops being retained. If the readable value is needed for support, this is a " +
-				"retention decision rather than a collector one.",
+			Loss: "The readable value is no longer stored; the same value still matches itself, so " +
+				"correlation keeps working. Hashing is pseudonymisation, not anonymisation: values from a " +
+				"small or guessable set (ID numbers, email addresses) can be found again by hashing " +
+				"candidates, so the hashes may still be personal data. If the value is not needed at all, " +
+				"delete the attribute instead.",
 			// Compliance findings rank above cost ones: a big number
 			// should not push a personal-data finding down the page.
 			Weight:   int64(a.EstBytesPerDay) + 1<<40,
-			Evidence: piiEvidence(kind, hits, len(values), a.SpansWithKey),
+			Evidence: piiEvidence(kind, hits, len(values), a.SpansWithKey, in.Demand.Mechanical("trace", a.Service, a.Key)),
 		}, a.Service, func(t collectorversion.Target) (string, error) { return snippetRedactAttr(a.Service, a.Key, t) }))
 	}
 	return out
@@ -497,8 +499,13 @@ func evalPIIAttributes(ctx context.Context, in TelemetryInput, attrs []SpanAttrS
 // table with none of the retention controls of the first. So the
 // evidence is a proportion and a count, and the sampled values never
 // leave the process that read them.
-func piiEvidence(kind string, hits, sampled int, spans uint64) map[string]any {
+//
+// referenced says whether Sluicio's own configuration (a matcher, facet
+// or rule) reads the key: a compliance finding is shown regardless, but
+// hashing such a key from here would silently break what reads it.
+func piiEvidence(kind string, hits, sampled int, spans uint64, referenced bool) map[string]any {
 	return map[string]any{
+		"referenced_by_config":    referenced,
 		"pattern":                 kind,
 		"sampled_values_matching": fmt.Sprintf("%d of %d", hits, sampled),
 		"present_on_spans":        spans,
