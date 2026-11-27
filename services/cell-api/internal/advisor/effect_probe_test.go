@@ -15,6 +15,7 @@ package advisor
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -59,5 +60,47 @@ func TestMeasureMetricProbe(t *testing.T) {
 	early, _ := MeasureMetric(ctx, conn, org, metric, now.Add(-5*time.Minute), now)
 	if early.Ready {
 		t.Error("measured five minutes after applying")
+	}
+}
+
+// A change applied for real: ADVISOR_PROBE_APPLIED is when the collector
+// applied it (RFC 3339, the deployment's finished_at), and each metric in
+// ADVISOR_PROBE_DROPPED (comma separated) should have dropped. Logs the
+// measurement for each; with ADVISOR_PROBE_STOPPED it must also have
+// stopped arriving altogether.
+func TestMeasureAppliedChangeProbe(t *testing.T) {
+	addr, dropped := os.Getenv("ADVISOR_PROBE_CH"), os.Getenv("ADVISOR_PROBE_DROPPED")
+	org, err := uuid.Parse(os.Getenv("ADVISOR_PROBE_ORG"))
+	applied, terr := time.Parse(time.RFC3339Nano, os.Getenv("ADVISOR_PROBE_APPLIED"))
+	if addr == "" || dropped == "" || err != nil || terr != nil {
+		t.Skip("set ADVISOR_PROBE_CH, ADVISOR_PROBE_ORG, ADVISOR_PROBE_APPLIED and ADVISOR_PROBE_DROPPED")
+	}
+	conn, err := clickhouse.Open(&clickhouse.Options{
+		Addr: []string{addr},
+		Auth: clickhouse.Auth{Database: "telemetry", Username: os.Getenv("ADVISOR_PROBE_CH_USER"), Password: os.Getenv("ADVISOR_PROBE_CH_PASS")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stopped := map[string]bool{}
+	for _, m := range strings.Split(os.Getenv("ADVISOR_PROBE_STOPPED"), ",") {
+		stopped[strings.TrimSpace(m)] = true
+	}
+	for _, m := range strings.Split(dropped, ",") {
+		m = strings.TrimSpace(m)
+		e, err := MeasureMetric(context.Background(), conn, org, m, applied, time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !e.Ready || e.ChangePct == nil {
+			t.Fatalf("%s: not measurable yet: %+v", m, e)
+		}
+		t.Logf("%s: %.0f/h before, %.0f/h after (%s each side), %+.0f%%", m, e.Before.PerHour, e.After.PerHour, e.After.To.Sub(e.After.From).Round(time.Second), *e.ChangePct)
+		if *e.ChangePct >= 0 {
+			t.Errorf("%s did not drop", m)
+		}
+		if stopped[m] && e.After.Rows != 0 {
+			t.Errorf("%s still arrives: %d rows after", m, e.After.Rows)
+		}
 	}
 }
