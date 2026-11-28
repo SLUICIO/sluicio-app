@@ -34,3 +34,17 @@ func TestGetCollectorWithoutHistory(t *testing.T) {
 		t.Fatalf("requests = %+v", seen)
 	}
 }
+
+// Deployments are read from the collector's own route, which the team
+// boundary already guards.
+func TestListCollectorDeployments(t *testing.T) {
+	seen, text := callRecording(t, "sluicio_list_collector_deployments", map[string]any{"id": "c1"}, map[string]string{
+		"/api/v1/collectors/c1/deployments": `{"deployments":[{"id":"d1","status":"applied"}]}`,
+	})
+	if len(seen) != 1 || seen[0].path != "/api/v1/collectors/c1/deployments" {
+		t.Fatalf("requests = %+v", seen)
+	}
+	if text != `{"deployments":[{"id":"d1","status":"applied"}]}` {
+		t.Fatalf("answer = %s", text)
+	}
+}
