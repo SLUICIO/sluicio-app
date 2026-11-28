@@ -26,6 +26,8 @@ exporters:
       x-api-key: abc123
   otlp_http/secrets:
     endpoint: https://user:pw@backend.example.test/v1
+    auth:
+      authenticator: basicauth/out
   prometheus_remote_write:
     endpoint: https://prom.example.test/write?api_key=k1
 processors:
@@ -60,7 +62,7 @@ service:
 	// References, an attribute named key, a component id that says
 	// "secrets" and a key file are not secrets in plain text.
 	// Nor is what the collector reports in place of an opaque value.
-	for _, no := range []string{"bearertokenauth.token", "Authorization", "service.name", "key_file", "htpasswd"} {
+	for _, no := range []string{"bearertokenauth.token", "Authorization", "service.name", "key_file", "htpasswd", "authenticator"} {
 		if strings.Contains(got, no) {
 			t.Fatalf("%s reported", no)
 		}
