@@ -625,8 +625,11 @@ func init() {
 	// deployment's id; the configuration stays encrypted in
 	// collector_deployments, never in the proposals table in the clear.
 	proposalTargets[proposalCollectorConfig] = proposalTarget{
-		fields:      map[string]bool{"deployment": true},
-		needsTarget: true,
+		// Approval means a second person, checked against who filed the
+		// proposal so a service account counts as itself.
+		secondPerson: true,
+		fields:       map[string]bool{"deployment": true},
+		needsTarget:  true,
 		check: func(h *Handlers, r *http.Request, id *uuid.UUID, changes []proposals.Change) (string, string, error) {
 			if h.Collectors == nil {
 				return "", "", errors.New("collector management is off")
@@ -699,13 +702,8 @@ func init() {
 			if err != nil {
 				return errors.New("deployment not found")
 			}
-			// Approval means a second person: the author of a change cannot
-			// approve it, or requiring approval would require nothing.
 			if c.ConfigOwner == collectors.OwnerPipeline {
 				return errors.New(errPipelineOwned)
-			}
-			if p := middleware.Principal(r); p.UserID != nil && d.CreatedBy != nil && *p.UserID == *d.CreatedBy {
-				return errors.New("a change is approved by someone other than its author")
 			}
 			if err := h.Collectors.Release(r.Context(), c.ID, d.ID); err != nil {
 				if errors.Is(err, collectors.ErrTemporaryActive) {

@@ -36,6 +36,7 @@ import (
 	"github.com/sluicio/sluicio-app/pkg/httpserver"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/alerting"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/api/middleware"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/identity"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/proposals"
 )
 
@@ -72,6 +73,37 @@ type proposalTarget struct {
 	// (a collector), only those who can see what it changes; everything
 	// else stays visible to the whole organization, as before.
 	visible func(h *Handlers, r *http.Request, p proposals.Proposal) bool
+	// secondPerson: whoever filed a proposal of this kind cannot approve
+	// it, user or service account alike. For a kind whose proposals exist
+	// because a team requires approval (a collector change), approving
+	// your own would make the requirement nothing.
+	secondPerson bool
+}
+
+// filedBy reports whether the request's principal filed the proposal.
+// A service account is compared by its own id: its requests carry no
+// user, so a check on users alone would let a pipeline token approve
+// what it proposed.
+func filedBy(pr identity.Principal, p proposals.Proposal) bool {
+	if p.ProposedByID == nil {
+		return false
+	}
+	switch p.ProposedByKind {
+	case "service_account":
+		return pr.ServiceAccountID != nil && *pr.ServiceAccountID == *p.ProposedByID
+	case "user":
+		return pr.ServiceAccountID == nil && pr.UserID != nil && *pr.UserID == *p.ProposedByID
+	}
+	return false
+}
+
+// errOwnProposal is the answer to approving a secondPerson kind you filed.
+const errOwnProposal = "a change is approved by someone other than its author"
+
+// approvesOwn reports whether approving p would be its author approving it.
+func approvesOwn(r *http.Request, p proposals.Proposal) bool {
+	t, ok := proposalTargets[p.TargetKind]
+	return ok && t.secondPerson && filedBy(middleware.Principal(r), p)
 }
 
 // proposalVisible applies the kind's visibility rule, if it has one.
@@ -558,6 +590,10 @@ func (h *Handlers) decideProposal(w http.ResponseWriter, r *http.Request, decisi
 	// before the state flip: a proposal recorded as approved whose apply
 	// failed would be a lie in the audit trail.
 	if decision == "approved" {
+		if approvesOwn(r, p) {
+			httpserver.WriteError(w, http.StatusForbidden, errOwnProposal)
+			return
+		}
 		if drifted, err := h.checkProposal(r, p); err != nil {
 			if len(drifted) > 0 && !body.Force {
 				httpserver.WriteJSON(w, http.StatusConflict, map[string]any{

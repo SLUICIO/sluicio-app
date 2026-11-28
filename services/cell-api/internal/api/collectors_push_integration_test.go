@@ -299,7 +299,11 @@ func TestCollectorPushEnterprise(t *testing.T) {
 		}
 		req := httptest.NewRequest(method, path, rd)
 		req.Header.Set("Content-Type", "application/json")
-		req.AddCookie(&http.Cookie{Name: middleware.SessionCookieName, Value: cookie})
+		if tok, ok := strings.CutPrefix(cookie, "bearer:"); ok {
+			req.Header.Set("Authorization", "Bearer "+tok)
+		} else {
+			req.AddCookie(&http.Cookie{Name: middleware.SessionCookieName, Value: cookie})
+		}
 		rec := httptest.NewRecorder()
 		root.ServeHTTP(rec, req)
 		var out map[string]any
@@ -414,6 +418,44 @@ func TestCollectorPushEnterprise(t *testing.T) {
 	}
 	if st, ps := statusOf(rejDep); st != "proposed" || ps != "rejected" {
 		t.Fatalf("rejected proposal: %s/%s", st, ps)
+	}
+
+	// A service account is its own author: its requests carry no user, and
+	// a pipeline token still cannot approve what it proposed.
+	sa, err := idStore.CreateServiceAccount(ctx, org.ID, "ci", "", identity.RoleViewer, identity.SAScopeScoped, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := idStore.AddGroupServiceAccount(ctx, sa.ID, team.ID, identity.RoleEditor); err != nil {
+		t.Fatal(err)
+	}
+	saTok, err := identity.NewToken(identity.TokenKindServiceAccount)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := idStore.CreateAPIToken(ctx, "service_account", sa.ID, "ci", "", nil, saTok); err != nil {
+		t.Fatal(err)
+	}
+	pipeline := "bearer:" + saTok.Plaintext
+	code, out = do(pipeline, "POST", base+"/deployments", map[string]any{"config": edit("processes")})
+	if code != http.StatusAccepted {
+		t.Fatalf("a service account proposes: %d %v", code, out)
+	}
+	saDep := out["deployment"].(map[string]any)["id"].(string)
+	saProp := out["proposal"].(map[string]any)["id"].(string)
+	if code, out := do(pipeline, "POST", "/api/v1/proposals/"+saProp+"/approve", map[string]any{}); code != http.StatusForbidden {
+		t.Fatalf("a service account approved its own change: %d %v", code, out)
+	}
+	if code, out := do(colleague, "POST", "/api/v1/proposals/"+saProp+"/approve", map[string]any{}); code != 200 {
+		t.Fatalf("a colleague approves the pipeline's change: %d %v", code, out)
+	}
+	if st, _ := statusOf(saDep); st != "pending" {
+		t.Fatalf("approved pipeline change: %s, want pending", st)
+	}
+	if d, _, _ := store.NextToDeliver(ctx, sup); d != nil {
+		if err := store.ReportStatus(ctx, sup, d.Hash, collectors.DeploymentApplied, ""); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	// Time-limited changes (approval off for this part).
