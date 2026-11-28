@@ -321,6 +321,30 @@ func TestCollectorPushEnterprise(t *testing.T) {
 		t.Fatalf("the proposal carries the configuration: %s", b)
 	}
 
+	// Someone in another team does not see the proposal at all: not in
+	// the inbox, not in its count, not by id.
+	otherTeam, _ := idStore.CreateGroup(ctx, org.ID, identity.GroupInput{Name: "payments", Slug: "payments"})
+	outsider := func() string {
+		u, _ := idStore.CreateUser(ctx, "outsider@acme", "outsider@acme")
+		_ = idStore.AddMember(ctx, u.ID, org.ID, identity.RoleViewer)
+		_ = idStore.AddGroupMember(ctx, u.ID, otherTeam.ID, identity.RoleEditor)
+		sess, _ := idStore.CreateSession(ctx, u.ID, time.Hour, "test")
+		return sess.ID
+	}()
+	_, inbox := do(outsider, "GET", "/api/v1/proposals?state=pending", nil)
+	if b, _ := json.Marshal(inbox); strings.Contains(string(b), propID) || inbox["pending_count"] != float64(0) {
+		t.Fatalf("another team sees the collector proposal: %s", b)
+	}
+	if code, _ := do(outsider, "GET", "/api/v1/proposals/"+propID, nil); code != http.StatusNotFound {
+		t.Errorf("another team read the proposal: %d, want 404", code)
+	}
+	if code, _ := do(outsider, "POST", "/api/v1/proposals/"+propID+"/approve", map[string]any{}); code != http.StatusNotFound {
+		t.Errorf("another team approving: %d, want 404", code)
+	}
+	if _, inbox := do(colleague, "GET", "/api/v1/proposals?state=pending", nil); inbox["pending_count"] != float64(1) {
+		t.Errorf("the owner team's count: %v", inbox["pending_count"])
+	}
+
 	// The author cannot approve their own change; a team viewer cannot
 	// approve at all; a colleague in the team can.
 	if code, _ := do(author, "POST", "/api/v1/proposals/"+propID+"/approve", map[string]any{}); code == 200 {
@@ -329,7 +353,9 @@ func TestCollectorPushEnterprise(t *testing.T) {
 	if code, _ := do(teamViewer, "POST", "/api/v1/proposals/"+propID+"/approve", map[string]any{}); code == 200 {
 		t.Fatal("a team viewer approved a change")
 	}
-	if code, _ := do(orgEditor, "POST", "/api/v1/proposals/"+propID+"/approve", map[string]any{}); code != http.StatusForbidden {
+	// An org editor outside the team cannot see the collector, so not the
+	// proposal either.
+	if code, _ := do(orgEditor, "POST", "/api/v1/proposals/"+propID+"/approve", map[string]any{}); code != http.StatusNotFound {
 		t.Fatalf("an org editor outside the team decided a collector proposal: %d", code)
 	}
 	if code, out := do(colleague, "POST", "/api/v1/proposals/"+propID+"/approve", map[string]any{}); code != 200 {

@@ -200,7 +200,7 @@ func (h *Handlers) cellBrief(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if h.Proposals != nil {
-		if n, pErr := h.Proposals.PendingCount(r.Context(), orgID); pErr == nil {
+		if n, pErr := h.pendingProposalCount(r, orgID); pErr == nil {
 			brief.PendingProposals = n
 		}
 	}

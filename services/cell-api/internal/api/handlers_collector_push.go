@@ -576,6 +576,16 @@ func init() {
 			v, _ := json.Marshal(c.ConfigHash)
 			return map[string]json.RawMessage{"deployment": v}, "Collector configuration: " + c.Description["host.name"], nil
 		},
+		// Seen only by those who can see the collector: the proposal names
+		// the collector and its team, which another team has no business
+		// reading in its inbox.
+		visible: func(h *Handlers, r *http.Request, p proposals.Proposal) bool {
+			if h.Collectors == nil || p.TargetID == nil {
+				return false
+			}
+			_, err := h.Collectors.Get(r.Context(), h.collectorScope(r), *p.TargetID)
+			return err == nil
+		},
 		// Deciding is the owner team's: its editors and admins, and org
 		// admins, exactly who could send the change directly.
 		mayDecide: func(h *Handlers, r *http.Request, p proposals.Proposal) bool {

@@ -67,6 +67,44 @@ type proposalTarget struct {
 	// which an org viewer who edits in the team has and an org editor
 	// outside it does not.
 	mayDecide func(h *Handlers, r *http.Request, p proposals.Proposal) bool
+	// visible, when set, limits who sees a proposal of this kind at all:
+	// the inbox, its count and a single read. For a kind owned by a team
+	// (a collector), only those who can see what it changes; everything
+	// else stays visible to the whole organization, as before.
+	visible func(h *Handlers, r *http.Request, p proposals.Proposal) bool
+}
+
+// proposalVisible applies the kind's visibility rule, if it has one.
+func (h *Handlers) proposalVisible(r *http.Request, p proposals.Proposal) bool {
+	if t, ok := proposalTargets[p.TargetKind]; ok && t.visible != nil {
+		return t.visible(h, r, p)
+	}
+	return true
+}
+
+// pendingProposalCount is the number of pending proposals the caller can
+// see: the organization's count less the pending proposals of kinds with
+// a visibility rule that the caller cannot see.
+func (h *Handlers) pendingProposalCount(r *http.Request, orgID uuid.UUID) (int, error) {
+	n, err := h.Proposals.PendingCount(r.Context(), orgID)
+	if err != nil {
+		return 0, err
+	}
+	for kind, t := range proposalTargets {
+		if t.visible == nil {
+			continue
+		}
+		list, err := h.Proposals.PendingOfKind(r.Context(), orgID, kind)
+		if err != nil {
+			return 0, err
+		}
+		for _, p := range list {
+			if !t.visible(h, r, p) {
+				n--
+			}
+		}
+	}
+	return n, nil
 }
 
 // proposalDecisionGate gates approving or rejecting one proposal: the
@@ -79,6 +117,10 @@ func (h *Handlers) proposalDecisionGate(next http.HandlerFunc) http.HandlerFunc 
 		if h.Proposals != nil {
 			if id, err := uuid.Parse(r.PathValue("id")); err == nil {
 				if p, err := h.Proposals.Get(r.Context(), middleware.OrgID(r), id); err == nil {
+					if !h.proposalVisible(r, p) {
+						httpserver.WriteError(w, http.StatusNotFound, "not found")
+						return
+					}
 					if t, ok := proposalTargets[p.TargetKind]; ok && t.mayDecide != nil {
 						if !t.mayDecide(h, r, p) {
 							httpserver.WriteError(w, http.StatusForbidden, "insufficient role for this action")
@@ -411,7 +453,14 @@ func (h *Handlers) listProposals(w http.ResponseWriter, r *http.Request) {
 		httpserver.WriteError(w, http.StatusInternalServerError, "query failed")
 		return
 	}
-	pending, err := h.Proposals.PendingCount(r.Context(), orgID)
+	shown := list[:0]
+	for _, p := range list {
+		if h.proposalVisible(r, p) {
+			shown = append(shown, p)
+		}
+	}
+	list = shown
+	pending, err := h.pendingProposalCount(r, orgID)
 	if err != nil {
 		h.Logger.Warn("proposal pending count failed", "err", err)
 	}
@@ -435,7 +484,7 @@ func (h *Handlers) getProposal(w http.ResponseWriter, r *http.Request) {
 	}
 	orgID := middleware.OrgID(r)
 	p, err := h.Proposals.Get(r.Context(), orgID, id)
-	if errors.Is(err, proposals.ErrNotFound) {
+	if errors.Is(err, proposals.ErrNotFound) || (err == nil && !h.proposalVisible(r, p)) {
 		httpserver.WriteError(w, http.StatusNotFound, "not found")
 		return
 	}
