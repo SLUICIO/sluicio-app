@@ -32,6 +32,7 @@ import (
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/integrations"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/messageviews"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/monitoringtemplates"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/payloadlinks"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/tracecompletion"
 )
 
@@ -75,21 +76,42 @@ type (
 	DashboardSource interface {
 		List(ctx context.Context, orgID uuid.UUID, callerID *uuid.UUID) ([]dashboards.Dashboard, error)
 	}
+	// IntegrationSource lists the org's integrations and their metric and
+	// log sources. An integration's message columns and filters read span
+	// attributes, and its sources read metrics and logs, in code rather
+	// than through any query the human ledger sees.
+	IntegrationSource interface {
+		List(ctx context.Context, orgID uuid.UUID) ([]integrations.Integration, error)
+		SourcesForIntegration(ctx context.Context, integrationID uuid.UUID) ([]integrations.Source, error)
+	}
+	// SystemServices resolves a system to its member service names, as
+	// IntegrationServices does for an integration.
+	SystemServices interface {
+		SystemMemberNames(ctx context.Context, orgID, systemID uuid.UUID) ([]string, error)
+	}
+	// PayloadLinkSource lists the attributes that hold payload links,
+	// read on every message list.
+	PayloadLinkSource interface {
+		Get(ctx context.Context, orgID uuid.UUID) ([]payloadlinks.Attribute, error)
+	}
 )
 
 // Sweeper walks org config once a day and records mechanical demand.
 type Sweeper struct {
-	Writer      *Writer
-	OrgID       uuid.UUID
-	Rules       AlertRuleSource
-	Matchers    MatcherSource
-	Completions CompletionSource
-	Templates   TemplateSource
-	Views       ViewSource
-	Facets      FacetSource
-	Dashboards  DashboardSource
-	Catalog     IntegrationServices
-	Log         *slog.Logger
+	Writer       *Writer
+	OrgID        uuid.UUID
+	Rules        AlertRuleSource
+	Matchers     MatcherSource
+	Completions  CompletionSource
+	Templates    TemplateSource
+	Views        ViewSource
+	Facets       FacetSource
+	Dashboards   DashboardSource
+	Integrations IntegrationSource
+	PayloadLinks PayloadLinkSource
+	Catalog      IntegrationServices
+	Systems      SystemServices
+	Log          *slog.Logger
 	// Every defaults to 24h. The sweep is idempotent within a day —
 	// SummingMergeTree would just add another Hits=1 — so the exact
 	// cadence only affects how quickly new config shows up as demand.
@@ -134,6 +156,8 @@ func (s *Sweeper) RunOnce(ctx context.Context) {
 		{"message views", s.sweepViews},
 		{"facet mappings", s.sweepFacets},
 		{"dashboards", s.sweepDashboards},
+		{"integrations", s.sweepIntegrations},
+		{"payload links", s.sweepPayloadLinks},
 	} {
 		if err := step.fn(ctx); err != nil {
 			// Tolerated: the other sources still contribute today's rows.
@@ -150,19 +174,35 @@ func (s *Sweeper) RunOnce(ctx context.Context) {
 }
 
 // scopeServices resolves a rule's scope to the service names its demand
-// belongs to. A service-bound rule is its own scope; an integration-bound
-// one spreads over member services; an org-wide rule records against ""
-// (whole-org demand for that key).
-func (s *Sweeper) scopeServices(ctx context.Context, serviceName string, integrationID *uuid.UUID) []string {
+// belongs to. A service-bound rule is its own scope; an integration- or
+// system-bound one spreads over its member services; an org-wide rule
+// records against "" (whole-org demand for that key). A scope that
+// cannot be resolved also records against "", erring towards keeping
+// telemetry; one that resolves to no services records nothing, since it
+// reads nothing: recorded against "", a log rule on an empty integration
+// would have kept every service's logs from the advisor.
+func (s *Sweeper) scopeServices(ctx context.Context, serviceName string, integrationID, systemID *uuid.UUID) []string {
 	if serviceName != "" {
 		return []string{serviceName}
 	}
-	if integrationID != nil && s.Catalog != nil {
-		if svcs, err := s.Catalog.IntegrationServices(ctx, *integrationID); err == nil && len(svcs) > 0 {
-			return svcs
-		}
+	var (
+		svcs []string
+		err  error
+	)
+	switch {
+	case integrationID != nil && s.Catalog != nil:
+		svcs, err = s.Catalog.IntegrationServices(ctx, *integrationID)
+	case systemID != nil && s.Systems != nil:
+		svcs, err = s.Systems.SystemMemberNames(ctx, s.OrgID, *systemID)
+	case integrationID == nil && systemID == nil:
+		return []string{""}
+	default:
+		return []string{""} // bound, but no resolver: keep it all
 	}
-	return []string{""}
+	if err != nil {
+		return []string{""}
+	}
+	return svcs
 }
 
 func (s *Sweeper) sweepAlertRules(ctx context.Context) error {
@@ -174,13 +214,15 @@ func (s *Sweeper) sweepAlertRules(ctx context.Context) error {
 		return err
 	}
 	for _, r := range rules {
-		scopes := s.scopeServices(ctx, r.ServiceName, r.IntegrationID)
+		scopes := s.scopeServices(ctx, r.ServiceName, r.IntegrationID, r.SystemID)
 		for _, svc := range scopes {
 			switch r.Signal {
 			case "metric":
-				s.Writer.Record(s.OrgID, SignalMetric, svc, r.Spec.MetricName, KindRule)
+				// RecordKeys skips empty keys: an empty metric name or
+				// split_by recorded as such would be whole-signal demand,
+				// which keeps every metric from T1.
+				s.Writer.RecordKeys(s.OrgID, SignalMetric, svc, []string{r.Spec.MetricName, r.Spec.SplitBy}, KindRule)
 				s.Writer.RecordKeys(s.OrgID, SignalMetric, svc, attrKeys(r.Spec.Attrs), KindRule)
-				s.Writer.Record(s.OrgID, SignalMetric, svc, r.Spec.SplitBy, KindRule)
 			case "log":
 				// Whole-signal demand: a severity floor or body filter
 				// consumes the service's logs without naming a key.
@@ -192,6 +234,9 @@ func (s *Sweeper) sweepAlertRules(ctx context.Context) error {
 				s.Writer.Record(s.OrgID, SignalTrace, svc, "", KindRule)
 				if r.TraceErrorSpec != nil {
 					s.Writer.RecordKeys(s.OrgID, SignalTrace, svc, attrKeys(r.TraceErrorSpec.Attrs), KindRule)
+				}
+				if r.TraceAttributeSpec != nil {
+					s.Writer.RecordKeys(s.OrgID, SignalTrace, svc, attrKeys(r.TraceAttributeSpec.Attrs), KindRule)
 				}
 			}
 		}
@@ -226,7 +271,7 @@ func (s *Sweeper) sweepCompletions(ctx context.Context) error {
 		spec := r.Spec
 		// Completion rules are always integration-bound (non-pointer id).
 		integrationID := r.IntegrationID
-		scopes := s.scopeServices(ctx, "", &integrationID)
+		scopes := s.scopeServices(ctx, "", &integrationID, nil)
 		for _, svc := range scopes {
 			// Span names are their own namespace in the Key column;
 			// ConsumerKind "completion" is what tells a reader that.
@@ -257,18 +302,17 @@ func (s *Sweeper) sweepTemplates(ctx context.Context) error {
 	}
 	for _, t := range tpls {
 		for _, c := range t.Checks {
-			// A template is a blueprint — it isn't bound to a service
-			// until applied, so its demand is org-wide.
-			switch c.Signal {
-			case "log":
-				s.Writer.Record(s.OrgID, SignalLog, "", "", KindTemplate)
-			case "trace":
-				s.Writer.Record(s.OrgID, SignalTrace, "", "", KindTemplate)
-			default:
-				s.Writer.Record(s.OrgID, SignalMetric, "", c.Metric, KindTemplate)
-				s.Writer.RecordKeys(s.OrgID, SignalMetric, "", templateAttrKeys(c.Attrs), KindTemplate)
-				s.Writer.Record(s.OrgID, SignalMetric, "", c.SplitBy, KindTemplate)
+			// A template is a blueprint, bound to no service until it is
+			// applied, and an applied check is an alert rule, swept with
+			// the rules. What it names is still org-wide demand for a
+			// metric: a metric only a template reads should not be called
+			// unused. Its log and trace checks name no key, and recorded
+			// against "" they would keep every service's logs from T2.
+			if c.Signal != "" && c.Signal != "metric" {
+				continue
 			}
+			s.Writer.RecordKeys(s.OrgID, SignalMetric, "", []string{c.Metric, c.SplitBy}, KindTemplate)
+			s.Writer.RecordKeys(s.OrgID, SignalMetric, "", templateAttrKeys(c.Attrs), KindTemplate)
 		}
 	}
 	return nil
@@ -352,6 +396,90 @@ func (s *Sweeper) sweepDashboards(ctx context.Context) error {
 			}
 		}
 	}
+	return nil
+}
+
+// sweepIntegrations records what integrations read in code: the span
+// attributes promoted to message-list columns and filter fields, on the
+// integration's services, and the metrics and logs of its sources, on
+// the sources' origin services (a whole stream when a source names no
+// metric).
+func (s *Sweeper) sweepIntegrations(ctx context.Context) error {
+	if s.Integrations == nil {
+		return nil
+	}
+	list, err := s.Integrations.List(ctx, s.OrgID)
+	if err != nil {
+		return err
+	}
+	for _, in := range list {
+		var keys []string
+		for _, c := range in.MessageColumns {
+			if c.Kind == integrations.ColumnKindAttribute || (c.Kind == "" && c.Key != "") {
+				keys = append(keys, c.Key)
+			}
+		}
+		for _, f := range integrations.AttributeFilters(in.MessageFilters) {
+			keys = append(keys, f.Key)
+		}
+		if len(keys) > 0 {
+			id := in.ID
+			for _, svc := range s.scopeServices(ctx, "", &id, nil) {
+				s.Writer.RecordKeys(s.OrgID, SignalTrace, svc, keys, KindIntegration)
+			}
+		}
+		sources, err := s.Integrations.SourcesForIntegration(ctx, in.ID)
+		if err != nil {
+			s.Log.Warn("demand sweep: integration sources", "integration", in.ID, "err", err)
+			continue
+		}
+		for _, src := range sources {
+			var svcs []string
+			switch src.OriginKind {
+			case integrations.OriginService:
+				svcs = []string{src.Origin}
+			case integrations.OriginSystem:
+				if id, err := uuid.Parse(src.Origin); err == nil {
+					svcs = s.scopeServices(ctx, "", nil, &id)
+				}
+			}
+			var conds []string
+			for _, c := range src.Conditions {
+				conds = append(conds, c.Attribute)
+			}
+			for _, svc := range svcs {
+				switch src.Signal {
+				case integrations.SourceMetrics:
+					if len(src.MetricNames) == 0 {
+						s.Writer.Record(s.OrgID, SignalMetric, svc, "", KindIntegration)
+					}
+					s.Writer.RecordKeys(s.OrgID, SignalMetric, svc, src.MetricNames, KindIntegration)
+					s.Writer.RecordKeys(s.OrgID, SignalMetric, svc, conds, KindIntegration)
+				case integrations.SourceLogs:
+					s.Writer.Record(s.OrgID, SignalLog, svc, "", KindIntegration)
+					s.Writer.RecordKeys(s.OrgID, SignalLog, svc, conds, KindIntegration)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// sweepPayloadLinks records the attributes that hold payload links. They
+// are org-wide: every message list reads them, whatever the service.
+func (s *Sweeper) sweepPayloadLinks(ctx context.Context) error {
+	if s.PayloadLinks == nil {
+		return nil
+	}
+	attrs, err := s.PayloadLinks.Get(ctx, s.OrgID)
+	if err != nil {
+		return err
+	}
+	keys := make([]string, 0, len(attrs))
+	for _, a := range attrs {
+		keys = append(keys, a.Attribute)
+	}
+	s.Writer.RecordKeys(s.OrgID, SignalTrace, "", keys, KindPayloadLink)
 	return nil
 }
 

@@ -488,4 +488,3 @@ func (h *Handlers) collectorStamped(r *http.Request, c collectors.Collector) boo
 	change, err := collectors.AddStamp(raw, c.InstanceUID, h.sluicioExporter(r))
 	return err == nil && change.AlreadyDropped
 }
-

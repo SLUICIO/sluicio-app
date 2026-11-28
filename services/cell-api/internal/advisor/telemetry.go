@@ -46,6 +46,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/collectorversion"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/servicetypes"
 )
 
 // Thresholds are the volume floors below which a finding is not worth
@@ -117,6 +118,18 @@ type TelemetryInput struct {
 	// Optional. Nil resolves to the newest version this build knows,
 	// which is what an unconfigured cell should emit.
 	Target func(service string) collectorversion.Target
+	// Reserved is what the org's configuration reads in code (see
+	// Reserved), beyond the keys every cell reserves.
+	Reserved Reserved
+}
+
+// Reserved is telemetry Sluicio reads in code rather than through a
+// query, so the demand ledger cannot show it, per org: the prefixes
+// that detect a system type, by span attribute and by metric name, and
+// the attribute the cell reads the environment from.
+type Reserved struct {
+	AttrPrefixes   []string
+	MetricPrefixes []string
 }
 
 // targetFor is Target with the nil case folded in, so call sites read as
@@ -233,7 +246,7 @@ func evalInternalSpans(in TelemetryInput, names []SpanNameSupply) []Suggestion {
 		}
 		read := false
 		for _, k := range n.Keys {
-			if isReservedAttr(k) || in.Demand.Mechanical("trace", n.Service, k) || in.Demand.ConsumedSince("trace", n.Service, k, in.From) {
+			if in.reservedAttr(k) || in.Demand.Mechanical("trace", n.Service, k) || in.Demand.ConsumedSince("trace", n.Service, k, in.From) {
 				read = true
 				break
 			}
@@ -327,7 +340,56 @@ func evalUnusedMetrics(in TelemetryInput, metrics []MetricSupply) []Suggestion {
 			},
 		}, "", func(t collectorversion.Target) (string, error) { return snippetDropMetric(m.Name, t) }))
 	}
-	return out
+	return keepDetectable(out, metrics, in.Reserved.MetricPrefixes)
+}
+
+// keepDetectable keeps a system type detectable by its metrics: when
+// every metric with one of its detection prefixes would be dropped, the
+// one most services emit (then the cheapest) is not suggested. One hit
+// is enough to detect the type, so the rest can still go.
+func keepDetectable(out []Suggestion, metrics []MetricSupply, prefixes []string) []Suggestion {
+	if len(prefixes) == 0 || len(out) == 0 {
+		return out
+	}
+	suggested := map[string]bool{}
+	for _, s := range out {
+		suggested[s.ScopeID] = true
+	}
+	keep := map[string]bool{}
+	for _, p := range prefixes {
+		if p == "" {
+			continue
+		}
+		var best *MetricSupply
+		all := true
+		for i := range metrics {
+			m := &metrics[i]
+			if !strings.HasPrefix(m.Name, p) {
+				continue
+			}
+			if !suggested[m.Name] {
+				all = false
+				break
+			}
+			if best == nil || len(m.Services) > len(best.Services) ||
+				(len(m.Services) == len(best.Services) && m.EstBytesPerDay < best.EstBytesPerDay) {
+				best = m
+			}
+		}
+		if all && best != nil {
+			keep[best.Name] = true
+		}
+	}
+	if len(keep) == 0 {
+		return out
+	}
+	kept := out[:0]
+	for _, s := range out {
+		if !keep[s.ScopeID] {
+			kept = append(kept, s)
+		}
+	}
+	return kept
 }
 
 // --- T2: unviewed log stream -------------------------------------------
@@ -430,7 +492,7 @@ func evalSpanAttributes(in TelemetryInput, attrs []SpanAttrSupply) []Suggestion 
 		}
 		// Attributes Sluicio itself derives meaning from are never
 		// proposed, whether or not anyone queried them this month.
-		if isReservedAttr(a.Key) {
+		if in.reservedAttr(a.Key) {
 			continue
 		}
 
@@ -535,7 +597,7 @@ func evalSpanAttributes(in TelemetryInput, attrs []SpanAttrSupply) []Suggestion 
 func evalPIIAttributes(ctx context.Context, in TelemetryInput, attrs []SpanAttrSupply) []Suggestion {
 	out := []Suggestion{}
 	for _, a := range attrs {
-		if isReservedAttr(a.Key) || a.SpansWithKey < 10 {
+		if in.reservedAttr(a.Key) || a.SpansWithKey < 10 {
 			continue
 		}
 		values, err := SampleAttrValues(ctx, in.Conn, in.OrgID, a.Service, a.Key, in.From, in.To, 50)
@@ -637,15 +699,55 @@ func echoPrefix(key string) string {
 // are consumed by code rather than by queries, so the demand ledger
 // would not necessarily show them, and a suggestion to delete one would
 // break the product rather than save money.
+//
+// http.status_code is the older name cell-ingest still reads to treat a
+// 5xx as an error; deployment.environment(.name) is where the cell reads
+// a row's environment from when none is configured.
 var reservedAttrPrefixes = []string{
 	"io.", "service.", "integration.", "messaging.", "db.", "rpc.system",
 	"http.request.method", "http.response.status_code", "http.route",
 	"error.", "exception.", "peer.service", "file.", "transfer.",
+	"http.status_code", "deployment.environment",
 }
 
+// builtinFacetKeys are the span attributes the built-in service facets
+// show and break down by (http.method, net.peer.name, email.subject...),
+// taken from the facets themselves so the two cannot drift apart.
+var builtinFacetKeys = func() map[string]bool {
+	keys := map[string]bool{}
+	for _, f := range servicetypes.Builtin() {
+		for _, k := range f.KeyAttributes {
+			keys[k] = true
+		}
+		for _, w := range f.Widgets {
+			if b, ok := w.(servicetypes.BreakdownWidget); ok && b.Attribute != "" {
+				keys[b.Attribute] = true
+			}
+		}
+	}
+	return keys
+}()
+
 func isReservedAttr(key string) bool {
+	if builtinFacetKeys[key] {
+		return true
+	}
 	for _, p := range reservedAttrPrefixes {
 		if strings.HasPrefix(key, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// reservedAttr is isReservedAttr plus what this org's configuration
+// reads in code.
+func (in TelemetryInput) reservedAttr(key string) bool {
+	if isReservedAttr(key) {
+		return true
+	}
+	for _, p := range in.Reserved.AttrPrefixes {
+		if p != "" && strings.HasPrefix(key, p) {
 			return true
 		}
 	}

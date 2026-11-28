@@ -832,7 +832,13 @@ func main() {
 		Facets:      facetMappingsStore,
 		Dashboards:  dashboardStore,
 		Catalog:     catalogStore,
-		Log:         logger,
+		// Readers in code rather than in a query: an integration's message
+		// columns, filters and sources, the payload-link attributes, and
+		// rules bound to a system.
+		Integrations: integrationStore,
+		PayloadLinks: handlers.PayloadLinks,
+		Systems:      catalogStore,
+		Log:          logger,
 	}
 	go demandSweeper.Run(bgCtx)
 	logger.Info("demand ledger started")
@@ -850,6 +856,9 @@ func main() {
 		CH:       chConn,
 		Log:      logger,
 		Entitled: func() bool { return licenseMgr.Entitled(license.FeatureAdvisor) },
+		// What the org's system types detect by, and the environment
+		// attribute: read in code, so never suggested for dropping.
+		Reserved: handlers.AdvisorReserved,
 		Orgs: func(context.Context) ([]uuid.UUID, error) {
 			// Single-org per cell today (integrations.DefaultOrgID); the
 			// signature takes a list so multi-tenant cells need no change
