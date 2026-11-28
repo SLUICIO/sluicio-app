@@ -181,6 +181,16 @@ func TestCollectorPush(t *testing.T) {
 		t.Errorf("a complete configuration to an effective-only collector: %d %v, want 201", code, out)
 	}
 
+	// Accepting drift is open source: no licence needed, a team viewer
+	// refused, and nothing to accept on a collector without drift.
+	mux.HandleFunc("POST /api/v1/collectors/{id}/drift/accept", h.blockDemo(h.acceptCollectorDrift))
+	if code, _ := do(viewer, "POST", base+"/drift/accept", nil); code != http.StatusForbidden {
+		t.Errorf("a team viewer accepted drift: %d, want 403", code)
+	}
+	if code, _ := do(editor, "POST", base+"/drift/accept", nil); code != http.StatusConflict {
+		t.Errorf("accepting with no drift: %d, want 409 (and never 402)", code)
+	}
+
 	// A time-limited change is Enterprise: 402 without a licence.
 	if code, _ := do(editor, "POST", base+"/deployments", map[string]any{"config": edited, "duration_minutes": 30}); code != http.StatusPaymentRequired {
 		t.Errorf("a temporary change without a licence: %d, want 402", code)

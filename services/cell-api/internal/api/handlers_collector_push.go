@@ -305,6 +305,39 @@ func (h *Handlers) createCollectorDeployment(w http.ResponseWriter, r *http.Requ
 	httpserver.WriteJSON(w, http.StatusCreated, map[string]any{"deployment": d, "delivered": delivered, "validation": v})
 }
 
+// acceptCollectorDrift: POST /api/v1/collectors/{id}/drift/accept
+//
+// Takes the configuration the collector reports now as the baseline its
+// drift is measured from: changes made on the host that are meant to
+// stay. Nothing is sent to the collector. Open to whoever may change the
+// collector's configuration.
+func (h *Handlers) acceptCollectorDrift(w http.ResponseWriter, r *http.Request) {
+	c, ok := h.pushableCollector(w, r)
+	if !ok {
+		return
+	}
+	d, err := h.Collectors.AcceptDrift(r.Context(), c.ID, h.actorLabel(r))
+	if errors.Is(err, collectors.ErrNothingToAccept) {
+		httpserver.WriteError(w, http.StatusConflict, "there is no drift to accept on this collector")
+		return
+	}
+	if err != nil {
+		h.Logger.Error("accept drift failed", "err", err)
+		httpserver.WriteError(w, http.StatusInternalServerError, "could not accept the configuration")
+		return
+	}
+	meta := map[string]any{}
+	if c.Drift != nil {
+		paths := make([]string, 0, len(c.Drift.Paths))
+		for _, p := range c.Drift.Paths {
+			paths = append(paths, p.Kind+" "+p.Path)
+		}
+		meta["accepted_paths"] = paths
+	}
+	h.recordAudit(r, "collector.drift_accepted", "collector", c.ID.String(), meta)
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"drift": d})
+}
+
 const errTemporaryActive = "a temporary change is already active on this collector; end it first (a permanent change can be sent meanwhile: it takes effect when the temporary one ends)"
 
 // endCollectorDeployment: POST /api/v1/collectors/{id}/deployments/{dep}/end

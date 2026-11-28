@@ -125,6 +125,7 @@ Machine spec: /api/v1/openapi.json · Interactive: /api/docs · AI agents: prefe
 - GET /api/v1/collectors/{id}/deployments — List collectors
 - POST /api/v1/collectors/{id}/deployments — Create collector
 - GET /api/v1/collectors/{id}/deployments/{dep}/diff — List collectors
+- POST /api/v1/collectors/{id}/drift/accept — Create collector
 - POST /api/v1/collectors/{id}/deployments/{dep}/end — Create collector
 - GET /api/v1/collectors/{id}/deployments/{dep}/effect — List collectors
 - POST /api/v1/collectors/{id}/deployments/{dep}/rollback — Create collector

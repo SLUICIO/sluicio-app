@@ -55,6 +55,7 @@ import type {
   CollectorToken,
   CollectorTokenCreated,
   CollectorDeployment,
+  CollectorDrift,
   CollectorValidation,
   CollectorSendResult,
   CollectorDeploymentDiff,
@@ -1178,6 +1179,10 @@ export const api = {
     get<CollectorDeploymentEffect>(
       `/collectors/${encodeURIComponent(id)}/deployments/${encodeURIComponent(dep)}/effect`,
     ),
+  // Takes the collector's configuration as it is now as the baseline its
+  // drift is measured from. Sends nothing to the collector.
+  acceptCollectorDrift: (id: string) =>
+    post<{ drift: CollectorDrift | null }>(`/collectors/${encodeURIComponent(id)}/drift/accept`, {}),
   endCollectorDeployment: (id: string, dep: string) =>
     post<{ base: CollectorDeployment; delivered: boolean }>(
       `/collectors/${encodeURIComponent(id)}/deployments/${encodeURIComponent(dep)}/end`,

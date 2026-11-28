@@ -3527,6 +3527,9 @@ export interface CollectorDrift {
   deployment_id: string;
   paths: { path: string; kind: "missing" | "changed" | "added" | "removed" }[];
   checked_at: string;
+  // The baseline is a configuration someone accepted after the rollout.
+  accepted_at?: string;
+  accepted_by?: string;
 }
 
 export interface Collector {

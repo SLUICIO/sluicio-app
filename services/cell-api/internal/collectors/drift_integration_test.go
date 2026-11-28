@@ -95,4 +95,29 @@ func TestCollectorDrift(t *testing.T) {
 	if got == nil || len(got.Paths) != 1 || got.Paths[0].Path != "receivers.host_metrics.scrapers.cpu" || got.Paths[0].Kind != "added" {
 		t.Fatalf("added outside Sluicio: %+v", got)
 	}
+
+	// Accepted: the change on the host stays, nothing is sent, drift is
+	// measured from here.
+	before, _ := s.Deployments(ctx, col, 50)
+	acc, err := s.AcceptDrift(ctx, col, "editor@acme")
+	if err != nil || acc == nil || len(acc.Paths) != 0 || acc.AcceptedBy != "editor@acme" || acc.AcceptedAt == nil {
+		t.Fatalf("accept: %+v %v", acc, err)
+	}
+	if after, _ := s.Deployments(ctx, col, 50); len(after) != len(before) {
+		t.Fatal("accepting sent something to the collector")
+	}
+	report("receivers:\n  host_metrics:\n    scrapers:\n      load: {}\n      paging: {}\n      cpu: {}\n      disk: {}\n")
+	if got := drift(); got == nil || len(got.Paths) != 1 || got.Paths[0].Path != "receivers.host_metrics.scrapers.disk" || got.AcceptedBy == "" {
+		t.Fatalf("drift after accepting: %+v", got)
+	}
+
+	// A new rollout sets the baseline again.
+	d3, _ := s.CreateDeployment(ctx, collectors.NewDeployment{CollectorID: col, Body: "receivers:\n  host_metrics:\n    scrapers:\n      disk: {}\n"})
+	_ = s.MarkSent(ctx, d3.ID)
+	time.Sleep(10 * time.Millisecond)
+	report("receivers:\n  host_metrics:\n    scrapers:\n      load: {}\n      paging: {}\n      cpu: {}\n      disk: {}\n      network: {}\n")
+	_ = s.ReportStatus(ctx, col, d3.Hash, collectors.DeploymentApplied, "")
+	if got := drift(); got == nil || got.DeploymentID != d3.ID || len(got.Paths) != 0 || got.AcceptedAt != nil {
+		t.Fatalf("after a new rollout: %+v", got)
+	}
 }

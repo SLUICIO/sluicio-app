@@ -205,6 +205,7 @@ export default function CollectorDetail() {
   const navigate = useNavigate();
   const [removeError, setRemoveError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  const [accepting, setAccepting] = useState(false);
   // Bumped after a send, so the Deployments tab reloads.
   const [sentKey, setSentKey] = useState(0);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -341,8 +342,35 @@ export default function CollectorDetail() {
       {isDrifted(c.drift) && (
         <div className="alert alert--warn">
           {driftSummary(c.drift)} Its local configuration files were probably
-          edited on the host, or something else changed its configuration.
-          Change it in Sluicio to match, or undo the change on the host.{" "}
+          edited on the host, or something else changed its configuration. Undo
+          the change on the host, or accept it if it is meant to stay.
+          {c.drift?.accepted_at &&
+            ` Measured from the configuration ${c.drift.accepted_by || "someone"} accepted ${formatRelative(c.drift.accepted_at)}.`}{" "}
+          {detail.can_push && (
+            <button
+              className="btn btn--link"
+              disabled={accepting}
+              onClick={async () => {
+                if (
+                  !confirm(
+                    "Accept the collector's configuration as it is now? Nothing is sent to it; drift is measured from here until the next change sent from Sluicio.",
+                  )
+                )
+                  return;
+                setAccepting(true);
+                try {
+                  await api.acceptCollectorDrift(c.id);
+                  setDetail(await api.getCollector(c.id));
+                } catch (e) {
+                  setRemoveError(String((e as Error).message ?? e));
+                } finally {
+                  setAccepting(false);
+                }
+              }}
+            >
+              Accept as the new baseline
+            </button>
+          )}
           {tab !== "deployments" && (
             <button
               className="btn btn--link"

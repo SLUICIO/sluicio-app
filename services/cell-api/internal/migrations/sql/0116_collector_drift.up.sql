@@ -10,6 +10,16 @@
 -- paths list means in sync; NULL means not checked or not applicable (a
 -- read-only collector, no deployment applied yet, or no configuration as
 -- written to compare with).
+--
+-- drift_accepted_*: someone accepted the collector's configuration as the
+-- new baseline (changes made on the host that are meant to stay); drift is
+-- then measured from that version until the next rollout from Sluicio.
+-- No foreign key: the version is deleted with the collector anyway, and a
+-- key back from collectors to its own configurations would make that
+-- delete a cycle.
 ALTER TABLE collectors
     ADD COLUMN IF NOT EXISTS drift JSONB,
-    ADD COLUMN IF NOT EXISTS drift_checked_at TIMESTAMPTZ;
+    ADD COLUMN IF NOT EXISTS drift_checked_at TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS drift_accepted_config_id UUID,
+    ADD COLUMN IF NOT EXISTS drift_accepted_at TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS drift_accepted_by_name TEXT NOT NULL DEFAULT '';

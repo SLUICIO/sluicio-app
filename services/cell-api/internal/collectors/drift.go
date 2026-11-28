@@ -36,6 +36,11 @@ import (
 // Settings from the local files that were there at the rollout are not
 // drift; they were always allowed. Only paths are kept, never values,
 // which may be secrets.
+//
+// A change made on the host that is meant to stay is accepted (see
+// AcceptDrift): the configuration reported then becomes the baseline,
+// and drift is only what changed after it, until the next rollout from
+// Sluicio sets a new one. Nothing is sent to the collector.
 
 // DriftPath is one place where the collector differs from what was sent.
 type DriftPath struct {
@@ -53,6 +58,37 @@ type Drift struct {
 	DeploymentID uuid.UUID   `json:"deployment_id"`
 	Paths        []DriftPath `json:"paths"`
 	CheckedAt    time.Time   `json:"checked_at"`
+	// AcceptedAt and AcceptedBy: the baseline is a configuration someone
+	// accepted after the rollout, not the rollout itself.
+	AcceptedAt *time.Time `json:"accepted_at,omitempty"`
+	AcceptedBy string     `json:"accepted_by,omitempty"`
+}
+
+// ErrNothingToAccept: the collector has no drift result to accept (not
+// applicable, or no configuration reported).
+var ErrNothingToAccept = errors.New("collectors: nothing to accept")
+
+// AcceptDrift takes the configuration the collector reports now as the
+// baseline drift is measured from, and checks again (in sync, unless it
+// changes again). byName is who accepted it.
+func (s *Store) AcceptDrift(ctx context.Context, collectorID uuid.UUID, byName string) (*Drift, error) {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE collectors SET drift_accepted_config_id = (
+		           SELECT id FROM collector_configs WHERE collector_id = $1 ORDER BY received_at DESC, id DESC LIMIT 1),
+		       drift_accepted_at = now(), drift_accepted_by_name = $2
+		WHERE id = $1 AND drift IS NOT NULL`, collectorID, byName)
+	if err != nil {
+		return nil, err
+	}
+	if tag.RowsAffected() == 0 {
+		return nil, ErrNothingToAccept
+	}
+	if err := s.CheckDrift(ctx, collectorID); err != nil {
+		return nil, err
+	}
+	var d *Drift
+	err = s.pool.QueryRow(ctx, `SELECT drift FROM collectors WHERE id = $1`, collectorID).Scan(&d)
+	return d, err
 }
 
 // maxDriftPaths caps what is kept: past a few dozen differences, the
@@ -242,9 +278,29 @@ func (s *Store) CheckDrift(ctx context.Context, collectorID uuid.UUID) error {
 	if raw == "" {
 		return s.setDrift(ctx, collectorID, nil)
 	}
-	// The baseline: the first configuration the collector reported after
-	// the deployment reached it.
+	// The baseline: a configuration accepted since the rollout, else the
+	// first one the collector reported after the deployment reached it.
 	baseline := raw
+	var accepted struct {
+		hash, sealed, by string
+		at, received     *time.Time
+	}
+	_ = s.pool.QueryRow(ctx, `
+		SELECT cfg.config_hash, cfg.config_enc, cfg.received_at, c.drift_accepted_at, c.drift_accepted_by_name
+		FROM collectors c JOIN collector_configs cfg ON cfg.id = c.drift_accepted_config_id
+		WHERE c.id = $1`, collectorID).Scan(&accepted.hash, &accepted.sealed, &accepted.received, &accepted.at, &accepted.by)
+	if accepted.received != nil && (reached == nil || !accepted.received.Before(*reached)) {
+		b, err := s.rawOf(collectorID, accepted.hash, accepted.sealed)
+		if err != nil {
+			return err
+		}
+		since, err := DiffSince(b, raw)
+		if err != nil {
+			return err
+		}
+		return s.setDrift(ctx, collectorID, &Drift{DeploymentID: depID, Paths: mergeDrift(nil, since),
+			CheckedAt: time.Now().UTC(), AcceptedAt: accepted.at, AcceptedBy: accepted.by})
+	}
 	if reached != nil {
 		var bHash, bSealed string
 		err := s.pool.QueryRow(ctx, `SELECT config_hash, config_enc FROM collector_configs
