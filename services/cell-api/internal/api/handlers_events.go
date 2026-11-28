@@ -94,6 +94,9 @@ func (h *Handlers) CanGroupSeeAudience(ctx context.Context, orgID, groupID uuid.
 	if aud.OrgLevel {
 		return false
 	}
+	if aud.GroupID != nil {
+		return *aud.GroupID == groupID
+	}
 	groupVisMu.Lock()
 	e, ok := groupVisCache[groupID]
 	groupVisMu.Unlock()

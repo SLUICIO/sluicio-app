@@ -3556,6 +3556,10 @@ export interface Collector {
   // Whether it still runs what was last rolled out to it, and nothing
   // changed since; absent when not applicable. Paths only, never values.
   drift?: CollectorDrift;
+  // Where its configuration as written holds a secret in plain text
+  // instead of an ${env:...} reference, since plain_secrets_at. Paths only.
+  plain_secrets?: string[];
+  plain_secrets_at?: string;
 }
 
 export interface CollectorsResponse {

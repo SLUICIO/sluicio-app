@@ -1162,7 +1162,9 @@ export const api = {
   validateCollectorConfig: (id: string, config: string) =>
     // kept_by_local: settings the change removes that the collector's
     // local files set, so they stay in effect.
-    post<{ checked: boolean; validation?: CollectorValidation; kept_by_local?: string[] }>(
+    // plain_secrets: where the text writes a secret in plain text instead
+    // of an ${env:...} reference.
+    post<{ checked: boolean; validation?: CollectorValidation; kept_by_local?: string[]; plain_secrets?: string[] }>(
       `/collectors/${encodeURIComponent(id)}/validate`,
       { config },
     ),

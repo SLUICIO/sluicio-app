@@ -31,6 +31,7 @@ import DeploymentsPanel from "../components/collectors/DeploymentsPanel";
 import DiffExport from "../components/collectors/DiffExport";
 import { EditDrawer } from "../components/primitives";
 import { driftSummary, isDrifted } from "../lib/collectorDrift";
+import { plainSecretsSummary } from "../lib/plainSecrets";
 import { useFeature } from "../lib/useLicense";
 import { useCurrentUser } from "../lib/useCurrentUser";
 import {
@@ -361,6 +362,16 @@ export default function CollectorDetail() {
         )}
       </div>
       {removeError && <div className="alert alert--error">{removeError}</div>}
+      {(c.plain_secrets?.length ?? 0) > 0 && (
+        <div className="alert alert--warn">
+          {plainSecretsSummary(c.plain_secrets)} Written into the configuration,
+          a secret sits in a file on the host and in every copy of it. Set it as
+          an environment variable there and refer to it as{" "}
+          <code>{"${env:NAME}"}</code>.
+          {c.plain_secrets_at &&
+            ` Since ${formatRelative(c.plain_secrets_at)}.`}
+        </div>
+      )}
       {isDrifted(c.drift) && (
         <div className="alert alert--warn">
           {driftSummary(c.drift)} Its local configuration files were probably

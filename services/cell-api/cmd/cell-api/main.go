@@ -941,6 +941,15 @@ func main() {
 			logger.Warn("SLUICIO_COLLECTOR_CONFIG_KEY is not set; collectors register but their configurations are not stored")
 		}
 		store := collectors.New(pg, keys)
+		// A secret written into a configuration in plain text: its team
+		// is told, with where it is and never what it is.
+		store.OnPlainSecrets = func(ctx context.Context, n collectors.PlainSecretsNotice) {
+			logger.Info("collector configuration holds a secret in plain text", "collector", n.CollectorID, "paths", n.Added)
+			group := n.GroupID
+			handlers.Events.Emit(ctx, n.OrgID, "com.sluicio.collector.plain_secret", n.CollectorID.String(),
+				eventsubs.Audience{GroupID: &group},
+				map[string]any{"collector_id": n.CollectorID.String(), "collector": n.Name, "group_id": n.GroupID.String(), "added": n.Added, "paths": n.All})
+		}
 		if err := store.ResetConnections(ctx); err != nil {
 			logger.Warn("could not reset collector connection state", "err", err)
 		}

@@ -244,6 +244,18 @@ export default function Collectors() {
                                     Drifted
                                   </span>
                                 )}
+                                {(c.plain_secrets?.length ?? 0) > 0 && (
+                                  <span
+                                    className="badge sev-warn"
+                                    style={{
+                                      marginLeft: 6,
+                                      whiteSpace: "nowrap",
+                                    }}
+                                    title="Its configuration has a secret written in plain text"
+                                  >
+                                    Plain-text secret
+                                  </span>
+                                )}
                               </div>
                               <div className="mono" style={{ fontSize: 12.5 }}>
                                 {c.description["service.version"] || "-"}

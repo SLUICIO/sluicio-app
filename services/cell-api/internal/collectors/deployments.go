@@ -324,6 +324,7 @@ func (s *Store) ReportStatus(ctx context.Context, collectorID uuid.UUID, hash st
 		collectorID, hash, string(status), MaskText(errMsg), finished)
 	if err == nil && status == DeploymentApplied {
 		_ = s.CheckDrift(ctx, collectorID)
+		_ = s.checkPlainSecrets(ctx, collectorID, "")
 	}
 	return err
 }

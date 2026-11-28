@@ -15,6 +15,7 @@ import type { CollectorValidation } from "../../api/types";
 import { useFeature } from "../../lib/useLicense";
 import { EditDrawer } from "../primitives";
 import ConfigDiff from "./ConfigDiff";
+import { plainSecretsSummary } from "../../lib/plainSecrets";
 
 const CodeEditor = lazy(() => import("../CodeEditor"));
 
@@ -68,6 +69,7 @@ export default function SendConfigDrawer({
   );
   const [checked, setChecked] = useState(false);
   const [keptByLocal, setKeptByLocal] = useState<string[]>([]);
+  const [plainSecrets, setPlainSecrets] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<{
@@ -92,6 +94,7 @@ export default function SendConfigDrawer({
       setChecked(r.checked);
       setValidation(r.validation ?? null);
       setKeptByLocal(r.kept_by_local ?? []);
+      setPlainSecrets(r.plain_secrets ?? []);
       setStep("review");
     } catch (e) {
       setError(String((e as Error).message ?? e));
@@ -245,6 +248,14 @@ export default function SendConfigDrawer({
                 : ""}
               . Remove {keptByLocal.length === 1 ? "it" : "them"} from those
               files on the host.
+            </div>
+          )}
+          {plainSecrets.length > 0 && (
+            <div className="alert alert--warn" style={{ margin: 0 }}>
+              {plainSecretsSummary(plainSecrets, 5, "This configuration has")}{" "}
+              Sent like this, a secret sits in the collector&apos;s
+              configuration on the host. Set it as an environment variable there
+              and refer to it as <code>{"${env:NAME}"}</code> instead.
             </div>
           )}
           <ConfigDiff before={current} after={text} />

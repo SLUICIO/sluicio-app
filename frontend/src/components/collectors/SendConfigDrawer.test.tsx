@@ -43,4 +43,34 @@ describe("the send drawer's review", () => {
       /receivers\.host_metrics\.scrapers\.cpu\. Remove it from those files on the host\./,
     );
   });
+
+  it("warns about a secret written in plain text", async () => {
+    api.validateCollectorConfig.mockResolvedValue({
+      checked: true,
+      validation: { valid: true, diagnostics: [] },
+      kept_by_local: [],
+      plain_secrets: ["exporters.otlp_http/b.headers.x-api-key"],
+    });
+    render(
+      <MemoryRouter>
+        <SendConfigDrawer
+          collectorId="c1"
+          collectorName="gw"
+          current={"exporters: {}\n"}
+          initial={
+            "exporters:\n  otlp_http/b:\n    headers:\n      x-api-key: abc\n"
+          }
+          requireApproval={false}
+          onClose={() => undefined}
+          onSent={() => undefined}
+        />
+      </MemoryRouter>,
+    );
+    const warning = await screen.findByText(
+      /This configuration has a secret written in plain text/,
+    );
+    expect(warning.textContent).toMatch(
+      /exporters\.otlp_http\/b\.headers\.x-api-key\..*\$\{env:NAME\}/,
+    );
+  });
 });

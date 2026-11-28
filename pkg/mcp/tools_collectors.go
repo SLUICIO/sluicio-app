@@ -29,6 +29,8 @@ var collectorItem = map[string]any{
 	"config_received_at": strOut("When the newest stored configuration arrived (RFC3339)."),
 	"config_owner":       strOut("Who owns the configuration: sluicio (changes are sent from Sluicio) or pipeline (the team's own deployment pipeline; Sluicio sends nothing from its UI and offers its suggestions as a diff)."),
 	"drift":              objOf("Whether the collector still runs what was last rolled out to it from Sluicio: deployment_id (the last deployment it applied), paths[] with path and kind (missing: sent but not in its configuration; changed: a different value there; paths only, never values), checked_at. Empty paths means in sync. Absent when not applicable: a read-only collector, none rolled out yet, or no configuration as written reported.", nil),
+	"plain_secrets":      strArr("Paths where the configuration as written holds a secret in plain text instead of an ${env:...} reference (paths only, never values). Empty when there is none, or when the collector reports only its effective configuration, where every reference is already resolved. Move each into an environment variable on the host."),
+	"plain_secrets_at":   strOut("Since when the configuration has held one (RFC3339); absent when it holds none."),
 }
 
 var (

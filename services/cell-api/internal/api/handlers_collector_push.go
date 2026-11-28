@@ -101,6 +101,16 @@ type collectorConfigBody struct {
 	Stamp bool `json:"stamp"`
 }
 
+// plainSecretsOf is where config, as typed, writes a secret in plain text
+// instead of an ${env:...} reference; a masked value is the stored one
+// and does not count. Never nil, so the answer always has the list.
+func plainSecretsOf(config string) []string {
+	if p := collectors.PlainSecrets(config); p != nil {
+		return p
+	}
+	return []string{}
+}
+
 func (h *Handlers) validateWithOtelflow(ctx context.Context, c collectors.Collector, config string) (*collectors.Validation, error) {
 	if h.OtelflowValidator == nil {
 		return nil, nil
@@ -128,7 +138,8 @@ func (h *Handlers) validateCollectorConfig(w http.ResponseWriter, r *http.Reques
 		httpserver.WriteError(w, http.StatusBadGateway, "OTelFlow could not check the configuration: "+err.Error())
 		return
 	}
-	out := map[string]any{"checked": v != nil, "kept_by_local": h.keptByLocal(r, c, body.Config)}
+	out := map[string]any{"checked": v != nil, "kept_by_local": h.keptByLocal(r, c, body.Config),
+		"plain_secrets": plainSecretsOf(body.Config)}
 	if v != nil {
 		out["validation"] = v
 	}
@@ -336,7 +347,7 @@ func (h *Handlers) createCollectorDeployment(w http.ResponseWriter, r *http.Requ
 			meta["suggestion_id"] = suggestion.ID.String()
 		}
 		h.recordAudit(r, "collector.config_proposed", "collector", c.ID.String(), meta)
-		httpserver.WriteJSON(w, http.StatusAccepted, map[string]any{"deployment": d, "proposal": prop, "validation": v})
+		httpserver.WriteJSON(w, http.StatusAccepted, map[string]any{"deployment": d, "proposal": prop, "validation": v, "plain_secrets": plainSecretsOf(body.Config)})
 		return
 	}
 	delivered := h.OpAMP != nil && h.OpAMP.Deliver(r.Context(), c.ID)
@@ -348,7 +359,7 @@ func (h *Handlers) createCollectorDeployment(w http.ResponseWriter, r *http.Requ
 		meta["held"] = true
 	}
 	h.recordAudit(r, "collector.config_sent", "collector", c.ID.String(), meta)
-	httpserver.WriteJSON(w, http.StatusCreated, map[string]any{"deployment": d, "delivered": delivered, "validation": v})
+	httpserver.WriteJSON(w, http.StatusCreated, map[string]any{"deployment": d, "delivered": delivered, "validation": v, "plain_secrets": plainSecretsOf(body.Config)})
 }
 
 // acceptCollectorDrift: POST /api/v1/collectors/{id}/drift/accept

@@ -22,6 +22,10 @@ type Audience struct {
 	ServiceNames  []string
 	IntegrationID *uuid.UUID
 	SystemID      *uuid.UUID
+	// GroupID is the team that owns the entity (a collector belongs to
+	// exactly one). When set it decides alone: only that team's
+	// subscriptions get the event, whatever services the team sees.
+	GroupID *uuid.UUID
 }
 
 // Emitter matches events against the org's enabled subscriptions and

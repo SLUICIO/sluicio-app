@@ -68,6 +68,12 @@ type Collector struct {
 	// ConfigOwner is who owns the configuration: OwnerSluicio or
 	// OwnerPipeline (see SetConfigOwner).
 	ConfigOwner string `json:"config_owner"`
+	// PlainSecrets are the paths where its configuration as written holds
+	// a secret in plain text instead of an ${env:...} reference, since
+	// PlainSecretsAt. Empty when there is none or it cannot be told (the
+	// collector reports only its effective configuration).
+	PlainSecrets   []string   `json:"plain_secrets"`
+	PlainSecretsAt *time.Time `json:"plain_secrets_at,omitempty"`
 }
 
 // Who owns a collector's configuration.
@@ -205,6 +211,17 @@ func (s *Store) RecordConfig(ctx context.Context, collectorID uuid.UUID, files [
 		// configuration itself is stored either way.
 		_ = s.CheckDrift(ctx, collectorID)
 	}
+	// Plain-text secrets: on every new version, and once for a
+	// configuration stored before the check existed.
+	if stored || s.plainSecretsUnchecked(ctx, collectorID) {
+		raw := ""
+		for _, f := range files {
+			if f.Name == RawConfigFile {
+				raw = f.Body
+			}
+		}
+		_ = s.checkPlainSecrets(ctx, collectorID, raw)
+	}
 	return stored, nil
 }
 
@@ -232,7 +249,7 @@ type Scope struct {
 
 const collectorCols = `
 	c.id, c.group_id, g.name, c.instance_uid, c.kind, c.capabilities, c.description, c.healthy, c.health,
-	c.connected, c.transport, c.remote_addr, c.first_seen_at, c.last_seen_at, cfg.config_hash, cfg.received_at, c.drift, c.config_owner`
+	c.connected, c.transport, c.remote_addr, c.first_seen_at, c.last_seen_at, cfg.config_hash, cfg.received_at, c.drift, c.config_owner, c.plain_secrets, c.plain_secrets_at`
 
 const collectorFrom = `
 	FROM collectors c
@@ -248,11 +265,14 @@ func scanCollector(row pgx.Row, now time.Time) (Collector, error) {
 	var desc, health []byte
 	var connected bool
 	var hash *string
+	var secrets []byte
 	if err := row.Scan(&c.ID, &c.GroupID, &c.GroupName, &c.InstanceUID, &c.Kind, &caps, &desc, &c.Healthy,
-		&health, &connected, &c.Transport, &c.RemoteAddr, &c.FirstSeenAt, &c.LastSeenAt, &hash, &c.ConfigReceivedAt, &c.Drift, &c.ConfigOwner); err != nil {
+		&health, &connected, &c.Transport, &c.RemoteAddr, &c.FirstSeenAt, &c.LastSeenAt, &hash, &c.ConfigReceivedAt, &c.Drift, &c.ConfigOwner, &secrets, &c.PlainSecretsAt); err != nil {
 		return Collector{}, err
 	}
 	c.Capabilities = CapabilityNames(uint64(caps))
+	c.PlainSecrets = []string{}
+	_ = json.Unmarshal(secrets, &c.PlainSecrets)
 	c.Description = map[string]string{}
 	_ = json.Unmarshal(desc, &c.Description)
 	if health != nil {
