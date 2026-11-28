@@ -54,30 +54,32 @@ type Effect struct {
 	ChangePct *float64 `json:"change_pct,omitempty"`
 }
 
-// MeasureMetric measures metric for one org around appliedAt, as of now.
-func MeasureMetric(ctx context.Context, conn driver.Conn, orgID uuid.UUID, metric string, appliedAt, now time.Time) (Effect, error) {
-	return measure(ctx, conn, appliedAt, now, `
-		SELECT countIf(Timestamp < ?), countIf(Timestamp >= ?)
-		FROM metrics
-		WHERE OrganizationId = ? AND MetricName = ? AND Timestamp >= ? AND Timestamp < ?`, orgID.String(), metric)
+// Selection is what a change acts on, as rows of one table: a metric, a
+// service's logs below a severity, a service's spans carrying an
+// attribute. The measurement and the count per collector read the same
+// rows.
+type Selection struct {
+	table string
+	cond  string
+	args  []any
 }
 
-// MeasureLogs measures one service's log records with a severity below
-// below (a severity number: 9 INFO, 13 WARN), records without a severity
-// left out as the change leaves them.
-func MeasureLogs(ctx context.Context, conn driver.Conn, orgID uuid.UUID, service string, below int32, appliedAt, now time.Time) (Effect, error) {
-	return measure(ctx, conn, appliedAt, now, `
-		SELECT countIf(Timestamp < ?), countIf(Timestamp >= ?)
-		FROM logs
-		WHERE OrganizationId = ? AND ServiceName = ? AND SeverityNumber > 0 AND SeverityNumber < ?
-		  AND Timestamp >= ? AND Timestamp < ?`, orgID.String(), service, below)
+// MetricSelection is one metric.
+func MetricSelection(metric string) Selection {
+	return Selection{table: "metrics", cond: "MetricName = ?", args: []any{metric}}
 }
 
-// MeasureSpans measures one service's spans that still carry what a
-// change removes: the attribute key, every key starting with it when
-// prefix is set, or with hash set the key holding a value that is not a
-// SHA-256 hash yet.
-func MeasureSpans(ctx context.Context, conn driver.Conn, orgID uuid.UUID, service, key string, prefix, hash bool, appliedAt, now time.Time) (Effect, error) {
+// LogSelection is one service's records with a severity below below (a
+// severity number: 9 INFO, 13 WARN), records without a severity left out
+// as the change leaves them.
+func LogSelection(service string, below int32) Selection {
+	return Selection{table: "logs", cond: "ServiceName = ? AND SeverityNumber > 0 AND SeverityNumber < ?", args: []any{service, below}}
+}
+
+// SpanSelection is one service's spans that carry what a change removes:
+// the attribute key, every key starting with it when prefix is set, or
+// with hash set the key holding a value that is not a SHA-256 hash yet.
+func SpanSelection(service, key string, prefix, hash bool) Selection {
 	cond, args := `mapContains(SpanAttributes, ?)`, []any{key}
 	switch {
 	case prefix:
@@ -85,11 +87,84 @@ func MeasureSpans(ctx context.Context, conn driver.Conn, orgID uuid.UUID, servic
 	case hash:
 		cond, args = `mapContains(SpanAttributes, ?) AND NOT match(SpanAttributes[?], '^[0-9a-f]{64}$')`, []any{key, key}
 	}
+	return Selection{table: "traces", cond: "ServiceName = ? AND " + cond, args: append([]any{service}, args...)}
+}
+
+// MeasureMetric measures metric for one org around appliedAt, as of now.
+func MeasureMetric(ctx context.Context, conn driver.Conn, orgID uuid.UUID, metric string, appliedAt, now time.Time) (Effect, error) {
+	return Measure(ctx, conn, orgID, MetricSelection(metric), "", appliedAt, now)
+}
+
+// MeasureLogs measures LogSelection around appliedAt.
+func MeasureLogs(ctx context.Context, conn driver.Conn, orgID uuid.UUID, service string, below int32, appliedAt, now time.Time) (Effect, error) {
+	return Measure(ctx, conn, orgID, LogSelection(service, below), "", appliedAt, now)
+}
+
+// MeasureSpans measures SpanSelection around appliedAt.
+func MeasureSpans(ctx context.Context, conn driver.Conn, orgID uuid.UUID, service, key string, prefix, hash bool, appliedAt, now time.Time) (Effect, error) {
+	return Measure(ctx, conn, orgID, SpanSelection(service, key, prefix, hash), "", appliedAt, now)
+}
+
+// Measure counts sel before and after appliedAt for one org; with
+// collector set, only the rows stamped by that collector (its instance
+// id, the CollectorId column).
+func Measure(ctx context.Context, conn driver.Conn, orgID uuid.UUID, sel Selection, collector string, appliedAt, now time.Time) (Effect, error) {
+	where, args := "OrganizationId = ? AND "+sel.cond, append([]any{orgID.String()}, sel.args...)
+	if collector != "" {
+		where += " AND CollectorId = ?"
+		args = append(args, collector)
+	}
 	return measure(ctx, conn, appliedAt, now, `
 		SELECT countIf(Timestamp < ?), countIf(Timestamp >= ?)
-		FROM traces
-		WHERE OrganizationId = ? AND ServiceName = ? AND `+cond+`
-		  AND Timestamp >= ? AND Timestamp < ?`, append([]any{orgID.String(), service}, args...)...)
+		FROM `+sel.table+`
+		WHERE `+where+` AND Timestamp >= ? AND Timestamp < ?`, args...)
+}
+
+// CarriedBy counts sel per collector stamp in [from, to): which collector
+// the rows came through. Rows nobody stamped count under "".
+func CarriedBy(ctx context.Context, conn driver.Conn, orgID uuid.UUID, sel Selection, from, to time.Time) (map[string]uint64, error) {
+	rows, err := conn.Query(ctx, `
+		SELECT CollectorId, count() FROM `+sel.table+`
+		WHERE OrganizationId = ? AND `+sel.cond+` AND Timestamp >= ? AND Timestamp < ?
+		GROUP BY CollectorId`, append(append([]any{orgID.String()}, sel.args...), from, to)...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]uint64{}
+	for rows.Next() {
+		var id string
+		var n uint64
+		if err := rows.Scan(&id, &n); err != nil {
+			return nil, err
+		}
+		out[id] = n
+	}
+	return out, rows.Err()
+}
+
+// CollectorVolume is what one collector stamped in [from, to), per signal:
+// spans, metric data points, log records.
+type CollectorVolume struct {
+	Spans        uint64 `json:"spans"`
+	MetricPoints uint64 `json:"metric_points"`
+	LogRecords   uint64 `json:"log_records"`
+}
+
+// VolumeOf counts the rows one collector stamped in [from, to).
+func VolumeOf(ctx context.Context, conn driver.Conn, orgID uuid.UUID, collector string, from, to time.Time) (CollectorVolume, error) {
+	var v CollectorVolume
+	for _, q := range []struct {
+		table string
+		into  *uint64
+	}{{"traces", &v.Spans}, {"metrics", &v.MetricPoints}, {"logs", &v.LogRecords}} {
+		if err := conn.QueryRow(ctx, `SELECT count() FROM `+q.table+`
+			WHERE OrganizationId = ? AND CollectorId = ? AND Timestamp >= ? AND Timestamp < ?`,
+			orgID.String(), collector, from, to).Scan(q.into); err != nil {
+			return CollectorVolume{}, err
+		}
+	}
+	return v, nil
 }
 
 // measure runs query, which counts rows before and after its first two

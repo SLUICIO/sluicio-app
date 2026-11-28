@@ -12,6 +12,19 @@ import { formatDurationSeconds, formatNumber } from "./format";
 // this collector, but the telemetry also comes some other way.
 const STOPPED_PCT = -95;
 
+// collectorShare is the line for what came through this collector alone,
+// when it stamps its data; "" otherwise.
+export function collectorShare(e: CollectorDeploymentEffect): string {
+  const m = e.collector_effect;
+  if (!e.applied || !m || !m.ready) return "";
+  const rate = (n: number) => `${formatNumber(Math.round(n))}/h`;
+  if (m.before.rows === 0)
+    return "Through this collector: none of it before the change.";
+  return `Through this collector: ${rate(m.before.per_hour)} before, ${rate(m.after.per_hour)} after${
+    m.after.rows === 0 ? ", it stopped." : "."
+  }`;
+}
+
 export function effectSummary(e: CollectorDeploymentEffect): string {
   if (!e.applied || !e.effect) return "";
   const m = e.effect;

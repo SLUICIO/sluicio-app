@@ -599,6 +599,10 @@ func TestAdvisorSuggestionToCollector(t *testing.T) {
 	if ch := rows[gw.String()]["changed"].([]any); len(ch) != 1 || ch[0] != "metrics" {
 		t.Errorf("gw: %v", rows[gw.String()])
 	}
+	// Not stamped: nothing to say about what it carries.
+	if rows[gw.String()]["stamped"] != false || rows[gw.String()]["carried"] != nil {
+		t.Errorf("an unstamped collector with a carried count: %v", rows[gw.String()])
+	}
 	if rows[other.String()]["unavailable"] == nil {
 		t.Errorf("a collector that does not send to Sluicio is offered as applicable: %v", rows[other.String()])
 	}

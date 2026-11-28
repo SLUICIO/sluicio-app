@@ -19,6 +19,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -244,6 +245,22 @@ func (h *Handlers) listAdvisorSuggestionCollectors(w http.ResponseWriter, r *htt
 		Skipped        []collectors.PipelineSkip `json:"skipped"`
 		AlreadyDropped bool                      `json:"already_dropped"`
 		Unavailable    string                    `json:"unavailable,omitempty"`
+		// Stamped: the collector stamps its data, so Carried says how
+		// much of this telemetry came through it in the last 24 hours.
+		Stamped bool    `json:"stamped"`
+		Carried *uint64 `json:"carried,omitempty"`
+	}
+	// Which collector carries it, from the stamp on the data. Nil when
+	// telemetry storage cannot be read: the list still works, unordered.
+	var carried map[string]uint64
+	if h.ClickHouseConn != nil {
+		t, _ := adviceFor(s)
+		now := time.Now()
+		if m, err := advisor.CarriedBy(r.Context(), h.ClickHouseConn, middleware.OrgID(r), selectionOf(t), now.Add(-carriedWindow), now); err == nil {
+			carried = m
+		} else {
+			h.Logger.Warn("advisor: carried by collector failed", "err", err)
+		}
 	}
 	out := []row{}
 	for _, c := range list {
@@ -251,9 +268,29 @@ func (h *Handlers) listAdvisorSuggestionCollectors(w http.ResponseWriter, r *htt
 			continue
 		}
 		a := h.adviseCollector(r, s, c, false)
-		out = append(out, row{Collector: c, Changed: a.Changed, Skipped: a.Skipped, AlreadyDropped: a.AlreadyDropped, Unavailable: a.Unavailable})
+		rw := row{Collector: c, Changed: a.Changed, Skipped: a.Skipped, AlreadyDropped: a.AlreadyDropped, Unavailable: a.Unavailable,
+			Stamped: h.collectorStamped(r, c)}
+		if carried != nil && rw.Stamped {
+			n := carried[c.InstanceUID]
+			rw.Carried = &n
+		}
+		out = append(out, rw)
 	}
-	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"suggestion": s, "collectors": out})
+	// The collectors that carry it first, most first.
+	sort.SliceStable(out, func(i, j int) bool {
+		ci, cj := out[i].Carried, out[j].Carried
+		switch {
+		case ci == nil || cj == nil:
+			return ci != nil && cj == nil
+		default:
+			return *ci > *cj
+		}
+	})
+	resp := map[string]any{"suggestion": s, "collectors": out, "window_hours": int(carriedWindow.Hours())}
+	if carried != nil {
+		resp["unstamped"] = carried[""]
+	}
+	httpserver.WriteJSON(w, http.StatusOK, resp)
 }
 
 // previewAdvisorCollectorChange: GET /api/v1/advisor/suggestions/{id}/collectors/{cid}
@@ -323,22 +360,63 @@ func (h *Handlers) collectorDeploymentEffect(w http.ResponseWriter, r *http.Requ
 		httpserver.WriteError(w, http.StatusServiceUnavailable, "telemetry storage is not available")
 		return
 	}
-	var e advisor.Effect
 	org, at, now := middleware.OrgID(r), *d.FinishedAt, time.Now()
-	switch {
-	case t.Metric != "":
-		e, err = advisor.MeasureMetric(r.Context(), h.ClickHouseConn, org, t.Metric, at, now)
-	case t.Below != "":
-		e, err = advisor.MeasureLogs(r.Context(), h.ClickHouseConn, org, t.Service, severityNumbers[t.Below], at, now)
-	default:
-		e, err = advisor.MeasureSpans(r.Context(), h.ClickHouseConn, org, t.Service, t.Attribute, t.Prefix, t.Hash, at, now)
-	}
+	sel := selectionOf(*t)
+	e, err := advisor.Measure(r.Context(), h.ClickHouseConn, org, sel, "", at, now)
 	if err != nil {
 		h.Logger.Error("measure collector change failed", "err", err)
 		httpserver.WriteError(w, http.StatusInternalServerError, "measuring failed")
 		return
 	}
-	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"subject": subject, "applied": true, "effect": e})
+	out := map[string]any{"subject": subject, "applied": true, "effect": e}
+	// With the collector stamped, its own share: what came through this
+	// collector, before and after, beside everything Sluicio received.
+	if h.collectorStamped(r, c) {
+		own, err := advisor.Measure(r.Context(), h.ClickHouseConn, org, sel, c.InstanceUID, at, now)
+		if err == nil {
+			out["collector_effect"] = own
+		}
+	}
+	httpserver.WriteJSON(w, http.StatusOK, out)
+}
+
+// selectionOf is the telemetry an Advisor change acts on.
+func selectionOf(t collectors.AdvisorTarget) advisor.Selection {
+	switch {
+	case t.Metric != "":
+		return advisor.MetricSelection(t.Metric)
+	case t.Below != "":
+		return advisor.LogSelection(t.Service, severityNumbers[t.Below])
+	default:
+		return advisor.SpanSelection(t.Service, t.Attribute, t.Prefix, t.Hash)
+	}
+}
+
+// carriedWindow is how far back "which collector carries it" looks.
+const carriedWindow = 24 * time.Hour
+
+// collectorVolume: GET /api/v1/collectors/{id}/volume
+//
+// What a stamped collector carried to Sluicio in the last 24 hours, per
+// signal, from the stamp on the data (the CollectorId column). Enterprise,
+// like the stamp. Zero for a collector that is not stamped.
+func (h *Handlers) collectorVolume(w http.ResponseWriter, r *http.Request) {
+	c, ok := h.collectorFromPath(w, r)
+	if !ok {
+		return
+	}
+	if h.ClickHouseConn == nil {
+		httpserver.WriteError(w, http.StatusServiceUnavailable, "telemetry storage is not available")
+		return
+	}
+	now := time.Now()
+	v, err := advisor.VolumeOf(r.Context(), h.ClickHouseConn, middleware.OrgID(r), c.InstanceUID, now.Add(-carriedWindow), now)
+	if err != nil {
+		h.Logger.Error("collector volume failed", "err", err)
+		httpserver.WriteError(w, http.StatusInternalServerError, "query failed")
+		return
+	}
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"volume": v, "window_hours": int(carriedWindow.Hours())})
 }
 
 // previewCollectorStamp: GET /api/v1/collectors/{id}/stamp

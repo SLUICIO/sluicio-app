@@ -291,7 +291,9 @@ export const api = {
   dismissAdvisorSuggestion: (id: string, note = "") =>
     post<AdvisorSuggestion>(`/advisor/suggestions/${encodeURIComponent(id)}/dismiss`, { note }),
   listAdvisorSuggestionCollectors: (id: string) =>
-    get<{ collectors: AdvisorCollectorRow[] }>(`/advisor/suggestions/${encodeURIComponent(id)}/collectors`),
+    get<{ collectors: AdvisorCollectorRow[]; window_hours?: number; unstamped?: number }>(
+      `/advisor/suggestions/${encodeURIComponent(id)}/collectors`,
+    ),
   // hash: a personal-data value (T6) is hashed instead of the attribute
   // deleted.
   previewAdvisorCollectorChange: (id: string, collectorId: string, hash = false) =>
@@ -1184,6 +1186,11 @@ export const api = {
   // drift is measured from. Sends nothing to the collector.
   // The change that adds the collector stamp, against its configuration
   // as written (Enterprise).
+  // What a stamped collector carried in the last 24 hours (Enterprise).
+  collectorVolume: (id: string) =>
+    get<{ volume: { spans: number; metric_points: number; log_records: number }; window_hours: number }>(
+      `/collectors/${encodeURIComponent(id)}/volume`,
+    ),
   previewCollectorStamp: (id: string) =>
     get<AdvisorCollectorChange>(`/collectors/${encodeURIComponent(id)}/stamp`),
   acceptCollectorDrift: (id: string) =>

@@ -152,3 +152,46 @@ func TestMeasureSpansProbe(t *testing.T) {
 		}
 	}
 }
+
+// Which collector carried what, from the stamp (ADVISOR_PROBE_CARRIED_SERVICE
+// with spans carrying debug.blob, ADVISOR_PROBE_COLLECTOR the stamp of
+// the collector that carried most of them).
+func TestCarriedByProbe(t *testing.T) {
+	addr, svc, col := os.Getenv("ADVISOR_PROBE_CH"), os.Getenv("ADVISOR_PROBE_CARRIED_SERVICE"), os.Getenv("ADVISOR_PROBE_COLLECTOR")
+	org, err := uuid.Parse(os.Getenv("ADVISOR_PROBE_ORG"))
+	if addr == "" || svc == "" || col == "" || err != nil {
+		t.Skip("set ADVISOR_PROBE_CH, ADVISOR_PROBE_ORG, ADVISOR_PROBE_CARRIED_SERVICE and ADVISOR_PROBE_COLLECTOR")
+	}
+	conn, err := clickhouse.Open(&clickhouse.Options{
+		Addr: []string{addr},
+		Auth: clickhouse.Auth{Database: "telemetry", Username: os.Getenv("ADVISOR_PROBE_CH_USER"), Password: os.Getenv("ADVISOR_PROBE_CH_PASS")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, now := context.Background(), time.Now()
+	sel := SpanSelection(svc, "debug.blob", false, false)
+	by, err := CarriedBy(ctx, conn, org, sel, now.Add(-24*time.Hour), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("carried by: %v", by)
+	if by[col] == 0 || len(by) < 2 {
+		t.Fatalf("carried by: %v", by)
+	}
+	v, err := VolumeOf(ctx, conn, org, col, now.Add(-24*time.Hour), now)
+	if err != nil || v.Spans < by[col] {
+		t.Fatalf("volume %+v %v", v, err)
+	}
+	// "Applied" a minute from now: everything so far is before it.
+	applied, later := now.Add(time.Minute), now.Add(2*time.Hour)
+	all, err := Measure(ctx, conn, org, sel, "", applied, later)
+	if err != nil {
+		t.Fatal(err)
+	}
+	own, err := Measure(ctx, conn, org, sel, col, applied, later)
+	if err != nil || own.Before.Rows != by[col] || all.Before.Rows <= own.Before.Rows {
+		t.Fatalf("measure: all %d, through %s %d (%v)", all.Before.Rows, col, own.Before.Rows, err)
+	}
+	t.Logf("volume %+v; measured %d in all, %d through the collector", v, all.Before.Rows, own.Before.Rows)
+}

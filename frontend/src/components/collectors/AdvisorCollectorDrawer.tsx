@@ -84,10 +84,11 @@ export default function AdvisorCollectorDrawer({
     <EditDrawer title="Apply to a collector" width="medium" onClose={onClose}>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-          <strong>{suggestion.title}.</strong> Sluicio cannot tell yet which
-          collector this comes through, so choose the one that sends it. The
-          change goes only into pipelines that send to Sluicio alone, and goes
-          to the collector&apos;s team for approval.
+          <strong>{suggestion.title}.</strong> Collectors that stamp their data
+          say how much of it came through them, most first; for the others
+          Sluicio cannot tell, so choose the one that sends it. The change goes
+          only into pipelines that send to Sluicio alone, and goes to the
+          collector&apos;s team for approval.
         </p>
         {personal && (
           <label
@@ -160,6 +161,7 @@ export default function AdvisorCollectorDrawer({
                       </div>
                     </div>
                     <div className="muted" style={{ fontSize: 12.5 }}>
+                      <div>{carriedLine(r)}</div>
                       {r.already_dropped
                         ? "Drops this metric already."
                         : r.unavailable
@@ -196,4 +198,14 @@ export default function AdvisorCollectorDrawer({
       </div>
     </EditDrawer>
   );
+}
+
+// carriedLine says whether the collector carries this telemetry, from the
+// stamp on the data.
+function carriedLine(r: AdvisorCollectorRow): string {
+  if (!r.stamped) return "Not stamped: Sluicio cannot tell what it carries.";
+  if (r.carried === undefined) return "";
+  return r.carried > 0
+    ? `Carried ${r.carried.toLocaleString()} in the last 24 hours.`
+    : "None of it came through here in the last 24 hours.";
 }

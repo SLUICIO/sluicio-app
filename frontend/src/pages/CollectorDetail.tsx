@@ -244,6 +244,18 @@ export default function CollectorDetail() {
       .then(setDetail)
       .catch((e) => setError(String((e as Error).message ?? e)));
   }, [id]);
+  const [volume, setVolume] = useState<{
+    volume: { spans: number; metric_points: number; log_records: number };
+    window_hours: number;
+  } | null>(null);
+  const stamped = !!detail?.stamped;
+  useEffect(() => {
+    if (!stamped || !stampEntitled) return;
+    api
+      .collectorVolume(id)
+      .then(setVolume)
+      .catch(() => setVolume(null));
+  }, [id, stamped, stampEntitled]);
 
   const hasConfig =
     !!detail && detail.config_storage && detail.history.length > 0;
@@ -470,6 +482,8 @@ export default function CollectorDetail() {
                 This collector puts its id on the data it sends to Sluicio (
                 <code>sluicio.collector.id</code>), so suggestions and their
                 effect can be tied to it.
+                {volume &&
+                  ` In the last ${volume.window_hours} hours it carried ${volume.volume.spans.toLocaleString()} spans, ${volume.volume.metric_points.toLocaleString()} metric data points and ${volume.volume.log_records.toLocaleString()} log records.`}
               </p>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>

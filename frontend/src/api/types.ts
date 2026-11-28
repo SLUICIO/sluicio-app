@@ -3632,6 +3632,10 @@ export interface AdvisorCollectorRow {
   skipped: AdvisorPipelineSkip[];
   already_dropped: boolean;
   unavailable?: string;
+  // The collector stamps its data; carried is how much of this telemetry
+  // came through it in the last 24 hours (absent when unknown).
+  stamped?: boolean;
+  carried?: number;
 }
 export interface AdvisorCollectorChange {
   before: string;
@@ -3653,6 +3657,8 @@ export interface CollectorDeploymentEffect {
   // What the change drops: a metric, or "<service>'s logs below WARN".
   subject: string;
   applied: boolean;
+  // With the collector stamped: what came through this collector alone.
+  collector_effect?: CollectorDeploymentEffect["effect"];
   effect?: {
     applied_at: string;
     ready: boolean;

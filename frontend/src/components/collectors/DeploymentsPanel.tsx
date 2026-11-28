@@ -23,7 +23,7 @@ import {
   deploymentStatus,
   isActiveTemporary,
 } from "../../lib/deploymentStatus";
-import { effectSummary } from "../../lib/deploymentEffect";
+import { collectorShare, effectSummary } from "../../lib/deploymentEffect";
 import ConfigDiff from "./ConfigDiff";
 
 export default function DeploymentsPanel({
@@ -263,7 +263,13 @@ function EffectLine({
     let cancelled = false;
     api
       .collectorDeploymentEffect(collectorId, deploymentId)
-      .then((e) => !cancelled && setText(effectSummary(e)))
+      .then(
+        (e) =>
+          !cancelled &&
+          setText(
+            [effectSummary(e), collectorShare(e)].filter(Boolean).join(" "),
+          ),
+      )
       .catch(() => !cancelled && setText(""));
     return () => {
       cancelled = true;

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: FSL-1.1-Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { effectSummary } from "./deploymentEffect";
+import { collectorShare, effectSummary } from "./deploymentEffect";
 
 const w = (from: string, to: string, rows: number, per_hour: number) => ({
   from,
@@ -56,5 +56,16 @@ describe("effectSummary", () => {
     expect(effectSummary(effect(0, 0))).toMatch(
       /It was not arriving before the change\.$/,
     );
+  });
+
+  it("adds this collector's share when it stamps its data", () => {
+    const e = {
+      ...effect(1200, 600, -50),
+      collector_effect: effect(600, 0, -100).effect,
+    };
+    expect(collectorShare(e)).toBe(
+      "Through this collector: 600/h before, 0/h after, it stopped.",
+    );
+    expect(collectorShare(effect(1, 1, 0))).toBe("");
   });
 });
