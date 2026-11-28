@@ -192,6 +192,16 @@ func TestMaskConfigNamedPairs(t *testing.T) {
 	}
 }
 
+// The auth block names an extension; that is no secret, and masking it
+// breaks the reference (OTelFlow reports an undefined extension).
+func TestMaskConfigKeepsAuthenticator(t *testing.T) {
+	in := "exporters:\n  otlp_http/a:\n    auth:\n      authenticator: basicauth/client\nextensions:\n  basicauth/client:\n    client_auth:\n      password: hunter2\n"
+	out, ok := MaskConfig(in)
+	if !ok || !strings.Contains(out, "authenticator: basicauth/client") || strings.Contains(out, "hunter2") {
+		t.Fatalf("masked:\n%s", out)
+	}
+}
+
 func TestMaskConfigFailsClosed(t *testing.T) {
 	if out, ok := MaskConfig("key: [unterminated\n  password: x"); ok || out != "" {
 		t.Fatalf("unparseable body must be hidden, got ok=%v %q", ok, out)

@@ -126,6 +126,13 @@ func maskNode(n *yaml.Node, underSecret, inTLS bool) {
 		}
 		for i := 0; i+1 < len(n.Content); i += 2 {
 			k := n.Content[i].Value
+			// auth: {authenticator: basicauth/client} names an extension,
+			// under a key that reads as secret: masking it hides which
+			// extension, and OTelFlow then cannot resolve the reference.
+			if k == "authenticator" {
+				maskNode(n.Content[i+1], false, false)
+				continue
+			}
 			secret := underSecret || sensitiveKey(k) || (namedSecret && k == "value") || (inTLS && k == "key")
 			maskNode(n.Content[i+1], secret, tlsBlock(k))
 		}
