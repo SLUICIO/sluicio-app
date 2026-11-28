@@ -105,6 +105,12 @@ type connState struct {
 	acceptsRemote bool
 	sentHash      string
 	instanceBytes []byte
+	// runsHash is the remote configuration the agent last said it applied,
+	// cleared when it reports anything else or is sent another. A
+	// deployment of exactly that configuration (a Restore of what it
+	// runs) is complete as it stands: the agent would not answer for a
+	// configuration it already has.
+	runsHash string
 }
 
 // staleAfter is how long a WebSocket agent that reports heartbeats may be
@@ -241,7 +247,7 @@ func (s *Server) DisconnectToken(tokenID uuid.UUID) int {
 // takes one and does not have it yet, and records the delivery.
 func (s *Server) remoteConfigFor(ctx context.Context, st *connState, agentHas string) *protobufs.AgentRemoteConfig {
 	s.mu.Lock()
-	accepts, id, sent := st.acceptsRemote, st.collectorID, st.sentHash
+	accepts, id, sent, runs := st.acceptsRemote, st.collectorID, st.sentHash, st.runsHash
 	s.mu.Unlock()
 	if !accepts || id == uuid.Nil {
 		return nil
@@ -251,6 +257,12 @@ func (s *Server) remoteConfigFor(ctx context.Context, st *connState, agentHas st
 		s.logger.Warn("opamp: read pending configuration failed", "err", err)
 		return nil
 	}
+	if d != nil && runs != "" && d.Hash == runs {
+		if err := s.reg.ReportStatus(ctx, id, d.Hash, collectors.DeploymentApplied, ""); err != nil {
+			s.logger.Warn("opamp: complete configuration already running failed", "err", err)
+		}
+		return nil
+	}
 	if d == nil || agentHas == d.Hash || (d.Status != collectors.DeploymentPending && sent == d.Hash) {
 		return nil
 	}
@@ -258,7 +270,7 @@ func (s *Server) remoteConfigFor(ctx context.Context, st *connState, agentHas st
 		s.logger.Warn("opamp: mark sent failed", "err", err)
 	}
 	s.mu.Lock()
-	st.sentHash = d.Hash
+	st.sentHash, st.runsHash = d.Hash, ""
 	s.mu.Unlock()
 	return &protobufs.AgentRemoteConfig{
 		Config: &protobufs.AgentConfigMap{ConfigMap: map[string]*protobufs.AgentConfigObject{
@@ -438,6 +450,13 @@ func (s *Server) onMessage(ctx context.Context, st *connState, msg *protobufs.Ag
 	agentHas := ""
 	if rs := msg.RemoteConfigStatus; rs != nil && len(rs.LastRemoteConfigHash) > 0 {
 		agentHas = string(rs.LastRemoteConfigHash)
+		s.mu.Lock()
+		if rs.Status == protobufs.RemoteConfigStatuses_RemoteConfigStatuses_APPLIED {
+			st.runsHash = agentHas
+		} else {
+			st.runsHash = ""
+		}
+		s.mu.Unlock()
 		if status, ok := deploymentStatus(rs.Status); ok {
 			if err := s.reg.ReportStatus(ctx, id, agentHas, status, rs.ErrorMessage); err != nil {
 				s.logger.Warn("opamp: record remote config status failed", "err", err)

@@ -415,6 +415,30 @@ func TestDeliversWaitingConfiguration(t *testing.T) {
 	}
 	mu.Unlock()
 
+	// A Restore of the configuration the agent runs is not sent again,
+	// which the agent would not answer for, but completed as applied.
+	reg.mu.Lock()
+	var collectorID uuid.UUID
+	for _, id := range reg.ids {
+		collectorID = id
+	}
+	reg.pending = &collectors.Deployment{ID: uuid.New(), Hash: "h-1", Status: collectors.DeploymentPending}
+	reg.statuses = nil
+	reg.mu.Unlock()
+	if s.Deliver(context.Background(), collectorID) {
+		t.Fatal("sent the configuration the agent already runs")
+	}
+	reg.mu.Lock()
+	if reg.pending != nil || len(reg.statuses) != 1 || reg.statuses[0] != collectors.DeploymentApplied {
+		t.Fatalf("restore of the running configuration: pending %v, statuses %v; want it applied", reg.pending, reg.statuses)
+	}
+	reg.mu.Unlock()
+	mu.Lock()
+	if len(got) != 1 {
+		t.Fatalf("delivered %d configurations, want 1", len(got))
+	}
+	mu.Unlock()
+
 	// Nothing waiting: Deliver sends nothing.
 	if s.Deliver(context.Background(), uuid.New()) {
 		t.Fatal("delivered to a collector with nothing waiting")
