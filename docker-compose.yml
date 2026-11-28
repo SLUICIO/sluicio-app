@@ -170,7 +170,7 @@ services:
   # (COMPOSE_PROFILES=collectors), so a cell without collector management
   # runs no OTelFlow.
   otelflow:
-    image: ${OTELFLOW_IMAGE:-ghcr.io/sluicio/otelflow:0.9.1}
+    image: ${OTELFLOW_IMAGE:-ghcr.io/sluicio/otelflow:0.10.0}
     profiles: [collectors]
     restart: always
     environment:
