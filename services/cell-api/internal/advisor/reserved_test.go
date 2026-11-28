@@ -62,3 +62,18 @@ func TestKeepDetectable(t *testing.T) {
 		t.Fatalf("kept a metric although another one detects the type: %v", got)
 	}
 }
+
+// An attribute that splits a service into flows is reserved on that
+// service only.
+func TestReservedFlowAttr(t *testing.T) {
+	in := TelemetryInput{Reserved: Reserved{FlowAttrs: map[string][]string{"broker": {"flow.name"}}}}
+	if !in.reservedAttrOn("broker", "flow.name") {
+		t.Error("flow.name on broker not reserved")
+	}
+	if in.reservedAttrOn("other", "flow.name") {
+		t.Error("flow.name reserved on a service it does not split")
+	}
+	if !in.reservedAttrOn("other", "http.status_code") {
+		t.Error("the global reserved keys still apply")
+	}
+}

@@ -130,6 +130,15 @@ type TelemetryInput struct {
 type Reserved struct {
 	AttrPrefixes   []string
 	MetricPrefixes []string
+	// FlowAttrs are, per service, the span attributes that split it into
+	// flows, as the integration candidates propose them (issue #18). The
+	// proposal reads them to suggest integrations, so the attribute that
+	// would define one is never suggested for deletion.
+	FlowAttrs map[string][]string
+	// SpanName reports whether something in Sluicio selects spans by this
+	// name with a pattern or a negation (a span.name matcher that is not a
+	// plain equals), which no single demand key can say. Nil: nothing does.
+	SpanName func(name string) bool
 }
 
 // targetFor is Target with the nil case folded in, so call sites read as
@@ -244,9 +253,12 @@ func evalInternalSpans(in TelemetryInput, names []SpanNameSupply) []Suggestion {
 		if in.Demand.Mechanical("trace", n.Service, n.Name) || in.Demand.ConsumedSince("trace", n.Service, n.Name, in.From) {
 			continue
 		}
+		if in.Reserved.SpanName != nil && in.Reserved.SpanName(n.Name) {
+			continue
+		}
 		read := false
 		for _, k := range n.Keys {
-			if in.reservedAttr(k) || in.Demand.Mechanical("trace", n.Service, k) || in.Demand.ConsumedSince("trace", n.Service, k, in.From) {
+			if in.reservedAttrOn(n.Service, k) || in.Demand.Mechanical("trace", n.Service, k) || in.Demand.ConsumedSince("trace", n.Service, k, in.From) {
 				read = true
 				break
 			}
@@ -492,7 +504,7 @@ func evalSpanAttributes(in TelemetryInput, attrs []SpanAttrSupply) []Suggestion 
 		}
 		// Attributes Sluicio itself derives meaning from are never
 		// proposed, whether or not anyone queried them this month.
-		if in.reservedAttr(a.Key) {
+		if in.reservedAttrOn(a.Service, a.Key) {
 			continue
 		}
 
@@ -748,6 +760,20 @@ func (in TelemetryInput) reservedAttr(key string) bool {
 	}
 	for _, p := range in.Reserved.AttrPrefixes {
 		if p != "" && strings.HasPrefix(key, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// reservedAttrOn is reservedAttr plus the attributes that split this
+// service into flows.
+func (in TelemetryInput) reservedAttrOn(service, key string) bool {
+	if in.reservedAttr(key) {
+		return true
+	}
+	for _, k := range in.Reserved.FlowAttrs[service] {
+		if k == key {
 			return true
 		}
 	}

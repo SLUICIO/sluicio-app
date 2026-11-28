@@ -320,6 +320,8 @@ func TestInternalSpansNeedEveryGuardrail(t *testing.T) {
 		"a completion step":         {nil, TelemetryInput{From: from, To: to, Demand: demandWith(nil, map[string]time.Time{demandKey("trace", "orders-api", "serialize"): recent})}},
 		"a key a matcher reads":     {nil, TelemetryInput{From: from, To: to, Demand: demandWith(nil, map[string]time.Time{demandKey("trace", "", "buffer.size"): recent})}},
 		"a check on its traces":     {nil, TelemetryInput{From: from, To: to, Demand: demandWith(nil, map[string]time.Time{demandKey("trace", "orders-api", ""): recent})}},
+		"a span.name pattern":       {nil, TelemetryInput{From: from, To: to, Demand: demandWith(nil, nil), Reserved: Reserved{SpanName: func(n string) bool { return strings.HasPrefix(n, "serial") }}}},
+		"a key that splits flows":   {nil, TelemetryInput{From: from, To: to, Demand: demandWith(nil, nil), Reserved: Reserved{FlowAttrs: map[string][]string{"orders-api": {"buffer.size"}}}}},
 		"someone searched the name": {nil, TelemetryInput{From: from, To: to, Demand: demandWith(map[string]time.Time{demandKey("trace", "orders-api", "serialize"): recent}, nil)}},
 	}
 	for name, c := range cases {

@@ -302,5 +302,9 @@ func (h *Handlers) AdvisorReserved(ctx context.Context, orgID uuid.UUID) advisor
 	if k := store.CurrentEnvironmentConfig().Key; k != "" {
 		r.AttrPrefixes = append(r.AttrPrefixes, k)
 	}
+	if filters := h.spanNameFilters(ctx, orgID); len(filters) > 0 {
+		r.SpanName = func(name string) bool { return spanNameSelected(filters, name) }
+	}
+	r.FlowAttrs = h.flowAttrs(ctx, orgID)
 	return r
 }
