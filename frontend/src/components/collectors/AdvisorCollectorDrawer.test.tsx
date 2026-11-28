@@ -45,6 +45,7 @@ describe("applying an Advisor suggestion to a collector", () => {
             },
           ],
           already_dropped: false,
+          scrape_jobs: [{ receiver: "prometheus", job: "node" }],
         },
         {
           collector: collector("c2", "gw-2"),
@@ -88,6 +89,9 @@ describe("applying an Advisor suggestion to a collector", () => {
 
     expect(await screen.findByText("gw-1")).toBeInTheDocument();
     expect(screen.getByText(/Left alone: metrics\/both/)).toBeInTheDocument();
+    expect(
+      screen.getByText("Dropped where it is scraped: node (prometheus)"),
+    ).toBeInTheDocument();
     expect(
       screen.getByText(/Not here: none of its metrics pipelines/),
     ).toBeInTheDocument();

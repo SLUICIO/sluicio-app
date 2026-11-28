@@ -3629,11 +3629,18 @@ export interface AdvisorPipelineSkip {
   pipeline: string;
   reason: string;
 }
+// A Prometheus scrape job a metric is dropped in, instead of a filter in
+// the pipelines it feeds.
+export interface AdvisorScrapeJob {
+  receiver: string;
+  job: string;
+}
 export interface AdvisorCollectorRow {
   collector: Collector;
   changed: string[];
   skipped: AdvisorPipelineSkip[];
   already_dropped: boolean;
+  scrape_jobs?: AdvisorScrapeJob[];
   unavailable?: string;
   // The collector stamps its data; carried is how much of this telemetry
   // came through it in the last 24 hours (absent when unknown).
@@ -3646,6 +3653,7 @@ export interface AdvisorCollectorChange {
   changed: string[];
   skipped: AdvisorPipelineSkip[];
   already_dropped: boolean;
+  scrape_jobs?: AdvisorScrapeJob[];
   unavailable?: string;
 }
 

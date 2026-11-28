@@ -36,6 +36,9 @@ type FilterChange struct {
 	Skipped []PipelineSkip `json:"skipped"`
 	// AlreadyDropped: the configuration drops this already.
 	AlreadyDropped bool `json:"already_dropped"`
+	// ScrapeJobs are the Prometheus scrape jobs a metric is dropped in,
+	// instead of a filter in the pipelines they feed.
+	ScrapeJobs []ScrapeJob `json:"scrape_jobs,omitempty"`
 }
 
 // FilterSignal is a signal the filter processor can drop from: the
@@ -54,12 +57,6 @@ var (
 // ottlString quotes s as an OTTL string literal.
 func ottlString(s string) string {
 	return `"` + strings.ReplaceAll(strings.ReplaceAll(s, `\`, `\\`), `"`, `\"`) + `"`
-}
-
-// DropMetric drops one metric from every metrics pipeline that sends only
-// to Sluicio (filterType is the version's name for the filter processor).
-func DropMetric(config, filterType, metric string, sluicio SluicioExporter) (FilterChange, error) {
-	return AddFilter(config, filterType, MetricsSignal, "name == "+ottlString(metric), sluicio)
 }
 
 // DropLogsBelow drops one service's log records below severity (an OTTL
@@ -159,7 +156,12 @@ func DropInternalSpans(config, filterType, service, name string, sluicio Sluicio
 // configuration as written; a masked one stays masked. Nothing else in
 // it changes.
 func AddFilter(config, filterType string, sig FilterSignal, condition string, sluicio SluicioExporter) (FilterChange, error) {
-	return applyProcessor(config, filterType+"/"+AdvisorProcessorName, sig.Pipeline, sluicio, func(proc *yaml.Node) bool {
+	return applyProcessor(config, filterType+"/"+AdvisorProcessorName, sig.Pipeline, sluicio, addCondition(sig, condition))
+}
+
+// addCondition adds condition to a filter processor's section for sig.
+func addCondition(sig FilterSignal, condition string) func(proc *yaml.Node) bool {
+	return func(proc *yaml.Node) bool {
 		ensureErrorMode(proc)
 		section := mapGet(proc, sig.Section)
 		if section == nil {
@@ -172,7 +174,7 @@ func AddFilter(config, filterType string, sig FilterSignal, condition string, sl
 			mapSet(section, sig.Context, conds)
 		}
 		return addUnique(conds, condition)
-	})
+	}
 }
 
 // AddSpanStatement adds an OTTL statement in the span context to the
@@ -297,22 +299,60 @@ func addUnique(list *yaml.Node, v string) bool {
 // whether the change was there already), and put the processor into
 // those pipelines.
 func applyProcessor(config, procID, pipelineType string, sluicio SluicioExporter, add func(proc *yaml.Node) bool) (FilterChange, error) {
+	doc, root, err := parseConfig(config)
+	if err != nil {
+		return FilterChange{}, err
+	}
+	out, eligible, err := sluicioPipelines(root, pipelineType, sluicio)
+	if err != nil {
+		return FilterChange{}, err
+	}
+	if len(eligible) == 0 {
+		return out, nil
+	}
+	if !insertProcessor(root, procID, eligible, add) {
+		out.AlreadyDropped = true
+		out.Changed = []string{}
+		return out, nil
+	}
+	s, err := encode(doc)
+	if err != nil {
+		return FilterChange{}, err
+	}
+	out.Config = s
+	return out, nil
+}
+
+// parseConfig reads a configuration as written into a document whose
+// root is a map.
+func parseConfig(config string) (*yaml.Node, *yaml.Node, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal([]byte(config), &doc); err != nil {
-		return FilterChange{}, fmt.Errorf("the configuration is not YAML: %w", err)
+		return nil, nil, fmt.Errorf("the configuration is not YAML: %w", err)
 	}
 	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
-		return FilterChange{}, errors.New("the configuration is not a YAML map")
+		return nil, nil, errors.New("the configuration is not a YAML map")
 	}
-	root := doc.Content[0]
+	return &doc, doc.Content[0], nil
+}
+
+// namedPipeline is one pipeline of the configuration.
+type namedPipeline struct {
+	name string
+	node *yaml.Node
+}
+
+// sluicioPipelines sorts the pipelines of pipelineType into those that
+// send to Sluicio alone (out.Changed, sorted, and returned) and the rest
+// (out.Skipped, with why).
+func sluicioPipelines(root *yaml.Node, pipelineType string, sluicio SluicioExporter) (FilterChange, []namedPipeline, error) {
 	pipelines := mapGet(mapGet(root, "service"), "pipelines")
 	if pipelines == nil || pipelines.Kind != yaml.MappingNode {
-		return FilterChange{}, errors.New("the configuration has no service pipelines")
+		return FilterChange{}, nil, errors.New("the configuration has no service pipelines")
 	}
 	exporters := mapGet(root, "exporters")
-
 	out := FilterChange{Changed: []string{}, Skipped: []PipelineSkip{}}
-	var eligible []*yaml.Node
+	var eligible []namedPipeline
 	for i := 0; i+1 < len(pipelines.Content); i += 2 {
 		name, p := pipelines.Content[i].Value, pipelines.Content[i+1]
 		if name != pipelineType && !strings.HasPrefix(name, pipelineType+"/") {
@@ -332,14 +372,18 @@ func applyProcessor(config, procID, pipelineType string, sluicio SluicioExporter
 		case len(elsewhere) > 0:
 			out.Skipped = append(out.Skipped, PipelineSkip{name, "also sends to " + strings.Join(elsewhere, ", ") + ", which would get the change too"})
 		default:
-			eligible = append(eligible, p)
+			eligible = append(eligible, namedPipeline{name, p})
 			out.Changed = append(out.Changed, name)
 		}
 	}
-	if len(eligible) == 0 {
-		return out, nil
-	}
+	sort.Strings(out.Changed)
+	return out, eligible, nil
+}
 
+// insertProcessor lets add put the change into the processor procID (made
+// empty when missing) and puts the processor into pipelines. It reports
+// whether anything changed.
+func insertProcessor(root *yaml.Node, procID string, pipelines []namedPipeline, add func(proc *yaml.Node) bool) bool {
 	// The processor: one of each kind per collector, every change in it.
 	processors := mapGet(root, "processors")
 	if processors == nil {
@@ -356,7 +400,8 @@ func applyProcessor(config, procID, pipelineType string, sluicio SluicioExporter
 	// Into each pipeline, early: before anything spends work on the
 	// data, but after a memory_limiter, which belongs first.
 	added := false
-	for _, p := range eligible {
+	for _, np := range pipelines {
+		p := np.node
 		list := mapGet(p, "processors")
 		if list == nil || list.Kind != yaml.SequenceNode {
 			list = &yaml.Node{Kind: yaml.SequenceNode, Style: yaml.FlowStyle}
@@ -373,18 +418,7 @@ func applyProcessor(config, procID, pipelineType string, sluicio SluicioExporter
 		list.Content = append(list.Content[:at], append([]*yaml.Node{item}, list.Content[at:]...)...)
 		added = true
 	}
-	if have && !added {
-		out.AlreadyDropped = true
-		out.Changed = []string{}
-		return out, nil
-	}
-	s, err := encode(&doc)
-	if err != nil {
-		return FilterChange{}, err
-	}
-	out.Config = s
-	sort.Strings(out.Changed)
-	return out, nil
+	return !have || added
 }
 
 func scalar(v string) *yaml.Node { return &yaml.Node{Kind: yaml.ScalarNode, Value: v} }

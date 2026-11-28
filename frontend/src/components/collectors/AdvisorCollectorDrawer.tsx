@@ -467,6 +467,12 @@ export default function AdvisorCollectorDrawer({
                           : r.unavailable
                             ? `Not here: ${r.unavailable}.`
                             : `Pipelines: ${r.changed.join(", ")}`}
+                        {applies(r) && (r.scrape_jobs?.length ?? 0) > 0 && (
+                          <div>
+                            Dropped where it is scraped:{" "}
+                            {scrapeJobsLine(r.scrape_jobs ?? [])}
+                          </div>
+                        )}
                         {applies(r) && pipelineOwned(r) && (
                           <div style={{ marginTop: 4 }}>
                             Owned by the team&apos;s pipeline.{" "}
@@ -527,6 +533,11 @@ export default function AdvisorCollectorDrawer({
       </div>
     </EditDrawer>
   );
+}
+
+// scrapeJobsLine names the scrape jobs a metric is dropped in.
+function scrapeJobsLine(jobs: { receiver: string; job: string }[]): string {
+  return jobs.map((j) => `${j.job} (${j.receiver})`).join(", ");
 }
 
 // carriedLine says whether the collector carries this telemetry, from the

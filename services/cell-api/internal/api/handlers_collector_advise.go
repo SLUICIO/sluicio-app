@@ -253,6 +253,7 @@ func (h *Handlers) listAdvisorSuggestionCollectors(w http.ResponseWriter, r *htt
 		Changed        []string                  `json:"changed"`
 		Skipped        []collectors.PipelineSkip `json:"skipped"`
 		AlreadyDropped bool                      `json:"already_dropped"`
+		ScrapeJobs     []collectors.ScrapeJob    `json:"scrape_jobs,omitempty"`
 		Unavailable    string                    `json:"unavailable,omitempty"`
 		// Stamped: the collector stamps its data, so Carried says how
 		// much of this telemetry came through it in the last 24 hours.
@@ -277,7 +278,7 @@ func (h *Handlers) listAdvisorSuggestionCollectors(w http.ResponseWriter, r *htt
 			continue
 		}
 		a := h.adviseCollector(r, s, c, false)
-		rw := row{Collector: c, Changed: a.Changed, Skipped: a.Skipped, AlreadyDropped: a.AlreadyDropped, Unavailable: a.Unavailable,
+		rw := row{Collector: c, Changed: a.Changed, Skipped: a.Skipped, AlreadyDropped: a.AlreadyDropped, ScrapeJobs: a.ScrapeJobs, Unavailable: a.Unavailable,
 			Stamped: h.collectorStamped(r, c)}
 		if carried != nil && rw.Stamped {
 			n := carried[c.InstanceUID]
