@@ -181,6 +181,39 @@ func TestCollectorPush(t *testing.T) {
 		t.Errorf("a complete configuration to an effective-only collector: %d %v, want 201", code, out)
 	}
 
+	// The team's pipeline owns the configuration: nothing is sent from
+	// the UI, a pipeline's API token still sends, and only team admins
+	// and org admins change the owner. Open source.
+	mux.HandleFunc("PUT /api/v1/collectors/{id}/owner", h.setCollectorOwner)
+	if code, _ := do(editor, "PUT", base+"/owner", map[string]any{"owner": "pipeline"}); code != http.StatusForbidden {
+		t.Errorf("a team editor changed the owner: %d, want 403", code)
+	}
+	if code, out := do(admin, "PUT", base+"/owner", map[string]any{"owner": "pipeline"}); code != 200 {
+		t.Fatalf("set the owner: %d %v", code, out)
+	}
+	if _, out := do(editor, "GET", base, nil); out["collector"].(map[string]any)["config_owner"] != "pipeline" {
+		t.Fatalf("owner not shown: %v", out["collector"])
+	}
+	if code, _ := do(editor, "POST", base+"/deployments", map[string]any{"config": edited}); code != http.StatusConflict {
+		t.Errorf("a UI send to a pipeline-owned collector: %d, want 409", code)
+	}
+	editorUser, _ := idStore.GetUserByEmail(ctx, "editor@acme")
+	pat, _ := identity.NewToken(identity.TokenKindPersonal)
+	if _, err := idStore.CreateAPIToken(ctx, "user", editorUser.ID, "pipeline", string(identity.RoleEditor), nil, pat); err != nil {
+		t.Fatal(err)
+	}
+	apiReq := httptest.NewRequest("POST", base+"/deployments", strings.NewReader(`{"config":`+jsonString(edited)+`,"message":"from the pipeline"}`))
+	apiReq.Header.Set("Authorization", "Bearer "+pat.Plaintext)
+	apiReq.Header.Set("Content-Type", "application/json")
+	apiRec := httptest.NewRecorder()
+	root.ServeHTTP(apiRec, apiReq)
+	if apiRec.Code != http.StatusCreated || !strings.Contains(apiRec.Body.String(), `"via":"api"`) {
+		t.Errorf("the pipeline's API send: %d %s", apiRec.Code, apiRec.Body.String())
+	}
+	if code, _ := do(admin, "PUT", base+"/owner", map[string]any{"owner": "sluicio"}); code != 200 {
+		t.Fatal("set the owner back")
+	}
+
 	// Accepting drift is open source: no licence needed, a team viewer
 	// refused, and nothing to accept on a collector without drift.
 	mux.HandleFunc("POST /api/v1/collectors/{id}/drift/accept", h.blockDemo(h.acceptCollectorDrift))
@@ -692,4 +725,9 @@ func TestAdvisorSuggestionToCollector(t *testing.T) {
 	if code, _ := do(viewer, "GET", effect, nil); code != http.StatusForbidden {
 		t.Errorf("a team viewer read the effect: %d", code)
 	}
+}
+
+func jsonString(s string) string {
+	b, _ := json.Marshal(s)
+	return string(b)
 }

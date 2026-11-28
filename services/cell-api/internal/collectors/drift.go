@@ -237,6 +237,15 @@ func (s *Store) CheckDrift(ctx context.Context, collectorID uuid.UUID) error {
 	if s.keys == nil {
 		return nil
 	}
+	// A pipeline that owns the configuration changing it is the pipeline
+	// doing its job, not drift.
+	var owner string
+	if err := s.pool.QueryRow(ctx, `SELECT config_owner FROM collectors WHERE id = $1`, collectorID).Scan(&owner); err != nil {
+		return err
+	}
+	if owner == OwnerPipeline {
+		return s.setDrift(ctx, collectorID, nil)
+	}
 	var inFlight bool
 	if err := s.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM collector_deployments
 		WHERE collector_id = $1 AND status IN ('pending', 'sent', 'applying'))`, collectorID).Scan(&inFlight); err != nil {

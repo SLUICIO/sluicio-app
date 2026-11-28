@@ -1198,6 +1198,8 @@ export const api = {
     ),
   previewCollectorStamp: (id: string) =>
     get<AdvisorCollectorChange>(`/collectors/${encodeURIComponent(id)}/stamp`),
+  setCollectorOwner: (id: string, owner: "sluicio" | "pipeline") =>
+    put<{ config_owner: string }>(`/collectors/${encodeURIComponent(id)}/owner`, { owner }),
   acceptCollectorDrift: (id: string) =>
     post<{ drift: CollectorDrift | null }>(`/collectors/${encodeURIComponent(id)}/drift/accept`, {}),
   endCollectorDeployment: (id: string, dep: string) =>

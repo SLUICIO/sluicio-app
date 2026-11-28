@@ -120,4 +120,23 @@ func TestCollectorDrift(t *testing.T) {
 	if got := drift(); got == nil || got.DeploymentID != d3.ID || len(got.Paths) != 0 || got.AcceptedAt != nil {
 		t.Fatalf("after a new rollout: %+v", got)
 	}
+
+	// The team's pipeline owns the configuration: its changes are not
+	// drift. Back with Sluicio, drift is checked again.
+	report("receivers:\n  host_metrics:\n    scrapers:\n      load: {}\n      paging: {}\n      cpu: {}\n      disk: {}\n      network: {}\n      processes: {}\n")
+	if got := drift(); got == nil || len(got.Paths) != 1 {
+		t.Fatalf("drift before the pipeline owns it: %+v", got)
+	}
+	if err := s.SetConfigOwner(ctx, scope, col, collectors.OwnerPipeline, "admin@acme"); err != nil {
+		t.Fatal(err)
+	}
+	if got := drift(); got != nil {
+		t.Fatalf("drift flagged on a pipeline-owned collector: %+v", got)
+	}
+	if err := s.SetConfigOwner(ctx, scope, col, collectors.OwnerSluicio, "admin@acme"); err != nil {
+		t.Fatal(err)
+	}
+	if got := drift(); got == nil || len(got.Paths) != 1 || got.Paths[0].Path != "receivers.host_metrics.scrapers.processes" {
+		t.Fatalf("drift after Sluicio owns it again: %+v", got)
+	}
 }

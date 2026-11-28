@@ -172,7 +172,7 @@ func (h *Handlers) listCollectorDeployments(w http.ResponseWriter, r *http.Reque
 // createCollectorDeployment: POST /api/v1/collectors/{id}/deployments
 func (h *Handlers) createCollectorDeployment(w http.ResponseWriter, r *http.Request) {
 	c, ok := h.pushableCollector(w, r)
-	if !ok {
+	if !ok || h.refusePipelineOwned(w, r, c) {
 		return
 	}
 	var body collectorConfigBody
@@ -276,7 +276,7 @@ func (h *Handlers) createCollectorDeployment(w http.ResponseWriter, r *http.Requ
 
 	p := middleware.Principal(r)
 	via := "ui"
-	if strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
+	if viaAPI(r) {
 		via = "api"
 	}
 	message := strings.TrimSpace(body.Message)
@@ -375,6 +375,55 @@ func (h *Handlers) acceptCollectorDrift(w http.ResponseWriter, r *http.Request) 
 	}
 	h.recordAudit(r, "collector.drift_accepted", "collector", c.ID.String(), meta)
 	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"drift": d})
+}
+
+const errPipelineOwned = "the team's pipeline owns this collector's configuration, so Sluicio sends it nothing from here; apply the change in the pipeline, or send it through the API as the pipeline does"
+
+// viaAPI says whether the request carries an API token rather than a
+// browser session: how a pipeline that deploys through Sluicio sends.
+func viaAPI(r *http.Request) bool {
+	return strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ")
+}
+
+// refusePipelineOwned refuses a send from the UI to a collector whose
+// configuration the team's pipeline owns. The API stays open: that is
+// how a pipeline deploying through Sluicio sends.
+func (h *Handlers) refusePipelineOwned(w http.ResponseWriter, r *http.Request, c collectors.Collector) bool {
+	if c.ConfigOwner != collectors.OwnerPipeline || viaAPI(r) {
+		return false
+	}
+	httpserver.WriteError(w, http.StatusConflict, errPipelineOwned)
+	return true
+}
+
+// setCollectorOwner: PUT /api/v1/collectors/{id}/owner
+//
+// Who owns the collector's configuration: "sluicio" or "pipeline" (the
+// team's own deployment pipeline). For the owner team's admins and org
+// admins, like the team's tokens and settings. Open source.
+func (h *Handlers) setCollectorOwner(w http.ResponseWriter, r *http.Request) {
+	c, ok := h.collectorFromPath(w, r)
+	if !ok {
+		return
+	}
+	if !h.canManageCollectorTokens(r, c.GroupID, nil) {
+		httpserver.WriteError(w, http.StatusForbidden, "only the owner team's admins and org admins can change who owns the configuration")
+		return
+	}
+	var body struct {
+		Owner string `json:"owner"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || (body.Owner != collectors.OwnerSluicio && body.Owner != collectors.OwnerPipeline) {
+		httpserver.WriteError(w, http.StatusBadRequest, `owner is "sluicio" or "pipeline"`)
+		return
+	}
+	if err := h.Collectors.SetConfigOwner(r.Context(), h.collectorScope(r), c.ID, body.Owner, h.actorLabel(r)); err != nil {
+		h.Logger.Error("set collector owner failed", "err", err)
+		httpserver.WriteError(w, http.StatusInternalServerError, "save failed")
+		return
+	}
+	h.recordAudit(r, "collector.config_owner_changed", "collector", c.ID.String(), map[string]any{"from": c.ConfigOwner, "to": body.Owner})
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"config_owner": body.Owner})
 }
 
 const errTemporaryActive = "a temporary change is already active on this collector; end it first (a permanent change can be sent meanwhile: it takes effect when the temporary one ends)"
@@ -477,7 +526,7 @@ func (h *Handlers) collectorDeploymentDiff(w http.ResponseWriter, r *http.Reques
 // to start, is the collector's and stays free.
 func (h *Handlers) rollbackCollectorDeployment(w http.ResponseWriter, r *http.Request) {
 	c, ok := h.pushableCollector(w, r)
-	if !ok {
+	if !ok || h.refusePipelineOwned(w, r, c) {
 		return
 	}
 	depID, ok := deploymentFromPath(w, r)
@@ -634,6 +683,9 @@ func init() {
 			}
 			// Approval means a second person: the author of a change cannot
 			// approve it, or requiring approval would require nothing.
+			if c.ConfigOwner == collectors.OwnerPipeline {
+				return errors.New(errPipelineOwned)
+			}
 			if p := middleware.Principal(r); p.UserID != nil && d.CreatedBy != nil && *p.UserID == *d.CreatedBy {
 				return errors.New("a change is approved by someone other than its author")
 			}

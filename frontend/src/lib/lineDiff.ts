@@ -48,3 +48,48 @@ export function lineDiff(before: string, after: string): DiffLine[] {
 export function hasChanges(lines: DiffLine[]): boolean {
   return lines.some((l) => l.op !== " ");
 }
+
+/**
+ * A unified diff (`diff -u`, three lines of context), for a team whose
+ * pipeline owns a collector's configuration to apply in its repository
+ * with `git apply` or `patch`. `file` names both sides.
+ */
+export function unifiedDiff(before: string, after: string, file: string, context = 3): string {
+  const lines = lineDiff(before, after);
+  if (!hasChanges(lines)) return "";
+  // Line numbers on each side, for the hunk headers.
+  const at: { a: number; b: number }[] = [];
+  let a = 1;
+  let b = 1;
+  for (const l of lines) {
+    at.push({ a, b });
+    if (l.op !== "+") a++;
+    if (l.op !== "-") b++;
+  }
+  const out = [`--- a/${file}`, `+++ b/${file}`];
+  let i = 0;
+  while (i < lines.length) {
+    if (lines[i].op === " ") {
+      i++;
+      continue;
+    }
+    // A hunk: from context lines before the first change to context lines
+    // after the last change that is within 2*context of the next one.
+    const start = Math.max(0, i - context);
+    let end = i;
+    for (let k = i; k < lines.length; k++) {
+      if (lines[k].op !== " ") end = k;
+      else if (k - end > 2 * context) break;
+    }
+    const stop = Math.min(lines.length, end + context + 1);
+    const hunk = lines.slice(start, stop);
+    const aLen = hunk.filter((l) => l.op !== "+").length;
+    const bLen = hunk.filter((l) => l.op !== "-").length;
+    const aStart = aLen ? at[start].a : at[start].a - 1;
+    const bStart = bLen ? at[start].b : at[start].b - 1;
+    out.push(`@@ -${aStart},${aLen} +${bStart},${bLen} @@`);
+    for (const l of hunk) out.push(`${l.op}${l.text}`);
+    i = stop;
+  }
+  return out.join("\n") + "\n";
+}

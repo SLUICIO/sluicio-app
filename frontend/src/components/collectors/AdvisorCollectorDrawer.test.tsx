@@ -292,4 +292,54 @@ describe("applying an Advisor suggestion to a collector", () => {
       screen.getByText(/approval by the team that owns its collector/),
     ).toBeInTheDocument();
   });
+
+  it("offers a pipeline-owned collector the change as a diff, never a proposal", async () => {
+    vi.clearAllMocks();
+    api.listAdvisorSuggestionCollectors.mockResolvedValue({
+      collectors: [
+        {
+          collector: { ...collector("c5", "gw-5"), config_owner: "pipeline" },
+          changed: ["metrics"],
+          skipped: [],
+          already_dropped: false,
+          stamped: true,
+          carried: 500,
+        },
+      ],
+    });
+    api.previewAdvisorCollectorChange.mockResolvedValue({
+      before,
+      config: after,
+      changed: ["metrics"],
+      skipped: [],
+      already_dropped: false,
+    });
+
+    render(
+      <MemoryRouter>
+        <AdvisorCollectorDrawer
+          suggestion={
+            {
+              id: "s1",
+              class: "T1",
+              scope_id: "m",
+              title: "Nothing reads m",
+            } as never
+          }
+          onClose={() => undefined}
+        />
+      </MemoryRouter>,
+    );
+    const box = await screen.findByRole("checkbox");
+    expect(box).toBeDisabled();
+    expect(box).not.toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: "Get the diff" }));
+    expect(
+      await screen.findByText(/\+\s+filter\/sluicio-advisor:/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Download .patch" }),
+    ).toBeInTheDocument();
+    expect(api.sendCollectorConfig).not.toHaveBeenCalled();
+  });
 });

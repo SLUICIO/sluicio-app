@@ -28,6 +28,8 @@ import BetaBadge from "../components/BetaBadge";
 import TabStrip from "../components/primitives/TabStrip";
 import SendConfigDrawer from "../components/collectors/SendConfigDrawer";
 import DeploymentsPanel from "../components/collectors/DeploymentsPanel";
+import DiffExport from "../components/collectors/DiffExport";
+import { EditDrawer } from "../components/primitives";
 import { driftSummary, isDrifted } from "../lib/collectorDrift";
 import { useFeature } from "../lib/useLicense";
 import { useCurrentUser } from "../lib/useCurrentUser";
@@ -249,6 +251,7 @@ export default function CollectorDetail() {
     window_hours: number;
   } | null>(null);
   const stamped = !!detail?.stamped;
+  const pipelineOwned = detail?.collector.config_owner === "pipeline";
   useEffect(() => {
     if (!stamped || !stampEntitled) return;
     api
@@ -522,12 +525,66 @@ export default function CollectorDetail() {
                         }
                       }}
                     >
-                      Propose the collector stamp
+                      {pipelineOwned
+                        ? "Get the stamp as a diff"
+                        : "Propose the collector stamp"}
                     </button>
                   </div>
                 )}
               </div>
             )}
+          </Section>
+        )}
+
+        {tab === "agent" && c.kind === "supervisor" && (
+          <Section
+            title="Configuration owner"
+            subtitle="Who changes this collector's configuration"
+          >
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+                {pipelineOwned
+                  ? "The team's own pipeline owns it. Sluicio sends nothing from here (a pipeline that deploys through Sluicio still can, with an API token), offers its changes as a diff to make in the repository, and does not flag drift."
+                  : "Sluicio owns it: changes are made and sent from here. If the team's pipeline deploys this collector's configuration, make the pipeline its owner, so the two do not overwrite each other."}
+              </p>
+              {detail.can_manage && (
+                <label
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    fontSize: 13,
+                  }}
+                >
+                  Owner
+                  <select
+                    className="search__input"
+                    style={{ maxWidth: 260 }}
+                    value={c.config_owner ?? "sluicio"}
+                    onChange={async (e) => {
+                      const owner = e.target.value as "sluicio" | "pipeline";
+                      if (
+                        !confirm(
+                          owner === "pipeline"
+                            ? "Make the team's pipeline the owner? Sluicio will send nothing to this collector from here."
+                            : "Make Sluicio the owner? Changes are then sent from here, and drift is flagged again.",
+                        )
+                      )
+                        return;
+                      try {
+                        await api.setCollectorOwner(c.id, owner);
+                        setDetail(await api.getCollector(c.id));
+                      } catch (err) {
+                        setRemoveError(String((err as Error).message ?? err));
+                      }
+                    }}
+                  >
+                    <option value="sluicio">Sluicio</option>
+                    <option value="pipeline">The team&apos;s pipeline</option>
+                  </select>
+                </label>
+              )}
+            </div>
           </Section>
         )}
 
@@ -618,15 +675,24 @@ export default function CollectorDetail() {
                       flexWrap: "wrap",
                     }}
                   >
-                    {detail.can_push && version === "latest" && rawFile && (
-                      <button
-                        className="btn primary"
-                        onClick={() => setSending(true)}
-                      >
-                        {detail.require_approval
-                          ? "Propose a change"
-                          : "Change configuration"}
-                      </button>
+                    {detail.can_push &&
+                      !pipelineOwned &&
+                      version === "latest" &&
+                      rawFile && (
+                        <button
+                          className="btn primary"
+                          onClick={() => setSending(true)}
+                        >
+                          {detail.require_approval
+                            ? "Propose a change"
+                            : "Change configuration"}
+                        </button>
+                      )}
+                    {pipelineOwned && (
+                      <span className="muted" style={{ fontSize: 12.5 }}>
+                        Owned by the team&apos;s pipeline: changed there, not
+                        here.
+                      </span>
                     )}
                     {hasBoth && (
                       <div
@@ -743,12 +809,25 @@ export default function CollectorDetail() {
           >
             <DeploymentsPanel
               collectorId={c.id}
-              canPush={detail.can_push}
+              canPush={detail.can_push && !pipelineOwned}
               refreshKey={sentKey}
             />
           </Section>
         )}
-        {stampChange && (
+        {stampChange && pipelineOwned && (
+          <EditDrawer
+            title={`The collector stamp: ${collectorName(c)}`}
+            width="wide"
+            onClose={() => setStampChange(null)}
+          >
+            <DiffExport
+              before={stampChange.before}
+              after={stampChange.config}
+              file={`${collectorName(c)}.yaml`}
+            />
+          </EditDrawer>
+        )}
+        {stampChange && !pipelineOwned && (
           <SendConfigDrawer
             collectorId={c.id}
             collectorName={collectorName(c)}

@@ -19,6 +19,7 @@ import type {
 } from "../../api/types";
 import { EditDrawer } from "../primitives";
 import ConfigDiff from "./ConfigDiff";
+import DiffExport from "./DiffExport";
 import SendConfigDrawer from "./SendConfigDrawer";
 
 type Prepared = {
@@ -34,8 +35,15 @@ type Outcome = { row: AdvisorCollectorRow; ok: boolean; note: string };
 const nameOf = (r: AdvisorCollectorRow) =>
   r.collector.description["host.name"] || r.collector.instance_uid;
 
-const usable = (r: AdvisorCollectorRow) =>
+const applies = (r: AdvisorCollectorRow) =>
   !r.unavailable && !r.already_dropped && r.changed.length > 0;
+
+// A collector whose configuration the team's pipeline owns gets the change
+// as a diff instead of a proposal.
+const pipelineOwned = (r: AdvisorCollectorRow) =>
+  r.collector.config_owner === "pipeline";
+
+const usable = (r: AdvisorCollectorRow) => applies(r) && !pipelineOwned(r);
 
 export default function AdvisorCollectorDrawer({
   suggestion,
@@ -60,6 +68,28 @@ export default function AdvisorCollectorDrawer({
   const [open, setOpen] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [outcomes, setOutcomes] = useState<Outcome[] | null>(null);
+  const [diffFor, setDiffFor] = useState<{
+    id: string;
+    change: AdvisorCollectorChange;
+  } | null>(null);
+
+  const showDiff = async (r: AdvisorCollectorRow) => {
+    if (diffFor?.id === r.collector.id) {
+      setDiffFor(null);
+      return;
+    }
+    setError(null);
+    try {
+      const change = await preview(r);
+      if (change.unavailable || !change.config) {
+        setError(change.unavailable ?? "Nothing to change on this collector.");
+        return;
+      }
+      setDiffFor({ id: r.collector.id, change });
+    } catch (e) {
+      setError(String((e as Error).message ?? e));
+    }
+  };
 
   useEffect(() => {
     api
@@ -437,7 +467,33 @@ export default function AdvisorCollectorDrawer({
                           : r.unavailable
                             ? `Not here: ${r.unavailable}.`
                             : `Pipelines: ${r.changed.join(", ")}`}
-                        {usable(r) && r.skipped.length > 0 && (
+                        {applies(r) && pipelineOwned(r) && (
+                          <div style={{ marginTop: 4 }}>
+                            Owned by the team&apos;s pipeline.{" "}
+                            <button
+                              type="button"
+                              className="btn btn--sm"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                void showDiff(r);
+                              }}
+                            >
+                              {diffFor?.id === r.collector.id
+                                ? "Hide the diff"
+                                : "Get the diff"}
+                            </button>
+                          </div>
+                        )}
+                        {diffFor?.id === r.collector.id && (
+                          <div style={{ marginTop: 8 }}>
+                            <DiffExport
+                              before={diffFor.change.before}
+                              after={diffFor.change.config}
+                              file={`${nameOf(r)}.yaml`}
+                            />
+                          </div>
+                        )}
+                        {applies(r) && r.skipped.length > 0 && (
                           <div>
                             Left alone:{" "}
                             {r.skipped

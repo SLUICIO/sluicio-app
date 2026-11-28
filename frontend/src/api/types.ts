@@ -3550,6 +3550,9 @@ export interface Collector {
   last_seen_at: string;
   config_hash?: string;
   config_received_at?: string;
+  // Who owns the configuration: Sluicio, or the team's own pipeline (then
+  // Sluicio sends nothing from its UI and offers changes as a diff).
+  config_owner?: "sluicio" | "pipeline";
   // Whether it still runs what was last rolled out to it, and nothing
   // changed since; absent when not applicable. Paths only, never values.
   drift?: CollectorDrift;

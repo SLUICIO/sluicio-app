@@ -65,6 +65,31 @@ type Collector struct {
 	// Drift: whether it still runs what was last rolled out to it; nil
 	// when not checked or not applicable (see CheckDrift).
 	Drift *Drift `json:"drift,omitempty"`
+	// ConfigOwner is who owns the configuration: OwnerSluicio or
+	// OwnerPipeline (see SetConfigOwner).
+	ConfigOwner string `json:"config_owner"`
+}
+
+// Who owns a collector's configuration.
+const (
+	OwnerSluicio  = "sluicio"
+	OwnerPipeline = "pipeline"
+)
+
+// SetConfigOwner sets who owns the collector's configuration, and checks
+// drift again: it is not flagged while the pipeline owns it.
+func (s *Store) SetConfigOwner(ctx context.Context, scope Scope, id uuid.UUID, owner, byName string) error {
+	if owner != OwnerSluicio && owner != OwnerPipeline {
+		return fmt.Errorf("collectors: unknown owner %q", owner)
+	}
+	if _, err := s.Get(ctx, scope, id); err != nil {
+		return err
+	}
+	if _, err := s.pool.Exec(ctx, `UPDATE collectors SET config_owner = $2, config_owner_changed_by = $3, config_owner_changed_at = now()
+		WHERE id = $1`, id, owner, byName); err != nil {
+		return err
+	}
+	return s.CheckDrift(ctx, id)
 }
 
 // Observe records a message and returns the collector's id. created says
@@ -207,7 +232,7 @@ type Scope struct {
 
 const collectorCols = `
 	c.id, c.group_id, g.name, c.instance_uid, c.kind, c.capabilities, c.description, c.healthy, c.health,
-	c.connected, c.transport, c.remote_addr, c.first_seen_at, c.last_seen_at, cfg.config_hash, cfg.received_at, c.drift`
+	c.connected, c.transport, c.remote_addr, c.first_seen_at, c.last_seen_at, cfg.config_hash, cfg.received_at, c.drift, c.config_owner`
 
 const collectorFrom = `
 	FROM collectors c
@@ -224,7 +249,7 @@ func scanCollector(row pgx.Row, now time.Time) (Collector, error) {
 	var connected bool
 	var hash *string
 	if err := row.Scan(&c.ID, &c.GroupID, &c.GroupName, &c.InstanceUID, &c.Kind, &caps, &desc, &c.Healthy,
-		&health, &connected, &c.Transport, &c.RemoteAddr, &c.FirstSeenAt, &c.LastSeenAt, &hash, &c.ConfigReceivedAt, &c.Drift); err != nil {
+		&health, &connected, &c.Transport, &c.RemoteAddr, &c.FirstSeenAt, &c.LastSeenAt, &hash, &c.ConfigReceivedAt, &c.Drift, &c.ConfigOwner); err != nil {
 		return Collector{}, err
 	}
 	c.Capabilities = CapabilityNames(uint64(caps))
