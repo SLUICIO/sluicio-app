@@ -128,11 +128,30 @@ func (h *Handlers) validateCollectorConfig(w http.ResponseWriter, r *http.Reques
 		httpserver.WriteError(w, http.StatusBadGateway, "OTelFlow could not check the configuration: "+err.Error())
 		return
 	}
-	if v == nil {
-		httpserver.WriteJSON(w, http.StatusOK, map[string]any{"checked": false})
-		return
+	out := map[string]any{"checked": v != nil, "kept_by_local": h.keptByLocal(r, c, body.Config)}
+	if v != nil {
+		out["validation"] = v
 	}
-	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"checked": true, "validation": v})
+	httpserver.WriteJSON(w, http.StatusOK, out)
+}
+
+// keptByLocal lists what the change removes that the collector's local
+// files set and so keep in effect (see collectors.KeptByLocal). Empty when
+// it cannot be told: no configuration as written, or not YAML.
+func (h *Handlers) keptByLocal(r *http.Request, c collectors.Collector, change string) []string {
+	current, err := h.Collectors.LatestRawOnly(r.Context(), c.ID)
+	if err != nil {
+		return []string{}
+	}
+	sent, err := h.Collectors.LastSent(r.Context(), c.ID)
+	if err != nil {
+		return []string{}
+	}
+	paths, err := collectors.KeptByLocal(current, sent, change)
+	if err != nil {
+		return []string{}
+	}
+	return paths
 }
 
 // listCollectorDeployments: GET /api/v1/collectors/{id}/deployments

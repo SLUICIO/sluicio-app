@@ -1160,7 +1160,12 @@ export const api = {
     get<CollectorConfigResponse>(`/collectors/${encodeURIComponent(id)}/configs/${encodeURIComponent(version)}`),
   deleteCollector: (id: string) => del(`/collectors/${encodeURIComponent(id)}`),
   validateCollectorConfig: (id: string, config: string) =>
-    post<{ checked: boolean; validation?: CollectorValidation }>(`/collectors/${encodeURIComponent(id)}/validate`, { config }),
+    // kept_by_local: settings the change removes that the collector's
+    // local files set, so they stay in effect.
+    post<{ checked: boolean; validation?: CollectorValidation; kept_by_local?: string[] }>(
+      `/collectors/${encodeURIComponent(id)}/validate`,
+      { config },
+    ),
   listCollectorDeployments: (id: string) =>
     get<{ deployments: CollectorDeployment[] }>(`/collectors/${encodeURIComponent(id)}/deployments`),
   sendCollectorConfig: (

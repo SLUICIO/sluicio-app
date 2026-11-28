@@ -67,6 +67,7 @@ export default function SendConfigDrawer({
     null,
   );
   const [checked, setChecked] = useState(false);
+  const [keptByLocal, setKeptByLocal] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<{
@@ -90,6 +91,7 @@ export default function SendConfigDrawer({
       const r = await api.validateCollectorConfig(collectorId, text);
       setChecked(r.checked);
       setValidation(r.validation ?? null);
+      setKeptByLocal(r.kept_by_local ?? []);
       setStep("review");
     } catch (e) {
       setError(String((e as Error).message ?? e));
@@ -230,6 +232,19 @@ export default function SendConfigDrawer({
                   ))}
                 </ul>
               )}
+            </div>
+          )}
+          {keptByLocal.length > 0 && (
+            <div className="alert alert--warn" style={{ margin: 0 }}>
+              {keptByLocal.length === 1
+                ? "This setting is removed here but comes from the collector's local configuration files, so it stays in effect whatever is sent: "
+                : "These settings are removed here but come from the collector's local configuration files, so they stay in effect whatever is sent: "}
+              {keptByLocal.slice(0, 8).join(", ")}
+              {keptByLocal.length > 8
+                ? `, and ${keptByLocal.length - 8} more`
+                : ""}
+              . Remove {keptByLocal.length === 1 ? "it" : "them"} from those
+              files on the host.
             </div>
           )}
           <ConfigDiff before={current} after={text} />
