@@ -91,10 +91,13 @@ describe("applying an Advisor suggestion to a collector", () => {
     expect(
       screen.getByText(/Not here: none of its metrics pipelines/),
     ).toBeInTheDocument();
-    const buttons = screen.getAllByRole("button", { name: "Review change" });
-    expect(buttons).toHaveLength(1);
-
-    fireEvent.click(buttons[0]);
+    // Only the collector the change applies to can be ticked; nothing is
+    // stamped, so nothing is ticked to begin with.
+    const boxes = screen.getAllByRole("checkbox");
+    expect(boxes[0]).not.toBeChecked();
+    expect(boxes[1]).toBeDisabled();
+    fireEvent.click(boxes[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Review the change" }));
     // Straight to the review: checked, and the change shown.
     expect(
       await screen.findByText(/OTelFlow found no errors/),
@@ -160,9 +163,8 @@ describe("applying an Advisor suggestion to a collector", () => {
     );
     const select = await screen.findByRole("combobox");
     expect(select).toHaveValue("delete");
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Review change" }),
-    );
+    fireEvent.click((await screen.findAllByRole("checkbox"))[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Review the change" }));
     await screen.findByText(/OTelFlow found no errors/);
     expect(api.previewAdvisorCollectorChange).toHaveBeenLastCalledWith(
       "s6",
@@ -182,9 +184,8 @@ describe("applying an Advisor suggestion to a collector", () => {
     expect(
       screen.getByText(/pseudonymisation, not anonymisation/),
     ).toBeInTheDocument();
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Review change" }),
-    );
+    fireEvent.click((await screen.findAllByRole("checkbox"))[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Review the change" }));
     await screen.findByText(/OTelFlow found no errors/);
     expect(api.previewAdvisorCollectorChange).toHaveBeenLastCalledWith(
       "s6",
@@ -199,5 +200,96 @@ describe("applying an Advisor suggestion to a collector", () => {
       "c1",
       expect.objectContaining({ suggestion_id: "s6", suggestion_hash: true }),
     );
+  });
+
+  it("proposes one change per collector, the stamped carriers ticked first", async () => {
+    vi.clearAllMocks();
+    api.listAdvisorSuggestionCollectors.mockResolvedValue({
+      collectors: [
+        {
+          collector: collector("c1", "gw-1"),
+          changed: ["metrics"],
+          skipped: [],
+          already_dropped: false,
+          stamped: true,
+          carried: 900,
+        },
+        {
+          collector: { ...collector("c3", "gw-3"), group_name: "Payments" },
+          changed: ["metrics"],
+          skipped: [],
+          already_dropped: false,
+          stamped: true,
+          carried: 40,
+        },
+        {
+          collector: collector("c4", "gw-4"),
+          changed: ["metrics"],
+          skipped: [],
+          already_dropped: false,
+          stamped: true,
+          carried: 0,
+        },
+      ],
+    });
+    api.previewAdvisorCollectorChange.mockResolvedValue({
+      before,
+      config: after,
+      changed: ["metrics"],
+      skipped: [],
+      already_dropped: false,
+    });
+    api.validateCollectorConfig.mockResolvedValue({
+      checked: true,
+      validation: { valid: true, diagnostics: [] },
+    });
+    api.sendCollectorConfig.mockResolvedValue({
+      deployment: { id: "d" },
+      proposal: { id: "p" },
+    });
+
+    render(
+      <MemoryRouter>
+        <AdvisorCollectorDrawer
+          suggestion={
+            {
+              id: "s1",
+              class: "T1",
+              scope_id: "m",
+              title: "Nothing reads m",
+            } as never
+          }
+          onClose={() => undefined}
+        />
+      </MemoryRouter>,
+    );
+    expect(
+      await screen.findByText("Carried 900 in the last 24 hours."),
+    ).toBeInTheDocument();
+    const boxes = screen.getAllByRole("checkbox");
+    expect(boxes.map((b) => (b as HTMLInputElement).checked)).toEqual([
+      true,
+      true,
+      false,
+    ]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Review 2 changes" }));
+    expect(
+      await screen.findByRole("button", { name: "Propose 2 changes" }),
+    ).toBeInTheDocument();
+    expect(api.validateCollectorConfig).toHaveBeenCalledTimes(2);
+
+    fireEvent.click(screen.getByRole("button", { name: "Propose 2 changes" }));
+    expect(
+      await screen.findByText("Proposed to Payments."),
+    ).toBeInTheDocument();
+    expect(api.sendCollectorConfig).toHaveBeenCalledTimes(2);
+    expect(api.sendCollectorConfig).toHaveBeenCalledWith(
+      "c3",
+      expect.objectContaining({ suggestion_id: "s1", config: after }),
+    );
+    expect(
+      screen.getByText(/approval by the team that owns its collector/),
+    ).toBeInTheDocument();
   });
 });
