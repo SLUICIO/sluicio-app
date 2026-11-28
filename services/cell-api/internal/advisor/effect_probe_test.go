@@ -195,3 +195,38 @@ func TestCarriedByProbe(t *testing.T) {
 	}
 	t.Logf("volume %+v; measured %d in all, %d through the collector", v, all.Before.Rows, own.Before.Rows)
 }
+
+// The span name supply over real traces: roots and spans called from
+// another service are never candidates, and no candidate is a parent.
+func TestSpanNamesSupplyProbe(t *testing.T) {
+	addr := os.Getenv("ADVISOR_PROBE_CH")
+	org, err := uuid.Parse(os.Getenv("ADVISOR_PROBE_ORG"))
+	if addr == "" || err != nil {
+		t.Skip("set ADVISOR_PROBE_CH and ADVISOR_PROBE_ORG")
+	}
+	conn, err := clickhouse.Open(&clickhouse.Options{
+		Addr: []string{addr},
+		Auth: clickhouse.Auth{Database: "telemetry", Username: os.Getenv("ADVISOR_PROBE_CH_USER"), Password: os.Getenv("ADVISOR_PROBE_CH_PASS")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	names, err := SpanNamesSupply(context.Background(), conn, org, now.Add(-7*24*time.Hour), now, 2000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(names) == 0 {
+		t.Fatal("no span names in the sample")
+	}
+	leaves := 0
+	for _, n := range names {
+		if n.NotInternal == 0 && n.Foreign == 0 && n.Parents == 0 && n.Linked == 0 {
+			leaves++
+			if leaves <= 5 {
+				t.Logf("internal leaf: %s / %s (%d spans, keys %v)", n.Service, n.Name, n.Spans, n.Keys)
+			}
+		}
+	}
+	t.Logf("%d span names, %d internal leaves inside their service", len(names), leaves)
+}

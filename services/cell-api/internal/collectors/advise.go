@@ -48,6 +48,7 @@ type FilterSignal struct {
 var (
 	MetricsSignal = FilterSignal{Pipeline: "metrics", Section: "metrics", Context: "metric"}
 	LogsSignal    = FilterSignal{Pipeline: "logs", Section: "logs", Context: "log_record"}
+	TracesSignal  = FilterSignal{Pipeline: "traces", Section: "traces", Context: "span"}
 )
 
 // ottlString quotes s as an OTTL string literal.
@@ -140,6 +141,16 @@ func DeleteSpanAttributePrefix(config, transformType, service, prefix string, sl
 func HashSpanAttribute(config, transformType, service, key string, sluicio SluicioExporter) (FilterChange, error) {
 	a := "attributes[" + ottlString(key) + "]"
 	return AddSpanStatement(config, transformType, "set("+a+", SHA256("+a+")) where "+serviceIs(service)+" and "+a+" != nil", sluicio)
+}
+
+// DropInternalSpans drops one service's internal spans of one name from
+// every traces pipeline that sends only to Sluicio, never a failed one.
+// Only for names established as safe (T7): internal, inside the service,
+// no children, read by nothing.
+func DropInternalSpans(config, filterType, service, name string, sluicio SluicioExporter) (FilterChange, error) {
+	cond := serviceIs(service) + " and name == " + ottlString(name) +
+		" and kind == SPAN_KIND_INTERNAL and status.code != STATUS_CODE_ERROR"
+	return AddFilter(config, filterType, TracesSignal, cond, sluicio)
 }
 
 // AddFilter adds condition to the Advisor's filter processor (filterType

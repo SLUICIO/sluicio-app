@@ -296,3 +296,15 @@ service:
 		t.Fatalf("corrected stamp:\n%s", other.Config)
 	}
 }
+
+func TestDropInternalSpans(t *testing.T) {
+	cfg := "receivers:\n  otlp: {}\nexporters:\n  otlp_http/sluicio:\n    endpoint: https://ingest.example.test\nservice:\n  pipelines:\n    traces:\n      receivers: [otlp]\n      exporters: [otlp_http/sluicio]\n"
+	got, err := DropInternalSpans(cfg, "filter", "orders-api", "serialize", SluicioExporter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `- 'resource.attributes["service.name"] == "orders-api" and name == "serialize" and kind == SPAN_KIND_INTERNAL and status.code != STATUS_CODE_ERROR'`
+	if !strings.Contains(got.Config, want) || !strings.Contains(got.Config, "    traces:\n      span:") {
+		t.Fatalf("condition:\n%s", got.Config)
+	}
+}

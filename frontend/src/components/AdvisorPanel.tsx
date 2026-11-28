@@ -37,6 +37,7 @@ const CLASS_LABEL: Record<string, string> = {
   T4: "High cardinality",
   T5: "Echoed request data",
   T6: "Possible personal data",
+  T7: "Unread internal spans",
   F1: "Ignored alert",
   F2: "Always firing",
   F3: "Flapping",
@@ -44,7 +45,7 @@ const CLASS_LABEL: Record<string, string> = {
   F5: "Duplicate rules",
 };
 
-const APPLICABLE_CLASSES = new Set(["T1", "T2", "T3", "T5", "T6"]);
+const APPLICABLE_CLASSES = new Set(["T1", "T2", "T3", "T5", "T6", "T7"]);
 
 export default function AdvisorPanel() {
   const [tab, setTab] = useState<Tab>("telemetry");

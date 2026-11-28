@@ -103,6 +103,9 @@ type AdvisorTarget struct {
 	Prefix    bool   `json:"prefix,omitempty"`
 	// Hash: the value is hashed rather than the key deleted.
 	Hash bool `json:"hash,omitempty"`
+	// SpanName: the service's internal spans of this name are dropped,
+	// failed ones kept (T7).
+	SpanName string `json:"span_name,omitempty"`
 }
 
 // NewDeployment is what a push stores. Body is the configuration as it

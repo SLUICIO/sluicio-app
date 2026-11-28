@@ -28,7 +28,11 @@
 // One more rule sits above all four, and it is a product promise rather
 // than a heuristic: nothing here ever proposes sampling or dropping
 // integration MESSAGES. Completeness is what Sluicio sells. The savings
-// live in attributes, logs, metrics and noise — never in spans.
+// live in attributes, logs, metrics and noise. The one span finding (T7)
+// is a span nothing can miss: an internal step inside one service, never
+// a root, never a call to another service, never anyone's parent,
+// carrying nothing Sluicio reads; its trace keeps every span that makes
+// it a message, and error spans are always kept.
 package advisor
 
 import (
@@ -184,7 +188,81 @@ func EvaluateTelemetry(ctx context.Context, in TelemetryInput) ([]Suggestion, er
 	out = append(out, evalSpanAttributes(in, attrs)...)
 	out = append(out, evalPIIAttributes(ctx, in, attrs)...)
 
+	names, err := SpanNamesSupply(ctx, in.Conn, in.OrgID, in.From, in.To, 0)
+	if err != nil {
+		return nil, fmt.Errorf("advisor: span name supply: %w", err)
+	}
+	out = append(out, evalInternalSpans(in, names)...)
+
 	return out, nil
+}
+
+// --- T7: internal spans nothing reads -----------------------------------
+
+// evalInternalSpans finds span names a service could stop sending without
+// anything in Sluicio missing them. Every condition is read from the data
+// or from Sluicio's own configuration, and every one of them errs towards
+// not suggesting:
+//
+//   - always an Internal span whose parent is a span of the same service:
+//     never a trace's root (dropping it could drop a message), never a
+//     call between services (topology and a message's path are built from
+//     those), never the earliest span of its service in the trace (an
+//     ungated completion rule starts its clock there);
+//   - never the parent of another span, so no span is left without its
+//     parent and no step in the waterfall loses its place;
+//   - no span links (the hand-offs that chain traces);
+//   - no demand on the span name (a trace-completion step or start span)
+//     or on any key it carries (a matcher, a check, a facet, a search),
+//     and none on the service's traces as a whole: any check on them,
+//     latency ones included (a quantile over every span would shift);
+//   - the usual quarantine and volume floor.
+//
+// The filter keeps error spans of the name whatever the rest says.
+func evalInternalSpans(in TelemetryInput, names []SpanNameSupply) []Suggestion {
+	out := []Suggestion{}
+	for _, n := range names {
+		if n.Spans == 0 || n.NotInternal > 0 || n.Foreign > 0 || n.Parents > 0 || n.Linked > 0 {
+			continue
+		}
+		if in.quarantined(n.FirstSeen) {
+			continue
+		}
+		if in.Demand.Mechanical("trace", n.Service, n.Name) || in.Demand.ConsumedSince("trace", n.Service, n.Name, in.From) {
+			continue
+		}
+		read := false
+		for _, k := range n.Keys {
+			if isReservedAttr(k) || in.Demand.Mechanical("trace", n.Service, k) || in.Demand.ConsumedSince("trace", n.Service, k, in.From) {
+				read = true
+				break
+			}
+		}
+		if read || n.EstBytesPerDay < minAttrBytesPerDay {
+			continue
+		}
+		out = append(out, in.withSnippet(Suggestion{
+			Fingerprint: fmt.Sprintf("T7|span|%s|%s", n.Service, n.Name),
+			Class:       "T7",
+			Advisor:     "telemetry",
+			ScopeKind:   "span",
+			ScopeID:     n.Service + "." + n.Name,
+			Title:       fmt.Sprintf("%s's internal %q spans are read by nothing", n.Service, n.Name),
+			Loss: fmt.Sprintf("These steps no longer appear inside %s's messages in the waterfall, and the span counts "+
+				"and span-level error rate of %s include fewer successful spans. The messages, their path between "+
+				"services, their duration and every check are untouched; failed %q spans are always kept.",
+				n.Service, n.Service, n.Name),
+			Weight: int64(n.EstBytesPerDay),
+			Evidence: map[string]any{
+				"spans_in_sample":   n.Spans,
+				"kind":              "internal, inside the service, no children, no links",
+				"est_bytes_per_day": n.EstBytesPerDay,
+				"first_seen":        n.FirstSeen.Format(time.RFC3339),
+				"demand":            lastSeenPhrase(in.Demand.LastConsumed("trace", n.Service, n.Name), in.To),
+			},
+		}, n.Service, func(t collectorversion.Target) (string, error) { return snippetDropInternalSpans(n.Service, n.Name, t) }))
+	}
+	return out
 }
 
 // quarantined reports whether telemetry is too young to judge.

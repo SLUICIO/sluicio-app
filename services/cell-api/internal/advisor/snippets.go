@@ -119,6 +119,31 @@ service:
 		service, strings.ToUpper(floor), filter, yamlEsc(service), sev), nil
 }
 
+// snippetDropInternalSpans drops one internal span name of one service,
+// never a failed one (T7). The condition repeats what made it safe that
+// can be checked as it runs (internal, not an error); the rest (no
+// children, nothing reads it) was established from the data.
+func snippetDropInternalSpans(service, name string, t collectorversion.Target) (string, error) {
+	filter, err := collectorversion.Name(collectorversion.FilterProcessor, t)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf(`# Stop sending %[1]s's internal "%[2]s" spans. They are steps
+# inside the service with no children and nothing in Sluicio reads them;
+# the messages they belong to keep every other span. Failed ones are kept.
+processors:
+  %[3]s/sluicio-advisor:
+    error_mode: ignore
+    traces:
+      span:
+        - 'resource.attributes["service.name"] == "%[4]s" and name == "%[5]s" and kind == SPAN_KIND_INTERNAL and status.code != STATUS_CODE_ERROR'
+
+service:
+  pipelines:
+    traces:
+      processors: [%[3]s/sluicio-advisor]`, service, name, filter, yamlEsc(service), yamlEsc(name)), nil
+}
+
 // snippetDeleteSpanAttr removes one attribute from a service's spans.
 //
 // The spans themselves keep flowing — this is the distinction that makes

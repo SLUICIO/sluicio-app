@@ -50,7 +50,7 @@ const evidenceHorizon = 400 * 24 * time.Hour
 // produces, so reconciliation knows which open findings this run was
 // responsible for and can retire the ones it did not reproduce.
 var (
-	telemetryClasses = []string{"T1", "T2", "T3", "T4", "T5", "T6"}
+	telemetryClasses = []string{"T1", "T2", "T3", "T4", "T5", "T6", "T7"}
 	alertingClasses  = []string{"F1", "F2", "F3", "F4", "F5"}
 )
 

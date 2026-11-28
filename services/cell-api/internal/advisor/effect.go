@@ -90,6 +90,12 @@ func SpanSelection(service, key string, prefix, hash bool) Selection {
 	return Selection{table: "traces", cond: "ServiceName = ? AND " + cond, args: append([]any{service}, args...)}
 }
 
+// SpanNameSelection is one service's internal spans of one name that did
+// not fail: what a T7 change drops.
+func SpanNameSelection(service, name string) Selection {
+	return Selection{table: "traces", cond: "ServiceName = ? AND SpanName = ? AND SpanKind = 'Internal' AND StatusCode != 'Error'", args: []any{service, name}}
+}
+
 // MeasureMetric measures metric for one org around appliedAt, as of now.
 func MeasureMetric(ctx context.Context, conn driver.Conn, orgID uuid.UUID, metric string, appliedAt, now time.Time) (Effect, error) {
 	return Measure(ctx, conn, orgID, MetricSelection(metric), "", appliedAt, now)

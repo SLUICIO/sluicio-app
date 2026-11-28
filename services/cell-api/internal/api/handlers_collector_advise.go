@@ -35,10 +35,11 @@ import (
 // adviceFor is what a suggestion asks a collector to change, for the
 // classes that can be turned into a collector change: an unused metric
 // (T1), a service's unread logs below a severity (T2), an unread
-// attribute (T3), echoed request metadata (T5) and personal-data-shaped
-// values (T6: deleted, or hashed when asked for, see withHash). A high-cardinality attribute (T4) is not one: the
-// Advisor flags it for review because it is often the useful key, and a
-// button that deletes it would say the opposite.
+// attribute (T3), echoed request metadata (T5), personal-data-shaped
+// values (T6: deleted, or hashed when asked for, see withHash) and
+// internal spans nothing reads (T7). A high-cardinality attribute (T4) is
+// not one: the Advisor flags it for review because it is often the
+// useful key, and a button that deletes it would say the opposite.
 func adviceFor(s advisor.Suggestion) (collectors.AdvisorTarget, error) {
 	// Attribute findings name service and key in the fingerprint
 	// (T3|attr|<service>|<key>); scope_id joins them with a dot that
@@ -60,6 +61,8 @@ func adviceFor(s advisor.Suggestion) (collectors.AdvisorTarget, error) {
 		return collectors.AdvisorTarget{Service: svc, Attribute: key}, nil
 	case s.Class == "T5" && svc != "" && key != "":
 		return collectors.AdvisorTarget{Service: svc, Attribute: key, Prefix: true}, nil
+	case s.Class == "T7" && svc != "" && key != "":
+		return collectors.AdvisorTarget{Service: svc, SpanName: key}, nil
 	case s.Class == "T6" && svc != "" && key != "":
 		referenced, known := s.Evidence["referenced_by_config"].(bool)
 		if !known {
@@ -93,6 +96,8 @@ func subjectOf(t collectors.AdvisorTarget) string {
 		return t.Metric
 	case t.Below != "":
 		return t.Service + "'s logs below " + t.Below
+	case t.SpanName != "":
+		return t.Service + "'s internal \"" + t.SpanName + "\" spans"
 	case t.Hash:
 		return `unhashed "` + t.Attribute + `" values on ` + t.Service + "'s spans"
 	case t.Prefix:
@@ -191,6 +196,8 @@ func (h *Handlers) adviseCollector(r *http.Request, s advisor.Suggestion, c coll
 	switch {
 	case t.Below != "":
 		signal = "logs"
+	case t.SpanName != "":
+		signal = "traces"
 	case t.Attribute != "":
 		component, signal = collectorversion.TransformProcessor, "traces"
 	}
@@ -206,6 +213,8 @@ func (h *Handlers) adviseCollector(r *http.Request, s advisor.Suggestion, c coll
 		drop, err = collectors.DropMetric(masked, proc, t.Metric, sl)
 	case t.Below != "":
 		drop, err = collectors.DropLogsBelow(masked, proc, t.Service, "SEVERITY_NUMBER_"+t.Below, sl)
+	case t.SpanName != "":
+		drop, err = collectors.DropInternalSpans(masked, proc, t.Service, t.SpanName, sl)
 	case t.Hash:
 		drop, err = collectors.HashSpanAttribute(masked, proc, t.Service, t.Attribute, sl)
 	case t.Prefix:
@@ -347,7 +356,7 @@ func (h *Handlers) collectorDeploymentEffect(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	t := d.AdvisorTarget
-	if t == nil || (t.Metric == "" && (t.Service == "" || (t.Attribute == "" && severityNumbers[t.Below] == 0))) {
+	if t == nil || (t.Metric == "" && (t.Service == "" || (t.Attribute == "" && t.SpanName == "" && severityNumbers[t.Below] == 0))) {
 		httpserver.WriteError(w, http.StatusConflict, "only a change made from an Advisor suggestion has a measured effect")
 		return
 	}
@@ -387,6 +396,8 @@ func selectionOf(t collectors.AdvisorTarget) advisor.Selection {
 		return advisor.MetricSelection(t.Metric)
 	case t.Below != "":
 		return advisor.LogSelection(t.Service, severityNumbers[t.Below])
+	case t.SpanName != "":
+		return advisor.SpanNameSelection(t.Service, t.SpanName)
 	default:
 		return advisor.SpanSelection(t.Service, t.Attribute, t.Prefix, t.Hash)
 	}

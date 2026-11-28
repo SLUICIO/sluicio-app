@@ -497,6 +497,7 @@ func TestAdvisorSuggestionToCollector(t *testing.T) {
 		{Fingerprint: "T3|attr|orders-api|debug.blob", Class: "T3", ScopeKind: "attribute", ScopeID: "orders-api.debug.blob", Title: "dead weight"},
 		{Fingerprint: "T4|attr|orders-api|order.id", Class: "T4", ScopeKind: "attribute", ScopeID: "orders-api.order.id", Title: "high cardinality"},
 		{Fingerprint: "T6|pii|orders-api|customer.email", Class: "T6", ScopeKind: "attribute", ScopeID: "orders-api.customer.email", Title: "pii", Evidence: map[string]any{"referenced_by_config": false}},
+		{Fingerprint: "T7|span|orders-api|serialize", Class: "T7", ScopeKind: "span", ScopeID: "orders-api.serialize", Title: "internal spans"},
 		{Fingerprint: "T6|pii|orders-api|customer.id", Class: "T6", ScopeKind: "attribute", ScopeID: "orders-api.customer.id", Title: "pii referenced", Evidence: map[string]any{"referenced_by_config": true}},
 	} {
 		sg.Advisor, sg.Weight = "telemetry", 1
@@ -560,6 +561,7 @@ func TestAdvisorSuggestionToCollector(t *testing.T) {
 		"T6":           `delete_key(attributes, "customer.email") where resource.attributes["service.name"] == "orders-api"`,
 		"T6?hash=true": `set(attributes["customer.email"], SHA256(attributes["customer.email"]))`,
 		"T3?hash=true": `delete_key(attributes, "debug.blob")`,
+		"T7":           `name == "serialize" and kind == SPAN_KIND_INTERNAL and status.code != STATUS_CODE_ERROR`,
 	} {
 		class, query, _ := strings.Cut(c, "?")
 		path := "/api/v1/advisor/suggestions/" + ids[class] + "/collectors/" + gw.String()
@@ -568,7 +570,11 @@ func TestAdvisorSuggestionToCollector(t *testing.T) {
 		}
 		code, out := do(admin, "GET", path, nil)
 		cfg, _ := out["config"].(string)
-		if code != 200 || !strings.Contains(cfg, want) || !strings.Contains(cfg, "transform/sluicio-advisor") {
+		proc := "transform/sluicio-advisor"
+		if class == "T7" {
+			proc = "filter/sluicio-advisor"
+		}
+		if code != 200 || !strings.Contains(cfg, want) || !strings.Contains(cfg, proc) {
 			t.Fatalf("%s preview: %d %v", c, code, out)
 		}
 		if class == "T6" && query == "" && strings.Contains(cfg, "SHA256") {
