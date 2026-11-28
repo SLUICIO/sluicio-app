@@ -16,12 +16,15 @@ func ConvertLogsRequest(resourceLogs []*logspb.ResourceLogs) []LogRow {
 	var rows []LogRow
 	for _, rl := range resourceLogs {
 		resourceAttrs := attributesToMap(rl.GetResource().GetAttributes())
+		collectorID := takeCollectorStamp(resourceAttrs)
 		serviceName := resolveServiceName(resourceAttrs)
 		serviceNamespace := resourceAttrs["service.namespace"]
 		for _, sl := range rl.GetScopeLogs() {
 			scopeName := sl.GetScope().GetName()
 			for _, lr := range sl.GetLogRecords() {
-				rows = append(rows, convertLogRecord(lr, resourceAttrs, serviceName, serviceNamespace, scopeName))
+				row := convertLogRecord(lr, resourceAttrs, serviceName, serviceNamespace, scopeName)
+				row.CollectorID = collectorID
+				rows = append(rows, row)
 			}
 		}
 	}

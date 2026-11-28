@@ -18,10 +18,13 @@ type SpanRow struct {
 	ServiceNamespace   string
 	OrganizationID     string // resolved from the ingest API key
 	ResourceAttributes map[string]string
-	SpanAttributes     map[string]string
-	DurationNs         uint64
-	StatusCode         string
-	StatusMessage      string
+	// CollectorID is the managing collector's stamp, taken out of the
+	// resource attributes (see CollectorStampKey).
+	CollectorID    string
+	SpanAttributes map[string]string
+	DurationNs     uint64
+	StatusCode     string
+	StatusMessage  string
 	// LinkTraceIDs / LinkSpanIDs are the spans this one links to, in
 	// order, truncated to MaxSpanLinks. Links are how ASYNCHRONOUS
 	// hand-offs are expressed under the OTel messaging conventions: a
@@ -91,7 +94,10 @@ type LogRow struct {
 	ScopeName          string
 	Body               string
 	ResourceAttributes map[string]string
-	LogAttributes      map[string]string
+	// CollectorID is the managing collector's stamp, taken out of the
+	// resource attributes (see CollectorStampKey).
+	CollectorID   string
+	LogAttributes map[string]string
 }
 
 // MetricRow is one row in the ClickHouse `metrics` table — one numeric
@@ -113,5 +119,8 @@ type MetricRow struct {
 	IsMonotonic        uint8
 	Unit               string
 	ResourceAttributes map[string]string
-	MetricAttributes   map[string]string
+	// CollectorID is the managing collector's stamp, taken out of the
+	// resource attributes (see CollectorStampKey).
+	CollectorID      string
+	MetricAttributes map[string]string
 }

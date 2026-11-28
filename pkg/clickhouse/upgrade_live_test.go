@@ -87,4 +87,19 @@ func TestReadsAcrossUpgrade(t *testing.T) {
 	if typ != "" || msg != "" || env != "" {
 		t.Errorf("old row: %q %q %q", typ, msg, env)
 	}
+	// The collector a row came through (0012): an old row has none, in
+	// every table that carries it.
+	for _, table := range []string{"traces", "logs", "metrics"} {
+		var n uint64
+		if err := conn.QueryRow(ctx, `SELECT count() FROM `+table+` WHERE CollectorId != ''`).Scan(&n); err != nil {
+			t.Fatalf("%s: CollectorId is unreadable across the upgrade: %v", table, err)
+		}
+		if n != 0 {
+			t.Errorf("%s: %d rows read with a collector they never had", table, n)
+		}
+	}
+	var collector string
+	if err := conn.QueryRow(ctx, `SELECT CollectorId FROM traces WHERE TraceId = 'old'`).Scan(&collector); err != nil || collector != "" {
+		t.Errorf("old row's collector: %q %v", collector, err)
+	}
 }

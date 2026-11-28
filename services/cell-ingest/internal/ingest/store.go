@@ -39,6 +39,7 @@ func (s *Store) InsertSpans(ctx context.Context, rows []SpanRow) error {
 			ServiceNamespace,
 			OrganizationId,
 			ResourceAttributes,
+			CollectorId,
 			SpanAttributes,
 			DurationNs,
 			StatusCode,
@@ -68,6 +69,7 @@ func (s *Store) InsertSpans(ctx context.Context, rows []SpanRow) error {
 			r.ServiceNamespace,
 			r.OrganizationID,
 			r.ResourceAttributes,
+			r.CollectorID,
 			r.SpanAttributes,
 			r.DurationNs,
 			r.StatusCode,
@@ -108,6 +110,7 @@ func (s *Store) InsertLogs(ctx context.Context, rows []LogRow) error {
 			ScopeName,
 			Body,
 			ResourceAttributes,
+			CollectorId,
 			LogAttributes
 		)
 	`)
@@ -129,6 +132,7 @@ func (s *Store) InsertLogs(ctx context.Context, rows []LogRow) error {
 			r.ScopeName,
 			r.Body,
 			r.ResourceAttributes,
+			r.CollectorID,
 			r.LogAttributes,
 		); err != nil {
 			return fmt.Errorf("append row: %w", err)
@@ -158,6 +162,7 @@ func (s *Store) InsertMetrics(ctx context.Context, rows []MetricRow) error {
 			IsMonotonic,
 			Unit,
 			ResourceAttributes,
+			CollectorId,
 			MetricAttributes
 		)
 	`)
@@ -179,6 +184,7 @@ func (s *Store) InsertMetrics(ctx context.Context, rows []MetricRow) error {
 			r.IsMonotonic,
 			r.Unit,
 			r.ResourceAttributes,
+			r.CollectorID,
 			r.MetricAttributes,
 		); err != nil {
 			return fmt.Errorf("append row: %w", err)
