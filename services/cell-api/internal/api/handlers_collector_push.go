@@ -314,7 +314,15 @@ func (h *Handlers) createCollectorDeployment(w http.ResponseWriter, r *http.Requ
 			message = "Stamp the data this collector carries with its id"
 		}
 	} else if h.featureEntitled(license.FeatureAdvisor) {
-		approval, _ = h.Collectors.RequireApproval(r.Context(), c.GroupID)
+		// Fails closed: a team's setting that cannot be read must not
+		// send straight to the collector what it would have held back.
+		req, err := h.Collectors.RequireApproval(r.Context(), c.GroupID)
+		if err != nil {
+			h.Logger.Error("read collector approval setting failed", "err", err)
+			httpserver.WriteError(w, http.StatusInternalServerError, "could not read whether this team requires approval")
+			return
+		}
+		approval = req
 	}
 	nd := collectors.NewDeployment{
 		CollectorID: c.ID, Body: payload, Message: message,
