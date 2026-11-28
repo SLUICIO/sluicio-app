@@ -96,6 +96,9 @@ type collectorConfigBody struct {
 	// collector is sent its base again this long after it applied the
 	// change. Zero is permanent.
 	DurationMinutes int `json:"duration_minutes"`
+	// Stamp marks the change as adding the collector stamp (Enterprise):
+	// always proposed to the owner team.
+	Stamp bool `json:"stamp"`
 }
 
 func (h *Handlers) validateWithOtelflow(ctx context.Context, c collectors.Collector, config string) (*collectors.Validation, error) {
@@ -184,6 +187,16 @@ func (h *Handlers) createCollectorDeployment(w http.ResponseWriter, r *http.Requ
 			return
 		}
 	}
+	if body.Stamp {
+		if !h.featureEntitled(license.FeatureAdvisor) {
+			httpserver.WriteError(w, http.StatusPaymentRequired, "the collector stamp is a Sluicio Enterprise feature")
+			return
+		}
+		if body.SuggestionID != "" || duration != 0 {
+			httpserver.WriteError(w, http.StatusBadRequest, "the collector stamp is a change of its own, sent permanently")
+			return
+		}
+	}
 	var suggestion *advisor.Suggestion
 	if body.SuggestionID != "" {
 		if !h.featureEntitled(license.FeatureAdvisor) {
@@ -255,6 +268,13 @@ func (h *Handlers) createCollectorDeployment(w http.ResponseWriter, r *http.Requ
 		approval, via = true, "advisor"
 		if message == "" {
 			message = "Advisor: " + suggestion.Title
+		}
+	} else if body.Stamp {
+		// It changes what the collector sends, so the team that runs it
+		// approves it, whatever its setting.
+		approval, via = true, "stamp"
+		if message == "" {
+			message = "Stamp the data this collector carries with its id"
 		}
 	} else if h.featureEntitled(license.FeatureAdvisor) {
 		approval, _ = h.Collectors.RequireApproval(r.Context(), c.GroupID)

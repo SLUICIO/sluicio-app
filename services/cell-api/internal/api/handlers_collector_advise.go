@@ -340,3 +340,62 @@ func (h *Handlers) collectorDeploymentEffect(w http.ResponseWriter, r *http.Requ
 	}
 	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"subject": subject, "applied": true, "effect": e})
 }
+
+// previewCollectorStamp: GET /api/v1/collectors/{id}/stamp
+//
+// The change that makes a collector put its own id on the data it
+// carries (sluicio.collector.id, moved into its own column at ingest),
+// so Sluicio can tell which collector telemetry came through. Only in
+// pipelines that send to Sluicio alone: another backend never sees the
+// attribute. Enterprise; sent with "stamp": true it is always proposed
+// to the owner team, since it changes what the collector sends.
+func (h *Handlers) previewCollectorStamp(w http.ResponseWriter, r *http.Request) {
+	c, ok := h.pushableCollector(w, r)
+	if !ok {
+		return
+	}
+	httpserver.WriteJSON(w, http.StatusOK, h.stampChange(r, c))
+}
+
+func (h *Handlers) stampChange(r *http.Request, c collectors.Collector) advisorChange {
+	out := advisorChange{FilterChange: collectors.FilterChange{Changed: []string{}, Skipped: []collectors.PipelineSkip{}}}
+	raw, err := h.Collectors.LatestRawOnly(r.Context(), c.ID)
+	if errors.Is(err, collectors.ErrNotFound) {
+		out.Unavailable = "it does not report its configuration as written (reports_raw_config)"
+		return out
+	}
+	if err != nil {
+		out.Unavailable = "its configuration could not be read"
+		return out
+	}
+	masked, ok := collectors.MaskConfig(raw)
+	if !ok {
+		out.Unavailable = "its configuration is not YAML"
+		return out
+	}
+	change, err := collectors.AddStamp(masked, c.InstanceUID, h.sluicioExporter(r))
+	if err != nil {
+		out.Unavailable = err.Error()
+		return out
+	}
+	out.FilterChange, out.Before = change, masked
+	if !change.AlreadyDropped && len(change.Changed) == 0 {
+		out.Unavailable = "none of its pipelines sends only to Sluicio"
+	}
+	return out
+}
+
+// collectorStamped says whether the collector's newest configuration as
+// written already stamps its data with its own id.
+func (h *Handlers) collectorStamped(r *http.Request, c collectors.Collector) bool {
+	if c.Kind != collectors.KindSupervisor {
+		return false
+	}
+	raw, err := h.Collectors.LatestRawOnly(r.Context(), c.ID)
+	if err != nil {
+		return false
+	}
+	change, err := collectors.AddStamp(raw, c.InstanceUID, h.sluicioExporter(r))
+	return err == nil && change.AlreadyDropped
+}
+

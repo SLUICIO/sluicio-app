@@ -243,3 +243,56 @@ service:
 		t.Fatal("the same change twice was not recognised")
 	}
 }
+
+func TestAddStamp(t *testing.T) {
+	cfg := `receivers:
+  otlp:
+    protocols:
+      http: {}
+exporters:
+  otlp_http/sluicio:
+    endpoint: https://ingest.example.test
+  otlp/siem:
+    endpoint: siem.internal:4317
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [otlp_http/sluicio]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp_http/sluicio]
+    logs/siem:
+      receivers: [otlp]
+      exporters: [otlp/siem]
+`
+	got, err := AddStamp(cfg, "01a21f4c-9d12", SluicioExporter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(got.Changed, ",") != "metrics,traces" || len(got.Skipped) != 1 || got.Skipped[0].Pipeline != "logs/siem" {
+		t.Fatalf("changed %v skipped %v", got.Changed, got.Skipped)
+	}
+	for _, want := range []string{
+		"  resource/sluicio-stamp:\n    attributes:\n      - key: sluicio.collector.id\n        value: \"01a21f4c-9d12\"\n        action: insert\n",
+		"processors: [memory_limiter, resource/sluicio-stamp, batch]",
+		"processors: [resource/sluicio-stamp]",
+	} {
+		if !strings.Contains(got.Config, want) {
+			t.Errorf("missing %q in:\n%s", want, got.Config)
+		}
+	}
+	if strings.Contains(got.Config, "error_mode") {
+		t.Error("the resource processor has no error_mode")
+	}
+	again, _ := AddStamp(got.Config, "01a21f4c-9d12", SluicioExporter{})
+	if !again.AlreadyDropped {
+		t.Fatalf("stamped twice: %+v", again)
+	}
+	// A configuration copied from another collector: the stamp is corrected.
+	other, _ := AddStamp(got.Config, "ffff", SluicioExporter{})
+	if other.Config == "" || !strings.Contains(other.Config, "value: ffff") || strings.Count(other.Config, "sluicio.collector.id") != 1 {
+		t.Fatalf("corrected stamp:\n%s", other.Config)
+	}
+}

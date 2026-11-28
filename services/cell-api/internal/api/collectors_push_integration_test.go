@@ -191,6 +191,11 @@ func TestCollectorPush(t *testing.T) {
 		t.Errorf("accepting with no drift: %d, want 409 (and never 402)", code)
 	}
 
+	// The collector stamp is Enterprise: 402 without a licence.
+	if code, _ := do(editor, "POST", base+"/deployments", map[string]any{"config": edited, "stamp": true}); code != http.StatusPaymentRequired {
+		t.Errorf("a stamp without a licence: %d, want 402", code)
+	}
+
 	// A time-limited change is Enterprise: 402 without a licence.
 	if code, _ := do(editor, "POST", base+"/deployments", map[string]any{"config": edited, "duration_minutes": 30}); code != http.StatusPaymentRequired {
 		t.Errorf("a temporary change without a licence: %d, want 402", code)
@@ -233,7 +238,7 @@ func TestCollectorPushEnterprise(t *testing.T) {
 	_, tok, _ := store.CreateToken(ctx, org.ID, team.ID, "t", nil)
 	caps := uint64(1 | 2 | 4 | 2048)
 	sup, _, _ := store.Observe(ctx, collectors.Observation{OrgID: org.ID, GroupID: team.ID, TokenID: tok.ID, InstanceUID: "sup", Transport: "websocket", Capabilities: &caps, Description: map[string]string{"host.name": "gw-1"}})
-	stored := "exporters:\n  otlp_http:\n    endpoint: https://gw.example.test\n    headers:\n      authorization: Bearer real-secret\nreceivers:\n  host_metrics:\n    scrapers:\n      load: {}\nservice:\n  pipelines:\n    metrics:\n      receivers: [host_metrics]\n      exporters: [otlp_http]\n"
+	stored := "exporters:\n  otlp_http/sluicio:\n    endpoint: https://gw.example.test\n    headers:\n      authorization: Bearer real-secret\nreceivers:\n  host_metrics:\n    scrapers:\n      load: {}\nservice:\n  pipelines:\n    metrics:\n      receivers: [host_metrics]\n      exporters: [otlp_http/sluicio]\n"
 	if _, err := store.RecordConfig(ctx, sup, []collectors.ConfigFile{{Body: "effective: {}"}, {Name: collectors.RawConfigFile, Body: stored}}); err != nil {
 		t.Fatal(err)
 	}
@@ -381,6 +386,36 @@ func TestCollectorPushEnterprise(t *testing.T) {
 	}
 	if code, _ := do(author, "POST", base+"/deployments/"+tmpID+"/end", nil); code != http.StatusConflict {
 		t.Errorf("ending twice: %d, want 409", code)
+	}
+
+	// The collector stamp: previewed, always proposed to the team, and
+	// once the collector reports it, the collector reads as stamped.
+	code, out = do(author, "GET", base+"/stamp", nil)
+	stampCfg, _ := out["config"].(string)
+	if code != 200 || !strings.Contains(stampCfg, "resource/sluicio-stamp") || !strings.Contains(stampCfg, `value: "sup"`) {
+		t.Fatalf("stamp preview: %d %v", code, out)
+	}
+	if _, out := do(author, "GET", base, nil); out["stamped"] != false {
+		t.Fatalf("stamped before the change: %v", out["stamped"])
+	}
+	code, out = do(author, "POST", base+"/deployments", map[string]any{"config": stampCfg, "stamp": true})
+	if code != http.StatusAccepted || out["proposal"] == nil || out["deployment"].(map[string]any)["via"] != "stamp" {
+		t.Fatalf("stamp send: %d %v", code, out)
+	}
+	stampProp := out["proposal"].(map[string]any)["id"].(string)
+	if code, out := do(colleague, "POST", "/api/v1/proposals/"+stampProp+"/approve", map[string]any{}); code != 200 {
+		t.Fatalf("approve the stamp: %d %v", code, out)
+	}
+	sd, stampBody, _ := store.NextToDeliver(ctx, sup)
+	if sd == nil || !strings.Contains(stampBody, "sluicio.collector.id") || !strings.Contains(stampBody, "Bearer real-secret") {
+		t.Fatalf("stamp to deliver:\n%s", stampBody)
+	}
+	_ = store.ReportStatus(ctx, sup, sd.Hash, collectors.DeploymentApplied, "")
+	if _, err := store.RecordConfig(ctx, sup, []collectors.ConfigFile{{Body: "effective: stamped"}, {Name: collectors.RawConfigFile, Body: stampBody}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, out := do(author, "GET", base, nil); out["stamped"] != true {
+		t.Fatalf("not stamped after the collector reported it: %v", out["stamped"])
 	}
 
 	// Restore: send the applied configuration again, at once.

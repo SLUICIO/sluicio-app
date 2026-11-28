@@ -37,6 +37,7 @@ export default function SendConfigDrawer({
   initial,
   suggestionId,
   suggestionHash,
+  stamp,
   onClose,
   onSent,
 }: {
@@ -53,6 +54,8 @@ export default function SendConfigDrawer({
   suggestionId?: string;
   // With suggestionId: a personal-data value is hashed, not deleted.
   suggestionHash?: boolean;
+  // The collector stamp: always proposed to the collector's team.
+  stamp?: boolean;
   onClose: () => void;
   onSent: () => void;
 }) {
@@ -115,6 +118,7 @@ export default function SendConfigDrawer({
         suggestion_id: suggestionId,
         suggestion_hash: suggestionHash,
         duration_minutes: minutes || undefined,
+        stamp: stamp || undefined,
       });
       setDone({
         proposal: r.proposal?.id,
@@ -140,7 +144,7 @@ export default function SendConfigDrawer({
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {done.proposal ? (
             <div className="alert alert--info" style={{ margin: 0 }}>
-              {suggestionId
+              {suggestionId || stamp
                 ? "The change waits for approval by the collector's team."
                 : "The change waits for approval by someone else in the team."}{" "}
               <Link to="/proposals">Open Proposals</Link>
@@ -249,7 +253,7 @@ export default function SendConfigDrawer({
               onChange={(e) => setMessage(e.target.value)}
             />
           </label>
-          {temporaryEntitled && !suggestionId && (
+          {temporaryEntitled && !suggestionId && !stamp && (
             <label
               style={{
                 display: "flex",

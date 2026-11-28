@@ -1170,6 +1170,7 @@ export const api = {
       suggestion_id?: string;
       suggestion_hash?: boolean;
       duration_minutes?: number;
+      stamp?: boolean;
     },
   ) =>
     post<CollectorSendResult>(`/collectors/${encodeURIComponent(id)}/deployments`, body),
@@ -1181,6 +1182,10 @@ export const api = {
     ),
   // Takes the collector's configuration as it is now as the baseline its
   // drift is measured from. Sends nothing to the collector.
+  // The change that adds the collector stamp, against its configuration
+  // as written (Enterprise).
+  previewCollectorStamp: (id: string) =>
+    get<AdvisorCollectorChange>(`/collectors/${encodeURIComponent(id)}/stamp`),
   acceptCollectorDrift: (id: string) =>
     post<{ drift: CollectorDrift | null }>(`/collectors/${encodeURIComponent(id)}/drift/accept`, {}),
   endCollectorDeployment: (id: string, dep: string) =>

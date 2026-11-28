@@ -117,6 +117,10 @@ type collectorDetailResponse struct {
 	// RequireApproval: a change to this collector waits for approval
 	// before it is sent (Enterprise, the team's setting).
 	RequireApproval bool `json:"require_approval"`
+	// Stamped: the collector's configuration puts its own id on the data
+	// it carries (sluicio.collector.id), so Sluicio can tell which
+	// telemetry came through it.
+	Stamped bool `json:"stamped"`
 }
 
 func (h *Handlers) collectorFromPath(w http.ResponseWriter, r *http.Request) (collectors.Collector, bool) {
@@ -154,6 +158,7 @@ func (h *Handlers) getCollector(w http.ResponseWriter, r *http.Request) {
 		Collector: c, History: hist, ConfigStorage: h.Collectors.ConfigStorage(),
 		CanManage: h.canManageCollectorTokens(r, c.GroupID, nil),
 		CanPush:   c.Kind == collectors.KindSupervisor && h.canPushCollector(r, c.GroupID),
+		Stamped:   h.collectorStamped(r, c),
 		RequireApproval: func() bool {
 			if !h.featureEntitled(license.FeatureAdvisor) {
 				return false

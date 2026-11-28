@@ -149,6 +149,7 @@ func HashSpanAttribute(config, transformType, service, key string, sluicio Sluic
 // it changes.
 func AddFilter(config, filterType string, sig FilterSignal, condition string, sluicio SluicioExporter) (FilterChange, error) {
 	return applyProcessor(config, filterType+"/"+AdvisorProcessorName, sig.Pipeline, sluicio, func(proc *yaml.Node) bool {
+		ensureErrorMode(proc)
 		section := mapGet(proc, sig.Section)
 		if section == nil {
 			section = &yaml.Node{Kind: yaml.MappingNode}
@@ -170,6 +171,7 @@ func AddFilter(config, filterType string, sig FilterSignal, condition string, sl
 // dropped, so an integration's messages stay complete.
 func AddSpanStatement(config, transformType, statement string, sluicio SluicioExporter) (FilterChange, error) {
 	return applyProcessor(config, transformType+"/"+AdvisorProcessorName, "traces", sluicio, func(proc *yaml.Node) bool {
+		ensureErrorMode(proc)
 		groups := mapGet(proc, "trace_statements")
 		if groups == nil || groups.Kind != yaml.SequenceNode {
 			groups = &yaml.Node{Kind: yaml.SequenceNode}
@@ -196,6 +198,76 @@ func AddSpanStatement(config, transformType, statement string, sluicio SluicioEx
 	})
 }
 
+// ensureErrorMode starts a filter or transform processor Sluicio adds
+// with error_mode: ignore, so a statement that fails on one record does
+// not stop the pipeline.
+func ensureErrorMode(proc *yaml.Node) {
+	if mapGet(proc, "error_mode") == nil {
+		proc.Content = append([]*yaml.Node{scalar("error_mode"), scalar("ignore")}, proc.Content...)
+	}
+}
+
+// CollectorStampKey is the resource attribute a stamp adds; cell-ingest
+// moves it into a column of its own (see services/cell-ingest).
+const CollectorStampKey = "sluicio.collector.id"
+
+// StampProcessor is the resource processor the stamp is.
+const StampProcessor = "resource/sluicio-stamp"
+
+// AddStamp makes a collector put its own id on the data it carries:
+// a resource processor inserting sluicio.collector.id = id, in every
+// traces, metrics and logs pipeline that sends only to Sluicio. Insert,
+// so data already stamped by a collector before it on the way keeps that
+// stamp (the first collector counts). A stamp with another id (a
+// configuration copied from another collector) is corrected.
+func AddStamp(config, id string, sluicio SluicioExporter) (FilterChange, error) {
+	out := FilterChange{Changed: []string{}, Skipped: []PipelineSkip{}}
+	allThere := true
+	for _, pipeline := range []string{"traces", "metrics", "logs"} {
+		c, err := applyProcessor(config, StampProcessor, pipeline, sluicio, func(proc *yaml.Node) bool {
+			attrs := mapGet(proc, "attributes")
+			if attrs == nil || attrs.Kind != yaml.SequenceNode {
+				attrs = &yaml.Node{Kind: yaml.SequenceNode}
+				mapSet(proc, "attributes", attrs)
+			}
+			for _, a := range attrs.Content {
+				if k := mapGet(a, "key"); k != nil && k.Value == CollectorStampKey {
+					if v := mapGet(a, "value"); v != nil && v.Value == id {
+						return true
+					}
+					mapSet(a, "value", scalar(id))
+					mapSet(a, "action", scalar("insert"))
+					return false
+				}
+			}
+			item := &yaml.Node{Kind: yaml.MappingNode}
+			setKey(item, "key", scalar(CollectorStampKey))
+			setKey(item, "value", &yaml.Node{Kind: yaml.ScalarNode, Value: id, Style: yaml.DoubleQuotedStyle})
+			setKey(item, "action", scalar("insert"))
+			attrs.Content = append(attrs.Content, item)
+			return false
+		})
+		if err != nil {
+			return FilterChange{}, err
+		}
+		out.Skipped = append(out.Skipped, c.Skipped...)
+		switch {
+		case c.Config != "":
+			config, allThere = c.Config, false
+			out.Changed = append(out.Changed, c.Changed...)
+		case !c.AlreadyDropped && len(c.Changed) == 0:
+			// no pipeline of this signal sends to Sluicio alone
+		}
+	}
+	if allThere {
+		out.AlreadyDropped = true
+		return out, nil
+	}
+	out.Config = config
+	sort.Strings(out.Changed)
+	return out, nil
+}
+
 // addUnique appends v as a single-quoted item unless the list has it, and
 // says whether it was there already.
 func addUnique(list *yaml.Node, v string) bool {
@@ -208,11 +280,11 @@ func addUnique(list *yaml.Node, v string) bool {
 	return false
 }
 
-// applyProcessor is the part every Advisor change shares: find the
+// applyProcessor is the part every change Sluicio writes shares: find the
 // pipelines of pipelineType that send to Sluicio alone, let add put the
-// change into the processor procID (made with error_mode: ignore when
-// missing; add reports whether the change was there already), and put
-// the processor into those pipelines.
+// change into the processor procID (made empty when missing; add reports
+// whether the change was there already), and put the processor into
+// those pipelines.
 func applyProcessor(config, procID, pipelineType string, sluicio SluicioExporter, add func(proc *yaml.Node) bool) (FilterChange, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal([]byte(config), &doc); err != nil {
@@ -266,7 +338,6 @@ func applyProcessor(config, procID, pipelineType string, sluicio SluicioExporter
 	proc := mapGet(processors, procID)
 	if proc == nil || proc.Kind != yaml.MappingNode {
 		proc = &yaml.Node{Kind: yaml.MappingNode}
-		setKey(proc, "error_mode", scalar("ignore"))
 		mapSet(processors, procID, proc)
 	}
 	have := add(proc)

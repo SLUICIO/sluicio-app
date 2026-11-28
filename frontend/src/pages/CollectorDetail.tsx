@@ -13,6 +13,7 @@ import {
 } from "react-router-dom";
 import { api } from "../api/client";
 import type {
+  AdvisorCollectorChange,
   CollectorConfigResponse,
   CollectorDetailResponse,
   CollectorHealth,
@@ -28,6 +29,7 @@ import TabStrip from "../components/primitives/TabStrip";
 import SendConfigDrawer from "../components/collectors/SendConfigDrawer";
 import DeploymentsPanel from "../components/collectors/DeploymentsPanel";
 import { driftSummary, isDrifted } from "../lib/collectorDrift";
+import { useFeature } from "../lib/useLicense";
 import { useCurrentUser } from "../lib/useCurrentUser";
 import {
   otelflowConfigHeight,
@@ -206,6 +208,11 @@ export default function CollectorDetail() {
   const [removeError, setRemoveError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [accepting, setAccepting] = useState(false);
+  const stampEntitled = useFeature("advisor");
+  const [stampChange, setStampChange] = useState<AdvisorCollectorChange | null>(
+    null,
+  );
+  const [stampError, setStampError] = useState<string | null>(null);
   // Bumped after a send, so the Deployments tab reloads.
   const [sentKey, setSentKey] = useState(0);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -453,6 +460,62 @@ export default function CollectorDetail() {
             />
           </Section>
         )}
+        {tab === "agent" && c.kind === "supervisor" && stampEntitled && (
+          <Section
+            title="Collector stamp"
+            subtitle="Whether Sluicio can tell which telemetry came through this collector"
+          >
+            {detail.stamped ? (
+              <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+                This collector puts its id on the data it sends to Sluicio (
+                <code>sluicio.collector.id</code>), so suggestions and their
+                effect can be tied to it.
+              </p>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+                  Not stamped: Sluicio cannot tell which telemetry came through
+                  this collector. The stamp adds{" "}
+                  <code>sluicio.collector.id</code> to what it sends to Sluicio
+                  only, kept apart from your attributes; data already stamped by
+                  a collector before it keeps that stamp. It changes the
+                  collector&apos;s configuration, so the team approves it.
+                </p>
+                {stampError && (
+                  <div className="alert alert--error" style={{ margin: 0 }}>
+                    {stampError}
+                  </div>
+                )}
+                {detail.can_push && (
+                  <div>
+                    <button
+                      className="btn"
+                      onClick={async () => {
+                        setStampError(null);
+                        try {
+                          const ch = await api.previewCollectorStamp(c.id);
+                          if (ch.unavailable || !ch.config) {
+                            setStampError(
+                              ch.unavailable
+                                ? `It cannot be stamped: ${ch.unavailable}.`
+                                : "It is stamped already.",
+                            );
+                            return;
+                          }
+                          setStampChange(ch);
+                        } catch (e) {
+                          setStampError(String((e as Error).message ?? e));
+                        }
+                      }}
+                    >
+                      Propose the collector stamp
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </Section>
+        )}
 
         {tab === "health" && (
           <Section
@@ -670,6 +733,18 @@ export default function CollectorDetail() {
               refreshKey={sentKey}
             />
           </Section>
+        )}
+        {stampChange && (
+          <SendConfigDrawer
+            collectorId={c.id}
+            collectorName={collectorName(c)}
+            current={stampChange.before}
+            initial={stampChange.config}
+            stamp
+            requireApproval
+            onClose={() => setStampChange(null)}
+            onSent={() => setSentKey((k) => k + 1)}
+          />
         )}
         {sending && rawFile && (
           <SendConfigDrawer

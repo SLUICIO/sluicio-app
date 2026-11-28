@@ -1626,6 +1626,33 @@
         ]
       }
     },
+    "/api/v1/collectors/{id}/stamp": {
+      "get": {
+        "operationId": "get_api_v1_collectors_id_stamp",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "List collectors",
+        "tags": [
+          "collectors"
+        ]
+      }
+    },
     "/api/v1/collectors/{id}/validate": {
       "post": {
         "operationId": "post_api_v1_collectors_id_validate",

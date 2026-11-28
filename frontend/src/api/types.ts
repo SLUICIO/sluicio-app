@@ -3578,6 +3578,8 @@ export interface CollectorDetailResponse {
   can_push: boolean;
   // A change waits for approval before it is sent (Enterprise).
   require_approval: boolean;
+  // The collector puts its own id on the data it carries.
+  stamped?: boolean;
 }
 
 export type DeploymentStatus =
