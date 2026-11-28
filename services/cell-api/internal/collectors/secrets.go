@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -33,47 +34,125 @@ import (
 // collector last applied is read as well. In the effective configuration
 // every reference is resolved, so it is never read for this.
 
-// PlainSecrets lists the paths in a configuration as written whose
-// values the mask hides and that take nothing from a variable: a value
-// with a ${...} reference in it (Bearer ${env:TOKEN}) is not plain text.
-// Paths only, never values. Nil when there is none, or body is not YAML.
+// PlainSecrets lists the paths in a configuration as written that hold a
+// secret in plain text. Paths only, never values. Nil when there is none,
+// or body is not YAML.
+//
+// The rule is OTelFlow's (its validator warns about the same values), and
+// narrower than the mask on purpose: the mask may hide too much, a notice
+// to a team must not accuse a value that is none. What counts is decided
+// by the value's own key (password, token, api_key, authorization, ...,
+// but not token_url, client_secret_file or a whole block below auth), a
+// header given as a name/value pair, a TLS key, a PEM private key under
+// any key, and a password or secret-named query parameter in a URL. A
+// value with a ${...} reference in it, a number, a boolean and a
+// placeholder ([REDACTED], asterisks) never count. A component's ID is a
+// name, not a value.
 func PlainSecrets(body string) []string {
-	var orig, masked yaml.Node
-	if yaml.Unmarshal([]byte(body), &orig) != nil || yaml.Unmarshal([]byte(body), &masked) != nil {
+	var doc yaml.Node
+	if yaml.Unmarshal([]byte(body), &doc) != nil || doc.Kind != yaml.DocumentNode || len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
 		return nil
 	}
-	maskDocument(&masked)
 	var out []string
-	var walk func(a, b *yaml.Node, path string)
-	walk = func(a, b *yaml.Node, path string) {
-		if a.Kind != b.Kind || len(a.Content) != len(b.Content) {
-			return
-		}
-		switch a.Kind {
-		case yaml.DocumentNode:
-			for i := range a.Content {
-				walk(a.Content[i], b.Content[i], path)
+	var walk func(n *yaml.Node, path string, secret, inTLS bool)
+	walk = func(n *yaml.Node, path string, secret, inTLS bool) {
+		switch n.Kind {
+		case yaml.SequenceNode:
+			for i, c := range n.Content {
+				walk(c, path+"["+strconv.Itoa(i)+"]", secret, false)
 			}
 		case yaml.MappingNode:
-			for i := 0; i+1 < len(a.Content); i += 2 {
-				p := a.Content[i].Value
-				if path != "" {
-					p = path + "." + p
+			// A pair spelled {name: authorization, value: ...}.
+			named := false
+			for i := 0; i+1 < len(n.Content); i += 2 {
+				if k := n.Content[i].Value; (k == "name" || k == "key") && n.Content[i+1].Kind == yaml.ScalarNode && plainSecretKey(n.Content[i+1].Value) {
+					named = true
 				}
-				walk(a.Content[i+1], b.Content[i+1], p)
 			}
-		case yaml.SequenceNode:
-			for i := range a.Content {
-				walk(a.Content[i], b.Content[i], path+"["+strconv.Itoa(i)+"]")
+			// A key's secrecy covers its value or a list of values, never a
+			// whole map below it: under client_auth the username is no
+			// secret, the password is, by its own key.
+			for i := 0; i+1 < len(n.Content); i += 2 {
+				k := n.Content[i].Value
+				walk(n.Content[i+1], path+"."+k, plainSecretKey(k) || (named && k == "value") || (inTLS && k == "key"), tlsBlock(k))
 			}
 		case yaml.ScalarNode:
-			if a.Value != b.Value && a.Value != Masked && a.Value != collectorRedacted && !strings.Contains(a.Value, "${") {
+			v := strings.TrimSpace(n.Value)
+			if v == "" || strings.Contains(v, "${") || placeholder(v) || n.Tag == "!!bool" || n.Tag == "!!null" || n.Tag == "!!int" || n.Tag == "!!float" {
+				return
+			}
+			if secret || (strings.Contains(v, "-----BEGIN") && strings.Contains(v, "PRIVATE KEY")) || urlCredential(v) {
 				out = append(out, path)
 			}
 		}
 	}
-	walk(&orig, &masked, "")
+	top := doc.Content[0]
+	for i := 0; i+1 < len(top.Content); i += 2 {
+		key, val := top.Content[i].Value, top.Content[i+1]
+		switch {
+		case componentSections[key] && val.Kind == yaml.MappingNode:
+			for j := 0; j+1 < len(val.Content); j += 2 {
+				walk(val.Content[j+1], key+"."+val.Content[j].Value, false, false)
+			}
+		case key == "service":
+			if t := mapGet(val, "telemetry"); t != nil {
+				walk(t, "service.telemetry", false, false)
+			}
+		}
+	}
 	return out
+}
+
+// notSecretSuffixes end keys that name something about a secret rather
+// than the secret: token_url, client_secret_file, token_expiry.
+var notSecretSuffixes = []string{"url", "uri", "endpoint", "file", "path", "expiry", "timeout", "interval", "buffer", "duration", "ttl"}
+
+// plainSecretKey is the narrower test PlainSecrets uses: sensitiveKey,
+// without "auth" (a block holding a mechanism and a user name as much as
+// a password), the authenticator reference and keys about a secret.
+func plainSecretKey(k string) bool {
+	n := strings.NewReplacer("_", "", "-", "", ".", "").Replace(strings.ToLower(k))
+	if n == "auth" || n == "authenticator" {
+		return false
+	}
+	for _, s := range notSecretSuffixes {
+		if strings.HasSuffix(n, s) {
+			return false
+		}
+	}
+	return sensitiveKey(k)
+}
+
+// placeholder is a value a tool put in place of a secret.
+func placeholder(v string) bool {
+	return v == collectorRedacted || strings.Trim(v, "*") == ""
+}
+
+// urlCredential says whether a URL carries a password or a secret-named
+// query parameter in plain text.
+func urlCredential(v string) bool {
+	if !strings.Contains(v, "://") {
+		return false
+	}
+	u, err := url.Parse(v)
+	if err != nil {
+		return false
+	}
+	if u.User != nil {
+		if p, ok := u.User.Password(); ok && !placeholder(p) {
+			return true
+		}
+	}
+	for k, vals := range u.Query() {
+		if sensitiveKey(k) || k == "sig" || k == "code" {
+			for _, q := range vals {
+				if q != "" && !placeholder(q) {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // PlainSecretsNotice is a collector whose configuration gained secrets in

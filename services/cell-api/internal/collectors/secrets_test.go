@@ -71,3 +71,75 @@ service:
 		t.Fatal("a configuration without secrets reported some")
 	}
 }
+
+// The same configuration and answer as OTelFlow's validator test
+// (internal/validate/secrets_test.go there): both must flag the same
+// values, and neither the ones that only look secret.
+func TestPlainSecretsAgreesWithOTelFlow(t *testing.T) {
+	cfg := `
+extensions:
+  basicauth/out:
+    client_auth:
+      username: collector
+      password: hunter2
+  bearertokenauth:
+    token: ${env:TOKEN}
+  oauth2client:
+    client_id: agent
+    client_secret: s3cr3t
+    client_secret_file: /run/secret
+    token_url: https://idp.example.com/token
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        tls:
+          key_file: /tls/key.pem
+          key: |
+            -----BEGIN PRIVATE KEY-----
+            abc
+            -----END PRIVATE KEY-----
+processors:
+  resource:
+    attributes:
+      - key: service.name
+        value: checkout
+        action: insert
+exporters:
+  otlphttp/secrets:
+    endpoint: https://user:pw@backend.example.com
+    headers:
+      Authorization: Bearer ${env:TOKEN}
+      x-api-key: abc123
+      x-redacted: "[REDACTED]"
+      x-masked: "********"
+    auth:
+      authenticator: basicauth/out
+  kafka:
+    brokers: [kafka:9092]
+    auth:
+      sasl:
+        mechanism: PLAIN
+        username: u
+        password: ${env:KAFKA_PASSWORD}
+  prometheusremotewrite:
+    endpoint: https://prom.example.com/write?api_key=k1
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [otlphttp/secrets]
+`
+	got := strings.Join(PlainSecrets(cfg), "\n")
+	want := strings.Join([]string{
+		"extensions.basicauth/out.client_auth.password",
+		"extensions.oauth2client.client_secret",
+		"receivers.otlp.protocols.grpc.tls.key",
+		"exporters.otlphttp/secrets.endpoint",
+		"exporters.otlphttp/secrets.headers.x-api-key",
+		"exporters.prometheusremotewrite.endpoint",
+	}, "\n")
+	if got != want {
+		t.Fatalf("got\n%s\nwant\n%s", got, want)
+	}
+}
