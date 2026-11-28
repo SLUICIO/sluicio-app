@@ -686,7 +686,7 @@ func TestRealSupervisorPush(t *testing.T) {
 		t.Helper()
 		raw, _ := store.LatestRaw(ctx, sup.ID)
 		masked, _ := collectors.MaskConfig(raw)
-		restored, err := collectors.RestoreSecrets(edit(masked), raw)
+		restored, err := collectors.RestoreSecrets(edit(masked), raw, "")
 		if err != nil {
 			t.Fatal(err)
 		}

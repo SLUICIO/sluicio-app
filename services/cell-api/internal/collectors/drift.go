@@ -187,7 +187,7 @@ func diffInto(out *[]DriftPath, path string, sent, reported any) {
 	sm, ok := sent.(map[string]any)
 	if !ok {
 		// A scalar or a list: the collector must have exactly this.
-		if !reflect.DeepEqual(sent, reported) {
+		if !sameAsReported(sent, reported) {
 			*out = append(*out, DriftPath{Path: path, Kind: "changed"})
 		}
 		return
@@ -220,6 +220,41 @@ func diffInto(out *[]DriftPath, path string, sent, reported any) {
 		}
 		diffInto(out, p, sv, rv)
 	}
+}
+
+// sameAsReported says whether reported is what was sent. A collector
+// reports an opaque value as [REDACTED] (see secrets.go), which matches
+// whatever was sent there: what it holds cannot be told.
+func sameAsReported(sent, reported any) bool {
+	if r, ok := reported.(string); ok && r == collectorRedacted {
+		return true
+	}
+	switch s := sent.(type) {
+	case []any:
+		r, ok := reported.([]any)
+		if !ok || len(r) != len(s) {
+			return false
+		}
+		for i := range s {
+			if !sameAsReported(s[i], r[i]) {
+				return false
+			}
+		}
+		return true
+	case map[string]any:
+		r, ok := reported.(map[string]any)
+		if !ok || len(r) != len(s) {
+			return false
+		}
+		for k, v := range s {
+			rv, present := r[k]
+			if !present || !sameAsReported(v, rv) {
+				return false
+			}
+		}
+		return true
+	}
+	return reflect.DeepEqual(sent, reported)
 }
 
 // CheckDrift compares the collector's newest configuration as written with

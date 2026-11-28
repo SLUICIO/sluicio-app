@@ -26,7 +26,7 @@ func TestRestoreSecretsPutsStoredValuesBack(t *testing.T) {
 	masked, _ := MaskConfig(storedWithSecrets)
 	// The user edits the masked text: a scraper added, secrets untouched.
 	edited := strings.Replace(masked, "      load: {}\n", "      load: {}\n      memory: {}\n", 1)
-	got, err := RestoreSecrets(edited, storedWithSecrets)
+	got, err := RestoreSecrets(edited, storedWithSecrets, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,13 +49,13 @@ func TestRestoreSecretsRefusesWhatItCannotTrace(t *testing.T) {
 		"partial": strings.Replace(masked, "gw.example.test", "gw2.example.test", 1),
 	}
 	for name, edited := range cases {
-		if _, err := RestoreSecrets(edited, storedWithSecrets); !errors.As(err, &ErrMaskedValue{}) {
+		if _, err := RestoreSecrets(edited, storedWithSecrets, ""); !errors.As(err, &ErrMaskedValue{}) {
 			t.Errorf("%s: err = %v, want ErrMaskedValue", name, err)
 		}
 	}
 	// A secret typed in full replaces the stored one.
 	typed := strings.Replace(masked, "authorization: '"+Masked+"'", "authorization: Bearer new-token", 1)
-	got, err := RestoreSecrets(typed, storedWithSecrets)
+	got, err := RestoreSecrets(typed, storedWithSecrets, "")
 	if err != nil || !strings.Contains(got, "Bearer new-token") || strings.Contains(got, "real-token") {
 		t.Fatalf("typed secret: %v\n%s", err, got)
 	}
@@ -67,7 +67,7 @@ func TestRestoreSecretsFollowsListItemsByName(t *testing.T) {
 	// Reordered list: the secret follows its name, not its position.
 	reordered := "exporters:\n  e:\n    headers:\n      - name: x-tenant\n        value: acme\n      - name: authorization\n        value: '" + Masked + "'\n"
 	_ = masked
-	got, err := RestoreSecrets(reordered, stored)
+	got, err := RestoreSecrets(reordered, stored, "")
 	if err != nil || !strings.Contains(got, "Bearer s1") {
 		t.Fatalf("reordered: %v\n%s", err, got)
 	}
@@ -109,5 +109,54 @@ service:
 	}
 	if _, err := PrepareRemote("- just\n- a list\n"); err == nil {
 		t.Error("a non-mapping configuration was accepted")
+	}
+}
+
+// A collector reports an opaque value as [REDACTED]. Sent back as it is,
+// the header would read "[REDACTED]".
+func TestRestoreSecretsHiddenByTheCollector(t *testing.T) {
+	reported := `exporters:
+  otlp_http/sluicio:
+    endpoint: https://ingest.example.test
+    headers:
+      authorization: "[REDACTED]"
+      x-tenant: "[REDACTED]"
+  otlp_http/list:
+    metadata:
+      - name: authorization
+        value: "[REDACTED]"
+`
+	// authorization is masked; x-tenant does not look secret, so the
+	// editor shows [REDACTED] as reported. Both are handled.
+	masked, _ := MaskConfig(reported)
+	edited := strings.Replace(masked, "https://ingest.example.test", "https://ingest2.example.test", 1)
+	withoutList := strings.Split(edited, "  otlp_http/list:")[0]
+
+	// Never sent from Sluicio: the value comes from the local files, so it
+	// is left out and the local one stays in effect.
+	got, err := RestoreSecrets(withoutList, reported, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(got, "REDACTED") || strings.Contains(got, Masked) || strings.Contains(got, "authorization") || strings.Contains(got, "x-tenant") {
+		t.Fatalf("a hidden value was sent:\n%s", got)
+	}
+	if !strings.Contains(got, "ingest2.example.test") {
+		t.Fatalf("the change was lost:\n%s", got)
+	}
+
+	// Sent from Sluicio before: restored from what was sent.
+	applied := "exporters:\n  otlp_http/sluicio:\n    headers:\n      authorization: Bearer ${env:TOKEN}\n"
+	got, err = RestoreSecrets(withoutList, reported, applied)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "authorization: Bearer ${env:TOKEN}") || strings.Contains(got, "REDACTED") || strings.Contains(got, "x-tenant") {
+		t.Fatalf("not restored from what was sent:\n%s", got)
+	}
+
+	// In a list, leaving it out would drop the item: refused.
+	if _, err := RestoreSecrets(edited, reported, ""); !errors.As(err, &ErrHiddenValue{}) {
+		t.Fatalf("a hidden value in a list: %v", err)
 	}
 }

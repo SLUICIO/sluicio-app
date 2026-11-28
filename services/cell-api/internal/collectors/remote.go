@@ -30,40 +30,106 @@ func (e ErrMaskedValue) Error() string {
 	return fmt.Sprintf("%s still holds a masked value that does not match the stored configuration there; type the real value or remove it", e.Path)
 }
 
+// collectorRedacted is what a collector reports in place of an opaque
+// value (a header, a password): checked on 0.166.0, a literal and an
+// embedded reference ("Bearer ${env:TOKEN}") both read [REDACTED] in the
+// configuration as written; only a bare ${env:NAME} is reported as is.
+const collectorRedacted = "[REDACTED]"
+
+// ErrHiddenValue is returned when a value the collector hides (it
+// reports [REDACTED] there) would have to be sent, inside a list, and
+// Sluicio has no copy of it.
+type ErrHiddenValue struct{ Path string }
+
+func (e ErrHiddenValue) Error() string {
+	return fmt.Sprintf("the collector hides the value at %s (it reports [REDACTED]) and Sluicio has no copy of it; type the value, or a ${env:NAME} reference", e.Path)
+}
+
 // RestoreSecrets returns edited with every masked value replaced by the
 // stored value at the same place in original.
-func RestoreSecrets(edited, original string) (string, error) {
-	if !strings.Contains(edited, Masked) {
+//
+// A collector reports an opaque value (a header, a password) as
+// [REDACTED], so the stored value there is no value at all (see
+// secrets.go). Such a value is taken from applied, the configuration the
+// collector last applied from Sluicio, as it was sent, when that has
+// one there. Otherwise it comes from the collector's local files: it is
+// left out of what is sent, and since the remote configuration is merged
+// over those files, the local value stays in effect. Inside a list,
+// leaving it out would replace the list without it, so that is refused.
+func RestoreSecrets(edited, original, applied string) (string, error) {
+	if !strings.Contains(edited, Masked) && !strings.Contains(edited, collectorRedacted) {
 		return edited, nil
 	}
 	maskedOriginal, ok := MaskConfig(original)
 	if !ok {
 		return "", errors.New("the stored configuration cannot be read to restore its secrets")
 	}
-	var ed, orig, morig yaml.Node
+	var ed, orig, morig, app yaml.Node
 	if err := yaml.Unmarshal([]byte(edited), &ed); err != nil {
 		return "", fmt.Errorf("the configuration is not valid YAML: %w", err)
 	}
 	_ = yaml.Unmarshal([]byte(original), &orig)
 	_ = yaml.Unmarshal([]byte(maskedOriginal), &morig)
-	origAt, maskedAt := map[string]*yaml.Node{}, map[string]*yaml.Node{}
+	_ = yaml.Unmarshal([]byte(applied), &app)
+	origAt, maskedAt, appliedAt := map[string]*yaml.Node{}, map[string]*yaml.Node{}, map[string]*yaml.Node{}
 	index(&orig, "", origAt)
 	index(&morig, "", maskedAt)
+	index(&app, "", appliedAt)
 
 	var failed error
+	leaveOut := map[string]bool{}
 	walk(&ed, "", func(n *yaml.Node, path string) {
-		if failed != nil || n.Kind != yaml.ScalarNode || !strings.Contains(n.Value, Masked) {
+		if failed != nil || n.Kind != yaml.ScalarNode {
 			return
 		}
-		m, o := maskedAt[path], origAt[path]
-		if m == nil || o == nil || m.Value != n.Value {
-			failed = ErrMaskedValue{Path: displayPath(path)}
+		var o *yaml.Node
+		switch {
+		case strings.Contains(n.Value, Masked):
+			m := maskedAt[path]
+			o = origAt[path]
+			if m == nil || o == nil || m.Value != n.Value {
+				failed = ErrMaskedValue{Path: displayPath(path)}
+				return
+			}
+		case n.Value == collectorRedacted:
+			// Shown as reported where the key does not look secret.
+			if o = origAt[path]; o == nil || o.Value != collectorRedacted {
+				return
+			}
+		default:
 			return
+		}
+		if o.Value == collectorRedacted {
+			a := appliedAt[path]
+			switch {
+			case a != nil && a.Value != collectorRedacted:
+				o = a
+			case strings.Contains(path, "["):
+				failed = ErrHiddenValue{Path: displayPath(path)}
+				return
+			default:
+				leaveOut[path] = true
+				return
+			}
 		}
 		n.Value, n.Tag, n.Style = o.Value, o.Tag, o.Style
 	})
 	if failed != nil {
 		return "", failed
+	}
+	if len(leaveOut) > 0 {
+		walk(&ed, "", func(n *yaml.Node, path string) {
+			if n.Kind != yaml.MappingNode {
+				return
+			}
+			for i := 0; i+1 < len(n.Content); {
+				if leaveOut[path+"/"+n.Content[i].Value] {
+					n.Content = append(n.Content[:i], n.Content[i+2:]...)
+					continue
+				}
+				i += 2
+			}
+		})
 	}
 	return encode(&ed)
 }

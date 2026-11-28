@@ -251,7 +251,14 @@ func (h *Handlers) createCollectorDeployment(w http.ResponseWriter, r *http.Requ
 		httpserver.WriteError(w, http.StatusInternalServerError, "could not read the stored configuration")
 		return
 	}
-	restored, err := collectors.RestoreSecrets(body.Config, original)
+	// A value the collector hides is restored from what Sluicio last sent.
+	applied, err := h.Collectors.AppliedConfig(r.Context(), c.ID)
+	if err != nil {
+		h.Logger.Error("read applied configuration failed", "err", err)
+		httpserver.WriteError(w, http.StatusInternalServerError, "could not read the stored configuration")
+		return
+	}
+	restored, err := collectors.RestoreSecrets(body.Config, original, applied)
 	if err != nil {
 		httpserver.WriteError(w, http.StatusUnprocessableEntity, err.Error())
 		return

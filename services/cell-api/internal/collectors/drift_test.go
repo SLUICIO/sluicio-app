@@ -4,6 +4,7 @@ package collectors
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -102,5 +103,19 @@ func TestDiffSince(t *testing.T) {
 	m := mergeDrift([]DriftPath{{Path: "a", Kind: "missing"}}, []DriftPath{{Path: "a", Kind: "removed"}, {Path: "b", Kind: "added"}})
 	if len(m) != 2 || m[0].Kind != "missing" {
 		t.Fatalf("merge: %v", m)
+	}
+}
+
+// A value sent as written comes back as [REDACTED] when the field is
+// opaque: not drift.
+func TestDiffSentRedacted(t *testing.T) {
+	sent := "exporters:\n  otlp_http/sluicio:\n    headers:\n      authorization: Bearer ${env:TOKEN}\n    auth: [{name: a, value: v}]\n"
+	reported := "exporters:\n  otlp_http/sluicio:\n    headers:\n      authorization: \"[REDACTED]\"\n    auth: [{name: a, value: \"[REDACTED]\"}]\n"
+	got, err := DiffSent(sent, reported)
+	if err != nil || len(got) != 0 {
+		t.Fatalf("%+v %v", got, err)
+	}
+	if got, _ := DiffSent(sent, strings.Replace(reported, "name: a", "name: b", 1)); len(got) != 1 {
+		t.Fatalf("a real change was missed: %+v", got)
 	}
 }

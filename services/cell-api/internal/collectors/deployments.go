@@ -424,6 +424,37 @@ func (s *Store) LatestRaw(ctx context.Context, collectorID uuid.UUID) (string, e
 	return effective, nil
 }
 
+// AppliedConfig is the configuration the collector last applied from
+// Sluicio, as sent (secrets in it unmasked: never for a caller to show);
+// "" when none.
+func (s *Store) AppliedConfig(ctx context.Context, collectorID uuid.UUID) (string, error) {
+	if s.keys == nil {
+		return "", ErrNoKey
+	}
+	return s.appliedBody(ctx, collectorID)
+}
+
+// appliedBody is the configuration the collector last applied from
+// Sluicio, as sent; "" when none.
+func (s *Store) appliedBody(ctx context.Context, collectorID uuid.UUID) (string, error) {
+	var hash, sealed string
+	err := s.pool.QueryRow(ctx, `
+		SELECT config_hash, config_enc FROM collector_deployments
+		WHERE collector_id = $1 AND status = 'applied'
+		ORDER BY finished_at DESC NULLS LAST, created_at DESC LIMIT 1`, collectorID).Scan(&hash, &sealed)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	files, err := s.keys.Open(collectorID, hash, sealed)
+	if err != nil || len(files) != 1 {
+		return "", fmt.Errorf("collectors: open applied: %w", err)
+	}
+	return files[0].Body, nil
+}
+
 // LatestRawOnly is the newest configuration as written, unmasked, and
 // ErrNotFound when the collector reports only the effective one. A change
 // Sluicio writes into a configuration starts from what was written: the
