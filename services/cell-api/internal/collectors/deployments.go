@@ -251,6 +251,15 @@ func supersede(ctx context.Context, tx pgx.Tx, collectorID uuid.UUID) error {
 	return nil
 }
 
+// DiscardProposed deletes a proposed deployment whose proposal could not
+// be filed. Only a proposed row with no proposal goes: anything else is
+// history.
+func (s *Store) DiscardProposed(ctx context.Context, collectorID, id uuid.UUID) error {
+	_, err := s.pool.Exec(ctx, `DELETE FROM collector_deployments
+		WHERE id = $1 AND collector_id = $2 AND status = 'proposed' AND proposal_id IS NULL`, id, collectorID)
+	return err
+}
+
 // LinkProposal records the proposal a proposed deployment waits on.
 func (s *Store) LinkProposal(ctx context.Context, id, proposalID uuid.UUID) error {
 	_, err := s.pool.Exec(ctx, `UPDATE collector_deployments SET proposal_id = $2 WHERE id = $1`, id, proposalID)

@@ -347,6 +347,11 @@ func (h *Handlers) createCollectorDeployment(w http.ResponseWriter, r *http.Requ
 	if approval {
 		prop, status, err := h.proposeCollectorConfig(r, c, d, message)
 		if err != nil {
+			// Without its proposal the row would read as waiting for an
+			// approval nobody can give.
+			if dErr := h.Collectors.DiscardProposed(r.Context(), c.ID, d.ID); dErr != nil {
+				h.Logger.Error("discard unproposed deployment failed", "err", dErr, "deployment", d.ID)
+			}
 			httpserver.WriteError(w, status, err.Error())
 			return
 		}
@@ -498,7 +503,11 @@ func (h *Handlers) proposeCollectorConfig(r *http.Request, c collectors.Collecto
 	if err != nil {
 		return proposals.Proposal{}, http.StatusInternalServerError, errors.New("could not file the proposal")
 	}
-	_ = h.Collectors.LinkProposal(r.Context(), d.ID, out.ID)
+	if err := h.Collectors.LinkProposal(r.Context(), d.ID, out.ID); err != nil {
+		// The proposal still names the deployment and approving it works;
+		// only the Deployments tab loses which proposal the row waits on.
+		h.Logger.Warn("link collector proposal failed", "err", err, "deployment", d.ID, "proposal", out.ID)
+	}
 	return out, 0, nil
 }
 
