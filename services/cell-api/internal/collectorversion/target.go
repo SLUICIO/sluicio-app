@@ -21,7 +21,7 @@
 // version-sensitivity of the components WE emit, which is a far smaller
 // set. Measured against the registry, everything Sluicio generates
 // today is: the `filter` and `transform` processors, both stable from
-// v0.80.0 through v0.157.0, and the OTLP/HTTP exporter, which is the
+// v0.80.0 through v0.166.0, and the OTLP/HTTP exporter, which is the
 // one that moved.
 //
 // So the knowledge below is a table of the renames that affect what we
@@ -77,7 +77,7 @@ const (
 // invalid would make an out-of-date cell silently withhold every
 // suggestion, which is the same trust failure this feature exists to
 // prevent, arriving from the other direction.
-const Newest = "0.157.0"
+const Newest = "0.166.0"
 
 // Target is the collector a snippet is generated for.
 type Target struct {
@@ -218,7 +218,8 @@ var names = map[Component]naming{
 		SinceName:  "otlp_http",
 		ChangedIn:  "0.146.0",
 	},
-	// Verified against the registry on both 0.80.0 and 0.157.0.
+	// Verified against the registry on both 0.80.0 and 0.166.0 (OTelFlow
+	// 0.9.0): neither processor has been renamed or removed.
 	FilterProcessor:    {Kind: KindProcessor, BeforeName: "filter", SinceName: "filter"},
 	TransformProcessor: {Kind: KindProcessor, BeforeName: "transform", SinceName: "transform"},
 }

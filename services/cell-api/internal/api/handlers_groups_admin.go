@@ -24,6 +24,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"github.com/jackc/pgx/v5/pgconn"
 	"net/http"
 	"strings"
 
@@ -118,6 +119,18 @@ func (h *Handlers) deleteGroupAdmin(w http.ResponseWriter, r *http.Request) {
 	if err := h.Identity.DeleteGroup(r.Context(), middleware.OrgID(r), id); err != nil {
 		if errors.Is(err, identity.ErrNotFound) {
 			httpserver.WriteError(w, http.StatusNotFound, "team not found")
+			return
+		}
+		// Every collector belongs to exactly one team, and its
+		// configuration history goes with it, so a team that still owns
+		// collectors is not deleted (the foreign key refuses it).
+		if pgErr := (*pgconn.PgError)(nil); errors.As(err, &pgErr) && pgErr.Code == "23503" && pgErr.TableName == "collectors" {
+			msg := "this team still owns collectors; remove them on the Collectors page before deleting the team"
+			if h.Collectors == nil {
+				// The rows outlive the switch; the page to remove them does not.
+				msg = "this team still owns collectors, registered while collector management was on; turn it on again to remove them before deleting the team"
+			}
+			httpserver.WriteError(w, http.StatusConflict, msg)
 			return
 		}
 		h.Logger.Error("delete group failed", "err", err)

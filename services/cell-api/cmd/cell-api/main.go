@@ -35,6 +35,7 @@ import (
 	"context"
 	"encoding/base64"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -61,6 +62,7 @@ import (
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/api"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/api/middleware"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/catalog"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/collectors"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/collectorversion"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/dashboards"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/demand"
@@ -84,6 +86,7 @@ import (
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/notifyprofiles"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/notifytemplates"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/oauth"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/opamp"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/payloadlinks"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/proposals"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/retention"
@@ -174,6 +177,10 @@ func main() {
 	// Organization names fixed by whoever runs the instance: no rename or
 	// re-slug from inside it, by an org admin or an operator.
 	orgManagementDisabled := env.Bool("SLUICIO_ORG_MANAGEMENT_DISABLED", false)
+	// Collector management over OpAMP (Beta), off unless the cell turns it
+	// on: no endpoint, no routes, no page. Self-hosted and managed cells
+	// switch it the same way.
+	collectorsEnabled := env.Bool("SLUICIO_COLLECTORS_ENABLED", false)
 	// Limits the deployment sets on the instance. A malformed value stops
 	// startup rather than meaning "no limit": a limit someone set and
 	// mistyped must not vanish without a word.
@@ -917,6 +924,45 @@ func main() {
 		go stateExporter.Run(bgCtx)
 	}
 
+	// Collector management (Beta). The configuration key comes only from
+	// the environment: a key stored beside the ciphertext would not
+	// protect it from a database reader. A malformed key stops startup
+	// rather than silently storing nothing; an absent one registers
+	// collectors without keeping their configurations.
+	var opampServer *opamp.Server
+	if collectorsEnabled {
+		var keys *collectors.Keys
+		if b64 := env.String("SLUICIO_COLLECTOR_CONFIG_KEY", ""); b64 != "" {
+			if keys, err = collectors.ParseKeys(b64); err != nil {
+				logger.Error("invalid collector configuration key", "err", err)
+				os.Exit(1)
+			}
+		} else {
+			logger.Warn("SLUICIO_COLLECTOR_CONFIG_KEY is not set; collectors register but their configurations are not stored")
+		}
+		store := collectors.New(pg, keys)
+		if err := store.ResetConnections(ctx); err != nil {
+			logger.Warn("could not reset collector connection state", "err", err)
+		}
+		if opampServer, err = opamp.New(store, logger); err != nil {
+			logger.Error("opamp server", "err", err)
+			os.Exit(1)
+		}
+		handlers.Collectors, handlers.OpAMP = store, opampServer
+		go opampServer.Run(bgCtx)
+		// The OTelFlow designer the Configuration tab draws with, served
+		// by this cell (a path like /otelflow/, or a URL of the operator's
+		// own instance). Unset: YAML only.
+		if u := env.String("SLUICIO_OTELFLOW_URL", ""); u != "" {
+			if !strings.HasPrefix(u, "/") && !strings.HasPrefix(u, "https://") && !strings.HasPrefix(u, "http://") {
+				logger.Error("SLUICIO_OTELFLOW_URL must be a path like /otelflow/ or an http(s) URL", "value", u)
+				os.Exit(1)
+			}
+			handlers.OtelflowURL = strings.TrimSuffix(u, "/") + "/"
+		}
+		logger.Info("collector management enabled (Beta)", "endpoint", opamp.Path, "config_storage", keys != nil)
+	}
+
 	mux := http.NewServeMux()
 	handlers.Mount(mux)
 
@@ -999,11 +1045,24 @@ func main() {
 	}, inner)
 	root := httpserver.AllowCORSForDev(authed)
 
+	// The OpAMP endpoint sits beside the session stack, not inside it: an
+	// agent authenticates with its team token in OnConnecting, and the
+	// session, rate-limit, MFA and environment layers mean nothing to it.
+	var connContext func(context.Context, net.Conn) context.Context
+	if opampServer != nil {
+		top := http.NewServeMux()
+		top.Handle(opamp.Path, opampServer)
+		top.Handle("/", root)
+		root = top
+		connContext = opampServer.ConnContext
+	}
+
 	addr := env.String("CELL_API_ADDR", ":8081")
 	if err := httpserver.Run(ctx, httpserver.Config{
-		Addr:    addr,
-		Handler: root,
-		Logger:  logger,
+		Addr:        addr,
+		Handler:     root,
+		Logger:      logger,
+		ConnContext: connContext,
 	}); err != nil {
 		logger.Error("http server stopped with error", "err", err)
 		os.Exit(1)

@@ -41,6 +41,15 @@ func IsEncrypted(stored string) bool { return strings.HasPrefix(stored, prefix) 
 // callers depend on empty staying empty (e.g. the SSO UPDATE uses
 // NULLIF(secret,”) to mean "keep the stored value").
 func Encrypt(key []byte, plaintext string) (string, error) {
+	return EncryptBound(key, plaintext, nil)
+}
+
+// EncryptBound is Encrypt with additional authenticated data: the
+// ciphertext only opens under the same aad. Callers bind a value to the
+// row it belongs to (a collector configuration to its collector), so a
+// database writer cannot move ciphertext from one row to another and
+// have it read back as genuine.
+func EncryptBound(key []byte, plaintext string, aad []byte) (string, error) {
 	if plaintext == "" {
 		return "", nil
 	}
@@ -55,7 +64,7 @@ func Encrypt(key []byte, plaintext string) (string, error) {
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
 		return "", err
 	}
-	sealed := gcm.Seal(nonce, nonce, []byte(plaintext), nil) // nonce || ciphertext
+	sealed := gcm.Seal(nonce, nonce, []byte(plaintext), aad) // nonce || ciphertext
 	return prefix + base64.RawStdEncoding.EncodeToString(sealed), nil
 }
 
@@ -65,6 +74,11 @@ func Encrypt(key []byte, plaintext string) (string, error) {
 // prefixed value that fails to decrypt is a real error (wrong key / tampering),
 // never silently returned.
 func Decrypt(key []byte, stored string) (string, error) {
+	return DecryptBound(key, stored, nil)
+}
+
+// DecryptBound reverses EncryptBound; aad must match what was sealed.
+func DecryptBound(key []byte, stored string, aad []byte) (string, error) {
 	if !IsEncrypted(stored) {
 		return stored, nil
 	}
@@ -83,7 +97,7 @@ func Decrypt(key []byte, stored string) (string, error) {
 		return "", errors.New("secretcrypto: ciphertext too short")
 	}
 	nonce, ct := raw[:gcm.NonceSize()], raw[gcm.NonceSize():]
-	plain, err := gcm.Open(nil, nonce, ct, nil)
+	plain, err := gcm.Open(nil, nonce, ct, aad)
 	if err != nil {
 		return "", err
 	}

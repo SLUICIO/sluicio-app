@@ -121,6 +121,12 @@ export default defineConfig({
         target: process.env.API_PROXY_TARGET || "http://localhost:8081",
         changeOrigin: true,
       },
+      // The OTelFlow designer collector management embeds (the otelflow
+      // service in docker-compose.yml), on this origin like in production.
+      "/otelflow": {
+        target: process.env.OTELFLOW_PROXY_TARGET || "http://localhost:7317",
+        changeOrigin: true,
+      },
     },
   },
   test: {

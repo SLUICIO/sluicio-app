@@ -1224,6 +1224,127 @@
         ]
       }
     },
+    "/api/v1/collector-teams": {
+      "get": {
+        "operationId": "get_api_v1_collector_teams",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "List collector-teams",
+        "tags": [
+          "collector-teams"
+        ]
+      }
+    },
+    "/api/v1/collectors": {
+      "get": {
+        "operationId": "get_api_v1_collectors",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "List collectors",
+        "tags": [
+          "collectors"
+        ]
+      }
+    },
+    "/api/v1/collectors/{id}": {
+      "delete": {
+        "operationId": "delete_api_v1_collectors_id_",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Delete collector",
+        "tags": [
+          "collectors"
+        ]
+      },
+      "get": {
+        "operationId": "get_api_v1_collectors_id_",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Get collector",
+        "tags": [
+          "collectors"
+        ]
+      }
+    },
+    "/api/v1/collectors/{id}/configs/{version}": {
+      "get": {
+        "operationId": "get_api_v1_collectors_id_configs_version_",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Get collector",
+        "tags": [
+          "collectors"
+        ]
+      }
+    },
     "/api/v1/dashboards": {
       "get": {
         "operationId": "get_api_v1_dashboards",
@@ -6467,6 +6588,128 @@
         ]
       }
     },
+    "/api/v1/settings/groups/{id}/collector-tokens": {
+      "get": {
+        "operationId": "get_api_v1_settings_groups_id_collector_tokens",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "List settings",
+        "tags": [
+          "settings"
+        ]
+      },
+      "post": {
+        "operationId": "post_api_v1_settings_groups_id_collector_tokens",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Create setting",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
+    "/api/v1/settings/groups/{id}/collector-tokens/{token}": {
+      "delete": {
+        "operationId": "delete_api_v1_settings_groups_id_collector_tokens_token_",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Delete setting",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
+    "/api/v1/settings/groups/{id}/collector-tokens/{token}/regenerate": {
+      "post": {
+        "operationId": "post_api_v1_settings_groups_id_collector_tokens_token_regenerate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Create setting",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
     "/api/v1/settings/groups/{id}/members": {
       "get": {
         "operationId": "get_api_v1_settings_groups_id_members",
@@ -8188,6 +8431,12 @@
     },
     {
       "name": "collector-target"
+    },
+    {
+      "name": "collector-teams"
+    },
+    {
+      "name": "collectors"
     },
     {
       "name": "dashboards"

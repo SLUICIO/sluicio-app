@@ -6,6 +6,8 @@ import EnvironmentScope from "./components/EnvironmentScope";
 import UserProvider from "./components/UserProvider";
 import { useCurrentUser } from "./lib/useCurrentUser";
 import Alerts from "./pages/Alerts";
+import Collectors from "./pages/Collectors";
+import CollectorDetail from "./pages/CollectorDetail";
 import Health from "./pages/Health";
 import IntegrationDetail from "./pages/IntegrationDetail";
 import IntegrationErrors from "./pages/IntegrationErrors";
@@ -130,6 +132,8 @@ function SignedInApp() {
         <Route path="/topology" element={<Topology />} />
         <Route path="/stuck" element={<StuckMessages />} />
         <Route path="/alerts" element={<Alerts />} />
+        <Route path="/collectors" element={<Collectors />} />
+        <Route path="/collectors/:id" element={<CollectorDetail />} />
         <Route
           path="/settings"
           element={

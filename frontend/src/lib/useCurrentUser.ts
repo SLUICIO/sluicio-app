@@ -115,6 +115,16 @@ export interface CurrentUserContext {
    * server refuses the change.
    */
   orgManagementDisabled: boolean;
+  /**
+   * True when collector management (Beta) is on for this cell. A hint; the
+   * routes do not exist otherwise.
+   */
+  collectorsEnabled: boolean;
+  /**
+   * Where the cell serves the OTelFlow designer ("/otelflow/"), or "" when
+   * it does not and configurations are shown as YAML only.
+   */
+  otelflowUrl: string;
   /** Sign the user out — POST /api/v1/auth/logout and drop session state. */
   signOut: () => void;
 }
@@ -182,6 +192,8 @@ export function useCurrentUser(): CurrentUserContext {
     managedWhiteLabel: data.managed === true && data.managed_white_label === true,
     emailDisabled: data.email_disabled === true,
     orgManagementDisabled: data.org_management_disabled === true,
+    collectorsEnabled: data.collectors_enabled === true,
+    otelflowUrl: data.otelflow_url ?? "",
     signOut,
   };
 }

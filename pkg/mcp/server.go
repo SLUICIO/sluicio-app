@@ -707,5 +707,5 @@ func buildTools(s *Server) []tool {
 					"changes":     changes,
 				})
 			}},
-	}, configTools(s)...)
+	}, append(configTools(s), collectorTools(s)...)...)
 }

@@ -167,6 +167,16 @@ services:
       # AES-256 key (base64) encrypting MFA TOTP secrets at rest; required for
       # MFA enrollment. Empty = MFA enrollment unavailable.
       SLUICIO_MFA_KEY: ${SLUICIO_MFA_KEY:-}
+      # Collector management over OpAMP (Beta): off unless true. The key
+      # (base64 32 bytes, openssl rand -base64 32) encrypts stored collector
+      # configurations and must stay outside the database; without it they
+      # are not stored. Losing it makes stored configurations unreadable.
+      SLUICIO_COLLECTORS_ENABLED: ${SLUICIO_COLLECTORS_ENABLED:-false}
+      SLUICIO_COLLECTOR_CONFIG_KEY: ${SLUICIO_COLLECTOR_CONFIG_KEY:-}
+      # The OTelFlow designer the Configuration tab embeds: /otelflow/ when
+      # the otelflow service below runs (COMPOSE_PROFILES=collectors). Empty
+      # shows configurations as YAML only.
+      SLUICIO_OTELFLOW_URL: ${SLUICIO_OTELFLOW_URL:-}
     volumes:
       # Read-only, and a directory rather than a single file: a bind mount
       # of a file that does not exist yet is silently created as a
@@ -200,6 +210,20 @@ services:
   # (and the error notifier). Running it would just idle, and pulling its
   # image fails when the registry has none. Re-add this block only once
   # the loops are actually split out into the cell-alerting binary.
+
+  # OTelFlow, the collector-configuration designer collector management
+  # embeds (Beta). Stateless; the reverse proxy forwards <ui-host>/otelflow/*
+  # here with the path unchanged. Started only with the collectors profile:
+  # set COMPOSE_PROFILES=collectors together with SLUICIO_COLLECTORS_ENABLED
+  # and SLUICIO_OTELFLOW_URL=/otelflow/.
+  otelflow:
+    image: ${OTELFLOW_IMAGE:-ghcr.io/sluicio/otelflow:0.10.0}
+    profiles: [collectors]
+    restart: unless-stopped
+    environment:
+      OTELFLOW_PREFIX: /otelflow
+    ports:
+      - "127.0.0.1:${OTELFLOW_PORT:-7317}:7317"
 
   frontend:
     image: ${REGISTRY:-ghcr.io}/${NAMESPACE:-sluicio}/frontend:${TAG:-latest}

@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/csv"
 	"encoding/json"
-	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -138,21 +137,8 @@ func (h *Handlers) recordAuthAudit(ctx context.Context, user identity.User, memb
 	}
 }
 
-// clientIP extracts the best-guess client address: the first hop in
-// X-Forwarded-For when present (we sit behind a reverse proxy in prod),
-// else the connection's RemoteAddr without the port.
-func clientIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		if i := strings.IndexByte(xff, ','); i >= 0 {
-			return strings.TrimSpace(xff[:i])
-		}
-		return strings.TrimSpace(xff)
-	}
-	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
-		return host
-	}
-	return r.RemoteAddr
-}
+// clientIP extracts the best-guess client address (see httpserver.ClientIP).
+func clientIP(r *http.Request) string { return httpserver.ClientIP(r) }
 
 // listAuditLog: GET /api/v1/audit-log — Enterprise + admin gated (composed
 // at the route). Returns an org's recent audit entries, newest first.

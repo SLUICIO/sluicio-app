@@ -72,6 +72,7 @@ func TestToolCatalogueCoversTheReadSurface(t *testing.T) {
 		"sluicio_metric_label_values", "sluicio_backtest_rule", "sluicio_proposal_options",
 		"sluicio_propose_alert_rule", "sluicio_propose_trace_completion_rule",
 		"sluicio_propose_integration_settings", "sluicio_propose_metric_source",
+		"sluicio_list_collectors", "sluicio_get_collector",
 	} {
 		if !names[want] {
 			t.Errorf("catalogue missing %s", want)

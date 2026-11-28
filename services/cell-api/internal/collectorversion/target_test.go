@@ -34,7 +34,7 @@ func TestOTLPHTTPExporterAtTheRenameBoundary(t *testing.T) {
 }
 
 func TestProcessorsWeEmitHaveNotBeenRenamed(t *testing.T) {
-	// Verified against the component registry on 0.80.0 and 0.157.0.
+	// Verified against the component registry on 0.80.0 and 0.166.0.
 	// If this ever fails, the table is stale and a snippet is wrong.
 	for _, c := range []Component{FilterProcessor, TransformProcessor} {
 		old, _ := Name(c, Target{Version: "0.80.0"})

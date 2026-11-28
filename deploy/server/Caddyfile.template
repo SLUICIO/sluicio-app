@@ -41,6 +41,11 @@ __DOMAIN__ {
     # OAuth discovery for the MCP endpoint — these well-known paths must reach
     # cell-api, NOT the SPA file_server (which would return index.html and break
     # the connector's OAuth discovery).
+    # OTelFlow, embedded by collector management (Beta). Path kept: the
+    # container runs with OTELFLOW_PREFIX=/otelflow.
+    handle /otelflow* {
+        reverse_proxy 127.0.0.1:7317
+    }
     handle /.well-known/oauth-* {
         reverse_proxy 127.0.0.1:8081
     }

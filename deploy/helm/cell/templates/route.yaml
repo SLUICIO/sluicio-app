@@ -38,6 +38,25 @@ spec:
   port:
     targetPort: http
   tls: {{- toYaml .Values.route.tls | nindent 4 }}
+{{- if and .Values.collectors.enabled .Values.collectors.otelflow.enabled }}
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ include "cell.fullname" . }}-otelflow
+  labels: {{- include "cell.labels" (dict "root" . "component" "route-otelflow") | nindent 4 }}
+spec:
+  {{- with .Values.route.host }}
+  host: {{ . | quote }}
+  {{- end }}
+  path: /otelflow
+  to:
+    kind: Service
+    name: {{ include "cell.componentName" (dict "root" . "component" "otelflow") }}
+  port:
+    targetPort: http
+  tls: {{- toYaml .Values.route.tls | nindent 4 }}
+{{- end }}
 ---
 apiVersion: route.openshift.io/v1
 kind: Route
