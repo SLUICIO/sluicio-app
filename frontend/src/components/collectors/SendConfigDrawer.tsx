@@ -16,6 +16,7 @@ import { useFeature } from "../../lib/useLicense";
 import { EditDrawer } from "../primitives";
 import ConfigDiff from "./ConfigDiff";
 import { plainSecretsSummary } from "../../lib/plainSecrets";
+import { checkCollectorConfig } from "../../lib/collectorCheck";
 
 const CodeEditor = lazy(() => import("../CodeEditor"));
 
@@ -68,6 +69,9 @@ export default function SendConfigDrawer({
     null,
   );
   const [checked, setChecked] = useState(false);
+  // OTelFlow is configured but could not check the change: it can still
+  // be sent, on the collector's own check.
+  const [checkError, setCheckError] = useState<string | null>(null);
   const [keptByLocal, setKeptByLocal] = useState<string[]>([]);
   const [plainSecrets, setPlainSecrets] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
@@ -90,8 +94,9 @@ export default function SendConfigDrawer({
     setChecking(true);
     setError(null);
     try {
-      const r = await api.validateCollectorConfig(collectorId, text);
+      const r = await checkCollectorConfig(collectorId, text);
       setChecked(r.checked);
+      setCheckError(r.check_error ?? null);
       setValidation(r.validation ?? null);
       setKeptByLocal(r.kept_by_local ?? []);
       setPlainSecrets(r.plain_secrets ?? []);
@@ -208,8 +213,9 @@ export default function SendConfigDrawer({
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {!checked && (
             <div className="alert alert--warn" style={{ margin: 0 }}>
-              OTelFlow is not available to this cell, so the change was not
-              checked here. The collector still checks it before running it.
+              {checkError
+                ? `${checkError}. The change was not checked here; the collector still checks it before running it.`
+                : "OTelFlow is not available to this cell, so the change was not checked here. The collector still checks it before running it."}
             </div>
           )}
           {checked && validation && (
@@ -313,7 +319,7 @@ export default function SendConfigDrawer({
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <button
               className="btn primary"
-              onClick={() => send(errors.length > 0)}
+              onClick={() => send(errors.length > 0 || checkError !== null)}
               disabled={busy}
             >
               {busy
@@ -321,10 +327,14 @@ export default function SendConfigDrawer({
                 : (requireApproval
                     ? errors.length
                       ? "Propose despite errors"
-                      : "Propose for approval"
+                      : checkError
+                        ? "Propose unchecked"
+                        : "Propose for approval"
                     : errors.length
                       ? "Send despite errors"
-                      : "Send to collector") +
+                      : checkError
+                        ? "Send unchecked"
+                        : "Send to collector") +
                   (minutes ? ` for ${durationLabel?.toLowerCase()}` : "")}
             </button>
             <button

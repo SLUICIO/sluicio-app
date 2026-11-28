@@ -21,12 +21,15 @@ import { EditDrawer } from "../primitives";
 import ConfigDiff from "./ConfigDiff";
 import DiffExport from "./DiffExport";
 import SendConfigDrawer from "./SendConfigDrawer";
+import { checkCollectorConfig } from "../../lib/collectorCheck";
 
 type Prepared = {
   row: AdvisorCollectorRow;
   change: AdvisorCollectorChange;
   validation: CollectorValidation | null;
   checked: boolean;
+  // OTelFlow is configured but could not check this change.
+  checkError?: string;
   errors: number;
 };
 
@@ -151,10 +154,7 @@ export default function AdvisorCollectorDrawer({
             `${nameOf(row)}: ${change.unavailable ?? "nothing to change"}`,
           );
         }
-        const v = await api.validateCollectorConfig(
-          row.collector.id,
-          change.config,
-        );
+        const v = await checkCollectorConfig(row.collector.id, change.config);
         const errors = (v.validation?.diagnostics ?? []).filter(
           (d) => d.severity === "error",
         ).length;
@@ -163,6 +163,7 @@ export default function AdvisorCollectorDrawer({
           change,
           validation: v.validation ?? null,
           checked: v.checked,
+          checkError: v.check_error,
           errors,
         });
       }
@@ -183,7 +184,7 @@ export default function AdvisorCollectorDrawer({
         await api.sendCollectorConfig(p.row.collector.id, {
           config: p.change.config,
           message,
-          force: p.errors > 0,
+          force: p.errors > 0 || p.checkError !== undefined,
           suggestion_id: suggestion.id,
           suggestion_hash: personal && hash,
         });
@@ -296,8 +297,9 @@ export default function AdvisorCollectorDrawer({
                       <div style={{ fontSize: 12.5 }}>
                         {!p.checked ? (
                           <span className="muted">
-                            Not checked here: OTelFlow is not available to this
-                            cell.
+                            {p.checkError
+                              ? "Not checked here: OTelFlow could not be reached. The collector still checks it."
+                              : "Not checked here: OTelFlow is not available to this cell."}
                           </span>
                         ) : p.errors > 0 ? (
                           <span style={{ color: "var(--err-ink)" }}>

@@ -133,13 +133,20 @@ func (h *Handlers) validateCollectorConfig(w http.ResponseWriter, r *http.Reques
 		httpserver.WriteError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
+	out := map[string]any{"kept_by_local": h.keptByLocal(r, c, body.Config), "plain_secrets": plainSecretsOf(body.Config)}
 	v, err := h.validateWithOtelflow(r.Context(), c, body.Config)
 	if err != nil {
-		httpserver.WriteError(w, http.StatusBadGateway, "OTelFlow could not check the configuration: "+err.Error())
+		// Still a gateway error, so a pipeline step fails rather than
+		// passing unchecked; the rest of the answer lets the UI review the
+		// change and send it on the collector's own check.
+		// The cause names internal addresses, so it goes to the log only.
+		h.Logger.Warn("otelflow check failed", "err", err, "collector", c.ID)
+		out["checked"] = false
+		out["error"] = map[string]any{"message": "OTelFlow could not check the configuration", "status": http.StatusBadGateway}
+		httpserver.WriteJSON(w, http.StatusBadGateway, out)
 		return
 	}
-	out := map[string]any{"checked": v != nil, "kept_by_local": h.keptByLocal(r, c, body.Config),
-		"plain_secrets": plainSecretsOf(body.Config)}
+	out["checked"] = v != nil
 	if v != nil {
 		out["validation"] = v
 	}
@@ -276,6 +283,7 @@ func (h *Handlers) createCollectorDeployment(w http.ResponseWriter, r *http.Requ
 	}
 	v, err := h.validateWithOtelflow(r.Context(), c, body.Config)
 	if err != nil && !body.Force {
+		h.Logger.Warn("otelflow check failed", "err", err, "collector", c.ID)
 		httpserver.WriteError(w, http.StatusBadGateway, "OTelFlow could not check the configuration; send with force to rely on the collector's own check")
 		return
 	}
