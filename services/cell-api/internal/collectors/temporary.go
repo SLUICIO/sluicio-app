@@ -58,6 +58,9 @@ func (s *Store) EndTemporary(ctx context.Context, collectorID, id uuid.UUID, rea
 // restoreBase queues the collector's base after a temporary change
 // (ended) and returns it.
 func (s *Store) restoreBase(ctx context.Context, tx pgx.Tx, collectorID, ended uuid.UUID) (Deployment, error) {
+	if err := lockCollector(ctx, tx, collectorID); err != nil {
+		return Deployment{}, err
+	}
 	// A permanent change held behind the temporary one is the base.
 	held, err := scanDeployment(tx.QueryRow(ctx, `
 		UPDATE collector_deployments SET status = 'pending'

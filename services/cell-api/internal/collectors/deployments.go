@@ -208,12 +208,14 @@ func (s *Store) CreateDeployment(ctx context.Context, nd NewDeployment) (Deploym
 // held one is superseded, the newest base wins); or ErrTemporaryActive
 // for a second temporary change.
 func queue(ctx context.Context, tx pgx.Tx, collectorID uuid.UUID, temporary bool) (DeploymentStatus, error) {
+	if err := lockCollector(ctx, tx, collectorID); err != nil {
+		return "", err
+	}
 	var active bool
 	if err := tx.QueryRow(ctx, `
 		SELECT EXISTS (SELECT 1 FROM collector_deployments
 		               WHERE collector_id = $1 AND duration_seconds IS NOT NULL
-		                 AND status IN ('pending', 'sent', 'applying', 'applied')
-		               FOR UPDATE)`, collectorID).Scan(&active); err != nil {
+		                 AND status IN ('pending', 'sent', 'applying', 'applied'))`, collectorID).Scan(&active); err != nil {
 		return "", fmt.Errorf("collectors: active temporary: %w", err)
 	}
 	switch {
@@ -227,6 +229,17 @@ func queue(ctx context.Context, tx pgx.Tx, collectorID uuid.UUID, temporary bool
 		return DeploymentHeld, nil
 	}
 	return DeploymentPending, supersede(ctx, tx, collectorID)
+}
+
+// lockCollector serializes what queues a deployment for one collector on
+// the collector's own row: two queued at once would each supersede only
+// what the other had not committed yet, and both stay pending, the older
+// one for good.
+func lockCollector(ctx context.Context, tx pgx.Tx, collectorID uuid.UUID) error {
+	if _, err := tx.Exec(ctx, `SELECT 1 FROM collectors WHERE id = $1 FOR UPDATE`, collectorID); err != nil {
+		return fmt.Errorf("collectors: lock collector: %w", err)
+	}
+	return nil
 }
 
 func supersede(ctx context.Context, tx pgx.Tx, collectorID uuid.UUID) error {
