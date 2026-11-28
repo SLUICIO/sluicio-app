@@ -323,7 +323,7 @@ function SuggestionCard({
         <p className="muted" style={{ fontSize: 12, margin: 0 }}>
           {s.decision_note?.startsWith("Applied to collector")
             ? `${s.decision_note}. This will show as verified once the telemetry actually stops arriving.`
-            : "Accepted — paste the config into your collector. This will show as verified once the telemetry actually stops arriving."}
+            : "Accepted. Paste the config into your collector. This will show as verified once the telemetry actually stops arriving."}
         </p>
       )}
       {s.state === "verified" && (
