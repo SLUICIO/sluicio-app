@@ -21,6 +21,7 @@ import (
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/integrations"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/messageviews"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/monitoringtemplates"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/payloadlinks"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/tracecompletion"
 )
 
@@ -265,5 +266,154 @@ func TestSweepViews_onlyPayloadFiltersCarryKeys(t *testing.T) {
 	}
 	if len(got) != 1 {
 		t.Errorf("recorded %d buckets, want 1 — a built-in column was treated as an attribute key", len(got))
+	}
+}
+
+// ── what must not become whole-signal demand ─────────────────────────
+
+// An empty split_by (or metric name) recorded as a key would be the
+// row (metric, scope, ""): whole-signal demand, which keeps EVERY metric
+// in that scope from T1.
+func TestSweep_emptyKeysAreNotWholeSignalDemand(t *testing.T) {
+	w := newTestWriter()
+	s := newTestSweeper(w)
+	s.Rules = stubRules{rules: []alerting.AlertRule{{
+		Signal: "metric", Spec: alerting.MetricRuleSpec{MetricName: "orders.created"},
+	}}}
+	s.Templates = stubTemplates{tpls: []monitoringtemplates.Template{{Checks: []monitoringtemplates.Check{
+		{Signal: "metric", Metric: "kafka.lag"},
+		{Signal: "log"},
+		{Signal: "trace_error"},
+	}}}}
+	if err := s.sweepAlertRules(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.sweepTemplates(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	got := recorded(t, w)
+	for b := range got {
+		if b.key == "" {
+			t.Errorf("whole-signal row recorded: %+v", b)
+		}
+	}
+	if !hasKey(got, SignalMetric, "", "orders.created", KindRule) || !hasKey(got, SignalMetric, "", "kafka.lag", KindTemplate) {
+		t.Errorf("named metrics lost: %v", got)
+	}
+}
+
+func TestSweepAlertRules_emptyIntegrationRecordsNothing(t *testing.T) {
+	w := newTestWriter()
+	s := newTestSweeper(w)
+	id := uuid.New()
+	s.Catalog = stubCatalog{services: nil}
+	s.Rules = stubRules{rules: []alerting.AlertRule{{Signal: "log", IntegrationID: &id}}}
+	if err := s.sweepAlertRules(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := recorded(t, w); len(got) != 0 {
+		t.Errorf("an integration without services recorded demand (as \"\" it keeps every service's logs): %v", got)
+	}
+}
+
+type stubSystems struct{ services []string }
+
+func (s stubSystems) SystemMemberNames(context.Context, uuid.UUID, uuid.UUID) ([]string, error) {
+	return s.services, nil
+}
+
+func TestSweepAlertRules_systemScopeAndAttributeRules(t *testing.T) {
+	w := newTestWriter()
+	s := newTestSweeper(w)
+	sys := uuid.New()
+	s.Systems = stubSystems{services: []string{"kafka-a"}}
+	s.Rules = stubRules{rules: []alerting.AlertRule{{
+		Signal: "trace", SystemID: &sys,
+		TraceAttributeSpec: &alerting.TraceAttributeRuleSpec{Attrs: []alerting.AttrFilter{{Key: "order.priority"}}},
+	}}}
+	if err := s.sweepAlertRules(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	got := recorded(t, w)
+	if !hasKey(got, SignalTrace, "kafka-a", "", KindRule) || !hasKey(got, SignalTrace, "kafka-a", "order.priority", KindRule) {
+		t.Errorf("system-scoped attribute rule not on the system's service: %v", got)
+	}
+}
+
+// ── integrations and payload links ───────────────────────────────────
+
+type stubIntegrations struct {
+	list    []integrations.Integration
+	sources map[uuid.UUID][]integrations.Source
+}
+
+func (s stubIntegrations) List(context.Context, uuid.UUID) ([]integrations.Integration, error) {
+	return s.list, nil
+}
+
+func (s stubIntegrations) SourcesForIntegration(_ context.Context, id uuid.UUID) ([]integrations.Source, error) {
+	return s.sources[id], nil
+}
+
+func TestSweepIntegrations_columnsFiltersAndSources(t *testing.T) {
+	w := newTestWriter()
+	s := newTestSweeper(w)
+	id := uuid.New()
+	s.Catalog = stubCatalog{services: []string{"orders"}}
+	s.Integrations = stubIntegrations{
+		list: []integrations.Integration{{
+			ID: id,
+			MessageColumns: []integrations.MessageColumn{
+				{Kind: integrations.ColumnKindBuiltin, Key: integrations.BuiltinService},
+				{Kind: integrations.ColumnKindAttribute, Key: "order.id"},
+				{Key: "customer.tier"}, // written before built-ins: an attribute
+			},
+			MessageFilters: []integrations.MessageFilter{{Kind: integrations.FilterKindAttribute, Key: "order.region"}},
+		}},
+		sources: map[uuid.UUID][]integrations.Source{id: {
+			{Signal: integrations.SourceMetrics, OriginKind: integrations.OriginService, Origin: "broker", MetricNames: []string{"queue.depth"}},
+			{Signal: integrations.SourceMetrics, OriginKind: integrations.OriginService, Origin: "db"},
+			{Signal: integrations.SourceLogs, OriginKind: integrations.OriginService, Origin: "gateway",
+				Conditions: []integrations.SourceCondition{{Attribute: "route"}}},
+		}},
+	}
+	if err := s.sweepIntegrations(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	got := recorded(t, w)
+	for _, k := range []string{"order.id", "customer.tier", "order.region"} {
+		if !hasKey(got, SignalTrace, "orders", k, KindIntegration) {
+			t.Errorf("integration attribute %q not recorded", k)
+		}
+	}
+	if hasKey(got, SignalTrace, "orders", integrations.BuiltinService, KindIntegration) {
+		t.Error("a built-in column recorded as an attribute")
+	}
+	if !hasKey(got, SignalMetric, "broker", "queue.depth", KindIntegration) {
+		t.Error("a source's metric not recorded")
+	}
+	if !hasKey(got, SignalMetric, "db", "", KindIntegration) {
+		t.Error("a source with no metric names reads all of them: whole-signal demand expected")
+	}
+	if !hasKey(got, SignalLog, "gateway", "", KindIntegration) || !hasKey(got, SignalLog, "gateway", "route", KindIntegration) {
+		t.Error("a logs source not recorded")
+	}
+}
+
+type stubPayloadLinks struct{ attrs []payloadlinks.Attribute }
+
+func (s stubPayloadLinks) Get(context.Context, uuid.UUID) ([]payloadlinks.Attribute, error) {
+	return s.attrs, nil
+}
+
+func TestSweepPayloadLinks(t *testing.T) {
+	w := newTestWriter()
+	s := newTestSweeper(w)
+	s.PayloadLinks = stubPayloadLinks{attrs: []payloadlinks.Attribute{{Attribute: "io.payload.url"}, {Attribute: "blob.link"}}}
+	if err := s.sweepPayloadLinks(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !hasKey(recorded(t, w), SignalTrace, "", "blob.link", KindPayloadLink) {
+		t.Error("a custom payload-link attribute not recorded")
 	}
 }

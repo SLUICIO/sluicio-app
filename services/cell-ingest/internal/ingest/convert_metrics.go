@@ -21,11 +21,15 @@ import (
 func ConvertMetricsRequest(resourceMetrics []*metricspb.ResourceMetrics) (rows []MetricRow, skipped int) {
 	for _, rm := range resourceMetrics {
 		resourceAttrs := attributesToMap(rm.GetResource().GetAttributes())
+		collectorID := takeCollectorStamp(resourceAttrs)
 		serviceName := resolveServiceName(resourceAttrs)
 		serviceNamespace := resourceAttrs["service.namespace"]
 		for _, sm := range rm.GetScopeMetrics() {
 			for _, m := range sm.GetMetrics() {
 				mRows, mSkipped := convertMetric(m, resourceAttrs, serviceName, serviceNamespace)
+				for i := range mRows {
+					mRows[i].CollectorID = collectorID
+				}
 				rows = append(rows, mRows...)
 				skipped += mSkipped
 			}

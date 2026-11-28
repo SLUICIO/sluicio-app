@@ -12,16 +12,19 @@
 // happens they stop trusting the whole feature. The loss statement is
 // not a disclaimer here; it is the part that makes accepting safe.
 //
-// Nothing on this page changes a collector. Accepting records a
-// decision and leaves a paper trail — the operator still has to paste
-// the snippet. That gap is honest: v1 cannot know the collector
-// changed, so the card says "accepted", and only a later evaluation
-// that stops finding the problem promotes it to "verified".
+// Accepting records a decision and leaves a paper trail; the operator
+// still has to paste the snippet, so the card says "accepted", and only a
+// later evaluation that stops finding the problem promotes it to
+// "verified". With collector management on, most findings can instead be
+// applied to a supervisor-run collector: that becomes a change the
+// collector's team approves, never a change made from here directly.
 
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { AdvisorLedger, AdvisorSuggestion } from "../api/types";
 import { ledgerMessage, runOutcomeMessage } from "../lib/advisorLedger";
+import { useCurrentUser } from "../lib/useCurrentUser";
+import AdvisorCollectorDrawer from "./collectors/AdvisorCollectorDrawer";
 import { formatBytes } from "../lib/format";
 
 type Tab = "telemetry" | "alerting";
@@ -34,12 +37,15 @@ const CLASS_LABEL: Record<string, string> = {
   T4: "High cardinality",
   T5: "Echoed request data",
   T6: "Possible personal data",
+  T7: "Unread internal spans",
   F1: "Ignored alert",
   F2: "Always firing",
   F3: "Flapping",
   F4: "Reaches nobody",
   F5: "Duplicate rules",
 };
+
+const APPLICABLE_CLASSES = new Set(["T1", "T2", "T3", "T5", "T6", "T7"]);
 
 export default function AdvisorPanel() {
   const [tab, setTab] = useState<Tab>("telemetry");
@@ -215,6 +221,17 @@ function SuggestionCard({
   onDecide: (s: AdvisorSuggestion, action: "accept" | "dismiss") => void;
 }) {
   const [copied, setCopied] = useState(false);
+  const [applying, setApplying] = useState(false);
+  const { collectorsEnabled } = useCurrentUser();
+  // What can be applied to a collector. Not T4: a high-cardinality key
+  // is flagged for review, often the one you search by, and a button
+  // that removes it would say the opposite. Not a T6 whose key Sluicio's
+  // own configuration reads: hashing it would break that.
+  const applicable =
+    collectorsEnabled &&
+    APPLICABLE_CLASSES.has(s.class) &&
+    !(s.class === "T6" && s.evidence?.referenced_by_config !== false) &&
+    s.state !== "dismissed";
   const decided = s.state !== "open";
   const compliance = s.evidence?.compliance === true;
 
@@ -282,20 +299,31 @@ function SuggestionCard({
         </details>
       )}
 
-      {!decided && (
+      {(!decided || applicable) && (
         <div style={{ display: "flex", gap: 8 }}>
-          <button className="btn btn--primary btn--sm" disabled={busy} onClick={() => onDecide(s, "accept")}>
-            Accept
-          </button>
-          <button className="btn btn--sm" disabled={busy} onClick={() => onDecide(s, "dismiss")}>
-            Dismiss
-          </button>
+          {!decided && (
+            <button className="btn btn--primary btn--sm" disabled={busy} onClick={() => onDecide(s, "accept")}>
+              Accept
+            </button>
+          )}
+          {applicable && (
+            <button className="btn btn--sm" disabled={busy} onClick={() => setApplying(true)}>
+              Apply to a collector
+            </button>
+          )}
+          {!decided && (
+            <button className="btn btn--sm" disabled={busy} onClick={() => onDecide(s, "dismiss")}>
+              Dismiss
+            </button>
+          )}
         </div>
       )}
+      {applying && <AdvisorCollectorDrawer suggestion={s} onClose={() => setApplying(false)} />}
       {s.state === "accepted" && (
         <p className="muted" style={{ fontSize: 12, margin: 0 }}>
-          Accepted — paste the config into your collector. This will show as verified once the
-          telemetry actually stops arriving.
+          {s.decision_note?.startsWith("Applied to collector")
+            ? `${s.decision_note}. This will show as verified once the telemetry actually stops arriving.`
+            : "Accepted. Paste the config into your collector. This will show as verified once the telemetry actually stops arriving."}
         </p>
       )}
       {s.state === "verified" && (
@@ -329,7 +357,7 @@ function Evidence({ evidence }: { evidence: Record<string, unknown> }) {
             {k.replace(/_/g, " ")}:{" "}
           </dt>
           <dd style={{ display: "inline", margin: 0 }}>
-            {Array.isArray(v) ? v.join(", ") : String(v)}
+            {Array.isArray(v) ? v.join(", ") : typeof v === "boolean" ? (v ? "yes" : "no") : String(v)}
           </dd>
         </div>
       ))}

@@ -297,6 +297,26 @@ func (s *Store) List(ctx context.Context, orgID uuid.UUID, state string, limit i
 }
 
 // PendingCount drives the inbox badge.
+// PendingOfKind lists the pending proposals of one target kind, for a
+// kind whose proposals are visible to some callers only (the count of
+// pending proposals subtracts those a caller cannot see).
+func (s *Store) PendingOfKind(ctx context.Context, orgID uuid.UUID, kind string) ([]Proposal, error) {
+	rows, err := s.pool.Query(ctx, `SELECT `+cols+` FROM proposals WHERE org_id=$1 AND state='pending' AND target_kind=$2`, orgID, kind)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Proposal{}
+	for rows.Next() {
+		p, err := scan(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) PendingCount(ctx context.Context, orgID uuid.UUID) (int, error) {
 	var n int
 	err := s.pool.QueryRow(ctx,

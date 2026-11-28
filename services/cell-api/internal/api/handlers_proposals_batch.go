@@ -198,6 +198,10 @@ func (h *Handlers) decideProposalBatch(w http.ResponseWriter, r *http.Request, d
 	// item stops the batch while it is still whole.
 	var blocked []batchItemDrift
 	for _, p := range pending {
+		if approvesOwn(r, p) {
+			httpserver.WriteError(w, http.StatusForbidden, fmt.Sprintf("%s: %s", p.TargetLabel, errOwnProposal))
+			return
+		}
 		drifted, err := h.checkProposal(r, p)
 		if err == nil || (len(drifted) > 0 && body.Force) {
 			continue

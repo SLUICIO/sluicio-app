@@ -2,8 +2,8 @@
 //
 // Collector management (Beta), end to end: the switch, team tokens, the
 // registry filled by simulated OpAMP agents, team scoping, the
-// collector's page with its tabs and views, masking, removal and the MCP
-// read tools.
+// collector's page with its tabs and views, masking, removal, the MCP
+// read tools, and changing a supervisor-type collector's configuration.
 //
 // Collectors come from services/cell-api/cmd/opamp-fake-agent (opamp-go),
 // built once per run, connecting straight to cell-api:
@@ -13,7 +13,7 @@
 // "switched off" test runs; set E2E_EXPECT_COLLECTORS=1 to make a cell
 // that has it off fail instead of skip.
 import { test, expect, type APIRequestContext, type Browser } from "@playwright/test";
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -28,11 +28,16 @@ const EXPECT_ON = ["1", "true", "yes"].includes((process.env.E2E_EXPECT_COLLECTO
 const AGENT_SECRET = "fake-agent-secret";
 
 let agentBinary = "";
-function fakeAgent(token: string, host: string, n = 1): void {
+function buildAgent(): string {
   if (!agentBinary) {
     agentBinary = path.join(mkdtempSync(path.join(tmpdir(), "opamp-agent-")), "opamp-fake-agent");
     execFileSync("go", ["build", "-o", agentBinary, "./services/cell-api/cmd/opamp-fake-agent"], { cwd: REPO, stdio: "inherit" });
   }
+  return agentBinary;
+}
+
+function fakeAgent(token: string, host: string, n = 1): void {
+  buildAgent();
   // -once: exit after every agent delivered its first message. The
   // collectors then read offline, which is what removal needs.
   const r = spawnSync(agentBinary, ["-url", OPAMP_URL, "-token", token, "-n", String(n), "-host", host, "-http-share", "0.5", "-once"], {
@@ -40,6 +45,12 @@ function fakeAgent(token: string, host: string, n = 1): void {
     timeout: 30_000,
   });
   if (r.status !== 0) throw new Error(`fake agent failed: ${r.stderr}`);
+}
+
+// A supervisor-type agent that stays connected and applies what it is
+// sent, until the test stops it.
+function supervisorAgent(token: string, host: string): ChildProcess {
+  return spawn(buildAgent(), ["-url", OPAMP_URL, "-token", token, "-host", host, "-supervisor", "-for", "180s"], { stdio: "ignore" });
 }
 
 async function collectorsOn(request: APIRequestContext): Promise<boolean> {
@@ -132,7 +143,7 @@ test.describe("Collector management (Beta)", () => {
     await expect(teamAdmin.getByRole("heading", { name: /Collectors/ })).toBeVisible();
     await expect(teamAdmin.getByText("Beta").first()).toBeVisible();
     const section = teamAdmin.locator("section", { has: teamAdmin.getByRole("heading", { name: `e2e-col-a-${stamp}` }) });
-    await section.getByRole("button", { name: "Tokens" }).click();
+    await section.getByRole("button", { name: "Team settings" }).click();
     await teamAdmin.getByPlaceholder(/Token name/).fill("prod hosts");
     await teamAdmin.getByRole("button", { name: "Create token" }).click();
     const shown = teamAdmin.locator(".mono", { hasText: /^sct_[A-Za-z0-9_-]{30,}$/ });
@@ -148,7 +159,7 @@ test.describe("Collector management (Beta)", () => {
     await viewer.goto("/collectors");
     const vSection = viewer.locator("section", { has: viewer.getByRole("heading", { name: `e2e-col-a-${stamp}` }) });
     await expect(vSection).toBeVisible();
-    await expect(vSection.getByRole("button", { name: "Tokens" })).toHaveCount(0);
+    await expect(vSection.getByRole("button", { name: "Team settings" })).toHaveCount(0);
     expect((await viewer.request.post(`/api/v1/settings/groups/${team}/collector-tokens`, { data: { name: "x" } })).status()).toBe(404);
   });
 
@@ -229,6 +240,62 @@ test.describe("Collector management (Beta)", () => {
     }
     expect((await admin.delete(`/api/v1/settings/groups/${teamB}`)).status()).toBe(204);
     teams.splice(teams.indexOf(teamB), 1);
+  });
+
+  test("a supervisor-type collector: change its configuration and see it applied", async ({ page }) => {
+    test.setTimeout(120_000);
+    await logIn(page);
+    test.skip(!(await collectorsOn(page.request)), "collector management is off for this cell");
+    const admin = page.request;
+    test.skip(!(await (await admin.get("/api/v1/collectors")).json()).config_storage, "no collector key on this cell");
+    const team = await makeTeam(admin, `e2e-col-push-${stamp}`);
+    teams.push(team);
+    const token = await mintToken(admin, team);
+    const host = `e2e-sup-${stamp}`;
+    const agent = supervisorAgent(token, host);
+    try {
+      let id = "";
+      await expect
+        .poll(
+          async () => {
+            const list = (await (await admin.get("/api/v1/collectors")).json()).collectors ?? [];
+            const c = list.find((x: { description: Record<string, string> }) => x.description["host.name"] === `${host}-0`);
+            id = c?.id ?? "";
+            return c?.kind;
+          },
+          { timeout: 20_000 },
+        )
+        .toBe("supervisor");
+      await expect.poll(async () => (await admin.get(`/api/v1/collectors/${id}/configs/latest`)).status(), { timeout: 20_000 }).toBe(200);
+      const before: string = (await (await admin.get(`/api/v1/collectors/${id}/configs/latest`)).json()).files[0].body;
+      expect(before).not.toContain(AGENT_SECRET);
+      const edited = before.replace("  batch: {}", "  batch:\n    timeout: 2s");
+      expect(edited).not.toBe(before);
+
+      await page.goto(`/collectors/${id}?tab=configuration`);
+      await page.getByRole("button", { name: "Change configuration" }).click();
+      const editor = page.locator(".cm-content").last();
+      await editor.click();
+      await page.keyboard.press("ControlOrMeta+a");
+      await page.keyboard.insertText(edited);
+      await page.getByRole("button", { name: "Check and review" }).click();
+      await expect(page.getByText("timeout: 2s").last()).toBeVisible();
+      await page.getByPlaceholder(/drop debug logs/).fill("e2e: batch timeout");
+      await page.getByRole("button", { name: "Send to collector" }).click();
+      await expect(page.getByText(/^Sent\./)).toBeVisible();
+
+      await page.goto(`/collectors/${id}?tab=deployments`);
+      await expect(page.getByText("e2e: batch timeout")).toBeVisible();
+      await expect(page.getByText("Applied")).toBeVisible({ timeout: 20_000 });
+      // The collector reported the new configuration; the secret it got
+      // back from the server is masked again on the way out.
+      const after = await (await admin.get(`/api/v1/collectors/${id}/configs/latest`)).text();
+      expect(after).toContain("timeout: 2s");
+      expect(after).not.toContain(AGENT_SECRET);
+      expect(await page.content()).not.toContain(AGENT_SECRET);
+    } finally {
+      agent.kill();
+    }
   });
 
   test("MCP read tools see the caller's teams, masked", async ({ page }) => {

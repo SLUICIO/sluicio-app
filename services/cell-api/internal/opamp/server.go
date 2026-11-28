@@ -42,10 +42,13 @@ const Path = "/api/v1/opamp"
 // the library default of 64 MiB is far more than a collector needs.
 const maxMessageSize = 16 << 20
 
-// serverCapabilities is what stage 1 offers: it takes status and the
-// effective configuration, and offers no remote configuration.
+// serverCapabilities: the server takes status and the effective
+// configuration, and offers remote configuration to the agents that
+// accept it (the supervisor type). Nothing is offered unless someone
+// with the rights to change the collector sends a configuration.
 const serverCapabilities = uint64(protobufs.ServerCapabilities_ServerCapabilities_AcceptsStatus |
-	protobufs.ServerCapabilities_ServerCapabilities_AcceptsEffectiveConfig)
+	protobufs.ServerCapabilities_ServerCapabilities_AcceptsEffectiveConfig |
+	protobufs.ServerCapabilities_ServerCapabilities_OffersRemoteConfig)
 
 // Registry is the part of collectors.Store the server writes to, so the
 // protocol handling can be tested without Postgres.
@@ -55,6 +58,10 @@ type Registry interface {
 	Observe(ctx context.Context, o collectors.Observation) (uuid.UUID, bool, error)
 	RecordConfig(ctx context.Context, collectorID uuid.UUID, files []collectors.ConfigFile) (bool, error)
 	Disconnected(ctx context.Context, groupID uuid.UUID, instanceUID string) error
+	NextToDeliver(ctx context.Context, collectorID uuid.UUID) (*collectors.Deployment, string, error)
+	MarkSent(ctx context.Context, id uuid.UUID) error
+	ReportStatus(ctx context.Context, collectorID uuid.UUID, hash string, status collectors.DeploymentStatus, errMsg string) error
+	ExpireDue(ctx context.Context, now time.Time) ([]collectors.Expiry, []uuid.UUID, error)
 }
 
 // Server holds the live connections.
@@ -90,6 +97,20 @@ type connState struct {
 	// own message callback, read by the reaper: guarded by Server.mu.
 	lastMsg   time.Time
 	heartbeat bool
+	// collectorID, acceptsRemote and sentHash serve delivery: which
+	// registry row this agent is, whether it takes a configuration, and
+	// what was last delivered on this connection, so a configuration
+	// is not sent again with every heartbeat.
+	collectorID   uuid.UUID
+	acceptsRemote bool
+	sentHash      string
+	instanceBytes []byte
+	// runsHash is the remote configuration the agent last said it applied,
+	// cleared when it reports anything else or is sent another. A
+	// deployment of exactly that configuration (a Restore of what it
+	// runs) is complete as it stands: the agent would not answer for a
+	// configuration it already has.
+	runsHash string
 }
 
 // staleAfter is how long a WebSocket agent that reports heartbeats may be
@@ -222,10 +243,93 @@ func (s *Server) DisconnectToken(tokenID uuid.UUID) int {
 	return len(conns)
 }
 
+// remoteConfigFor returns the configuration waiting for this agent, if it
+// takes one and does not have it yet, and records the delivery.
+func (s *Server) remoteConfigFor(ctx context.Context, st *connState, agentHas string) *protobufs.AgentRemoteConfig {
+	s.mu.Lock()
+	accepts, id, sent, runs := st.acceptsRemote, st.collectorID, st.sentHash, st.runsHash
+	s.mu.Unlock()
+	if !accepts || id == uuid.Nil {
+		return nil
+	}
+	d, body, err := s.reg.NextToDeliver(ctx, id)
+	if err != nil {
+		s.logger.Warn("opamp: read pending configuration failed", "err", err)
+		return nil
+	}
+	if d != nil && runs != "" && d.Hash == runs {
+		if err := s.reg.ReportStatus(ctx, id, d.Hash, collectors.DeploymentApplied, ""); err != nil {
+			s.logger.Warn("opamp: complete configuration already running failed", "err", err)
+		}
+		return nil
+	}
+	if d == nil || agentHas == d.Hash || (d.Status != collectors.DeploymentPending && sent == d.Hash) {
+		return nil
+	}
+	if err := s.reg.MarkSent(ctx, d.ID); err != nil {
+		s.logger.Warn("opamp: mark sent failed", "err", err)
+	}
+	s.mu.Lock()
+	st.sentHash, st.runsHash = d.Hash, ""
+	s.mu.Unlock()
+	return &protobufs.AgentRemoteConfig{
+		Config: &protobufs.AgentConfigMap{ConfigMap: map[string]*protobufs.AgentConfigObject{
+			"": {Body: []byte(body), ContentType: "text/yaml"},
+		}},
+		ConfigHash: []byte(d.Hash),
+	}
+}
+
+// Deliver sends the waiting configuration to a collector connected over
+// WebSocket now, rather than at its next message. An agent on plain HTTP
+// gets it at its next poll. Returns whether it was sent.
+func (s *Server) Deliver(ctx context.Context, collectorID uuid.UUID) bool {
+	s.mu.Lock()
+	var conn types.Connection
+	var st *connState
+	for c, x := range s.live {
+		if x.collectorID == collectorID && x.acceptsRemote {
+			conn, st = c, x
+			break
+		}
+	}
+	s.mu.Unlock()
+	if conn == nil {
+		return false
+	}
+	rc := s.remoteConfigFor(ctx, st, "")
+	if rc == nil {
+		return false
+	}
+	s.mu.Lock()
+	instance := st.instanceBytes
+	s.mu.Unlock()
+	msg := &protobufs.ServerToAgent{InstanceUid: instance, Capabilities: serverCapabilities, RemoteConfig: rc}
+	if err := conn.Send(ctx, msg); err != nil {
+		s.logger.Warn("opamp: deliver configuration failed", "err", err)
+		return false
+	}
+	return true
+}
+
+func deploymentStatus(s protobufs.RemoteConfigStatuses) (collectors.DeploymentStatus, bool) {
+	switch s {
+	case protobufs.RemoteConfigStatuses_RemoteConfigStatuses_APPLYING:
+		return collectors.DeploymentApplying, true
+	case protobufs.RemoteConfigStatuses_RemoteConfigStatuses_APPLIED:
+		return collectors.DeploymentApplied, true
+	case protobufs.RemoteConfigStatuses_RemoteConfigStatuses_FAILED:
+		return collectors.DeploymentFailed, true
+	}
+	return "", false
+}
+
 // Run closes stale WebSocket connections until ctx ends. See staleAfter.
 func (s *Server) Run(ctx context.Context) {
 	t := time.NewTicker(staleAfter / 3)
 	defer t.Stop()
+	exp := time.NewTicker(expirySweep)
+	defer exp.Stop()
 	for {
 		select {
 		case <-ctx.Done():
@@ -234,7 +338,30 @@ func (s *Server) Run(ctx context.Context) {
 			if n := s.reap(now); n > 0 {
 				s.logger.Info("opamp: closed silent agent connections", "count", n)
 			}
+		case now := <-exp.C:
+			s.expire(ctx, now)
 		}
+	}
+}
+
+// expirySweep is how often time-limited deployments are checked: a
+// temporary change ends at most this long after its time is up.
+const expirySweep = 10 * time.Second
+
+// expire ends temporary deployments whose time is up and sends their
+// collectors the base; the server enforces the end, so it happens with
+// nobody watching. An offline collector gets the base when it connects.
+func (s *Server) expire(ctx context.Context, now time.Time) {
+	ended, free, err := s.reg.ExpireDue(ctx, now)
+	if err != nil {
+		s.logger.Warn("opamp: expire temporary deployments failed", "err", err)
+	}
+	for _, e := range ended {
+		s.logger.Info("opamp: temporary configuration expired", "collector", e.CollectorID, "deployment", e.Ended, "base", e.Base.ID)
+		s.Deliver(ctx, e.CollectorID)
+	}
+	for _, id := range free {
+		s.Deliver(ctx, id)
 	}
 }
 
@@ -281,6 +408,7 @@ func (s *Server) onMessage(ctx context.Context, st *connState, msg *protobufs.Ag
 	st.lastMsg = time.Now()
 	if msg.Capabilities != 0 {
 		st.heartbeat = msg.Capabilities&uint64(protobufs.AgentCapabilities_AgentCapabilities_ReportsHeartbeat) != 0
+		st.acceptsRemote = msg.Capabilities&uint64(protobufs.AgentCapabilities_AgentCapabilities_AcceptsRemoteConfig) != 0
 	}
 	s.mu.Unlock()
 
@@ -313,6 +441,29 @@ func (s *Server) onMessage(ctx context.Context, st *connState, msg *protobufs.Ag
 		return resp
 	}
 
+	s.mu.Lock()
+	st.collectorID = id
+	st.instanceBytes = msg.InstanceUid
+	s.mu.Unlock()
+
+	// What the agent says about a configuration it was sent.
+	agentHas := ""
+	if rs := msg.RemoteConfigStatus; rs != nil && len(rs.LastRemoteConfigHash) > 0 {
+		agentHas = string(rs.LastRemoteConfigHash)
+		s.mu.Lock()
+		if rs.Status == protobufs.RemoteConfigStatuses_RemoteConfigStatuses_APPLIED {
+			st.runsHash = agentHas
+		} else {
+			st.runsHash = ""
+		}
+		s.mu.Unlock()
+		if status, ok := deploymentStatus(rs.Status); ok {
+			if err := s.reg.ReportStatus(ctx, id, agentHas, status, rs.ErrorMessage); err != nil {
+				s.logger.Warn("opamp: record remote config status failed", "err", err)
+			}
+		}
+	}
+
 	if ec := msg.EffectiveConfig; ec != nil && ec.ConfigMap != nil {
 		if _, err := s.reg.RecordConfig(ctx, id, files(ec.ConfigMap)); err != nil && !errors.Is(err, collectors.ErrNoKey) {
 			s.logger.Error("opamp: store effective config failed", "err", err)
@@ -322,6 +473,10 @@ func (s *Server) onMessage(ctx context.Context, st *connState, msg *protobufs.Ag
 		if err := s.reg.Disconnected(ctx, st.ref.GroupID, uid); err != nil {
 			s.logger.Warn("opamp: mark disconnected failed", "err", err)
 		}
+	}
+
+	if rc := s.remoteConfigFor(ctx, st, agentHas); rc != nil {
+		resp.RemoteConfig = rc
 	}
 
 	// Agents send only what changed since their last message. An agent

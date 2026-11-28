@@ -36,6 +36,7 @@ import (
 	"github.com/sluicio/sluicio-app/pkg/httpserver"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/alerting"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/api/middleware"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/identity"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/proposals"
 )
 
@@ -61,6 +62,110 @@ type proposalTarget struct {
 	// apply writes the approved values, as the reviewer whose request r
 	// is.
 	apply func(h *Handlers, r *http.Request, id *uuid.UUID, changes []proposals.Change) error
+	// mayDecide, when set, replaces the org-wide write gate for deciding
+	// this kind: deciding is gated like making the change by hand, and
+	// for a kind owned by a team (a collector) that is the team's right,
+	// which an org viewer who edits in the team has and an org editor
+	// outside it does not.
+	mayDecide func(h *Handlers, r *http.Request, p proposals.Proposal) bool
+	// visible, when set, limits who sees a proposal of this kind at all:
+	// the inbox, its count and a single read. For a kind owned by a team
+	// (a collector), only those who can see what it changes; everything
+	// else stays visible to the whole organization, as before.
+	visible func(h *Handlers, r *http.Request, p proposals.Proposal) bool
+	// secondPerson: whoever filed a proposal of this kind cannot approve
+	// it, user or service account alike. For a kind whose proposals exist
+	// because a team requires approval (a collector change), approving
+	// your own would make the requirement nothing.
+	secondPerson bool
+}
+
+// filedBy reports whether the request's principal filed the proposal.
+// A service account is compared by its own id: its requests carry no
+// user, so a check on users alone would let a pipeline token approve
+// what it proposed.
+func filedBy(pr identity.Principal, p proposals.Proposal) bool {
+	if p.ProposedByID == nil {
+		return false
+	}
+	switch p.ProposedByKind {
+	case "service_account":
+		return pr.ServiceAccountID != nil && *pr.ServiceAccountID == *p.ProposedByID
+	case "user":
+		return pr.ServiceAccountID == nil && pr.UserID != nil && *pr.UserID == *p.ProposedByID
+	}
+	return false
+}
+
+// errOwnProposal is the answer to approving a secondPerson kind you filed.
+const errOwnProposal = "a change is approved by someone other than its author"
+
+// approvesOwn reports whether approving p would be its author approving it.
+func approvesOwn(r *http.Request, p proposals.Proposal) bool {
+	t, ok := proposalTargets[p.TargetKind]
+	return ok && t.secondPerson && filedBy(middleware.Principal(r), p)
+}
+
+// proposalVisible applies the kind's visibility rule, if it has one.
+func (h *Handlers) proposalVisible(r *http.Request, p proposals.Proposal) bool {
+	if t, ok := proposalTargets[p.TargetKind]; ok && t.visible != nil {
+		return t.visible(h, r, p)
+	}
+	return true
+}
+
+// pendingProposalCount is the number of pending proposals the caller can
+// see: the organization's count less the pending proposals of kinds with
+// a visibility rule that the caller cannot see.
+func (h *Handlers) pendingProposalCount(r *http.Request, orgID uuid.UUID) (int, error) {
+	n, err := h.Proposals.PendingCount(r.Context(), orgID)
+	if err != nil {
+		return 0, err
+	}
+	for kind, t := range proposalTargets {
+		if t.visible == nil {
+			continue
+		}
+		list, err := h.Proposals.PendingOfKind(r.Context(), orgID, kind)
+		if err != nil {
+			return 0, err
+		}
+		for _, p := range list {
+			if !t.visible(h, r, p) {
+				n--
+			}
+		}
+	}
+	return n, nil
+}
+
+// proposalDecisionGate gates approving or rejecting one proposal: the
+// kind's own mayDecide when it has one, the org-wide write gate
+// otherwise. A proposal that cannot be read falls through to the default
+// gate, and the handler answers for it.
+func (h *Handlers) proposalDecisionGate(next http.HandlerFunc) http.HandlerFunc {
+	gated := h.writeAnywhere(next)
+	return func(w http.ResponseWriter, r *http.Request) {
+		if h.Proposals != nil {
+			if id, err := uuid.Parse(r.PathValue("id")); err == nil {
+				if p, err := h.Proposals.Get(r.Context(), middleware.OrgID(r), id); err == nil {
+					if !h.proposalVisible(r, p) {
+						httpserver.WriteError(w, http.StatusNotFound, "not found")
+						return
+					}
+					if t, ok := proposalTargets[p.TargetKind]; ok && t.mayDecide != nil {
+						if !t.mayDecide(h, r, p) {
+							httpserver.WriteError(w, http.StatusForbidden, "insufficient role for this action")
+							return
+						}
+						next(w, r)
+						return
+					}
+				}
+			}
+		}
+		gated(w, r)
+	}
 }
 
 // alertRuleTunables are the knobs an agent may propose changing on an
@@ -380,7 +485,14 @@ func (h *Handlers) listProposals(w http.ResponseWriter, r *http.Request) {
 		httpserver.WriteError(w, http.StatusInternalServerError, "query failed")
 		return
 	}
-	pending, err := h.Proposals.PendingCount(r.Context(), orgID)
+	shown := list[:0]
+	for _, p := range list {
+		if h.proposalVisible(r, p) {
+			shown = append(shown, p)
+		}
+	}
+	list = shown
+	pending, err := h.pendingProposalCount(r, orgID)
 	if err != nil {
 		h.Logger.Warn("proposal pending count failed", "err", err)
 	}
@@ -404,7 +516,7 @@ func (h *Handlers) getProposal(w http.ResponseWriter, r *http.Request) {
 	}
 	orgID := middleware.OrgID(r)
 	p, err := h.Proposals.Get(r.Context(), orgID, id)
-	if errors.Is(err, proposals.ErrNotFound) {
+	if errors.Is(err, proposals.ErrNotFound) || (err == nil && !h.proposalVisible(r, p)) {
 		httpserver.WriteError(w, http.StatusNotFound, "not found")
 		return
 	}
@@ -478,6 +590,10 @@ func (h *Handlers) decideProposal(w http.ResponseWriter, r *http.Request, decisi
 	// before the state flip: a proposal recorded as approved whose apply
 	// failed would be a lie in the audit trail.
 	if decision == "approved" {
+		if approvesOwn(r, p) {
+			httpserver.WriteError(w, http.StatusForbidden, errOwnProposal)
+			return
+		}
 		if drifted, err := h.checkProposal(r, p); err != nil {
 			if len(drifted) > 0 && !body.Force {
 				httpserver.WriteJSON(w, http.StatusConflict, map[string]any{

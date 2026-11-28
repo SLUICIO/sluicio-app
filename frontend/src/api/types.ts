@@ -3523,6 +3523,15 @@ export interface CollectorHealth {
   components?: Record<string, CollectorHealth>;
 }
 
+export interface CollectorDrift {
+  deployment_id: string;
+  paths: { path: string; kind: "missing" | "changed" | "added" | "removed" }[];
+  checked_at: string;
+  // The baseline is a configuration someone accepted after the rollout.
+  accepted_at?: string;
+  accepted_by?: string;
+}
+
 export interface Collector {
   id: string;
   group_id: string;
@@ -3541,6 +3550,16 @@ export interface Collector {
   last_seen_at: string;
   config_hash?: string;
   config_received_at?: string;
+  // Who owns the configuration: Sluicio, or the team's own pipeline (then
+  // Sluicio sends nothing from its UI and offers changes as a diff).
+  config_owner?: "sluicio" | "pipeline";
+  // Whether it still runs what was last rolled out to it, and nothing
+  // changed since; absent when not applicable. Paths only, never values.
+  drift?: CollectorDrift;
+  // Where its configuration as written holds a secret in plain text
+  // instead of an ${env:...} reference, since plain_secrets_at. Paths only.
+  plain_secrets?: string[];
+  plain_secrets_at?: string;
 }
 
 export interface CollectorsResponse {
@@ -3562,6 +3581,125 @@ export interface CollectorDetailResponse {
   config_storage: boolean;
   // The caller may remove this collector (team admins, org admins).
   can_manage: boolean;
+  // The caller may send it a configuration, and it takes one.
+  can_push: boolean;
+  // A change waits for approval before it is sent (Enterprise).
+  require_approval: boolean;
+  // The collector puts its own id on the data it carries.
+  stamped?: boolean;
+}
+
+export type DeploymentStatus =
+  | "proposed"
+  | "pending"
+  | "held"
+  | "sent"
+  | "applying"
+  | "applied"
+  | "failed"
+  | "superseded"
+  | "ended";
+
+export interface CollectorDeployment {
+  id: string;
+  collector_id: string;
+  hash: string;
+  status: DeploymentStatus;
+  error_message?: string;
+  message?: string;
+  created_by_name?: string;
+  via: string;
+  proposal_id?: string;
+  // State of the proposal a proposed deployment waits on.
+  proposal_state?: string;
+  // A time-limited change: its length, when it ends (set once applied),
+  // and how it ended (expired, ended).
+  duration_seconds?: number;
+  expires_at?: string;
+  ended_at?: string;
+  ended_reason?: string;
+  // A change made from an Advisor suggestion, and what it drops.
+  advisor_suggestion_id?: string;
+  advisor_class?: string;
+  advisor_target?: { metric?: string; service?: string; below?: string };
+  rolled_back_from?: string;
+  created_at: string;
+  sent_at?: string;
+  finished_at?: string;
+}
+
+// An Advisor suggestion applied to one collector (stage 3).
+export interface AdvisorPipelineSkip {
+  pipeline: string;
+  reason: string;
+}
+// A Prometheus scrape job a metric is dropped in, instead of a filter in
+// the pipelines it feeds.
+export interface AdvisorScrapeJob {
+  receiver: string;
+  job: string;
+}
+export interface AdvisorCollectorRow {
+  collector: Collector;
+  changed: string[];
+  skipped: AdvisorPipelineSkip[];
+  already_dropped: boolean;
+  scrape_jobs?: AdvisorScrapeJob[];
+  unavailable?: string;
+  // The collector stamps its data; carried is how much of this telemetry
+  // came through it in the last 24 hours (absent when unknown).
+  stamped?: boolean;
+  carried?: number;
+}
+export interface AdvisorCollectorChange {
+  before: string;
+  config: string;
+  changed: string[];
+  skipped: AdvisorPipelineSkip[];
+  already_dropped: boolean;
+  scrape_jobs?: AdvisorScrapeJob[];
+  unavailable?: string;
+}
+
+// What an applied Advisor change did to its metric's volume (stage 3).
+export interface MetricEffectWindow {
+  from: string;
+  to: string;
+  rows: number;
+  per_hour: number;
+}
+export interface CollectorDeploymentEffect {
+  // What the change drops: a metric, or "<service>'s logs below WARN".
+  subject: string;
+  applied: boolean;
+  // With the collector stamped: what came through this collector alone.
+  collector_effect?: CollectorDeploymentEffect["effect"];
+  effect?: {
+    applied_at: string;
+    ready: boolean;
+    before: MetricEffectWindow;
+    after: MetricEffectWindow;
+    change_pct?: number;
+  };
+}
+
+export interface CollectorValidation {
+  valid: boolean;
+  diagnostics: { severity: string; message: string; path?: string; line?: number; hint?: string }[] | null;
+  checked_version?: string;
+}
+
+export interface CollectorSendResult {
+  deployment: CollectorDeployment;
+  delivered?: boolean;
+  proposal?: { id: string };
+  validation?: CollectorValidation | null;
+}
+
+export interface CollectorDeploymentDiff {
+  deployment: CollectorDeployment;
+  before: string;
+  after: string;
 }
 
 export interface CollectorConfigFile {

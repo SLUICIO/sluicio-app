@@ -623,3 +623,122 @@ func TestRealCollectors(t *testing.T) {
 	}
 	t.Logf("final registry:\n%s", buf.String())
 }
+
+// Stage 2 against a real supervisor 0.166.0: a configuration edited on its
+// masked form is sent, applied, and the collector delivers what the new
+// configuration says; a configuration the collector cannot run is
+// reported failed, with the reason, and the collector keeps delivering.
+func TestRealSupervisorPush(t *testing.T) {
+	pool, ctx := newDB(t)
+	keys := newKeys(t)
+	store := collectors.New(pool, keys)
+	org := seedOrg(t, ctx, pool, "acme")
+	team := seedTeam(t, ctx, pool, org, "platform")
+	token, _, _ := store.CreateToken(ctx, org, team, "probe", nil)
+
+	certDir := t.TempDir()
+	tlsCfg := probeTLS(t, certDir)
+	caPEM, _ := os.ReadFile(filepath.Join(certDir, "ca.pem"))
+	op, err := opamp.New(store, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ep := &endpoint{t: t, addr: "127.0.0.1:0", op: op, tls: tlsCfg}
+	ep.start()
+	sk := &sink{}
+	sinkLn, _ := net.Listen("tcp", "127.0.0.1:0")
+	sinkSrv := &http.Server{Handler: sk, ReadHeaderTimeout: 10 * time.Second}
+	go func() { _ = sinkSrv.Serve(sinkLn) }()
+	t.Cleanup(func() { _ = sinkSrv.Close() })
+	_, sinkPort, _ := net.SplitHostPort(sinkLn.Addr().String())
+
+	base := strings.Replace(baseConfig(sinkPort, "load"), "service:\n", "extensions:\n  opamp:\n    reports_raw_config: true\nservice:\n", 1)
+	startContainer(t, ctx, "supervisor-push", testcontainers.ContainerRequest{
+		FromDockerfile: supervisorWithCollector(t),
+		Cmd:            []string{"--config", "/etc/otel/supervisor.yaml"},
+		Tmpfs:          map[string]string{"/data": "rw,mode=1777"},
+		Files: []testcontainers.ContainerFile{
+			file(string(caPEM), "/certs/ca.pem"),
+			// The recommended guards for a pushed configuration: check it
+			// before restarting the collector, and go back to the last
+			// working one if it still does not start.
+			file(strings.Replace(supervisorConfig(ep.port(), token), "agent:\n", "agent:\n  validate_config: true\n  automatic_config_rollback: true\n", 1), "/etc/otel/supervisor.yaml"),
+			file(base, "/etc/otel/base.yaml"),
+		},
+	})
+
+	all := collectors.Scope{OrgID: org, All: true}
+	var sup collectors.Collector
+	waitUntil(t, "the supervisor with its configuration as written", 3*time.Minute, func() bool {
+		l, _ := store.List(ctx, all)
+		if len(l) != 1 || l[0].ConfigHash == "" {
+			return false
+		}
+		sup = l[0]
+		raw, err := store.LatestRaw(ctx, sup.ID)
+		return err == nil && strings.Contains(raw, "load")
+	})
+	if sup.Kind != collectors.KindSupervisor {
+		t.Fatalf("kind %s", sup.Kind)
+	}
+
+	send := func(edit func(string) string) collectors.Deployment {
+		t.Helper()
+		raw, _ := store.LatestRaw(ctx, sup.ID)
+		masked, _ := collectors.MaskConfig(raw)
+		restored, err := collectors.RestoreSecrets(edit(masked), raw, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		payload, err := collectors.PrepareRemote(restored)
+		if err != nil {
+			t.Fatal(err)
+		}
+		d, err := store.CreateDeployment(ctx, collectors.NewDeployment{CollectorID: sup.ID, Body: payload, Via: "probe"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !op.Deliver(ctx, sup.ID) {
+			t.Log("not delivered at once; waiting for the next message")
+		}
+		return d
+	}
+	status := func(id uuid.UUID) collectors.Deployment {
+		l, _ := store.Deployments(ctx, sup.ID, 10)
+		for _, d := range l {
+			if d.ID == id {
+				return d
+			}
+		}
+		return collectors.Deployment{}
+	}
+
+	// 1. A change: CPU metrics instead of load.
+	good := send(func(m string) string { return strings.Replace(m, "load: {}", "cpu: {}", 1) })
+	waitUntil(t, "the change applied", 2*time.Minute, func() bool { return status(good.ID).Status == collectors.DeploymentApplied })
+	applied := time.Now()
+	waitUntil(t, "CPU metrics from the new configuration", time.Minute, func() bool {
+		return sk.count(applied, hasMetricPrefix("system.cpu")) > 0
+	})
+	raw, _ := store.LatestRaw(ctx, sup.ID)
+	t.Logf("applied in %s; raw now has cpu=%v load=%v", status(good.ID).FinishedAt.Sub(good.CreatedAt).Round(time.Millisecond),
+		strings.Contains(raw, "cpu: {}"), strings.Contains(raw, "load: {}"))
+
+	// 2. A configuration the collector cannot run.
+	bad := send(func(m string) string {
+		return strings.Replace(m, "receivers:\n", "receivers:\n  no_such_receiver: {}\n", 1)
+	})
+	waitUntil(t, "the bad configuration reported", 2*time.Minute, func() bool {
+		s := status(bad.ID).Status
+		return s == collectors.DeploymentFailed || s == collectors.DeploymentApplied
+	})
+	got := status(bad.ID)
+	t.Logf("bad configuration: status=%s error=%q", got.Status, got.ErrorMessage)
+	if got.Status != collectors.DeploymentFailed || got.ErrorMessage == "" {
+		t.Fatalf("a configuration the collector cannot run was reported %s (%q)", got.Status, got.ErrorMessage)
+	}
+	after := time.Now()
+	waitUntil(t, "the collector still delivering after the failed change", time.Minute, func() bool {
+		return sk.count(after, hasMetricPrefix("system.cpu")) > 0
+	})
+}

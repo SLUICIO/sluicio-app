@@ -832,7 +832,13 @@ func main() {
 		Facets:      facetMappingsStore,
 		Dashboards:  dashboardStore,
 		Catalog:     catalogStore,
-		Log:         logger,
+		// Readers in code rather than in a query: an integration's message
+		// columns, filters and sources, the payload-link attributes, and
+		// rules bound to a system.
+		Integrations: integrationStore,
+		PayloadLinks: handlers.PayloadLinks,
+		Systems:      catalogStore,
+		Log:          logger,
 	}
 	go demandSweeper.Run(bgCtx)
 	logger.Info("demand ledger started")
@@ -850,6 +856,9 @@ func main() {
 		CH:       chConn,
 		Log:      logger,
 		Entitled: func() bool { return licenseMgr.Entitled(license.FeatureAdvisor) },
+		// What the org's system types detect by, and the environment
+		// attribute: read in code, so never suggested for dropping.
+		Reserved: handlers.AdvisorReserved,
 		Orgs: func(context.Context) ([]uuid.UUID, error) {
 			// Single-org per cell today (integrations.DefaultOrgID); the
 			// signature takes a list so multi-tenant cells need no change
@@ -941,6 +950,15 @@ func main() {
 			logger.Warn("SLUICIO_COLLECTOR_CONFIG_KEY is not set; collectors register but their configurations are not stored")
 		}
 		store := collectors.New(pg, keys)
+		// A secret written into a configuration in plain text: its team
+		// is told, with where it is and never what it is.
+		store.OnPlainSecrets = func(ctx context.Context, n collectors.PlainSecretsNotice) {
+			logger.Info("collector configuration holds a secret in plain text", "collector", n.CollectorID, "paths", n.Added)
+			group := n.GroupID
+			handlers.Events.Emit(ctx, n.OrgID, "com.sluicio.collector.plain_secret", n.CollectorID.String(),
+				eventsubs.Audience{GroupID: &group},
+				map[string]any{"collector_id": n.CollectorID.String(), "collector": n.Name, "group_id": n.GroupID.String(), "added": n.Added, "paths": n.All})
+		}
 		if err := store.ResetConnections(ctx); err != nil {
 			logger.Warn("could not reset collector connection state", "err", err)
 		}
@@ -959,6 +977,12 @@ func main() {
 				os.Exit(1)
 			}
 			handlers.OtelflowURL = strings.TrimSuffix(u, "/") + "/"
+		}
+		// The same OTelFlow as cell-api reaches it, to check a configuration
+		// before it is sent (http://otelflow:7317/otelflow). Unset: no check
+		// here; the collector checks it when it applies it.
+		if u := env.String("SLUICIO_OTELFLOW_INTERNAL_URL", ""); u != "" {
+			handlers.OtelflowValidator = &collectors.Validator{BaseURL: u}
 		}
 		logger.Info("collector management enabled (Beta)", "endpoint", opamp.Path, "config_storage", keys != nil)
 	}

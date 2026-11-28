@@ -50,7 +50,7 @@ const evidenceHorizon = 400 * 24 * time.Hour
 // produces, so reconciliation knows which open findings this run was
 // responsible for and can retire the ones it did not reproduce.
 var (
-	telemetryClasses = []string{"T1", "T2", "T3", "T4", "T5", "T6"}
+	telemetryClasses = []string{"T1", "T2", "T3", "T4", "T5", "T6", "T7"}
 	alertingClasses  = []string{"F1", "F2", "F3", "F4", "F5"}
 )
 
@@ -75,6 +75,10 @@ type Engine struct {
 	// service name asks for the org default. Optional; nil means the
 	// newest version this build knows.
 	CollectorTarget func(ctx context.Context, orgID uuid.UUID, service string) collectorversion.Target
+	// Reserved reports what an org's configuration reads in code (system
+	// detection, the environment attribute), which the demand ledger
+	// cannot show. Optional.
+	Reserved func(ctx context.Context, orgID uuid.UUID) Reserved
 	// Every defaults to 24h.
 	Every time.Duration
 	// Window overrides the observation window. Zero means the shipped
@@ -234,10 +238,14 @@ func (e *Engine) RunOrg(ctx context.Context, orgID uuid.UUID) error {
 				return e.CollectorTarget(ctx, orgID, service)
 			}
 		}
+		var reserved Reserved
+		if e.Reserved != nil {
+			reserved = e.Reserved(ctx, orgID)
+		}
 		tele, err := EvaluateTelemetry(ctx, TelemetryInput{
 			OrgID: orgID, Conn: e.CH, Demand: dem,
 			From: from, To: now, IntegrationServices: intSvcs,
-			Target: target,
+			Target: target, Reserved: reserved,
 		})
 		if err != nil {
 			// A ClickHouse hiccup must not wipe the alerting findings

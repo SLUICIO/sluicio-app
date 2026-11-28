@@ -162,6 +162,10 @@ type Handlers struct {
 	// only. Never defaulted to a public instance: the configuration it is
 	// handed must not leave the cell.
 	OtelflowURL string
+	// OtelflowValidator checks a configuration with the cell's OTelFlow
+	// before it is sent (SLUICIO_OTELFLOW_INTERNAL_URL). Nil: not checked
+	// here; the collector still checks it when it applies it.
+	OtelflowValidator *collectors.Validator
 	// ErrorAcks holds per-service "clear errors" watermarks. When set,
 	// service health/error-count ignores error traces at or before a
 	// service's watermark. Nil-safe — handlers treat nil as "no acks".
@@ -1526,6 +1530,24 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 		mux.HandleFunc("GET /api/v1/collectors/{id}", h.getCollector)
 		mux.HandleFunc("GET /api/v1/collectors/{id}/configs/{version}", h.getCollectorConfig)
 		mux.HandleFunc("DELETE /api/v1/collectors/{id}", h.blockDemo(h.deleteCollector))
+		// Stage 2: sending a configuration. Open core: the owner team's
+		// editors and admins, and org admins, send directly; a CI pipeline
+		// uses the same route with a service account token. Enterprise
+		// (advisor): a team can require approval (the send becomes a
+		// proposal), and an applied configuration can be restored.
+		mux.HandleFunc("POST /api/v1/collectors/{id}/validate", h.validateCollectorConfig)
+		mux.HandleFunc("GET /api/v1/collectors/{id}/deployments", h.listCollectorDeployments)
+		mux.HandleFunc("POST /api/v1/collectors/{id}/deployments", h.blockDemo(h.createCollectorDeployment))
+		mux.HandleFunc("GET /api/v1/collectors/{id}/deployments/{dep}/diff", h.collectorDeploymentDiff)
+		mux.HandleFunc("GET /api/v1/collectors/{id}/volume", h.requireFeature(license.FeatureAdvisor, h.collectorVolume))
+		mux.HandleFunc("GET /api/v1/collectors/{id}/stamp", h.requireFeature(license.FeatureAdvisor, h.previewCollectorStamp))
+		mux.HandleFunc("PUT /api/v1/collectors/{id}/owner", h.blockDemo(h.setCollectorOwner))
+		mux.HandleFunc("POST /api/v1/collectors/{id}/drift/accept", h.blockDemo(h.acceptCollectorDrift))
+		mux.HandleFunc("POST /api/v1/collectors/{id}/deployments/{dep}/end", h.requireFeature(license.FeatureAdvisor, h.blockDemo(h.endCollectorDeployment)))
+		mux.HandleFunc("GET /api/v1/collectors/{id}/deployments/{dep}/effect", h.requireFeature(license.FeatureAdvisor, h.collectorDeploymentEffect))
+		mux.HandleFunc("POST /api/v1/collectors/{id}/deployments/{dep}/rollback", h.requireFeature(license.FeatureAdvisor, h.blockDemo(h.rollbackCollectorDeployment)))
+		mux.HandleFunc("GET /api/v1/settings/groups/{id}/collector-settings", h.getCollectorTeamSettings)
+		mux.HandleFunc("PUT /api/v1/settings/groups/{id}/collector-settings", h.requireFeature(license.FeatureAdvisor, h.blockDemo(h.putCollectorTeamSettings)))
 		mux.HandleFunc("GET /api/v1/collector-teams", h.listCollectorTeams)
 		mux.HandleFunc("GET /api/v1/settings/groups/{id}/collector-tokens", h.listCollectorTokens)
 		mux.HandleFunc("POST /api/v1/settings/groups/{id}/collector-tokens", h.blockDemo(h.createCollectorToken))
@@ -1883,13 +1905,15 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 		// nothing by creating one. DECIDING is gated exactly like making
 		// the change by hand (writeAnywhere, same as PUT /alert-rules) —
 		// approval must never be a cheaper path to a write than the UI.
+		// A kind owned by a team (a collector configuration) is decided by
+		// whoever could make that change: proposalDecisionGate asks the kind.
 		mux.HandleFunc("POST /api/v1/proposals", h.createProposal)
 		mux.HandleFunc("GET /api/v1/proposals", h.listProposals)
 		mux.HandleFunc("GET /api/v1/proposals/{id}", h.getProposal)
 		// What a proposal may contain, read by the agent writing one.
 		mux.HandleFunc("GET /api/v1/proposals/options", h.proposalOptions)
-		mux.HandleFunc("POST /api/v1/proposals/{id}/approve", h.writeAnywhere(h.approveProposal))
-		mux.HandleFunc("POST /api/v1/proposals/{id}/reject", h.writeAnywhere(h.rejectProposal))
+		mux.HandleFunc("POST /api/v1/proposals/{id}/approve", h.proposalDecisionGate(h.approveProposal))
+		mux.HandleFunc("POST /api/v1/proposals/{id}/reject", h.proposalDecisionGate(h.rejectProposal))
 		// A batch: several proposals filed and decided together.
 		mux.HandleFunc("POST /api/v1/proposals/batch", h.createProposalBatch)
 		mux.HandleFunc("POST /api/v1/proposals/batches/{id}/approve", h.writeAnywhere(h.approveProposalBatch))
@@ -2008,6 +2032,12 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 		mux.HandleFunc("POST /api/v1/advisor/suggestions/{id}/dismiss",
 			adminAdvisor(h.decideAdvisorSuggestion("dismissed")))
 		mux.HandleFunc("POST /api/v1/advisor/run", adminAdvisor(h.runAdvisor))
+		// A suggestion as a change to a collector's configuration
+		// (collector management, stage 3).
+		if h.Collectors != nil {
+			mux.HandleFunc("GET /api/v1/advisor/suggestions/{id}/collectors", adminAdvisor(h.listAdvisorSuggestionCollectors))
+			mux.HandleFunc("GET /api/v1/advisor/suggestions/{id}/collectors/{cid}", adminAdvisor(h.previewAdvisorCollectorChange))
+		}
 	}
 
 	// Deep-link engagement: recorded for ANY authenticated reader, not

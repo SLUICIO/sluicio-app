@@ -33,6 +33,9 @@ var ErrUnauthenticated = errors.New("collectors: invalid token")
 type Store struct {
 	pool *pgxpool.Pool
 	keys *Keys
+	// OnPlainSecrets, when set, is told when a collector's configuration
+	// gains a secret written in plain text (see checkPlainSecrets).
+	OnPlainSecrets func(context.Context, PlainSecretsNotice)
 }
 
 // New returns a store. keys may be nil: collectors still register, but no

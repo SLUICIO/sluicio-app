@@ -67,6 +67,9 @@ services:
       # the otelflow service below runs (COMPOSE_PROFILES=collectors). Empty
       # shows configurations as YAML only.
       SLUICIO_OTELFLOW_URL: ${SLUICIO_OTELFLOW_URL:-}
+      # With the profile: http://otelflow:7317/otelflow, so a configuration
+      # is checked by the cell's OTelFlow before it is sent to a collector.
+      SLUICIO_OTELFLOW_INTERNAL_URL: ${SLUICIO_OTELFLOW_INTERNAL_URL:-}
     volumes:
       - ${LICENSE_DIR:-./license}:/etc/sluicio/license:ro
     ports:

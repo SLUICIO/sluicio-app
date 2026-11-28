@@ -13,8 +13,11 @@ import type { Collector, CollectorTeam, CollectorToken } from "../api/types";
 import { formatDateTime, formatRelative } from "../lib/format";
 import { usePageTitle } from "../lib/usePageTitle";
 import { useCurrentUser } from "../lib/useCurrentUser";
+import { useFeature } from "../lib/useLicense";
+import { EnterpriseBadge } from "../components/EnterpriseUpsell";
 import { copyText } from "../lib/clipboard";
 import StatusPip from "../components/primitives/StatusPip";
+import { isDrifted } from "../lib/collectorDrift";
 import type { PipKind } from "../components/primitives/StatusPip";
 import { EditDrawer } from "../components/primitives";
 import BetaBadge from "../components/BetaBadge";
@@ -171,7 +174,7 @@ export default function Collectors() {
                           className="btn"
                           onClick={() => setTokensFor(team)}
                         >
-                          Tokens
+                          Team settings
                         </button>
                       </div>
                     )}
@@ -232,6 +235,27 @@ export default function Collectors() {
                               </div>
                               <div>
                                 <StatusPip kind={st.kind} label={st.label} />
+                                {isDrifted(c.drift) && (
+                                  <span
+                                    className="badge sev-warn"
+                                    style={{ marginLeft: 6 }}
+                                    title="It no longer runs everything last sent to it"
+                                  >
+                                    Drifted
+                                  </span>
+                                )}
+                                {(c.plain_secrets?.length ?? 0) > 0 && (
+                                  <span
+                                    className="badge sev-warn"
+                                    style={{
+                                      marginLeft: 6,
+                                      whiteSpace: "nowrap",
+                                    }}
+                                    title="Its configuration has a secret written in plain text"
+                                  >
+                                    Plain-text secret
+                                  </span>
+                                )}
                               </div>
                               <div className="mono" style={{ fontSize: 12.5 }}>
                                 {c.description["service.version"] || "-"}
@@ -262,6 +286,62 @@ export default function Collectors() {
 function opampEndpoint(): string {
   const wsScheme = window.location.protocol === "https:" ? "wss:" : "ws:";
   return `${wsScheme}//${window.location.host}/api/v1/opamp`;
+}
+
+// Whether a change to the team's collectors waits for approval by someone
+// other than its author before it is sent (Enterprise).
+function ApprovalSetting({ teamId }: { teamId: string }) {
+  const entitled = useFeature("advisor");
+  const [value, setValue] = useState<boolean | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    api
+      .getCollectorTeamSettings(teamId)
+      .then((r) => setValue(r.require_approval))
+      .catch((e) => setError(String((e as Error).message ?? e)));
+  }, [teamId]);
+  const toggle = async (v: boolean) => {
+    setError(null);
+    try {
+      await api.putCollectorTeamSettings(teamId, v);
+      setValue(v);
+    } catch (e) {
+      setError(String((e as Error).message ?? e));
+    }
+  };
+  return (
+    <div>
+      <h3 style={{ margin: "0 0 6px", fontSize: 14 }}>
+        Changes {!entitled && <EnterpriseBadge />}
+      </h3>
+      <label
+        style={{
+          display: "flex",
+          gap: 8,
+          alignItems: "flex-start",
+          fontSize: 13,
+        }}
+      >
+        <input
+          type="checkbox"
+          checked={!!value}
+          disabled={!entitled || value === null}
+          onChange={(e) => toggle(e.target.checked)}
+          style={{ marginTop: 2 }}
+        />
+        <span>
+          Require approval before a configuration is sent to this team&apos;s
+          collectors. A change is then proposed, and someone other than its
+          author approves it in Proposals.
+        </span>
+      </label>
+      {error && (
+        <div className="alert alert--error" style={{ marginTop: 6 }}>
+          {error}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function TokensDrawer({
@@ -355,13 +435,38 @@ function TokensDrawer({
       "  extensions: [opamp]",
     ].join("\n");
 
+  // The supervisor's own file. validate_config and
+  // automatic_config_rollback keep a bad configuration from Sluicio from
+  // stopping the collector; the base file is merged under whatever is
+  // sent, so what it sets cannot be removed from Sluicio.
+  const supervisorSnippet = (token: string) =>
+    [
+      "server:",
+      `  endpoint: ${opampEndpoint()}`,
+      "  headers:",
+      `    Authorization: ["Bearer ${token}"]`,
+      "capabilities:",
+      "  accepts_remote_config: true",
+      "  reports_effective_config: true",
+      "  reports_health: true",
+      "agent:",
+      "  executable: /otelcol-contrib",
+      "  validate_config: true",
+      "  automatic_config_rollback: true",
+      "  config_files: [/etc/otelcol/base.yaml]",
+      "storage:",
+      "  directory: /var/lib/otelcol/supervisor",
+    ].join("\n");
+
   return (
     <EditDrawer
-      title={`Collector tokens: ${team.name}`}
+      title={`Collector settings: ${team.name}`}
       width="medium"
       onClose={onClose}
     >
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <ApprovalSetting teamId={team.id} />
+        <h3 style={{ margin: "4px 0 0", fontSize: 14 }}>Tokens</h3>
         <p className="muted" style={{ margin: 0, fontSize: 13 }}>
           A collector sends its token as{" "}
           <code>Authorization: Bearer &lt;token&gt;</code> to the OpAMP
@@ -437,6 +542,29 @@ function TokensDrawer({
               }}
             >
               {snippet(shown.token)}
+            </pre>
+            <div
+              className="muted"
+              style={{ fontSize: 12, margin: "12px 0 6px" }}
+            >
+              Or the supervisor&apos;s file, so the configuration can be changed
+              from Sluicio. Keep the base file small: what it sets stays in
+              effect whatever is sent. Add{" "}
+              <code>{"extensions: {opamp: {reports_raw_config: true}}"}</code>{" "}
+              to it to see the configuration as written.
+            </div>
+            <pre
+              className="mono"
+              style={{
+                margin: 0,
+                fontSize: 12,
+                background: "var(--surface)",
+                padding: 10,
+                borderRadius: 6,
+                overflowX: "auto",
+              }}
+            >
+              {supervisorSnippet(shown.token)}
             </pre>
           </div>
         )}

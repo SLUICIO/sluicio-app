@@ -18,6 +18,11 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/google/uuid"
+
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/identity"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/proposals"
 )
 
 func TestEveryAlertRuleTunableIsPersistedByUpdateRule(t *testing.T) {
@@ -105,3 +110,33 @@ func TestProposalTargetsAreComplete(t *testing.T) {
 		}
 	}
 }
+
+// Who filed a proposal is compared by kind and id: a service account's
+// requests carry no user, so a check on users alone would miss it, and a
+// user and a service account never match each other by an id they share.
+func TestFiledBy(t *testing.T) {
+	u, sa := uuid.New(), uuid.New()
+	byUser := proposals.Proposal{ProposedByKind: "user", ProposedByID: &u}
+	bySA := proposals.Proposal{ProposedByKind: "service_account", ProposedByID: &sa}
+	cases := []struct {
+		name string
+		pr   identity.Principal
+		p    proposals.Proposal
+		want bool
+	}{
+		{"the user who filed it", identity.Principal{UserID: &u}, byUser, true},
+		{"another user", identity.Principal{UserID: ptrUUID(uuid.New())}, byUser, false},
+		{"the service account that filed it", identity.Principal{ServiceAccountID: &sa}, bySA, true},
+		{"another service account", identity.Principal{ServiceAccountID: ptrUUID(uuid.New())}, bySA, false},
+		{"a service account against a user's proposal", identity.Principal{ServiceAccountID: &u}, byUser, false},
+		{"a user against a service account's proposal", identity.Principal{UserID: &sa}, bySA, false},
+		{"no proposer recorded", identity.Principal{UserID: &u}, proposals.Proposal{ProposedByKind: "user"}, false},
+	}
+	for _, c := range cases {
+		if got := filedBy(c.pr, c.p); got != c.want {
+			t.Errorf("%s: filedBy = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+func ptrUUID(id uuid.UUID) *uuid.UUID { return &id }

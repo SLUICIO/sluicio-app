@@ -116,6 +116,14 @@ func TestWarningsAndErrorsAreNeverProposedForDropping(t *testing.T) {
 			t.Errorf("severity band %d was proposed for dropping: %s", band, got[0].Title)
 		}
 	}
+	// Records without a severity are not trace records: a floor cannot
+	// tell their errors from their noise.
+	if got := evalUnviewedLogs(in, []LogStreamSupply{{
+		Service: "orders-api", SeverityNumber: 0, Rows: 5_000_000,
+		FirstSeen: old, EstBytesPerDay: 900_000_000,
+	}}); len(got) != 0 {
+		t.Errorf("logs without a severity were proposed for dropping: %s", got[0].Title)
+	}
 	// …while debug on the same service is fair game.
 	got := evalUnviewedLogs(in, []LogStreamSupply{{
 		Service: "orders-api", SeverityNumber: 5, Rows: 5_000_000,
@@ -257,7 +265,7 @@ func TestPIIClassification(t *testing.T) {
 // second copy of the problem being reported, in a table with none of the
 // retention controls of the first.
 func TestPIIEvidenceCarriesNoSampledValue(t *testing.T) {
-	ev := piiEvidence("email address", 40, 50, 12_000)
+	ev := piiEvidence("email address", 40, 50, 12_000, true)
 	for k, v := range ev {
 		s, ok := v.(string)
 		if !ok {
@@ -272,5 +280,57 @@ func TestPIIEvidenceCarriesNoSampledValue(t *testing.T) {
 	}
 	if ev["compliance"] != true {
 		t.Error("a PII finding must be flagged as compliance so the UI ranks it above cost findings")
+	}
+	if ev["referenced_by_config"] != true {
+		t.Error("the evidence must say when Sluicio's own configuration reads the key")
+	}
+}
+
+// An internal span name is suggested only when every condition holds; any
+// one of them failing keeps it, because each is something the product
+// reads (T7).
+func TestInternalSpansNeedEveryGuardrail(t *testing.T) {
+	from, to := testWindow()
+	old := from.Add(-90 * 24 * time.Hour)
+	clean := SpanNameSupply{Service: "orders-api", Name: "serialize", Spans: 50_000, Keys: []string{"buffer.size"}, FirstSeen: old, EstBytesPerDay: 5_000_000}
+	in := TelemetryInput{From: from, To: to, Demand: demandWith(nil, nil)}
+	got := evalInternalSpans(in, []SpanNameSupply{clean})
+	if len(got) != 1 || got[0].Class != "T7" || got[0].Fingerprint != "T7|span|orders-api|serialize" {
+		t.Fatalf("clean candidate: %+v", got)
+	}
+	if !strings.Contains(got[0].Snippet, `name == "serialize" and kind == SPAN_KIND_INTERNAL and status.code != STATUS_CODE_ERROR`) {
+		t.Fatalf("snippet must keep failed spans and match internal ones only:\n%s", got[0].Snippet)
+	}
+	if got[0].Loss == "" {
+		t.Error("every suggestion must state what is lost")
+	}
+
+	recent := to.Add(-24 * time.Hour)
+	cases := map[string]struct {
+		mod func(*SpanNameSupply)
+		in  TelemetryInput
+	}{
+		"not always internal":       {func(s *SpanNameSupply) { s.NotInternal = 1 }, in},
+		"parent in another service": {func(s *SpanNameSupply) { s.Foreign = 1 }, in},
+		"parent of another span":    {func(s *SpanNameSupply) { s.Parents = 1 }, in},
+		"carries span links":        {func(s *SpanNameSupply) { s.Linked = 1 }, in},
+		"too new to judge":          {func(s *SpanNameSupply) { s.FirstSeen = recent }, in},
+		"too small to matter":       {func(s *SpanNameSupply) { s.EstBytesPerDay = 10 }, in},
+		"carries a reserved key":    {func(s *SpanNameSupply) { s.Keys = []string{"messaging.system"} }, in},
+		"a completion step":         {nil, TelemetryInput{From: from, To: to, Demand: demandWith(nil, map[string]time.Time{demandKey("trace", "orders-api", "serialize"): recent})}},
+		"a key a matcher reads":     {nil, TelemetryInput{From: from, To: to, Demand: demandWith(nil, map[string]time.Time{demandKey("trace", "", "buffer.size"): recent})}},
+		"a check on its traces":     {nil, TelemetryInput{From: from, To: to, Demand: demandWith(nil, map[string]time.Time{demandKey("trace", "orders-api", ""): recent})}},
+		"a span.name pattern":       {nil, TelemetryInput{From: from, To: to, Demand: demandWith(nil, nil), Reserved: Reserved{SpanName: func(n string) bool { return strings.HasPrefix(n, "serial") }}}},
+		"a key that splits flows":   {nil, TelemetryInput{From: from, To: to, Demand: demandWith(nil, nil), Reserved: Reserved{FlowAttrs: map[string][]string{"orders-api": {"buffer.size"}}}}},
+		"someone searched the name": {nil, TelemetryInput{From: from, To: to, Demand: demandWith(map[string]time.Time{demandKey("trace", "orders-api", "serialize"): recent}, nil)}},
+	}
+	for name, c := range cases {
+		s := clean
+		if c.mod != nil {
+			c.mod(&s)
+		}
+		if got := evalInternalSpans(c.in, []SpanNameSupply{s}); len(got) != 0 {
+			t.Errorf("%s: suggested anyway", name)
+		}
 	}
 }

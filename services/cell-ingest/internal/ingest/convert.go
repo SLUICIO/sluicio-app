@@ -19,11 +19,14 @@ func ConvertRequest(resourceSpans []*tracepb.ResourceSpans) []SpanRow {
 	var rows []SpanRow
 	for _, rs := range resourceSpans {
 		resourceAttrs := attributesToMap(rs.GetResource().GetAttributes())
+		collectorID := takeCollectorStamp(resourceAttrs)
 		serviceName := resolveServiceName(resourceAttrs)
 		serviceNamespace := resourceAttrs["service.namespace"]
 		for _, ss := range rs.GetScopeSpans() {
 			for _, span := range ss.GetSpans() {
-				rows = append(rows, convertSpan(span, resourceAttrs, serviceName, serviceNamespace))
+				row := convertSpan(span, resourceAttrs, serviceName, serviceNamespace)
+				row.CollectorID = collectorID
+				rows = append(rows, row)
 			}
 		}
 	}

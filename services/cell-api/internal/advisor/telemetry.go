@@ -28,7 +28,11 @@
 // One more rule sits above all four, and it is a product promise rather
 // than a heuristic: nothing here ever proposes sampling or dropping
 // integration MESSAGES. Completeness is what Sluicio sells. The savings
-// live in attributes, logs, metrics and noise — never in spans.
+// live in attributes, logs, metrics and noise. The one span finding (T7)
+// is a span nothing can miss: an internal step inside one service, never
+// a root, never a call to another service, never anyone's parent,
+// carrying nothing Sluicio reads; its trace keeps every span that makes
+// it a message, and error spans are always kept.
 package advisor
 
 import (
@@ -42,6 +46,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/collectorversion"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/servicetypes"
 )
 
 // Thresholds are the volume floors below which a finding is not worth
@@ -113,6 +118,27 @@ type TelemetryInput struct {
 	// Optional. Nil resolves to the newest version this build knows,
 	// which is what an unconfigured cell should emit.
 	Target func(service string) collectorversion.Target
+	// Reserved is what the org's configuration reads in code (see
+	// Reserved), beyond the keys every cell reserves.
+	Reserved Reserved
+}
+
+// Reserved is telemetry Sluicio reads in code rather than through a
+// query, so the demand ledger cannot show it, per org: the prefixes
+// that detect a system type, by span attribute and by metric name, and
+// the attribute the cell reads the environment from.
+type Reserved struct {
+	AttrPrefixes   []string
+	MetricPrefixes []string
+	// FlowAttrs are, per service, the span attributes that split it into
+	// flows, as the integration candidates propose them (issue #18). The
+	// proposal reads them to suggest integrations, so the attribute that
+	// would define one is never suggested for deletion.
+	FlowAttrs map[string][]string
+	// SpanName reports whether something in Sluicio selects spans by this
+	// name with a pattern or a negation (a span.name matcher that is not a
+	// plain equals), which no single demand key can say. Nil: nothing does.
+	SpanName func(name string) bool
 }
 
 // targetFor is Target with the nil case folded in, so call sites read as
@@ -184,7 +210,84 @@ func EvaluateTelemetry(ctx context.Context, in TelemetryInput) ([]Suggestion, er
 	out = append(out, evalSpanAttributes(in, attrs)...)
 	out = append(out, evalPIIAttributes(ctx, in, attrs)...)
 
+	names, err := SpanNamesSupply(ctx, in.Conn, in.OrgID, in.From, in.To, 0)
+	if err != nil {
+		return nil, fmt.Errorf("advisor: span name supply: %w", err)
+	}
+	out = append(out, evalInternalSpans(in, names)...)
+
 	return out, nil
+}
+
+// --- T7: internal spans nothing reads -----------------------------------
+
+// evalInternalSpans finds span names a service could stop sending without
+// anything in Sluicio missing them. Every condition is read from the data
+// or from Sluicio's own configuration, and every one of them errs towards
+// not suggesting:
+//
+//   - always an Internal span whose parent is a span of the same service:
+//     never a trace's root (dropping it could drop a message), never a
+//     call between services (topology and a message's path are built from
+//     those), never the earliest span of its service in the trace (an
+//     ungated completion rule starts its clock there);
+//   - never the parent of another span, so no span is left without its
+//     parent and no step in the waterfall loses its place;
+//   - no span links (the hand-offs that chain traces);
+//   - no demand on the span name (a trace-completion step or start span)
+//     or on any key it carries (a matcher, a check, a facet, a search),
+//     and none on the service's traces as a whole: any check on them,
+//     latency ones included (a quantile over every span would shift);
+//   - the usual quarantine and volume floor.
+//
+// The filter keeps error spans of the name whatever the rest says.
+func evalInternalSpans(in TelemetryInput, names []SpanNameSupply) []Suggestion {
+	out := []Suggestion{}
+	for _, n := range names {
+		if n.Spans == 0 || n.NotInternal > 0 || n.Foreign > 0 || n.Parents > 0 || n.Linked > 0 {
+			continue
+		}
+		if in.quarantined(n.FirstSeen) {
+			continue
+		}
+		if in.Demand.Mechanical("trace", n.Service, n.Name) || in.Demand.ConsumedSince("trace", n.Service, n.Name, in.From) {
+			continue
+		}
+		if in.Reserved.SpanName != nil && in.Reserved.SpanName(n.Name) {
+			continue
+		}
+		read := false
+		for _, k := range n.Keys {
+			if in.reservedAttrOn(n.Service, k) || in.Demand.Mechanical("trace", n.Service, k) || in.Demand.ConsumedSince("trace", n.Service, k, in.From) {
+				read = true
+				break
+			}
+		}
+		if read || n.EstBytesPerDay < minAttrBytesPerDay {
+			continue
+		}
+		out = append(out, in.withSnippet(Suggestion{
+			Fingerprint: fmt.Sprintf("T7|span|%s|%s", n.Service, n.Name),
+			Class:       "T7",
+			Advisor:     "telemetry",
+			ScopeKind:   "span",
+			ScopeID:     n.Service + "." + n.Name,
+			Title:       fmt.Sprintf("%s's internal %q spans are read by nothing", n.Service, n.Name),
+			Loss: fmt.Sprintf("These steps no longer appear inside %s's messages in the waterfall, and the span counts "+
+				"and span-level error rate of %s include fewer successful spans. The messages, their path between "+
+				"services, their duration and every check are untouched; failed %q spans are always kept.",
+				n.Service, n.Service, n.Name),
+			Weight: int64(n.EstBytesPerDay),
+			Evidence: map[string]any{
+				"spans_in_sample":   n.Spans,
+				"kind":              "internal, inside the service, no children, no links",
+				"est_bytes_per_day": n.EstBytesPerDay,
+				"first_seen":        n.FirstSeen.Format(time.RFC3339),
+				"demand":            lastSeenPhrase(in.Demand.LastConsumed("trace", n.Service, n.Name), in.To),
+			},
+		}, n.Service, func(t collectorversion.Target) (string, error) { return snippetDropInternalSpans(n.Service, n.Name, t) }))
+	}
+	return out
 }
 
 // quarantined reports whether telemetry is too young to judge.
@@ -249,15 +352,71 @@ func evalUnusedMetrics(in TelemetryInput, metrics []MetricSupply) []Suggestion {
 			},
 		}, "", func(t collectorversion.Target) (string, error) { return snippetDropMetric(m.Name, t) }))
 	}
-	return out
+	return keepDetectable(out, metrics, in.Reserved.MetricPrefixes)
+}
+
+// keepDetectable keeps a system type detectable by its metrics: when
+// every metric with one of its detection prefixes would be dropped, the
+// one most services emit (then the cheapest) is not suggested. One hit
+// is enough to detect the type, so the rest can still go.
+func keepDetectable(out []Suggestion, metrics []MetricSupply, prefixes []string) []Suggestion {
+	if len(prefixes) == 0 || len(out) == 0 {
+		return out
+	}
+	suggested := map[string]bool{}
+	for _, s := range out {
+		suggested[s.ScopeID] = true
+	}
+	keep := map[string]bool{}
+	for _, p := range prefixes {
+		if p == "" {
+			continue
+		}
+		var best *MetricSupply
+		all := true
+		for i := range metrics {
+			m := &metrics[i]
+			if !strings.HasPrefix(m.Name, p) {
+				continue
+			}
+			if !suggested[m.Name] {
+				all = false
+				break
+			}
+			if best == nil || len(m.Services) > len(best.Services) ||
+				(len(m.Services) == len(best.Services) && m.EstBytesPerDay < best.EstBytesPerDay) {
+				best = m
+			}
+		}
+		if all && best != nil {
+			keep[best.Name] = true
+		}
+	}
+	if len(keep) == 0 {
+		return out
+	}
+	kept := out[:0]
+	for _, s := range out {
+		if !keep[s.ScopeID] {
+			kept = append(kept, s)
+		}
+	}
+	return kept
 }
 
 // --- T2: unviewed log stream -------------------------------------------
 
 // bandFloor maps a severity band to the floor an operator would set to
 // drop it: dropping DEBUG means flooring at INFO, and so on.
+//
+// Band 0 is records without a severity (a filelog receiver with no
+// severity parser sends every line that way). It is never proposed: a
+// floor cannot tell its errors from its noise, and an unlabelled error
+// line is the worst one to lose.
 func bandFloor(band int32) (name, floor string) {
 	switch {
+	case band <= 0:
+		return "", ""
 	case band <= 4:
 		return "TRACE", "info"
 	case band <= 8:
@@ -267,6 +426,20 @@ func bandFloor(band int32) (name, floor string) {
 	default:
 		return "", "" // warn and above are never proposed for dropping
 	}
+}
+
+// FloorForBand is the severity a T2 suggestion's records are dropped
+// below, from the band its evidence names: TRACE and DEBUG below INFO,
+// INFO below WARN. ok is false for any other band, which is never
+// proposed.
+func FloorForBand(band string) (floor string, ok bool) {
+	switch band {
+	case "TRACE", "DEBUG":
+		return "INFO", true
+	case "INFO":
+		return "WARN", true
+	}
+	return "", false
 }
 
 func evalUnviewedLogs(in TelemetryInput, streams []LogStreamSupply) []Suggestion {
@@ -331,7 +504,7 @@ func evalSpanAttributes(in TelemetryInput, attrs []SpanAttrSupply) []Suggestion 
 		}
 		// Attributes Sluicio itself derives meaning from are never
 		// proposed, whether or not anyone queried them this month.
-		if isReservedAttr(a.Key) {
+		if in.reservedAttrOn(a.Service, a.Key) {
 			continue
 		}
 
@@ -436,7 +609,7 @@ func evalSpanAttributes(in TelemetryInput, attrs []SpanAttrSupply) []Suggestion 
 func evalPIIAttributes(ctx context.Context, in TelemetryInput, attrs []SpanAttrSupply) []Suggestion {
 	out := []Suggestion{}
 	for _, a := range attrs {
-		if isReservedAttr(a.Key) || a.SpansWithKey < 10 {
+		if in.reservedAttr(a.Key) || a.SpansWithKey < 10 {
 			continue
 		}
 		values, err := SampleAttrValues(ctx, in.Conn, in.OrgID, a.Service, a.Key, in.From, in.To, 50)
@@ -456,13 +629,14 @@ func evalPIIAttributes(ctx context.Context, in TelemetryInput, attrs []SpanAttrS
 			ScopeKind:   "attribute",
 			ScopeID:     a.Service + "." + a.Key,
 			Title:       fmt.Sprintf("%q on %s carries values that look like %s", a.Key, a.Service, pluralPattern(kind)),
-			Loss: "Hashing keeps correlation working (the same value still matches itself) while the " +
-				"original stops being retained. If the readable value is needed for support, this is a " +
-				"retention decision rather than a collector one.",
+			Loss: fmt.Sprintf("You can no longer filter or group %s's messages by %q; the messages "+
+				"themselves are untouched. If you need to match the same value twice, hash it instead: "+
+				"that is pseudonymisation, not anonymisation, since values from a small or guessable set "+
+				"(ID numbers, email addresses) can be found again by hashing candidates.", a.Service, a.Key),
 			// Compliance findings rank above cost ones: a big number
 			// should not push a personal-data finding down the page.
 			Weight:   int64(a.EstBytesPerDay) + 1<<40,
-			Evidence: piiEvidence(kind, hits, len(values), a.SpansWithKey),
+			Evidence: piiEvidence(kind, hits, len(values), a.SpansWithKey, in.Demand.Mechanical("trace", a.Service, a.Key)),
 		}, a.Service, func(t collectorversion.Target) (string, error) { return snippetRedactAttr(a.Service, a.Key, t) }))
 	}
 	return out
@@ -476,8 +650,13 @@ func evalPIIAttributes(ctx context.Context, in TelemetryInput, attrs []SpanAttrS
 // table with none of the retention controls of the first. So the
 // evidence is a proportion and a count, and the sampled values never
 // leave the process that read them.
-func piiEvidence(kind string, hits, sampled int, spans uint64) map[string]any {
+//
+// referenced says whether Sluicio's own configuration (a matcher, facet
+// or rule) reads the key: a compliance finding is shown regardless, but
+// hashing such a key from here would silently break what reads it.
+func piiEvidence(kind string, hits, sampled int, spans uint64, referenced bool) map[string]any {
 	return map[string]any{
+		"referenced_by_config":    referenced,
 		"pattern":                 kind,
 		"sampled_values_matching": fmt.Sprintf("%d of %d", hits, sampled),
 		"present_on_spans":        spans,
@@ -532,15 +711,69 @@ func echoPrefix(key string) string {
 // are consumed by code rather than by queries, so the demand ledger
 // would not necessarily show them, and a suggestion to delete one would
 // break the product rather than save money.
+//
+// http.status_code is the older name cell-ingest still reads to treat a
+// 5xx as an error; deployment.environment(.name) is where the cell reads
+// a row's environment from when none is configured.
 var reservedAttrPrefixes = []string{
 	"io.", "service.", "integration.", "messaging.", "db.", "rpc.system",
 	"http.request.method", "http.response.status_code", "http.route",
 	"error.", "exception.", "peer.service", "file.", "transfer.",
+	"http.status_code", "deployment.environment",
 }
 
+// builtinFacetKeys are the span attributes the built-in service facets
+// show and break down by (http.method, net.peer.name, email.subject...),
+// taken from the facets themselves so the two cannot drift apart.
+var builtinFacetKeys = func() map[string]bool {
+	keys := map[string]bool{}
+	for _, f := range servicetypes.Builtin() {
+		for _, k := range f.KeyAttributes {
+			keys[k] = true
+		}
+		for _, w := range f.Widgets {
+			if b, ok := w.(servicetypes.BreakdownWidget); ok && b.Attribute != "" {
+				keys[b.Attribute] = true
+			}
+		}
+	}
+	return keys
+}()
+
 func isReservedAttr(key string) bool {
+	if builtinFacetKeys[key] {
+		return true
+	}
 	for _, p := range reservedAttrPrefixes {
 		if strings.HasPrefix(key, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// reservedAttr is isReservedAttr plus what this org's configuration
+// reads in code.
+func (in TelemetryInput) reservedAttr(key string) bool {
+	if isReservedAttr(key) {
+		return true
+	}
+	for _, p := range in.Reserved.AttrPrefixes {
+		if p != "" && strings.HasPrefix(key, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// reservedAttrOn is reservedAttr plus the attributes that split this
+// service into flows.
+func (in TelemetryInput) reservedAttrOn(service, key string) bool {
+	if in.reservedAttr(key) {
+		return true
+	}
+	for _, k := range in.Reserved.FlowAttrs[service] {
+		if k == key {
 			return true
 		}
 	}

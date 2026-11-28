@@ -149,3 +149,16 @@ func TestAnUnsetTargetFallsBackToNewestRatherThanEmpty(t *testing.T) {
 		t.Errorf("unset target resolved to %q, want %s", got.SnippetTarget, collectorversion.Newest)
 	}
 }
+
+// A regex escape inside an OTTL string must be escaped again: collector
+// 0.166.0 refused `"^http\.request\.header\."` as an invalid quoted
+// string and would not start with the configuration.
+func TestAttrPatternSnippetIsValidOTTL(t *testing.T) {
+	got, err := snippetDeleteAttrPattern("svc", "http.request.header.", newTarget())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, `delete_matching_keys(attributes, "^http\\.request\\.header\\.")`) {
+		t.Fatalf("the regex is not escaped for OTTL:\n%s", got)
+	}
+}

@@ -19,8 +19,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/sluicio/sluicio-app/pkg/httpserver"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/advisor"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/api/middleware"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/monitoringtemplates"
+	"github.com/sluicio/sluicio-app/services/cell-api/internal/store"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/systemtypes"
 )
 
@@ -279,4 +281,30 @@ func (h *Handlers) deleteSystemType(w http.ResponseWriter, r *http.Request) {
 	}
 	h.recordAudit(r, "system_type.deleted", "system_type", id.String(), nil)
 	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"deleted": true})
+}
+
+// AdvisorReserved is what Sluicio reads in code and the Telemetry
+// Advisor must not suggest dropping: the prefixes that detect a system
+// type (built-in and the org's own), by span attribute and by metric
+// name, and the attribute the cell reads the environment from.
+func (h *Handlers) AdvisorReserved(ctx context.Context, orgID uuid.UUID) advisor.Reserved {
+	var r advisor.Reserved
+	tpls, err := h.effectiveTemplates(ctx, orgID)
+	if err != nil {
+		// The built-in types at least; the org's own come back next run.
+		h.Logger.Warn("advisor: system types for reserved keys", "err", err)
+		tpls = monitoringTemplates
+	}
+	for _, t := range tpls {
+		r.AttrPrefixes = append(r.AttrPrefixes, t.DetectSpanAttrs...)
+		r.MetricPrefixes = append(r.MetricPrefixes, t.DetectPrefixes...)
+	}
+	if k := store.CurrentEnvironmentConfig().Key; k != "" {
+		r.AttrPrefixes = append(r.AttrPrefixes, k)
+	}
+	if filters := h.spanNameFilters(ctx, orgID); len(filters) > 0 {
+		r.SpanName = func(name string) bool { return spanNameSelected(filters, name) }
+	}
+	r.FlowAttrs = h.flowAttrs(ctx, orgID)
+	return r
 }

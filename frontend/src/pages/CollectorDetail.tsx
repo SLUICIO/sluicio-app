@@ -13,6 +13,7 @@ import {
 } from "react-router-dom";
 import { api } from "../api/client";
 import type {
+  AdvisorCollectorChange,
   CollectorConfigResponse,
   CollectorDetailResponse,
   CollectorHealth,
@@ -25,6 +26,13 @@ import StatusPip from "../components/primitives/StatusPip";
 import SyntaxView from "../components/SyntaxView";
 import BetaBadge from "../components/BetaBadge";
 import TabStrip from "../components/primitives/TabStrip";
+import SendConfigDrawer from "../components/collectors/SendConfigDrawer";
+import DeploymentsPanel from "../components/collectors/DeploymentsPanel";
+import DiffExport from "../components/collectors/DiffExport";
+import { EditDrawer } from "../components/primitives";
+import { driftSummary, isDrifted } from "../lib/collectorDrift";
+import { plainSecretsSummary } from "../lib/plainSecrets";
+import { useFeature } from "../lib/useLicense";
 import { useCurrentUser } from "../lib/useCurrentUser";
 import {
   otelflowConfigHeight,
@@ -103,14 +111,12 @@ function OtelflowEmbed({
   yaml,
   version,
   view,
-  supervisor,
   written,
 }: {
   base: string;
   yaml: string;
   version: string;
   view: "canvas" | "config";
-  supervisor: boolean;
   written: boolean;
 }) {
   const [payload, setPayload] = useState<string | null>(null);
@@ -148,7 +154,6 @@ function OtelflowEmbed({
           {written
             ? "The configuration as written, checked by OTelFlow. Secrets are masked."
             : "The effective configuration, checked by OTelFlow. The collector reports it with defaults filled in, some fields in another shape and some left out (a receiver's scrapers, for example), so OTelFlow can flag errors the running collector does not have."}
-          {supervisor && " Editing and sending a configuration comes later."}
         </span>
         <a
           href={`${root}#share=${payload}`}
@@ -195,6 +200,7 @@ const TABS = [
   { key: "agent", label: "Agent" },
   { key: "health", label: "Health" },
   { key: "configuration", label: "Configuration" },
+  { key: "deployments", label: "Deployments" },
 ] as const;
 type TabKey = (typeof TABS)[number]["key"];
 
@@ -203,6 +209,15 @@ export default function CollectorDetail() {
   const { otelflowUrl } = useCurrentUser();
   const navigate = useNavigate();
   const [removeError, setRemoveError] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+  const [accepting, setAccepting] = useState(false);
+  const stampEntitled = useFeature("advisor");
+  const [stampChange, setStampChange] = useState<AdvisorCollectorChange | null>(
+    null,
+  );
+  const [stampError, setStampError] = useState<string | null>(null);
+  // Bumped after a send, so the Deployments tab reloads.
+  const [sentKey, setSentKey] = useState(0);
   const [searchParams, setSearchParams] = useSearchParams();
   const tab: TabKey =
     TABS.find((t) => t.key === searchParams.get("tab"))?.key ?? "agent";
@@ -232,6 +247,19 @@ export default function CollectorDetail() {
       .then(setDetail)
       .catch((e) => setError(String((e as Error).message ?? e)));
   }, [id]);
+  const [volume, setVolume] = useState<{
+    volume: { spans: number; metric_points: number; log_records: number };
+    window_hours: number;
+  } | null>(null);
+  const stamped = !!detail?.stamped;
+  const pipelineOwned = detail?.collector.config_owner === "pipeline";
+  useEffect(() => {
+    if (!stamped || !stampEntitled) return;
+    api
+      .collectorVolume(id)
+      .then(setVolume)
+      .catch(() => setVolume(null));
+  }, [id, stamped, stampEntitled]);
 
   const hasConfig =
     !!detail && detail.config_storage && detail.history.length > 0;
@@ -334,10 +362,65 @@ export default function CollectorDetail() {
         )}
       </div>
       {removeError && <div className="alert alert--error">{removeError}</div>}
+      {(c.plain_secrets?.length ?? 0) > 0 && (
+        <div className="alert alert--warn">
+          {plainSecretsSummary(c.plain_secrets)} Written into the configuration,
+          a secret sits in a file on the host and in every copy of it. Set it as
+          an environment variable there and refer to it as{" "}
+          <code>{"${env:NAME}"}</code>.
+          {c.plain_secrets_at &&
+            ` Since ${formatRelative(c.plain_secrets_at)}.`}
+        </div>
+      )}
+      {isDrifted(c.drift) && (
+        <div className="alert alert--warn">
+          {driftSummary(c.drift)} Its local configuration files were probably
+          edited on the host, or something else changed its configuration. Undo
+          the change on the host, or accept it if it is meant to stay.
+          {c.drift?.accepted_at &&
+            ` Measured from the configuration ${c.drift.accepted_by || "someone"} accepted ${formatRelative(c.drift.accepted_at)}.`}{" "}
+          {detail.can_push && (
+            <button
+              className="btn btn--link"
+              disabled={accepting}
+              onClick={async () => {
+                if (
+                  !confirm(
+                    "Accept the collector's configuration as it is now? Nothing is sent to it; drift is measured from here until the next change sent from Sluicio.",
+                  )
+                )
+                  return;
+                setAccepting(true);
+                try {
+                  await api.acceptCollectorDrift(c.id);
+                  setDetail(await api.getCollector(c.id));
+                } catch (e) {
+                  setRemoveError(String((e as Error).message ?? e));
+                } finally {
+                  setAccepting(false);
+                }
+              }}
+            >
+              Accept as the new baseline
+            </button>
+          )}
+          {tab !== "deployments" && (
+            <button
+              className="btn btn--link"
+              onClick={() => selectTab("deployments")}
+            >
+              Show deployments
+            </button>
+          )}
+        </div>
+      )}
 
       <TabStrip
         ariaLabel="Collector sections"
-        items={TABS.map((t) => ({
+        items={TABS.filter(
+          // Only the supervisor type is sent configurations.
+          (t) => t.key !== "deployments" || c.kind === "supervisor",
+        ).map((t) => ({
           key: t.key,
           label: t.label,
           active: tab === t.key,
@@ -401,6 +484,118 @@ export default function CollectorDetail() {
                 ...attributeRows(c.description),
               ]}
             />
+          </Section>
+        )}
+        {tab === "agent" && c.kind === "supervisor" && stampEntitled && (
+          <Section
+            title="Collector stamp"
+            subtitle="Whether Sluicio can tell which telemetry came through this collector"
+          >
+            {detail.stamped ? (
+              <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+                This collector puts its id on the data it sends to Sluicio (
+                <code>sluicio.collector.id</code>), so suggestions and their
+                effect can be tied to it.
+                {volume &&
+                  ` In the last ${volume.window_hours} hours it carried ${volume.volume.spans.toLocaleString()} spans, ${volume.volume.metric_points.toLocaleString()} metric data points and ${volume.volume.log_records.toLocaleString()} log records.`}
+              </p>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+                  Not stamped: Sluicio cannot tell which telemetry came through
+                  this collector. The stamp adds{" "}
+                  <code>sluicio.collector.id</code> to what it sends to Sluicio
+                  only, kept apart from your attributes; data already stamped by
+                  a collector before it keeps that stamp. It changes the
+                  collector&apos;s configuration, so the team approves it.
+                </p>
+                {stampError && (
+                  <div className="alert alert--error" style={{ margin: 0 }}>
+                    {stampError}
+                  </div>
+                )}
+                {detail.can_push && (
+                  <div>
+                    <button
+                      className="btn"
+                      onClick={async () => {
+                        setStampError(null);
+                        try {
+                          const ch = await api.previewCollectorStamp(c.id);
+                          if (ch.unavailable || !ch.config) {
+                            setStampError(
+                              ch.unavailable
+                                ? `It cannot be stamped: ${ch.unavailable}.`
+                                : "It is stamped already.",
+                            );
+                            return;
+                          }
+                          setStampChange(ch);
+                        } catch (e) {
+                          setStampError(String((e as Error).message ?? e));
+                        }
+                      }}
+                    >
+                      {pipelineOwned
+                        ? "Get the stamp as a diff"
+                        : "Propose the collector stamp"}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </Section>
+        )}
+
+        {tab === "agent" && c.kind === "supervisor" && (
+          <Section
+            title="Configuration owner"
+            subtitle="Who changes this collector's configuration"
+          >
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+                {pipelineOwned
+                  ? "The team's own pipeline owns it. Sluicio sends nothing from here (a pipeline that deploys through Sluicio still can, with an API token), offers its changes as a diff to make in the repository, and does not flag drift."
+                  : "Sluicio owns it: changes are made and sent from here. If the team's pipeline deploys this collector's configuration, make the pipeline its owner, so the two do not overwrite each other."}
+              </p>
+              {detail.can_manage && (
+                <label
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    fontSize: 13,
+                  }}
+                >
+                  Owner
+                  <select
+                    className="search__input"
+                    style={{ maxWidth: 260 }}
+                    value={c.config_owner ?? "sluicio"}
+                    onChange={async (e) => {
+                      const owner = e.target.value as "sluicio" | "pipeline";
+                      if (
+                        !confirm(
+                          owner === "pipeline"
+                            ? "Make the team's pipeline the owner? Sluicio will send nothing to this collector from here."
+                            : "Make Sluicio the owner? Changes are then sent from here, and drift is flagged again.",
+                        )
+                      )
+                        return;
+                      try {
+                        await api.setCollectorOwner(c.id, owner);
+                        setDetail(await api.getCollector(c.id));
+                      } catch (err) {
+                        setRemoveError(String((err as Error).message ?? err));
+                      }
+                    }}
+                  >
+                    <option value="sluicio">Sluicio</option>
+                    <option value="pipeline">The team&apos;s pipeline</option>
+                  </select>
+                </label>
+              )}
+            </div>
           </Section>
         )}
 
@@ -491,6 +686,25 @@ export default function CollectorDetail() {
                       flexWrap: "wrap",
                     }}
                   >
+                    {detail.can_push &&
+                      !pipelineOwned &&
+                      version === "latest" &&
+                      rawFile && (
+                        <button
+                          className="btn primary"
+                          onClick={() => setSending(true)}
+                        >
+                          {detail.require_approval
+                            ? "Propose a change"
+                            : "Change configuration"}
+                        </button>
+                      )}
+                    {pipelineOwned && (
+                      <span className="muted" style={{ fontSize: 12.5 }}>
+                        Owned by the team&apos;s pipeline: changed there, not
+                        here.
+                      </span>
+                    )}
                     {hasBoth && (
                       <div
                         className="m-seg"
@@ -551,6 +765,8 @@ export default function CollectorDetail() {
                     To see the configuration as written, set{" "}
                     <code>reports_raw_config: true</code> on the
                     collector&apos;s OpAMP extension.
+                    {detail.can_push &&
+                      " Changing it from Sluicio needs that too: the effective configuration leaves fields out, and sending it back would drop them."}
                   </div>
                 )}
                 {canFlow && mainFile && (
@@ -561,7 +777,6 @@ export default function CollectorDetail() {
                     yaml={mainFile.body}
                     version={c.description["service.version"] ?? ""}
                     view={configView === "flow" ? "canvas" : "config"}
-                    supervisor={c.kind === "supervisor"}
                   />
                 )}
                 {config?.files
@@ -596,6 +811,54 @@ export default function CollectorDetail() {
               </div>
             )}
           </Section>
+        )}
+
+        {tab === "deployments" && (
+          <Section
+            title="Deployments"
+            subtitle="Configurations sent to this collector from Sluicio, and what it said about each."
+          >
+            <DeploymentsPanel
+              collectorId={c.id}
+              canPush={detail.can_push && !pipelineOwned}
+              refreshKey={sentKey}
+            />
+          </Section>
+        )}
+        {stampChange && pipelineOwned && (
+          <EditDrawer
+            title={`The collector stamp: ${collectorName(c)}`}
+            width="wide"
+            onClose={() => setStampChange(null)}
+          >
+            <DiffExport
+              before={stampChange.before}
+              after={stampChange.config}
+              file={`${collectorName(c)}.yaml`}
+            />
+          </EditDrawer>
+        )}
+        {stampChange && !pipelineOwned && (
+          <SendConfigDrawer
+            collectorId={c.id}
+            collectorName={collectorName(c)}
+            current={stampChange.before}
+            initial={stampChange.config}
+            stamp
+            requireApproval
+            onClose={() => setStampChange(null)}
+            onSent={() => setSentKey((k) => k + 1)}
+          />
+        )}
+        {sending && rawFile && (
+          <SendConfigDrawer
+            collectorId={c.id}
+            collectorName={collectorName(c)}
+            current={rawFile.body}
+            requireApproval={detail.require_approval}
+            onClose={() => setSending(false)}
+            onSent={() => setSentKey((k) => k + 1)}
+          />
         )}
       </div>
     </div>

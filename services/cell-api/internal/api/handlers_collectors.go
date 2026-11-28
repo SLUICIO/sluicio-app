@@ -34,6 +34,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/sluicio/sluicio-app/pkg/httpserver"
+	"github.com/sluicio/sluicio-app/pkg/license"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/api/middleware"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/collectors"
 	"github.com/sluicio/sluicio-app/services/cell-api/internal/identity"
@@ -110,6 +111,16 @@ type collectorDetailResponse struct {
 	// CanManage: the caller may remove this collector (its team's admins
 	// and org admins). A hint for the UI; the DELETE route checks again.
 	CanManage bool `json:"can_manage"`
+	// CanPush: the caller may send this collector a configuration (owner
+	// team editors and admins, org admins) and the collector takes one.
+	CanPush bool `json:"can_push"`
+	// RequireApproval: a change to this collector waits for approval
+	// before it is sent (Enterprise, the team's setting).
+	RequireApproval bool `json:"require_approval"`
+	// Stamped: the collector's configuration puts its own id on the data
+	// it carries (sluicio.collector.id), so Sluicio can tell which
+	// telemetry came through it.
+	Stamped bool `json:"stamped"`
 }
 
 func (h *Handlers) collectorFromPath(w http.ResponseWriter, r *http.Request) (collectors.Collector, bool) {
@@ -146,6 +157,15 @@ func (h *Handlers) getCollector(w http.ResponseWriter, r *http.Request) {
 	httpserver.WriteJSON(w, http.StatusOK, collectorDetailResponse{
 		Collector: c, History: hist, ConfigStorage: h.Collectors.ConfigStorage(),
 		CanManage: h.canManageCollectorTokens(r, c.GroupID, nil),
+		CanPush:   c.Kind == collectors.KindSupervisor && h.canPushCollector(r, c.GroupID),
+		Stamped:   h.collectorStamped(r, c),
+		RequireApproval: func() bool {
+			if !h.featureEntitled(license.FeatureAdvisor) {
+				return false
+			}
+			v, _ := h.Collectors.RequireApproval(r.Context(), c.GroupID)
+			return v
+		}(),
 	})
 }
 

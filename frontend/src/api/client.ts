@@ -22,6 +22,8 @@ import type {
   CollectorTarget,
   NavigationReach,
   ErrorBreakdownResponse,
+  AdvisorCollectorChange,
+  AdvisorCollectorRow,
   AdvisorSuggestion,
   AdvisorSuggestionsResponse,
   Announcement,
@@ -52,6 +54,12 @@ import type {
   CollectorTeam,
   CollectorToken,
   CollectorTokenCreated,
+  CollectorDeployment,
+  CollectorDrift,
+  CollectorValidation,
+  CollectorSendResult,
+  CollectorDeploymentDiff,
+  CollectorDeploymentEffect,
   Integration,
   IntegrationDetail,
   LogAttrFilter,
@@ -282,6 +290,16 @@ export const api = {
     post<AdvisorSuggestion>(`/advisor/suggestions/${encodeURIComponent(id)}/accept`, { note }),
   dismissAdvisorSuggestion: (id: string, note = "") =>
     post<AdvisorSuggestion>(`/advisor/suggestions/${encodeURIComponent(id)}/dismiss`, { note }),
+  listAdvisorSuggestionCollectors: (id: string) =>
+    get<{ collectors: AdvisorCollectorRow[]; window_hours?: number; unstamped?: number }>(
+      `/advisor/suggestions/${encodeURIComponent(id)}/collectors`,
+    ),
+  // hash: a personal-data value (T6) is hashed instead of the attribute
+  // deleted.
+  previewAdvisorCollectorChange: (id: string, collectorId: string, hash = false) =>
+    get<AdvisorCollectorChange>(
+      `/advisor/suggestions/${encodeURIComponent(id)}/collectors/${encodeURIComponent(collectorId)}${hash ? "?hash=true" : ""}`,
+    ),
   runAdvisor: () =>
     post<{ open_suggestions: number; ledger: AdvisorLedger }>(`/advisor/run`, {}),
   // Records that somebody followed a notification's deep link. Fire and
@@ -1141,6 +1159,62 @@ export const api = {
   getCollectorConfig: (id: string, version = "latest") =>
     get<CollectorConfigResponse>(`/collectors/${encodeURIComponent(id)}/configs/${encodeURIComponent(version)}`),
   deleteCollector: (id: string) => del(`/collectors/${encodeURIComponent(id)}`),
+  validateCollectorConfig: (id: string, config: string) =>
+    // kept_by_local: settings the change removes that the collector's
+    // local files set, so they stay in effect.
+    // plain_secrets: where the text writes a secret in plain text instead
+    // of an ${env:...} reference.
+    post<{ checked: boolean; validation?: CollectorValidation; kept_by_local?: string[]; plain_secrets?: string[] }>(
+      `/collectors/${encodeURIComponent(id)}/validate`,
+      { config },
+    ),
+  listCollectorDeployments: (id: string) =>
+    get<{ deployments: CollectorDeployment[] }>(`/collectors/${encodeURIComponent(id)}/deployments`),
+  sendCollectorConfig: (
+    id: string,
+    body: {
+      config: string;
+      message: string;
+      force?: boolean;
+      suggestion_id?: string;
+      suggestion_hash?: boolean;
+      duration_minutes?: number;
+      stamp?: boolean;
+    },
+  ) =>
+    post<CollectorSendResult>(`/collectors/${encodeURIComponent(id)}/deployments`, body),
+  collectorDeploymentDiff: (id: string, dep: string) =>
+    get<CollectorDeploymentDiff>(`/collectors/${encodeURIComponent(id)}/deployments/${encodeURIComponent(dep)}/diff`),
+  collectorDeploymentEffect: (id: string, dep: string) =>
+    get<CollectorDeploymentEffect>(
+      `/collectors/${encodeURIComponent(id)}/deployments/${encodeURIComponent(dep)}/effect`,
+    ),
+  // Takes the collector's configuration as it is now as the baseline its
+  // drift is measured from. Sends nothing to the collector.
+  // The change that adds the collector stamp, against its configuration
+  // as written (Enterprise).
+  // What a stamped collector carried in the last 24 hours (Enterprise).
+  collectorVolume: (id: string) =>
+    get<{ volume: { spans: number; metric_points: number; log_records: number }; window_hours: number }>(
+      `/collectors/${encodeURIComponent(id)}/volume`,
+    ),
+  previewCollectorStamp: (id: string) =>
+    get<AdvisorCollectorChange>(`/collectors/${encodeURIComponent(id)}/stamp`),
+  setCollectorOwner: (id: string, owner: "sluicio" | "pipeline") =>
+    put<{ config_owner: string }>(`/collectors/${encodeURIComponent(id)}/owner`, { owner }),
+  acceptCollectorDrift: (id: string) =>
+    post<{ drift: CollectorDrift | null }>(`/collectors/${encodeURIComponent(id)}/drift/accept`, {}),
+  endCollectorDeployment: (id: string, dep: string) =>
+    post<{ base: CollectorDeployment; delivered: boolean }>(
+      `/collectors/${encodeURIComponent(id)}/deployments/${encodeURIComponent(dep)}/end`,
+      {},
+    ),
+  restoreCollectorDeployment: (id: string, dep: string) =>
+    post<CollectorSendResult>(`/collectors/${encodeURIComponent(id)}/deployments/${encodeURIComponent(dep)}/rollback`, {}),
+  getCollectorTeamSettings: (teamId: string) =>
+    get<{ require_approval: boolean; entitled: boolean }>(`/settings/groups/${encodeURIComponent(teamId)}/collector-settings`),
+  putCollectorTeamSettings: (teamId: string, requireApproval: boolean) =>
+    put<{ require_approval: boolean }>(`/settings/groups/${encodeURIComponent(teamId)}/collector-settings`, { require_approval: requireApproval }),
   listCollectorTeams: () => get<{ teams: CollectorTeam[] }>(`/collector-teams`),
   listCollectorTokens: (teamId: string) =>
     get<{ tokens: CollectorToken[] }>(`/settings/groups/${encodeURIComponent(teamId)}/collector-tokens`),

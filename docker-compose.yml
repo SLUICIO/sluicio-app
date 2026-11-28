@@ -151,6 +151,9 @@ services:
       # Where the Configuration tab embeds OTelFlow from: the otelflow
       # service below, through the Vite proxy. Empty = YAML only.
       SLUICIO_OTELFLOW_URL: ${SLUICIO_OTELFLOW_URL:-}
+      # The same OTelFlow as cell-api reaches it, to check a configuration
+      # before it is sent to a collector. Empty: not checked here.
+      SLUICIO_OTELFLOW_INTERNAL_URL: ${SLUICIO_OTELFLOW_INTERNAL_URL:-}
     volumes:
       # Read-only, and a directory rather than a single file: a bind mount
       # of a file that does not exist yet is silently created as a

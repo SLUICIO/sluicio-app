@@ -3107,6 +3107,10 @@ const serviceNameAttrKey = "service.name"
 // column, and there `span.name` stays an ordinary attribute lookup.
 const spanNameAttrKey = "span.name"
 
+// SpanNameAttrKey is spanNameAttrKey for readers outside the store that
+// look for span-name conditions (the Advisor's reserved names).
+const SpanNameAttrKey = spanNameAttrKey
+
 // MetricNameAttrKey addresses a metric data point's NAME, the MetricName
 // column, the way span.name addresses a span's. A metric source (#43)
 // narrows to some of a broker's metrics with it (rabbitmq.queue.*). On

@@ -43,6 +43,7 @@ func main() {
 	hostPrefix := flag.String("host", "fake-agent", "host.name prefix; agent i is <host>-<i>")
 	configFile := flag.String("config", "", "YAML file every agent reports as its effective configuration (default: a small built-in one)")
 	supervisor := flag.Bool("supervisor", false, "report accepts_remote_config, like the supervisor type")
+	remote := flag.String("remote", "apply", "with -supervisor, what to do with a configuration sent: apply (report it applied and run it) or fail (report it failed, keep the old one)")
 	uidSeed := flag.String("uid-seed", "", "derive stable instance UIDs from this seed, so a rerun is the same agents")
 	heartbeat := flag.Duration("heartbeat", 30*time.Second, "heartbeat interval")
 	poll := flag.Duration("poll", 30*time.Second, "polling interval for HTTP agents")
@@ -76,7 +77,8 @@ func main() {
 		protobufs.AgentCapabilities_AgentCapabilities_ReportsHealth |
 		protobufs.AgentCapabilities_AgentCapabilities_ReportsHeartbeat
 	if *supervisor {
-		caps |= protobufs.AgentCapabilities_AgentCapabilities_AcceptsRemoteConfig
+		caps |= protobufs.AgentCapabilities_AgentCapabilities_AcceptsRemoteConfig |
+			protobufs.AgentCapabilities_AgentCapabilities_ReportsRemoteConfig
 	}
 
 	var connected, failed atomic.Int64
@@ -108,6 +110,10 @@ func main() {
 			NonIdentifyingAttributes: []*protobufs.KeyValue{kv("host.name", name), kv("os.type", "linux")},
 		})
 		_ = c.SetHealth(&protobufs.ComponentHealth{Healthy: true, Status: "StatusOK", StartTimeUnixNano: uint64(time.Now().UnixNano())})
+		// The configuration this agent runs; a remote one it applies
+		// replaces it, as a supervisor's would.
+		var cfgMu sync.Mutex
+		current := config
 		var once sync.Once
 		first.Add(1)
 		hb := *heartbeat
@@ -136,9 +142,18 @@ func main() {
 					}
 				},
 				GetEffectiveConfig: func(context.Context) (*protobufs.EffectiveConfig, error) {
+					cfgMu.Lock()
+					defer cfgMu.Unlock()
 					return &protobufs.EffectiveConfig{ConfigMap: &protobufs.AgentConfigMap{ConfigMap: map[string]*protobufs.AgentConfigObject{
-						"": {Body: []byte(config), ContentType: "text/yaml"},
+						"": {Body: []byte(current), ContentType: "text/yaml"},
 					}}}, nil
+				},
+				OnMessage: func(ctx context.Context, msg *types.MessageData) {
+					rc := msg.RemoteConfig
+					if rc == nil || !*supervisor {
+						return
+					}
+					handleRemoteConfig(ctx, c, name, rc, *remote == "fail", &cfgMu, &current)
 				},
 			},
 		})
@@ -169,6 +184,37 @@ func main() {
 	default:
 		os.Exit(1)
 	}
+}
+
+// handleRemoteConfig answers a configuration sent by the server the way
+// the supervisor does: APPLIED and the new effective configuration, or
+// FAILED with a reason and the old configuration kept.
+func handleRemoteConfig(ctx context.Context, c client.OpAMPClient, name string, rc *protobufs.AgentRemoteConfig, fail bool, mu *sync.Mutex, current *string) {
+	body := ""
+	if rc.Config != nil {
+		if f := rc.Config.ConfigMap[""]; f != nil {
+			body = string(f.Body)
+		}
+	}
+	status := &protobufs.RemoteConfigStatus{LastRemoteConfigHash: rc.ConfigHash}
+	if fail || body == "" {
+		status.Status = protobufs.RemoteConfigStatuses_RemoteConfigStatuses_FAILED
+		status.ErrorMessage = "fake agent: refused the configuration"
+		if err := c.SetRemoteConfigStatus(status); err != nil {
+			log.Printf("%s: report status: %v", name, err)
+		}
+		log.Printf("%s: refused a remote configuration", name)
+		return
+	}
+	mu.Lock()
+	*current = body
+	mu.Unlock()
+	status.Status = protobufs.RemoteConfigStatuses_RemoteConfigStatuses_APPLIED
+	if err := c.SetRemoteConfigStatus(status); err != nil {
+		log.Printf("%s: report status: %v", name, err)
+	}
+	_ = c.UpdateEffectiveConfig(ctx)
+	log.Printf("%s: applied a remote configuration", name)
 }
 
 func kv(k, v string) *protobufs.KeyValue {

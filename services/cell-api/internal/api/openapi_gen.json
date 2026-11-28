@@ -264,6 +264,68 @@
         ]
       }
     },
+    "/api/v1/advisor/suggestions/{id}/collectors": {
+      "get": {
+        "operationId": "get_api_v1_advisor_suggestions_id_collectors",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "List advisor",
+        "tags": [
+          "advisor"
+        ]
+      }
+    },
+    "/api/v1/advisor/suggestions/{id}/collectors/{cid}": {
+      "get": {
+        "operationId": "get_api_v1_advisor_suggestions_id_collectors_cid_",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "cid",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Get advisor",
+        "tags": [
+          "advisor"
+        ]
+      }
+    },
     "/api/v1/advisor/suggestions/{id}/dismiss": {
       "post": {
         "operationId": "post_api_v1_advisor_suggestions_id_dismiss",
@@ -1340,6 +1402,333 @@
           }
         },
         "summary": "Get collector",
+        "tags": [
+          "collectors"
+        ]
+      }
+    },
+    "/api/v1/collectors/{id}/deployments": {
+      "get": {
+        "operationId": "get_api_v1_collectors_id_deployments",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "List collectors",
+        "tags": [
+          "collectors"
+        ]
+      },
+      "post": {
+        "operationId": "post_api_v1_collectors_id_deployments",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Create collector",
+        "tags": [
+          "collectors"
+        ]
+      }
+    },
+    "/api/v1/collectors/{id}/deployments/{dep}/diff": {
+      "get": {
+        "operationId": "get_api_v1_collectors_id_deployments_dep_diff",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "dep",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "List collectors",
+        "tags": [
+          "collectors"
+        ]
+      }
+    },
+    "/api/v1/collectors/{id}/deployments/{dep}/effect": {
+      "get": {
+        "operationId": "get_api_v1_collectors_id_deployments_dep_effect",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "dep",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "List collectors",
+        "tags": [
+          "collectors"
+        ]
+      }
+    },
+    "/api/v1/collectors/{id}/deployments/{dep}/end": {
+      "post": {
+        "operationId": "post_api_v1_collectors_id_deployments_dep_end",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "dep",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Create collector",
+        "tags": [
+          "collectors"
+        ]
+      }
+    },
+    "/api/v1/collectors/{id}/deployments/{dep}/rollback": {
+      "post": {
+        "operationId": "post_api_v1_collectors_id_deployments_dep_rollback",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "dep",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Create collector",
+        "tags": [
+          "collectors"
+        ]
+      }
+    },
+    "/api/v1/collectors/{id}/drift/accept": {
+      "post": {
+        "operationId": "post_api_v1_collectors_id_drift_accept",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Create collector",
+        "tags": [
+          "collectors"
+        ]
+      }
+    },
+    "/api/v1/collectors/{id}/owner": {
+      "put": {
+        "operationId": "put_api_v1_collectors_id_owner",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Update collector",
+        "tags": [
+          "collectors"
+        ]
+      }
+    },
+    "/api/v1/collectors/{id}/stamp": {
+      "get": {
+        "operationId": "get_api_v1_collectors_id_stamp",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "List collectors",
+        "tags": [
+          "collectors"
+        ]
+      }
+    },
+    "/api/v1/collectors/{id}/validate": {
+      "post": {
+        "operationId": "post_api_v1_collectors_id_validate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Create collector",
+        "tags": [
+          "collectors"
+        ]
+      }
+    },
+    "/api/v1/collectors/{id}/volume": {
+      "get": {
+        "operationId": "get_api_v1_collectors_id_volume",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "List collectors",
         "tags": [
           "collectors"
         ]
@@ -6564,6 +6953,58 @@
       },
       "patch": {
         "operationId": "patch_api_v1_settings_groups_id_",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Update setting",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
+    "/api/v1/settings/groups/{id}/collector-settings": {
+      "get": {
+        "operationId": "get_api_v1_settings_groups_id_collector_settings",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "List settings",
+        "tags": [
+          "settings"
+        ]
+      },
+      "put": {
+        "operationId": "put_api_v1_settings_groups_id_collector_settings",
         "parameters": [
           {
             "in": "path",

@@ -60,6 +60,8 @@ spec:
             {{- if .Values.collectors.otelflow.enabled }}
             - name: SLUICIO_OTELFLOW_URL
               value: "/otelflow/"
+            - name: SLUICIO_OTELFLOW_INTERNAL_URL
+              value: {{ printf "http://%s:7317/otelflow" (include "cell.componentName" (dict "root" . "component" "otelflow")) | quote }}
             {{- end }}
             {{- end }}
             {{- if .Values.smtp.host }}

@@ -42,6 +42,7 @@ var eventTypeCatalog = []eventTypeEntry{
 	{Type: "com.sluicio.alert.resolved", Description: "A firing alert resolved (with a recovery notification)", Kind: "operational"},
 	{Type: "com.sluicio.errors.opened", Description: "Unacknowledged error traces opened on a service (the error notifier paged)", Kind: "operational"},
 	{Type: "com.sluicio.service.discovered", Description: "A service appeared in the catalog for the first time", Kind: "operational"},
+	{Type: "com.sluicio.collector.plain_secret", Description: "A collector's configuration has a secret written in plain text instead of an ${env:...} reference (the collector's team, and org-wide subscriptions)", Kind: "operational"},
 	{Type: "com.sluicio.integration.*", Description: "Integration lifecycle and config changes (created, updated, deleted, matchers, teams, profile)", Kind: "config"},
 	{Type: "com.sluicio.service.*", Description: "Service-level config changes (system flag, tags, teams, metadata)", Kind: "config"},
 	{Type: "com.sluicio.system.*", Description: "System entity changes", Kind: "config"},

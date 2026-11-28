@@ -47,6 +47,11 @@ func yamlEsc(s string) string {
 	return strings.ReplaceAll(strings.ReplaceAll(s, `\`, `\\`), `"`, `\"`)
 }
 
+// ottlEsc escapes backslashes for an OTTL string literal: the regex
+// escape \. must reach OTTL as \\., or the collector refuses the whole
+// configuration ("invalid quoted string") and does not start.
+func ottlEsc(s string) string { return strings.ReplaceAll(s, `\`, `\\`) }
+
 // reEsc escapes a literal for use inside an OTTL IsMatch regex.
 func reEsc(s string) string {
 	var b strings.Builder
@@ -98,19 +103,45 @@ func snippetLogFloor(service, floor string, t collectorversion.Target) (string, 
 	}
 	return fmt.Sprintf(`# Stop shipping %[1]s's logs below %[2]s. Everything at
 # %[2]s and above keeps flowing, so you can still alert on it —
-# only the quieter records nobody has opened are dropped.
+# only the quieter records nobody has opened are dropped. Records
+# without a severity are kept: they may be errors nobody labelled.
 processors:
   %[3]s/sluicio-advisor:
     error_mode: ignore
     logs:
       log_record:
-        - 'resource.attributes["service.name"] == "%[4]s" and severity_number < %[5]s'
+        - 'resource.attributes["service.name"] == "%[4]s" and severity_number > SEVERITY_NUMBER_UNSPECIFIED and severity_number < %[5]s'
 
 service:
   pipelines:
     logs:
       processors: [%[3]s/sluicio-advisor]`,
 		service, strings.ToUpper(floor), filter, yamlEsc(service), sev), nil
+}
+
+// snippetDropInternalSpans drops one internal span name of one service,
+// never a failed one (T7). The condition repeats what made it safe that
+// can be checked as it runs (internal, not an error); the rest (no
+// children, nothing reads it) was established from the data.
+func snippetDropInternalSpans(service, name string, t collectorversion.Target) (string, error) {
+	filter, err := collectorversion.Name(collectorversion.FilterProcessor, t)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf(`# Stop sending %[1]s's internal "%[2]s" spans. They are steps
+# inside the service with no children and nothing in Sluicio reads them;
+# the messages they belong to keep every other span. Failed ones are kept.
+processors:
+  %[3]s/sluicio-advisor:
+    error_mode: ignore
+    traces:
+      span:
+        - 'resource.attributes["service.name"] == "%[4]s" and name == "%[5]s" and kind == SPAN_KIND_INTERNAL and status.code != STATUS_CODE_ERROR'
+
+service:
+  pipelines:
+    traces:
+      processors: [%[3]s/sluicio-advisor]`, service, name, filter, yamlEsc(service), yamlEsc(name)), nil
 }
 
 // snippetDeleteSpanAttr removes one attribute from a service's spans.
@@ -167,16 +198,16 @@ service:
   pipelines:
     traces:
       processors: [%[3]s/sluicio-advisor]`,
-		prefix, service, transform, reEsc(prefix), yamlEsc(service)), nil
+		prefix, service, transform, ottlEsc(reEsc(prefix)), yamlEsc(service)), nil
 }
 
-// snippetRedactAttr masks values that look like personal data.
+// snippetRedactAttr removes values that look like personal data.
 //
-// Redaction rather than deletion, deliberately: the attribute is
-// presumably there for a reason, and an operator dealing with a
-// compliance finding needs the key to keep working while the values stop
-// being retained. Hashing preserves "same customer twice" without
-// storing who.
+// Deletion by default: it is the one change that certainly stops the
+// personal data being stored. Hashing keeps "the same customer twice"
+// working, but it is pseudonymisation, not anonymisation (a guessable
+// value can be found again by hashing candidates), so it is offered as
+// the alternative, commented out, for when the correlation is needed.
 func snippetRedactAttr(service, key string, t collectorversion.Target) (string, error) {
 	transform, err := collectorversion.Name(collectorversion.TransformProcessor, t)
 	if err != nil {
@@ -187,16 +218,19 @@ func snippetRedactAttr(service, key string, t collectorversion.Target) (string, 
 # patterns). Sluicio stores span attributes for the full retention
 # period, so this is worth a look regardless of cost.
 #
-# This hashes the value instead of deleting the key: correlation still
-# works ("the same customer twice"), the personal data stops being
-# retained. Swap to delete_key() if the attribute is not needed at all.
+# This deletes the attribute. If you need to tell "the same customer
+# twice" apart, hash the value instead with the commented statement:
+# the readable value is then not stored, but hashing is
+# pseudonymisation, not anonymisation (a value from a guessable set,
+# an ID number or an email, can be found again by hashing candidates).
 processors:
   %[3]s/sluicio-advisor:
     error_mode: ignore
     trace_statements:
       - context: span
         statements:
-          - set(attributes["%[4]s"], SHA256(attributes["%[4]s"])) where resource.attributes["service.name"] == "%[5]s" and attributes["%[4]s"] != nil
+          - delete_key(attributes, "%[4]s") where resource.attributes["service.name"] == "%[5]s"
+          # - set(attributes["%[4]s"], SHA256(attributes["%[4]s"])) where resource.attributes["service.name"] == "%[5]s" and attributes["%[4]s"] != nil
 
 service:
   pipelines:

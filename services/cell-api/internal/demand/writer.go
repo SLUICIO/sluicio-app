@@ -51,14 +51,16 @@ const (
 type ConsumerKind string
 
 const (
-	KindHuman      ConsumerKind = "human"      // someone queried/charted it
-	KindRule       ConsumerKind = "rule"       // an alert rule references it
-	KindFacet      ConsumerKind = "facet"      // a facet mapping or key attribute
-	KindMatcher    ConsumerKind = "matcher"    // an integration matcher
-	KindDashboard  ConsumerKind = "dashboard"  // a dashboard widget reads it
-	KindCompletion ConsumerKind = "completion" // a trace-completion stage
-	KindTemplate   ConsumerKind = "template"   // monitoring template / system type check
-	KindView       ConsumerKind = "view"       // a saved message view's filter
+	KindHuman       ConsumerKind = "human"        // someone queried/charted it
+	KindRule        ConsumerKind = "rule"         // an alert rule references it
+	KindFacet       ConsumerKind = "facet"        // a facet mapping or key attribute
+	KindMatcher     ConsumerKind = "matcher"      // an integration matcher
+	KindDashboard   ConsumerKind = "dashboard"    // a dashboard widget reads it
+	KindCompletion  ConsumerKind = "completion"   // a trace-completion stage
+	KindTemplate    ConsumerKind = "template"     // monitoring template / system type check
+	KindView        ConsumerKind = "view"         // a saved message view's filter
+	KindIntegration ConsumerKind = "integration"  // an integration's message columns, filters or sources
+	KindPayloadLink ConsumerKind = "payload_link" // an attribute holding a payload link
 )
 
 // bucket is one ledger row's identity. Every field is part of the

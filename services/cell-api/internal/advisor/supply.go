@@ -124,7 +124,11 @@ func LogStreamsSupply(ctx context.Context, conn driver.Conn, orgID uuid.UUID, fr
 		       -- Int64 in ClickHouse, and the driver refuses to narrow it
 		       -- on scan. Doing it in SQL keeps the Go struct field the
 		       -- same type as SeverityNumber everywhere else.
-		       toInt32(intDiv(greatest(SeverityNumber, 1) - 1, 4) * 4 + 1) AS band,
+		       --
+		       -- 0 (unspecified) stays 0: a record without a severity
+		       -- is not a trace record, and may well be an error the
+		       -- emitter never labelled.
+		       toInt32(if(SeverityNumber = 0, 0, intDiv(SeverityNumber - 1, 4) * 4 + 1)) AS band,
 		       any(SeverityText)                                  AS severityText,
 		       count()                                            AS rows,
 		       min(Timestamp)                                     AS firstSeen,
@@ -230,6 +234,98 @@ func SampleAttrValues(ctx context.Context, conn driver.Conn, orgID uuid.UUID, se
 			return nil, err
 		}
 		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
+// SpanNameSupply is one span name on one service, with what decides
+// whether its spans can go without anything in Sluicio losing them (T7).
+type SpanNameSupply struct {
+	Service string
+	Name    string
+	Spans   uint64
+	// NotInternal counts spans of another kind than Internal; Foreign
+	// counts spans whose parent is not a span of the same service in the
+	// same trace (a root, a call from another service, or a parent not
+	// seen); Parents counts spans that are the parent of another span;
+	// Linked counts spans with span links. Any of them rules a name out.
+	NotInternal uint64
+	Foreign     uint64
+	Parents     uint64
+	Linked      uint64
+	// Keys are the attribute keys its spans carry (up to 50).
+	Keys           []string
+	FirstSeen      time.Time
+	EstBytesPerDay uint64
+}
+
+// SpanNamesSupply reads span names per service over a sample of whole
+// traces in the last day of the window. Whole traces, so a span's
+// children and parent are always in the sample with it: a sample cut
+// through a trace could make a parent look like a leaf. The first-seen
+// time comes from the whole window, for the quarantine.
+func SpanNamesSupply(ctx context.Context, conn driver.Conn, orgID uuid.UUID, from, to time.Time, sampleTraces int) ([]SpanNameSupply, error) {
+	if sampleTraces <= 0 {
+		sampleTraces = 20_000
+	}
+	day := to.Add(-24 * time.Hour)
+	if day.Before(from) {
+		day = from
+	}
+	rows, err := conn.Query(ctx, `
+		WITH
+		  sampled AS (
+		    SELECT TraceId FROM traces
+		    WHERE OrganizationId = ? AND Timestamp >= ? AND Timestamp < ?
+		    GROUP BY TraceId LIMIT ?
+		  ),
+		  s AS (
+		    SELECT TraceId, SpanId, ParentSpanId, ServiceName, SpanName, SpanKind, LinksTotal,
+		           mapKeys(SpanAttributes) AS keys,
+		           length(SpanName) + length(arrayStringConcat(mapKeys(SpanAttributes), '')) +
+		           length(arrayStringConcat(mapValues(SpanAttributes), '')) + 60 AS bytes
+		    FROM traces
+		    WHERE OrganizationId = ? AND Timestamp >= ? AND Timestamp < ? AND TraceId IN (SELECT TraceId FROM sampled)
+		  ),
+		  parents AS (SELECT DISTINCT TraceId, ParentSpanId AS SpanId FROM s WHERE ParentSpanId != ''),
+		  firsts AS (
+		    SELECT ServiceName, SpanName, min(Timestamp) AS firstSeen FROM traces
+		    WHERE OrganizationId = ? AND Timestamp >= ? AND Timestamp < ?
+		    GROUP BY ServiceName, SpanName
+		  )
+		SELECT c.ServiceName, c.SpanName,
+		       count() AS spans,
+		       countIf(c.SpanKind != 'Internal') AS notInternal,
+		       countIf(p.ServiceName != c.ServiceName) AS foreign,
+		       countIf((c.TraceId, c.SpanId) IN (SELECT TraceId, SpanId FROM parents)) AS parentsOf,
+		       countIf(c.LinksTotal > 0) AS linked,
+		       groupUniqArrayArray(50)(c.keys) AS keys,
+		       any(f.firstSeen) AS firstSeen,
+		       sum(c.bytes) AS bytes
+		FROM s AS c
+		LEFT JOIN s AS p ON p.TraceId = c.TraceId AND p.SpanId = c.ParentSpanId
+		LEFT JOIN firsts AS f ON f.ServiceName = c.ServiceName AND f.SpanName = c.SpanName
+		GROUP BY c.ServiceName, c.SpanName`,
+		orgID.String(), day, to, sampleTraces,
+		orgID.String(), day.Add(-time.Hour), to,
+		orgID.String(), from, to)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []SpanNameSupply{}
+	sampleDay := to.Sub(day)
+	for rows.Next() {
+		var s SpanNameSupply
+		var bytes uint64
+		if err := rows.Scan(&s.Service, &s.Name, &s.Spans, &s.NotInternal, &s.Foreign, &s.Parents, &s.Linked, &s.Keys, &s.FirstSeen, &bytes); err != nil {
+			return nil, err
+		}
+		// A sample of traces, not of the day: the estimate is per sampled
+		// day, which undercounts on a busy cell. It only has to clear the
+		// floor, not be a bill.
+		s.EstBytesPerDay = perDay(bytes, day, day.Add(sampleDay))
+		out = append(out, s)
 	}
 	return out, rows.Err()
 }
